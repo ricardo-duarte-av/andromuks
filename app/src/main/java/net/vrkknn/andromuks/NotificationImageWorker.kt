@@ -29,15 +29,10 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import java.io.File
-import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import org.json.JSONObject
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ExecApi
@@ -45,6 +40,11 @@ import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.getUserAgent
 import net.vrkknn.andromuks.utils.htmlToNotificationText
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
+import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * WorkManager worker that finishes a notification after the initial text-only / lettermark
@@ -68,10 +68,7 @@ import net.vrkknn.andromuks.utils.htmlToNotificationText
  *           available (WorkManager runs outside Doze network restrictions, unlike the FCM
  *           callback's ~20 s wake budget — see docs/NOTIFICATIONS.md), then re-post in-place.
  */
-class NotificationImageWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
+class NotificationImageWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     companion object {
         private const val TAG = "NotifMediaWorker"
@@ -124,12 +121,14 @@ class NotificationImageWorker(
             // Wall-clock instant the triggering FCM was received. The worker re-checks the dismiss
             // tombstone against this immediately before re-posting, so a dismiss that landed during
             // the download window cannot be resurrected (Race 2). See NotificationDismissTracker.
-            messageReceivedAt: Long = System.currentTimeMillis()
+            messageReceivedAt: Long = System.currentTimeMillis(),
         ) {
             // Nothing deferred and no event to enrich → nothing to do.
             if (imageUrl == null && roomAvatarMxc == null && senderAvatarMxc == null && meAvatarMxc == null &&
                 !(fetchEvent && eventId != null)
-            ) return
+            ) {
+                return
+            }
 
             val data = Data.Builder()
                 .putString(KEY_ROOM_ID, roomId)
@@ -167,13 +166,15 @@ class NotificationImageWorker(
             WorkManager.getInstance(context).enqueueUniqueWork(
                 workName,
                 ExistingWorkPolicy.KEEP,
-                request
+                request,
             )
 
-            if (BuildConfig.DEBUG) Log.d(
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 TAG,
-                "Enqueued media update for room $roomId (image=${imageUrl != null}, roomAvatar=${roomAvatarMxc != null}, senderAvatar=${senderAvatarMxc != null}, meAvatar=${meAvatarMxc != null}, fetchEvent=$fetchEvent)"
+                "Enqueued media update for room $roomId (image=${imageUrl != null}, roomAvatar=${roomAvatarMxc != null}, senderAvatar=${senderAvatarMxc != null}, meAvatar=${meAvatarMxc != null}, fetchEvent=$fetchEvent)",
             )
+            }
         }
     }
 
@@ -221,7 +222,7 @@ class NotificationImageWorker(
             if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId was dismissed — skipping media update")
             Androlog(
                 "Notifications",
-                "Room $roomId: media update skipped — notification no longer active before worker ran. eventId=$eventId"
+                "Room $roomId: media update skipped — notification no longer active before worker ran. eventId=$eventId",
             )
             return Result.success()
         }
@@ -242,7 +243,9 @@ class NotificationImageWorker(
                 Log.w(TAG, "get_event failed for room $roomId", e)
                 null
             }
-        } else null
+        } else {
+            null
+        }
         val notifKind = classifyKind(imageUrl, eventJson)
         Log.d(TAG, "Handling room $roomId notification: type=$notifKind (eventId=$eventId)")
         // Diagnostic: if we fetched an event but couldn't read a msgtype, dump what get_event gave
@@ -253,7 +256,9 @@ class NotificationImageWorker(
             Log.d(
                 TAG,
                 "Unresolved event $eventId: topKeys=${eventJson.keys().asSequence().toList()}, " +
-                    "hasDecrypted=${eventJson.has("decrypted")}, decrypted_type=${eventJson.optString("decrypted_type")}, type=${eventJson.optString("type")}"
+                    "hasDecrypted=${eventJson.has(
+                        "decrypted",
+                    )}, decrypted_type=${eventJson.optString("decrypted_type")}, type=${eventJson.optString("type")}",
             )
         }
 
@@ -276,39 +281,97 @@ class NotificationImageWorker(
         // 3. Download everything in parallel. Avatars and the image are all cache-first; the batch
         //    token is preferred for media auth, the session token is the fallback.
         data class Downloads(
-            val image: Pair<File, String>?,   // (file, mime) — mime tracks which source produced it
+            val image: Pair<File, String>?, // (file, mime) — mime tracks which source produced it
             val room: Bitmap?,
             val sender: Bitmap?,
             val me: Bitmap?,
-            val profile: Bitmap?              // per-message-profile avatar (target message only)
+            val profile: Bitmap?, // per-message-profile avatar (target message only)
         )
         val dl = coroutineScope {
             val imageDeferred = async {
                 var result: Pair<File, String>? = null
                 for (src in imageSources) {
                     val f = downloadImageFile(src.mxc, src.httpUrl, authToken)
-                    if (f != null) { result = f to src.mime; break }
+                    if (f != null) {
+                        result = f to src.mime;
+                        break
+                    }
                 }
                 result
             }
-            val roomDeferred = async { roomAvatarMxc?.let { loadCircular(it, homeserverUrl, effectiveToken, authToken, maxPx) } }
-            val senderDeferred = async { senderAvatarMxc?.let { loadCircular(it, homeserverUrl, effectiveToken, authToken, maxPx) } }
-            val meDeferred = async { meAvatarMxc?.let { loadCircular(it, homeserverUrl, effectiveToken, authToken, maxPx) } }
-            val profileDeferred = async { perMessageProfile?.avatarMxc?.let { loadCircular(it, homeserverUrl, effectiveToken, authToken, maxPx) } }
-            Downloads(imageDeferred.await(), roomDeferred.await(), senderDeferred.await(), meDeferred.await(), profileDeferred.await())
+            val roomDeferred = async {
+                roomAvatarMxc?.let {
+                    loadCircular(
+                        it,
+                        homeserverUrl,
+                        effectiveToken,
+                        authToken,
+                        maxPx,
+                    )
+                }
+            }
+            val senderDeferred = async {
+                senderAvatarMxc?.let {
+                    loadCircular(
+                        it,
+                        homeserverUrl,
+                        effectiveToken,
+                        authToken,
+                        maxPx,
+                    )
+                }
+            }
+            val meDeferred = async {
+                meAvatarMxc?.let {
+                    loadCircular(
+                        it,
+                        homeserverUrl,
+                        effectiveToken,
+                        authToken,
+                        maxPx,
+                    )
+                }
+            }
+            val profileDeferred = async {
+                perMessageProfile?.avatarMxc?.let {
+                    loadCircular(
+                        it,
+                        homeserverUrl,
+                        effectiveToken,
+                        authToken,
+                        maxPx,
+                    )
+                }
+            }
+            Downloads(
+                imageDeferred.await(),
+                roomDeferred.await(),
+                senderDeferred.await(),
+                meDeferred.await(),
+                profileDeferred.await(),
+            )
         }
 
         // PERSISTENT avatar fallback: an mxc URL was deferred from Phase 1 (cache miss there), but the
         // worker's download ALSO failed — so the lettermark sticks. This is the case the user actually
         // sees (e.g. group room shows its avatar but the sender stays a lettermark). Warn per avatar.
         if (roomAvatarMxc != null && dl.room == null) {
-            Log.w(TAG, "AVATAR_FALLBACK_PERSIST room=$roomId which=room mxc=$roomAvatarMxc — worker download failed, lettermark sticks")
+            Log.w(
+                TAG,
+                "AVATAR_FALLBACK_PERSIST room=$roomId which=room mxc=$roomAvatarMxc — worker download failed, lettermark sticks",
+            )
         }
         if (senderAvatarMxc != null && dl.sender == null) {
-            Log.w(TAG, "AVATAR_FALLBACK_PERSIST room=$roomId which=sender sender=$senderId mxc=$senderAvatarMxc — worker download failed, lettermark sticks")
+            Log.w(
+                TAG,
+                "AVATAR_FALLBACK_PERSIST room=$roomId which=sender sender=$senderId mxc=$senderAvatarMxc — worker download failed, lettermark sticks",
+            )
         }
         if (meAvatarMxc != null && dl.me == null) {
-            Log.w(TAG, "AVATAR_FALLBACK_PERSIST room=$roomId which=me mxc=$meAvatarMxc — worker download failed, lettermark sticks")
+            Log.w(
+                TAG,
+                "AVATAR_FALLBACK_PERSIST room=$roomId which=me mxc=$meAvatarMxc — worker download failed, lettermark sticks",
+            )
         }
 
         // Wrap a downloaded image in a content:// URI the notification subsystem can read.
@@ -356,7 +419,7 @@ class NotificationImageWorker(
                 Androlog(
                     "Notifications",
                     "Room $roomId: Phase-2 produced nothing on attempt ${runAttemptCount + 1} " +
-                        "(image=$imageRequested, avatars=${roomAvatarMxc != null || senderAvatarMxc != null || meAvatarMxc != null}, fetchEvent=$fetchEvent). Will retry."
+                        "(image=$imageRequested, avatars=${roomAvatarMxc != null || senderAvatarMxc != null || meAvatarMxc != null}, fetchEvent=$fetchEvent). Will retry.",
                 )
                 return Result.retry()
             }
@@ -381,15 +444,20 @@ class NotificationImageWorker(
                     val repost = current.notification
                     repost.flags = repost.flags or android.app.Notification.FLAG_ONLY_ALERT_ONCE
                     NotificationManagerCompat.from(applicationContext).notify(notifId, repost)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Re-posted current notification byte-identical to advance the one-behind People tile: $roomId")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "Re-posted current notification byte-identical to advance the one-behind People tile: $roomId",
+                    )
+                    }
                     Androlog(
                         "Notifications",
-                        "Room $roomId: re-posted current notification byte-identical (advance one-behind People tile)."
+                        "Room $roomId: re-posted current notification byte-identical (advance one-behind People tile).",
                     )
                 } else {
                     Androlog(
                         "Notifications",
-                        "Room $roomId: Phase-2 no-op re-post skipped — dismissed during worker window."
+                        "Room $roomId: Phase-2 no-op re-post skipped — dismissed during worker window.",
                     )
                 }
             }
@@ -423,7 +491,7 @@ class NotificationImageWorker(
         // mutually exclusive for a single event, so they share one target and one media slot.
         val targetMediaUri = imageUri ?: audioUri
         val targetMediaMime = if (imageUri != null) imageMime else (audio?.mime ?: "")
-        val targetCaption = audioCaption ?: mediaCaption ?: richText   // caption / formatted text replaces the Phase-1 text
+        val targetCaption = audioCaption ?: mediaCaption ?: richText // caption / formatted text replaces the Phase-1 text
         // The per-message profile also targets this single event's message, so it participates in the
         // target-index resolution (a name-only profile on a plain text message still needs a target).
         val hasTargetChange = targetMediaUri != null || targetCaption != null || hasProfileChange
@@ -445,8 +513,12 @@ class NotificationImageWorker(
             if (targetPerson != null && targetPerson.key == senderId) {
                 val baseName = targetPerson.name?.toString()?.substringAfterLast(" via ") ?: senderId
                 "${perMessageProfile.displayname} via $baseName"
-            } else null
-        } else null
+            } else {
+                null
+            }
+        } else {
+            null
+        }
 
         // 5. Rebuild: patch "me" Person icon (root), each message's sender Person icon, and the
         //    target message's text/media data — all in one pass.
@@ -471,7 +543,9 @@ class NotificationImageWorker(
                         .setUri(person.uri)
                         .setIcon(profileIcon ?: senderIcon ?: person.icon)
                         .build()
+
                     updatePerson -> rebuildPerson(person!!, senderIcon!!)
+
                     else -> person
                 }
                 val newText = if (applyTarget && targetCaption != null) targetCaption else msg.text
@@ -580,10 +654,13 @@ class NotificationImageWorker(
                         avatarUrl = roomAvatarMxc,
                         sortingTimestamp = existing.notification.`when`.takeIf { it > 0L } ?: messageTimestamp,
                         canonicalAlias = null,
-                        latestEventId = eventId
-                    )
+                        latestEventId = eventId,
+                    ),
                 )
-                Androlog("Notifications", "Room $roomId: conversation shortcut icon refreshed with downloaded room avatar.")
+                Androlog(
+                    "Notifications",
+                    "Room $roomId: conversation shortcut icon refreshed with downloaded room avatar.",
+                )
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to refresh conversation shortcut icon for room $roomId", e)
             }
@@ -598,7 +675,7 @@ class NotificationImageWorker(
                 applicationContext,
                 ShortcutManagerCompat.FLAG_MATCH_DYNAMIC or
                     ShortcutManagerCompat.FLAG_MATCH_PINNED or
-                    ShortcutManagerCompat.FLAG_MATCH_MANIFEST
+                    ShortcutManagerCompat.FLAG_MATCH_MANIFEST,
             ).firstOrNull { it.id == roomId }
         } catch (e: Exception) {
             Log.w(TAG, "Could not resolve conversation shortcut for room $roomId", e)
@@ -632,7 +709,7 @@ class NotificationImageWorker(
         if (!reposted) {
             Androlog(
                 "Notifications",
-                "Room $roomId: worker re-post skipped — dismissed during download window (msgReceivedAt=$messageReceivedAt)"
+                "Room $roomId: worker re-post skipped — dismissed during download window (msgReceivedAt=$messageReceivedAt)",
             )
             if (BuildConfig.DEBUG) Log.d(TAG, "Worker re-post skipped for $roomId — dismissed during download window")
             return Result.success()
@@ -653,7 +730,12 @@ class NotificationImageWorker(
                 val repost = current.notification
                 repost.flags = repost.flags or android.app.Notification.FLAG_ONLY_ALERT_ONCE
                 NotificationManagerCompat.from(applicationContext).notify(notifId, repost)
-                if (BuildConfig.DEBUG) Log.d(TAG, "Posted enriched notification a 2nd time so one-behind People tile lands on it: $roomId")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "Posted enriched notification a 2nd time so one-behind People tile lands on it: $roomId",
+                )
+                }
             }
         }
 
@@ -666,7 +748,7 @@ class NotificationImageWorker(
                 "WIDGET_REPOST room=$roomId isGroup=$isGroupRoom groupConversation=${newStyle.isGroupConversation} " +
                     "convTitle=${newStyle.conversationTitle ?: "<null/DM>"} shortcutId=$roomId " +
                     "msgCount=${newStyle.messages.size} lastMsg='${newStyle.messages.lastOrNull()?.text}' " +
-                    "lastTs=${newStyle.messages.lastOrNull()?.timestamp} lastSender=${newStyle.messages.lastOrNull()?.person?.name}"
+                    "lastTs=${newStyle.messages.lastOrNull()?.timestamp} lastSender=${newStyle.messages.lastOrNull()?.person?.name}",
             )
         }
 
@@ -687,17 +769,23 @@ class NotificationImageWorker(
         // sender instead of reverting it to the bare bridge-bot name/avatar.
         if (hasProfileChange && messageTimestamp > 0L) {
             EnhancedNotificationDisplay.upgradePerMessageProfile(
-                roomId, messageTimestamp, senderId, perMessageName, profileIcon
+                roomId,
+                messageTimestamp,
+                senderId,
+                perMessageName,
+                profileIcon,
             )
         }
 
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             TAG,
-            "Notification updated for room $roomId (image=${imageUri != null}, audio=${audioUri != null}, caption=${audioCaption != null}, richText=${richText != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null})"
+            "Notification updated for room $roomId (image=${imageUri != null}, audio=${audioUri != null}, caption=${audioCaption != null}, richText=${richText != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null})",
         )
+        }
         Androlog(
             "Notifications",
-            "Room $roomId: notification updated (image=${imageUri != null}, audio=${audioUri != null}, richText=${richText != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null})."
+            "Room $roomId: notification updated (image=${imageUri != null}, audio=${audioUri != null}, richText=${richText != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null}).",
         )
 
         // Retry transient media failures so they land on a later attempt (other parts may have
@@ -747,8 +835,10 @@ class NotificationImageWorker(
 
         val thumbFile = info.optJSONObject("thumbnail_file")
         val isEncrypted = thumbFile != null
-        val mxc = (thumbFile?.optString("url")?.takeIf { it.isNotBlank() }
-            ?: info.optString("thumbnail_url").takeIf { it.isNotBlank() }) ?: return null
+        val mxc = (
+            thumbFile?.optString("url")?.takeIf { it.isNotBlank() }
+            ?: info.optString("thumbnail_url").takeIf { it.isNotBlank() }
+        ) ?: return null
         val base = MediaUtils.mxcToHttpUrl(mxc, homeserverUrl, registerMapping = false) ?: return null
 
         var url = base + (if (base.contains("?")) "&" else "?") + "encrypted=$isEncrypted"
@@ -781,6 +871,7 @@ class NotificationImageWorker(
         return withContext(Dispatchers.IO) {
             when (val r = ExecApi.execRaw(creds, "get_event", body)) {
                 is ExecApi.ExecResult.Success -> r.data as? JSONObject
+
                 else -> {
                     Log.w(TAG, "get_event failed for $eventId: $r")
                     null
@@ -818,8 +909,7 @@ class NotificationImageWorker(
     }
 
     /** Voice-note marker is a *present key* (often an empty object) — test presence, not value. */
-    private fun isVoiceMessage(content: JSONObject): Boolean =
-        content.has("org.matrix.msc3245.voice") ||
+    private fun isVoiceMessage(content: JSONObject): Boolean = content.has("org.matrix.msc3245.voice") ||
         content.has("org.matrix.msc3245.voice.v2") ||
         content.has("m.voice")
 
@@ -835,15 +925,24 @@ class NotificationImageWorker(
         val content = decryptedContent(eventJson)
         return when (val msgtype = content?.optString("msgtype").orEmpty()) {
             "m.text" -> "text"
+
             "m.notice" -> "notice"
+
             "m.emote" -> "emote"
+
             "m.image" -> "image"
+
             "m.video" -> "video"
+
             "m.file" -> "file"
+
             "m.location" -> "location"
+
             "m.audio" -> if (content != null && isVoiceMessage(content)) "voice" else "audio"
+
             // No msgtype: a non-message event, or an encrypted event we couldn't read decrypted.
             "" -> eventJson.optString("decrypted_type").ifBlank { eventJson.optString("type") }.ifBlank { "unknown" }
+
             else -> "other:$msgtype"
         }
     }
@@ -860,7 +959,11 @@ class NotificationImageWorker(
         if (body == filename) return null
         val formatted = content.optString("formatted_body").takeIf { it.isNotBlank() }
         return if (formatted != null) {
-            try { htmlToNotificationText(formatted).toString() } catch (e: Exception) { body }
+            try {
+                htmlToNotificationText(formatted).toString()
+            } catch (e: Exception) {
+                body
+            }
         } else {
             body
         }
@@ -879,7 +982,9 @@ class NotificationImageWorker(
         val caption = extractCaption(content)
         return when (content.optString("msgtype")) {
             "m.image" -> caption?.let { "📷 $it" }
+
             "m.video" -> caption?.let { "🎬 $it" }
+
             "m.file" -> {
                 val label = caption
                     ?: content.optString("filename").takeIf { it.isNotBlank() }
@@ -888,6 +993,7 @@ class NotificationImageWorker(
                 val sizeSuffix = formatSize(content.optJSONObject("info")?.optLong("size", 0L) ?: 0L)
                 "📄 $label" + (sizeSuffix?.let { " ($it)" } ?: "")
             }
+
             else -> null
         }
     }
@@ -933,7 +1039,7 @@ class NotificationImageWorker(
             value /= 1024.0
             unit++
         }
-        return if (unit == 0) "${bytes} B" else "%.1f %s".format(value, units[unit])
+        return if (unit == 0) "$bytes B" else "%.1f %s".format(value, units[unit])
     }
 
     /**
@@ -972,8 +1078,10 @@ class NotificationImageWorker(
         // plaintext → content.url. The /_gomuks/media endpoint REQUIRES the encrypted param.
         val fileObj = content.optJSONObject("file")
         val isEncrypted = fileObj != null
-        val mxc = (fileObj?.optString("url")?.takeIf { it.isNotBlank() }
-            ?: content.optString("url").takeIf { it.isNotBlank() })
+        val mxc = (
+            fileObj?.optString("url")?.takeIf { it.isNotBlank() }
+            ?: content.optString("url").takeIf { it.isNotBlank() }
+        )
             ?: return AudioOutcome(uri = null, mime = "", caption = voiceCaption)
         val mime = info?.optString("mimetype")?.substringBefore(";")?.trim()?.takeIf { it.isNotBlank() }
             ?: "audio/ogg"
@@ -995,57 +1103,53 @@ class NotificationImageWorker(
      * Download a (typically small) audio clip to the FileProvider-exposed cache dir and return the
      * file, or null. No image sniffing — unlike [IntelligentMediaCache]. Cache-first by mxc.
      */
-    private suspend fun downloadAudioFile(
-        mxc: String,
-        httpUrl: String,
-        authToken: String,
-        ext: String,
-    ): File? = withContext(Dispatchers.IO) {
-        try {
-            // Must live under intelligent_media_cache/ — the only writable dir file_paths.xml exposes.
-            val dir = File(applicationContext.cacheDir, "intelligent_media_cache")
-            if (!dir.exists()) dir.mkdirs()
-            val safe = mxc.removePrefix("mxc://").replace(Regex("[^A-Za-z0-9._-]"), "_")
-            val out = File(dir, "notif_audio_$safe.$ext")
-            if (out.exists() && out.length() > 0L) return@withContext out
+    private suspend fun downloadAudioFile(mxc: String, httpUrl: String, authToken: String, ext: String): File? =
+        withContext(Dispatchers.IO) {
+            try {
+                // Must live under intelligent_media_cache/ — the only writable dir file_paths.xml exposes.
+                val dir = File(applicationContext.cacheDir, "intelligent_media_cache")
+                if (!dir.exists()) dir.mkdirs()
+                val safe = mxc.removePrefix("mxc://").replace(Regex("[^A-Za-z0-9._-]"), "_")
+                val out = File(dir, "notif_audio_$safe.$ext")
+                if (out.exists() && out.length() > 0L) return@withContext out
 
-            val request = Request.Builder()
-                .url(httpUrl)
-                .header("Cookie", "gomuks_auth=$authToken")
-                .header("User-Agent", getUserAgent())
-                .build()
-            audioHttpClient.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) {
-                    Log.w(TAG, "Audio download HTTP ${resp.code} for $mxc")
-                    return@withContext null
+                val request = Request.Builder()
+                    .url(httpUrl)
+                    .header("Cookie", "gomuks_auth=$authToken")
+                    .header("User-Agent", getUserAgent())
+                    .build()
+                audioHttpClient.newCall(request).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        Log.w(TAG, "Audio download HTTP ${resp.code} for $mxc")
+                        return@withContext null
+                    }
+                    val respBody = resp.body
+                    val tmp = File(dir, "${out.name}.tmp")
+                    tmp.outputStream().use { o -> respBody.byteStream().use { it.copyTo(o) } }
+                    if (tmp.length() == 0L) {
+                        tmp.delete()
+                        return@withContext null
+                    }
+                    out.delete()
+                    if (!tmp.renameTo(out)) {
+                        tmp.copyTo(out, overwrite = true)
+                        tmp.delete()
+                    }
+                    out
                 }
-                val respBody = resp.body
-                val tmp = File(dir, "${out.name}.tmp")
-                tmp.outputStream().use { o -> respBody.byteStream().use { it.copyTo(o) } }
-                if (tmp.length() == 0L) {
-                    tmp.delete()
-                    return@withContext null
-                }
-                out.delete()
-                if (!tmp.renameTo(out)) {
-                    tmp.copyTo(out, overwrite = true)
-                    tmp.delete()
-                }
-                out
+            } catch (e: Exception) {
+                Log.e(TAG, "Audio download failed for $mxc", e)
+                null
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Audio download failed for $mxc", e)
-            null
         }
-    }
 
     /** Wrap a file in a content:// URI and grant read to systemui, Android Auto, the launcher, and us. */
     private fun contentUriForFile(file: File): android.net.Uri? = try {
         val uri = FileProvider.getUriForFile(applicationContext, "${applicationContext.packageName}.fileprovider", file)
         val targets = mutableListOf(
-            "com.android.systemui",                       // notification shade
-            "com.google.android.projection.gearhead",     // Android Auto
-            applicationContext.packageName                // ourselves
+            "com.android.systemui", // notification shade
+            "com.google.android.projection.gearhead", // Android Auto
+            applicationContext.packageName, // ourselves
         )
         // The People/Conversation widget renders in the HOME LAUNCHER's process. Without a read
         // grant it can't load our image / video-thumbnail URI, so the tile falls back to the body
@@ -1086,23 +1190,20 @@ class NotificationImageWorker(
     }
 
     /** Download (cache-first) the message image to a file, or null on failure. */
-    private suspend fun downloadImageFile(
-        mxcUrl: String?,
-        imageUrl: String,
-        authToken: String
-    ): File? = withContext(Dispatchers.IO) {
-        try {
-            if (mxcUrl != null) {
-                IntelligentMediaCache.getCachedFile(applicationContext, mxcUrl)
-                    ?: IntelligentMediaCache.downloadAndCache(applicationContext, mxcUrl, imageUrl, authToken)
-            } else {
-                IntelligentMediaCache.downloadAndCache(applicationContext, imageUrl, imageUrl, authToken)
+    private suspend fun downloadImageFile(mxcUrl: String?, imageUrl: String, authToken: String): File? =
+        withContext(Dispatchers.IO) {
+            try {
+                if (mxcUrl != null) {
+                    IntelligentMediaCache.getCachedFile(applicationContext, mxcUrl)
+                        ?: IntelligentMediaCache.downloadAndCache(applicationContext, mxcUrl, imageUrl, authToken)
+                } else {
+                    IntelligentMediaCache.downloadAndCache(applicationContext, imageUrl, imageUrl, authToken)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Image download failed", e)
+                null
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Image download failed", e)
-            null
         }
-    }
 
     /** Download (cache-first) an avatar and return a circular, downscaled bitmap, or null. */
     private suspend fun loadCircular(
@@ -1110,7 +1211,7 @@ class NotificationImageWorker(
         homeserverUrl: String,
         effectiveToken: String,
         authToken: String,
-        maxPx: Int
+        maxPx: Int,
     ): Bitmap? = withContext(Dispatchers.IO) {
         try {
             val file = IntelligentMediaCache.getCachedFile(applicationContext, mxcUrl)
@@ -1137,13 +1238,12 @@ class NotificationImageWorker(
         }
     }
 
-    private fun rebuildPerson(person: Person, icon: IconCompat): Person =
-        Person.Builder()
-            .setName(person.name)
-            .setKey(person.key)
-            .setUri(person.uri)
-            .setIcon(icon)
-            .build()
+    private fun rebuildPerson(person: Person, icon: IconCompat): Person = Person.Builder()
+        .setName(person.name)
+        .setKey(person.key)
+        .setUri(person.uri)
+        .setIcon(icon)
+        .build()
 
     /** Render the active notification's large icon back to a Bitmap so we can re-set it. */
     private fun restoreLargeIcon(notification: android.app.Notification): Bitmap? {

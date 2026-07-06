@@ -1,179 +1,158 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
-import net.vrkknn.andromuks.ui.theme.scaledSpring
-import androidx.compose.animation.core.Spring
-import net.vrkknn.andromuks.BuildConfig
+import android.app.DownloadManager
+import android.content.ContentValues
+import android.content.Context
+import android.content.res.ColorStateList
+import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.os.ParcelFileDescriptor
+import android.provider.MediaStore
 import android.util.Log
-import androidx.compose.foundation.Canvas
+import android.view.ViewGroup
+import android.widget.ImageButton
+import android.widget.TextView
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.wrapContentHeight
-import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.RotateLeft
+import androidx.compose.material.icons.automirrored.filled.RotateRight
+import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import androidx.compose.material3.ColorScheme
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
-import net.vrkknn.andromuks.TimelineEvent
-
-
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.activity.compose.BackHandler
-import net.vrkknn.andromuks.utils.AdvancedExoPlayerManager
-import net.vrkknn.andromuks.utils.ProgressiveImageLoader
-import net.vrkknn.andromuks.utils.IntelligentMediaCache
-import net.vrkknn.andromuks.utils.DownloadDeduplicationManager
-import net.vrkknn.andromuks.utils.BubblePalette
-import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
-import androidx.media3.exoplayer.ExoPlayer
-import androidx.compose.runtime.rememberCoroutineScope
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import android.os.Build
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import coil3.compose.AsyncImage
-import coil3.compose.AsyncImagePainter
-import coil3.gif.GifDecoder
-import coil3.gif.AnimatedImageDecoder
-import coil3.ImageLoader
-import coil3.size.Size
-import coil3.size.Precision
-import java.io.File
-import java.security.MessageDigest
-import java.net.URL
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.LaunchedEffect
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import net.vrkknn.andromuks.MediaMessage
-import net.vrkknn.andromuks.utils.BlurHashUtils
-import net.vrkknn.andromuks.utils.MediaUtils
-import net.vrkknn.andromuks.AppViewModel
-import net.vrkknn.andromuks.TimelineMediaLayoutCallback
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.automirrored.filled.RotateRight
-import androidx.compose.material.icons.automirrored.filled.RotateLeft
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.BrokenImage
-import androidx.compose.material.icons.filled.Fullscreen
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.LinearWavyProgressIndicator
-import androidx.compose.material3.WavyProgressIndicatorDefaults
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.ui.PlayerView
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.layout.BoxScope
+import coil3.size.Precision
+import coil3.size.Size
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import android.app.DownloadManager
-import android.content.Context
-import android.graphics.Bitmap
-import android.graphics.pdf.PdfRenderer
-import android.os.ParcelFileDescriptor
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.material3.CircularProgressIndicator
-import android.content.ContentValues
-import android.content.res.ColorStateList
-import android.graphics.Color as AndroidColor
-import android.net.Uri
-import android.os.Environment
-import android.provider.MediaStore
-import android.widget.ImageButton
-import android.widget.TextView
-import android.view.ViewGroup
-import java.io.ByteArrayOutputStream
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.MediaMessage
+import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.TimelineMediaLayoutCallback
+import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.theme.scaledSpring
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
+import net.vrkknn.andromuks.utils.AdvancedExoPlayerManager
+import net.vrkknn.andromuks.utils.BlurHashUtils
+import net.vrkknn.andromuks.utils.BubblePalette
+import net.vrkknn.andromuks.utils.DownloadDeduplicationManager
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import net.vrkknn.andromuks.utils.MediaUtils
+import net.vrkknn.andromuks.utils.ProgressiveImageLoader
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
+import java.io.File
 import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import android.graphics.Color as AndroidColor
 
 /**
  * Shared state manager for inline video players.
@@ -182,7 +161,7 @@ import java.io.FileOutputStream
 object InlineVideoPlayerManager {
     private var currentPlayingVideoId: String? = null
     private var currentPlayer: ExoPlayer? = null
-    
+
     /**
      * Set the currently playing video. Pauses any previously playing video.
      */
@@ -191,17 +170,22 @@ object InlineVideoPlayerManager {
         if (currentPlayingVideoId != null && currentPlayingVideoId != videoId && currentPlayer != null) {
             try {
                 currentPlayer?.pause()
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayerManager: Paused previous video: $currentPlayingVideoId")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "InlineVideoPlayerManager: Paused previous video: $currentPlayingVideoId",
+                )
+                }
             } catch (e: Exception) {
                 Log.e("Andromuks", "InlineVideoPlayerManager: Error pausing previous video", e)
             }
         }
-        
+
         currentPlayingVideoId = videoId
         currentPlayer = player
         if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayerManager: Set current video: $videoId")
     }
-    
+
     /**
      * Clear the current video (when player is released).
      */
@@ -212,13 +196,11 @@ object InlineVideoPlayerManager {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayerManager: Cleared current video: $videoId")
         }
     }
-    
+
     /**
      * Check if a video is currently playing.
      */
-    fun isVideoPlaying(videoId: String): Boolean {
-        return currentPlayingVideoId == videoId && currentPlayer?.isPlaying == true
-    }
+    fun isVideoPlaying(videoId: String): Boolean = currentPlayingVideoId == videoId && currentPlayer?.isPlaying == true
 }
 
 /**
@@ -238,7 +220,7 @@ private fun formatDuration(durationMs: Int): String {
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
     val secs = seconds % 60
-    
+
     return if (hours > 0) {
         String.format("%d:%02d:%02d", hours, minutes, secs)
     } else {
@@ -259,22 +241,22 @@ private fun MediaCaption(
     authToken: String,
     onUserClick: (String) -> Unit = {},
     isCompactMedia: Boolean = false, // For audio and file messages
-    appViewModel: AppViewModel? = null
+    appViewModel: AppViewModel? = null,
 ) {
     // Always show something: caption if available, otherwise filename
     val displayText = if (!caption.isNullOrBlank()) caption else filename
-    
+
     // Check if the event supports HTML rendering (has sanitized_html or formatted_body)
     // Only use HTML if we're showing the caption (not filename fallback)
     val supportsHtml = !caption.isNullOrBlank() && event != null && supportsHtmlRendering(event)
-    
+
     // Use minimal padding for compact media messages (audio and file)
     val padding = if (isCompactMedia) {
         Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
     } else {
         Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
     }
-    
+
     if (supportsHtml) {
         // Use HTML rendering for caption
         HtmlMessageText(
@@ -284,7 +266,7 @@ private fun MediaCaption(
             color = MaterialTheme.colorScheme.onSurface,
             modifier = padding,
             onMatrixUserClick = onUserClick,
-            appViewModel = appViewModel
+            appViewModel = appViewModel,
         )
     } else {
         // Fallback to plain text (caption or filename)
@@ -292,7 +274,7 @@ private fun MediaCaption(
             text = displayText,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = padding
+            modifier = padding,
         )
     }
 }
@@ -306,7 +288,7 @@ private fun MediaBubbleTimestamp(
     editedBy: TimelineEvent?,
     isMine: Boolean,
     isConsecutive: Boolean,
-    onEditedClick: (() -> Unit)? = null
+    onEditedClick: (() -> Unit)? = null,
 ) {
     if (isConsecutive) {
         val text = if (editedBy != null) {
@@ -327,7 +309,7 @@ private fun MediaBubbleTimestamp(
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
             fontStyle = FontStyle.Italic,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = clickableModifier
+            modifier = clickableModifier,
         )
     }
 }
@@ -371,7 +353,7 @@ fun MediaMessage(
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
     onShowReactions: (() -> Unit)? = null,
     bubbleColorOverride: Color? = null,
-    hasBeenEditedOverride: Boolean? = null
+    hasBeenEditedOverride: Boolean? = null,
 ) {
     val useThumbnails = appViewModel?.loadThumbnailsIfAvailable ?: true
     val renderThumbnailsAlways = appViewModel?.resolveShowMediaPreviews(event?.roomId) ?: true
@@ -385,7 +367,7 @@ fun MediaMessage(
     var fullscreenShouldAutoPlay by remember { mutableStateOf(false) }
     // Shared state to trigger menu from image long press
     var triggerMenuFromImage by remember { mutableStateOf(0) }
-    
+
     // Show image viewer dialog when image or sticker is tapped
     if (showImageViewer && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.sticker")) {
         ImageViewerDialog(
@@ -397,10 +379,10 @@ fun MediaMessage(
             onDismiss = {
                 showImageViewer = false
                 imageViewerSourceBounds = null
-            }
+            },
         )
     }
-    
+
     // Show video player dialog when video is tapped
     if (showVideoPlayer && mediaMessage.msgType == "m.video") {
         VideoPlayerDialog(
@@ -410,32 +392,41 @@ fun MediaMessage(
             isEncrypted = isEncrypted,
             initialPosition = fullscreenInitialPosition,
             shouldAutoPlay = fullscreenShouldAutoPlay,
-            onDismiss = { 
+            onDismiss = {
                 showVideoPlayer = false
                 fullscreenInitialPosition = 0L
                 fullscreenShouldAutoPlay = false
-            }
+            },
         )
     }
     // Check if there's a caption to determine layout strategy
     // This determines whether to use separate image frame + caption or single bubble
     val hasCaption = !mediaMessage.caption.isNullOrBlank()
-    
+
     // Calculate if image is small enough to wrap content (like stickers do)
     val density = LocalDensity.current
     // FIX: When using thumbnails, calculate size based on thumbnail dimensions, not original dimensions
     // This prevents small thumbnails (e.g., 600x600) from being stretched to fill 80% of screen width
-    val imageWidthDp = if (useThumbnails && mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 &&
-                          (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")) {
+    val imageWidthDp = if (useThumbnails && mediaMessage.info.thumbnailWidth != null &&
+        mediaMessage.info.thumbnailWidth!! > 0 &&
+        (
+            mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" ||
+            mediaMessage.msgType == "m.sticker"
+        )
+    ) {
         // Use thumbnail width when thumbnails are enabled and available
         with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
-    } else if (mediaMessage.info.width > 0 && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")) {
+    } else if (mediaMessage.info.width > 0 &&
+        (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")
+    ) {
         // Fallback to original width when thumbnails are disabled or not available
         with(density) { mediaMessage.info.width.toDp() }
-    } else null
+    } else {
+        null
+    }
     // If image is small (< 400dp), wrap content instead of using fillMaxWidth(0.8f)
     val shouldWrapBubble = imageWidthDp != null && imageWidthDp < 400.dp
-    
+
     // Check if this is a thread message to apply thread colors
     val isThreadMessage = event?.isThreadMessage() ?: false
     val hasBeenEdited = hasBeenEditedOverride ?: remember(event?.eventId, appViewModel?.timelineUpdateCounter) {
@@ -447,14 +438,16 @@ fun MediaMessage(
             colorScheme = colorScheme,
             isMine = isMine,
             isEdited = hasBeenEdited,
-            isThreadMessage = isThreadMessage
+            isThreadMessage = isThreadMessage,
         )
     }
     val mediaBubbleColor = bubbleColorOverride ?: mediaBubbleColors.container
-    
+
     // Calculate maximum width based on actual image/thumbnail dimensions
     // This prevents images from being stretched beyond their natural size
-    val maxBubbleWidthDp = if (useThumbnails && mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0) {
+    val maxBubbleWidthDp = if (useThumbnails && mediaMessage.info.thumbnailWidth != null &&
+        mediaMessage.info.thumbnailWidth!! > 0
+    ) {
         // Use thumbnail dimensions when thumbnails are enabled
         with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
     } else if (mediaMessage.info.width > 0) {
@@ -464,7 +457,7 @@ fun MediaMessage(
         // No dimensions available - use reasonable default max
         600.dp
     }
-    
+
     if (hasCaption) {
         // With caption: Let caption text determine bubble width, image sizes naturally inside
         if (event != null) {
@@ -475,7 +468,7 @@ fun MediaMessage(
                     topStart = if (isMine) 12.dp else 4.dp,
                     topEnd = if (isMine) 4.dp else 12.dp,
                     bottomStart = 12.dp,
-                    bottomEnd = 12.dp
+                    bottomEnd = 12.dp,
                 ),
                 modifier = modifier
                     .then(
@@ -483,7 +476,7 @@ fun MediaMessage(
                             Modifier.wrapContentWidth()
                         } else {
                             Modifier.fillMaxWidth(0.8f)
-                        }
+                        },
                     ),
                 isMine = isMine,
                 myUserId = myUserId,
@@ -499,7 +492,7 @@ fun MediaMessage(
                 mentionBorder = mediaBubbleColors.mentionBorder,
                 threadBorder = mediaBubbleColors.threadBorder,
                 onShowMenu = onShowMenu,
-                onShowReactions = onShowReactions
+                onShowReactions = onShowReactions,
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -534,9 +527,9 @@ fun MediaMessage(
                         },
                         event = event,
                         onUserClick = onUserClick,
-                        appViewModel = appViewModel
+                        appViewModel = appViewModel,
                     )
-                    
+
                     // Caption text below the image, inside the same bubble (always show filename if no caption)
                     MediaCaption(
                         caption = mediaMessage.caption,
@@ -546,9 +539,9 @@ fun MediaMessage(
                         authToken = authToken,
                         onUserClick = onUserClick,
                         isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file",
-                        appViewModel = appViewModel
+                        appViewModel = appViewModel,
                     )
-                    
+
                     // Timestamp (for consecutive messages)
                     if (timestamp != null) {
                         MediaBubbleTimestamp(
@@ -556,7 +549,7 @@ fun MediaMessage(
                             editedBy = editedBy,
                             isMine = isMine,
                             isConsecutive = isConsecutive,
-                            onEditedClick = onShowEditHistory
+                            onEditedClick = onShowEditHistory,
                         )
                     }
                 }
@@ -568,9 +561,9 @@ fun MediaMessage(
                 topStart = if (isMine) 12.dp else 4.dp,
                 topEnd = if (isMine) 4.dp else 12.dp,
                 bottomStart = 12.dp,
-                bottomEnd = 12.dp
+                bottomEnd = 12.dp,
             )
-            
+
             Surface(
                 modifier = modifier
                     .widthIn(max = maxBubbleWidthDp) // Constrain to actual image size
@@ -579,12 +572,12 @@ fun MediaMessage(
                             Modifier.wrapContentWidth()
                         } else {
                             Modifier.fillMaxWidth(0.8f)
-                        }
+                        },
                     ),
                 shape = bubbleShape,
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 0.dp,  // No elevation/shadow
-                shadowElevation = 0.dp  // No shadow
+                tonalElevation = 0.dp, // No elevation/shadow
+                shadowElevation = 0.dp, // No shadow
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -619,11 +612,11 @@ fun MediaMessage(
                         },
                         event = event,
                         onUserClick = onUserClick,
-                        appViewModel = appViewModel
+                        appViewModel = appViewModel,
                     )
-                    
+
                     // No caption - don't show filename as fallback
-                    
+
                     // Timestamp (for consecutive messages)
                     if (timestamp != null) {
                         MediaBubbleTimestamp(
@@ -631,7 +624,7 @@ fun MediaMessage(
                             editedBy = editedBy,
                             isMine = isMine,
                             isConsecutive = isConsecutive,
-                            onEditedClick = onShowEditHistory
+                            onEditedClick = onShowEditHistory,
                         )
                     }
                 }
@@ -647,7 +640,7 @@ fun MediaMessage(
                     topStart = if (isMine) 12.dp else 4.dp,
                     topEnd = if (isMine) 4.dp else 12.dp,
                     bottomStart = 12.dp,
-                    bottomEnd = 12.dp
+                    bottomEnd = 12.dp,
                 ),
                 modifier = modifier
                     .then(
@@ -655,7 +648,7 @@ fun MediaMessage(
                             Modifier.wrapContentWidth()
                         } else {
                             Modifier.fillMaxWidth(0.8f)
-                        }
+                        },
                     )
                     .wrapContentHeight(),
                 isMine = isMine,
@@ -672,7 +665,7 @@ fun MediaMessage(
                 mentionBorder = mediaBubbleColors.mentionBorder,
                 threadBorder = mediaBubbleColors.threadBorder,
                 onShowMenu = onShowMenu,
-                onShowReactions = onShowReactions
+                onShowReactions = onShowReactions,
             ) {
                 Column {
                     MediaContent(
@@ -706,11 +699,11 @@ fun MediaMessage(
                         },
                         event = event,
                         onUserClick = onUserClick,
-                        appViewModel = appViewModel
+                        appViewModel = appViewModel,
                     )
-                    
+
                     // No caption - don't show filename
-                    
+
                     // Timestamp (for consecutive messages)
                     if (timestamp != null) {
                         MediaBubbleTimestamp(
@@ -718,7 +711,7 @@ fun MediaMessage(
                             editedBy = editedBy,
                             isMine = isMine,
                             isConsecutive = isConsecutive,
-                            onEditedClick = onShowEditHistory
+                            onEditedClick = onShowEditHistory,
                         )
                     }
                 }
@@ -730,9 +723,9 @@ fun MediaMessage(
                 topStart = if (isMine) 12.dp else 4.dp,
                 topEnd = if (isMine) 4.dp else 12.dp,
                 bottomStart = 12.dp,
-                bottomEnd = 12.dp
+                bottomEnd = 12.dp,
             )
-            
+
             Surface(
                 modifier = modifier
                     .then(
@@ -740,13 +733,13 @@ fun MediaMessage(
                             Modifier.wrapContentWidth()
                         } else {
                             Modifier.fillMaxWidth(0.8f) // Max 80% width
-                        }
+                        },
                     )
-                    .wrapContentHeight(                    ),
+                    .wrapContentHeight(),
                 shape = bubbleShape,
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 0.dp,  // No elevation/shadow
-                shadowElevation = 0.dp  // No shadow
+                tonalElevation = 0.dp, // No elevation/shadow
+                shadowElevation = 0.dp, // No shadow
             ) {
                 Column {
                     MediaContent(
@@ -780,11 +773,11 @@ fun MediaMessage(
                         },
                         event = event,
                         onUserClick = onUserClick,
-                        appViewModel = appViewModel
+                        appViewModel = appViewModel,
                     )
-                    
+
                     // No caption - don't show filename
-                    
+
                     // Timestamp (for consecutive messages)
                     if (timestamp != null) {
                         MediaBubbleTimestamp(
@@ -792,7 +785,7 @@ fun MediaMessage(
                             editedBy = editedBy,
                             isMine = isMine,
                             isConsecutive = isConsecutive,
-                            onEditedClick = onShowEditHistory
+                            onEditedClick = onShowEditHistory,
                         )
                     }
                 }
@@ -805,15 +798,13 @@ fun mediaBubbleColorFor(
     colorScheme: ColorScheme,
     isMine: Boolean,
     isThreadMessage: Boolean,
-    hasBeenEdited: Boolean
-): Color {
-    return BubblePalette.colors(
-        colorScheme = colorScheme,
-        isMine = isMine,
-        isEdited = hasBeenEdited,
-        isThreadMessage = isThreadMessage
-    ).container
-}
+    hasBeenEdited: Boolean,
+): Color = BubblePalette.colors(
+    colorScheme = colorScheme,
+    isMine = isMine,
+    isEdited = hasBeenEdited,
+    isThreadMessage = isThreadMessage,
+).container
 
 /**
  * Extracted media content composable to avoid code duplication.
@@ -841,33 +832,35 @@ private fun MediaContent(
     onFullscreenRequest: (currentPosition: Long, isPlaying: Boolean) -> Unit = { _, _ -> }, // Callback for fullscreen request from inline player
     event: net.vrkknn.andromuks.TimelineEvent? = null,
     onUserClick: (String) -> Unit = {},
-    appViewModel: net.vrkknn.andromuks.AppViewModel? = null
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
 ) {
     val density = LocalDensity.current
-    
+
     // Determine if we're using thumbnails
     // MSC4230: Skip thumbnails for animated images (GIF, animated PNG, animated WebP) to ensure animation plays
     // Thumbnails for animated images are typically static JPG/PNG, so we need to use the original
-    val useThumbnail = loadThumbnailsIfAvailable && 
-                       mediaMessage.info.thumbnailUrl != null &&
-                       mediaMessage.info.isAnimated != true  // Skip thumbnail for animated images
-    
+    val useThumbnail = loadThumbnailsIfAvailable &&
+        mediaMessage.info.thumbnailUrl != null &&
+        mediaMessage.info.isAnimated != true // Skip thumbnail for animated images
+
     // State to track if user has tapped to reveal thumbnail (only relevant when renderThumbnailsAlways is false)
     var isRevealed by remember(mediaMessage.url) { mutableStateOf(false) }
-    
+
     // Determine if we should show blurhash placeholder
-    val shouldShowPlaceholder = !renderThumbnailsAlways && !isRevealed && 
-                                (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")
-    
+    val shouldShowPlaceholder = !renderThumbnailsAlways && !isRevealed &&
+        (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")
+
     // FIX: Don't force full width for images/videos - let them size naturally based on content
     // Audio and file downloads still need full width for proper layout
     Column(
-        modifier = if (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker") {
+        modifier = if (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" ||
+            mediaMessage.msgType == "m.sticker"
+        ) {
             Modifier.wrapContentWidth()
         } else {
             Modifier.fillMaxWidth()
         },
-        horizontalAlignment = Alignment.Start
+        horizontalAlignment = Alignment.Start,
     ) {
         if (mediaMessage.msgType == "m.audio") {
             // Audio player - use its own sizing without aspect ratio container
@@ -877,7 +870,7 @@ private fun MediaContent(
                 authToken = authToken,
                 isEncrypted = isEncrypted,
                 context = LocalContext.current,
-                onLongPress = onImageLongPress
+                onLongPress = onImageLongPress,
             )
         } else if (mediaMessage.msgType == "m.file") {
             // File download component - use its own sizing without aspect ratio container
@@ -890,7 +883,7 @@ private fun MediaContent(
                 onLongPress = onImageLongPress,
                 event = event,
                 onUserClick = onUserClick,
-                appViewModel = appViewModel
+                appViewModel = appViewModel,
             )
         } else {
             // Media container with aspect ratio for images and videos
@@ -898,8 +891,9 @@ private fun MediaContent(
             // If not using thumbnails: use full image dimensions
             val aspectRatio = if (useThumbnail) {
                 // First try thumbnail dimensions
-                if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailHeight != null && 
-                    mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0) {
+                if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailHeight != null &&
+                    mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0
+                ) {
                     mediaMessage.info.thumbnailWidth!!.toFloat() / mediaMessage.info.thumbnailHeight!!.toFloat()
                 } else if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
                     // Fallback to full image dimensions if thumbnail dimensions not available
@@ -918,7 +912,7 @@ private fun MediaContent(
 
             // Check if there's a caption
             val hasCaption = !mediaMessage.caption.isNullOrBlank()
-            
+
             // Image frame padding: 2dp on all sides (between thumbnail frame and message bubble)
             val imageFramePadding = 2.dp
             // Bottom padding: use same as other sides when no caption; caption provides its own spacing when present
@@ -934,14 +928,18 @@ private fun MediaContent(
                 } else if (mediaMessage.info.height > 0) {
                     // Fallback to full image height if thumbnail height not available
                     with(density) { mediaMessage.info.height.toDp() }
-                } else null
+                } else {
+                    null
+                }
             } else {
                 // Not using thumbnails, use full image height
                 if (mediaMessage.info.height > 0) {
                     with(density) { mediaMessage.info.height.toDp() }
-                } else null
+                } else {
+                    null
+                }
             }
-            
+
             // FIX: Calculate max width based on actual display size (thumbnail or original)
             // This prevents small thumbnails from being stretched to fill the full bubble width
             val maxImageWidthDp = if (useThumbnail) {
@@ -950,12 +948,16 @@ private fun MediaContent(
                     with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
                 } else if (mediaMessage.info.width > 0) {
                     with(density) { mediaMessage.info.width.toDp() }
-                } else null
+                } else {
+                    null
+                }
             } else {
                 // Use original width when not using thumbnails
                 if (mediaMessage.info.width > 0) {
                     with(density) { mediaMessage.info.width.toDp() }
-                } else null
+                } else {
+                    null
+                }
             }
 
             var previewBounds by remember(mediaMessage.url, mediaMessage.info.thumbnailUrl, useThumbnail) {
@@ -968,9 +970,9 @@ private fun MediaContent(
                 topStart = if (isMine) 12.dp else 4.dp,
                 topEnd = if (isMine) 4.dp else 12.dp,
                 bottomStart = 12.dp,
-                bottomEnd = 12.dp
+                bottomEnd = 12.dp,
             )
-            
+
             // Frame constrained to image size to prevent stretching
             // Image should size naturally, not fill parent (which might be wider due to caption)
             Surface(
@@ -981,20 +983,20 @@ private fun MediaContent(
                             Modifier.widthIn(max = maxImageWidthDp)
                         } else {
                             Modifier
-                        }
+                        },
                     )
                     .padding(
                         start = imageFramePadding,
                         end = imageFramePadding,
                         top = imageFramePadding,
-                        bottom = bottomPadding
+                        bottom = bottomPadding,
                     ),
                 shape = imageFrameShape,
                 color = Color.Transparent,
                 border = BorderStroke(
                     width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f) // Visible but subtle
-                )
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f), // Visible but subtle
+                ),
             ) {
                 // Box to clip the image to frame shape
                 // Image will fill the frame width and be clipped by the frame
@@ -1005,7 +1007,7 @@ private fun MediaContent(
                         .onGloballyPositioned { coords ->
                             previewBounds = coords.boundsInWindow()
                         },
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     val context = LocalContext.current
 
@@ -1049,10 +1051,12 @@ private fun MediaContent(
 
                     if (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.sticker") {
                         // Debug logging
-                        if (BuildConfig.DEBUG) Log.d(
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
                             "Andromuks",
-                            "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken"
+                            "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken",
                         )
+                        }
 
                         val blurHashForDisplay =
                             if (useThumbnail) {
@@ -1064,7 +1068,7 @@ private fun MediaContent(
                         if (BuildConfig.DEBUG && blurHashForDisplay != null) {
                             Log.d(
                                 "Andromuks",
-                                "MediaMessage: Decoding blurhash for display (thumb=$useThumbnail): $blurHashForDisplay"
+                                "MediaMessage: Decoding blurhash for display (thumb=$useThumbnail): $blurHashForDisplay",
                             )
                         }
 
@@ -1072,8 +1076,10 @@ private fun MediaContent(
                         // Use a reasonable size (100px on smaller dimension) while maintaining aspect ratio
                         val blurHashWidth: Int
                         val blurHashHeight: Int
-                        if (useThumbnail && mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailHeight != null &&
-                            mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0) {
+                        if (useThumbnail && mediaMessage.info.thumbnailWidth != null &&
+                            mediaMessage.info.thumbnailHeight != null &&
+                            mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0
+                        ) {
                             // Use thumbnail dimensions
                             val thumbW = mediaMessage.info.thumbnailWidth!!
                             val thumbH = mediaMessage.info.thumbnailHeight!!
@@ -1096,25 +1102,38 @@ private fun MediaContent(
                         var decodedBlurHashBitmap by remember(blurHashForDisplay, blurHashWidth, blurHashHeight) {
                             mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
                         }
-                        
+
                         // Decode BlurHash in background thread
                         LaunchedEffect(blurHashForDisplay, blurHashWidth, blurHashHeight) {
                             if (blurHashForDisplay != null) {
                                 decodedBlurHashBitmap = null // Reset while decoding
                                 withContext(kotlinx.coroutines.Dispatchers.Default) {
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "Decoding BlurHash: $blurHashForDisplay to ${blurHashWidth}x${blurHashHeight}")
-                                    val bitmap = BlurHashUtils.decodeBlurHash(blurHashForDisplay!!, blurHashWidth, blurHashHeight)
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "Decoding BlurHash: $blurHashForDisplay to ${blurHashWidth}x$blurHashHeight",
+                                    )
+                                    }
+                                    val bitmap = BlurHashUtils.decodeBlurHash(
+                                        blurHashForDisplay!!,
+                                        blurHashWidth,
+                                        blurHashHeight,
+                                    )
                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
                                     if (bitmap != null) {
                                         val imageBitmap = bitmap.asImageBitmap()
-                                        if (BuildConfig.DEBUG) Log.d(
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
                                             "Andromuks",
-                                            "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}"
+                                            "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}",
                                         )
-                                        if (BuildConfig.DEBUG) Log.d(
+                                        }
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
                                             "Andromuks",
-                                            "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}"
+                                            "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}",
                                         )
+                                        }
                                         decodedBlurHashBitmap = imageBitmap
                                     } else {
                                         Log.w("Andromuks", "BlurHash decode failed, using fallback")
@@ -1124,7 +1143,7 @@ private fun MediaContent(
                                 decodedBlurHashBitmap = null
                             }
                         }
-                        
+
                         val blurHashPainter = remember(decodedBlurHashBitmap, blurHashWidth, blurHashHeight) {
                             decodedBlurHashBitmap?.let { imageBitmap ->
                                 BitmapPainter(imageBitmap)
@@ -1133,15 +1152,15 @@ private fun MediaContent(
                                 if (BuildConfig.DEBUG && blurHashForDisplay == null) {
                                     Log.d("Andromuks", "No BlurHash available, using simple fallback")
                                 }
-                                        BitmapPainter(
-                                            BlurHashUtils.createPlaceholderBitmap(
-                                                blurHashWidth,
-                                                blurHashHeight,
-                                                androidx.compose.ui.graphics.Color.Gray
-                                            )
-                                        )
-                                    }
+                                BitmapPainter(
+                                    BlurHashUtils.createPlaceholderBitmap(
+                                        blurHashWidth,
+                                        blurHashHeight,
+                                        androidx.compose.ui.graphics.Color.Gray,
+                                    ),
+                                )
                             }
+                        }
 
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash painter created")
 
@@ -1152,23 +1171,28 @@ private fun MediaContent(
                             val thumbHeight = mediaMessage.info.thumbnailHeight
                             Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
                             Log.d("Andromuks", "AsyncImage: useThumbnail=$useThumbnail, aspectRatio=$aspectRatio")
-                            Log.d("Andromuks", "AsyncImage: Full image dimensions: ${fullWidth}x${fullHeight}, Thumbnail dimensions: ${thumbWidth}x${thumbHeight}")
+                            Log.d(
+                                "Andromuks",
+                                "AsyncImage: Full image dimensions: ${fullWidth}x$fullHeight, Thumbnail dimensions: ${thumbWidth}x$thumbHeight",
+                            )
                         }
 
                         // State to track loaded image dimensions for dynamic aspect ratio adjustment
                         // Only update if JSON dimensions were missing or invalid
                         var loadedAspectRatio by remember { mutableFloatStateOf(aspectRatio) }
                         var hasLoadedDimensions by remember { mutableStateOf(false) }
-                        
+
                         // Check if JSON dimensions were actually valid
                         val hasValidJsonDimensions = if (useThumbnail) {
-                            (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 && 
-                             mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) ||
-                            (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
+                            (
+                                mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 &&
+                                mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0
+                            ) ||
+                                (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
                         } else {
                             mediaMessage.info.width > 0 && mediaMessage.info.height > 0
                         }
-                        
+
                         // Reset when image URL changes
                         LaunchedEffect(imageUrl) {
                             loadedAspectRatio = aspectRatio
@@ -1187,9 +1211,9 @@ private fun MediaContent(
                                             // First tap: reveal thumbnail
                                             isRevealed = true
                                         },
-                                        onLongClick = { onImageLongPress?.invoke() }
+                                        onLongClick = { onImageLongPress?.invoke() },
                                     ),
-                                contentAlignment = Alignment.Center
+                                contentAlignment = Alignment.Center,
                             ) {
                                 // Show blurhash or empty box
                                 if (blurHashForDisplay != null) {
@@ -1197,17 +1221,17 @@ private fun MediaContent(
                                         painter = blurHashPainter,
                                         contentDescription = null,
                                         modifier = Modifier.fillMaxSize(),
-                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                     )
                                 } else {
                                     // Empty box with background
                                     Box(
                                         modifier = Modifier
                                             .fillMaxSize()
-                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
                                     )
                                 }
-                                
+
                                 // "Tap to show" text overlay
                                 Text(
                                     text = "Tap to show",
@@ -1216,91 +1240,102 @@ private fun MediaContent(
                                     modifier = Modifier
                                         .background(
                                             MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                                            RoundedCornerShape(8.dp)
+                                            RoundedCornerShape(8.dp),
                                         )
-                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
                                 )
                             }
                         } else {
-                        // Layered approach: BlurHash underneath, real image fades in on top.
-                        // This mirrors the gallery thumbnail pattern for a smooth morph effect.
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(loadedAspectRatio)
-                                .scale(1.02f)
-                                .combinedClickable(
-                                    onClick = { onImageClick(previewBounds) },
-                                    onLongClick = { onImageLongPress?.invoke() }
-                                )
-                        ) {
-                            // BlurHash layer — shown immediately, replaced by the real image as it loads
-                            if (decodedBlurHashBitmap != null) {
-                                Image(
-                                    painter = blurHashPainter,
-                                    contentDescription = null,
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            } else {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                                )
-                            }
-
-                            // Real image — crossfades in over the BlurHash once loaded
-                            // IMPORTANT: ImageRequest must be stable across recompositions so Coil does not
-                            // cancel and restart in-flight network requests when unrelated state (e.g.
-                            // memberUpdateCounter) changes. Without remember{}, rapid recompositions cause
-                            // every in-flight image load to be cancelled and restarted, leaving images
-                            // permanently stuck at the BlurHash placeholder.
-                            val imageRequest = remember(imageUrl, bypassCoilCache, authToken) {
-                                ImageRequest.Builder(context)
-                                    .data(imageUrl ?: "")
-                                    .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                    .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                    .crossfade(300)
-                                    .build()
-                            }
-                            AsyncImage(
-                                model = imageRequest,
-                                imageLoader = imageLoader,
-                                contentDescription = mediaMessage.filename,
-                                modifier = Modifier.fillMaxSize(),
-                                error = blurHashPainter,
-                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
-                                onSuccess = { state ->
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
-
-                                    val painter = state.painter
-                                    val intrinsicSize = painter.intrinsicSize
-                                    if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
-                                        hasLoadedDimensions = true
-                                        val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
-                                        if (BuildConfig.DEBUG) Log.d(
-                                            "Andromuks",
-                                            "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)"
-                                        )
-                                        if (!hasValidJsonDimensions) {
-                                            loadedAspectRatio = actualAspectRatio
-                                            if (BuildConfig.DEBUG) Log.d(
-                                                "Andromuks",
-                                                "Updated aspect ratio from loaded image: $actualAspectRatio"
-                                            )
-                                            TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
-                                        }
-                                    }
-                                },
-                                onError = {
-                                    bypassCoilCache = true
-                                },
-                                onLoading = { state ->
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
+                            // Layered approach: BlurHash underneath, real image fades in on top.
+                            // This mirrors the gallery thumbnail pattern for a smooth morph effect.
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(loadedAspectRatio)
+                                    .scale(1.02f)
+                                    .combinedClickable(
+                                        onClick = { onImageClick(previewBounds) },
+                                        onLongClick = { onImageLongPress?.invoke() },
+                                    ),
+                            ) {
+                                // BlurHash layer — shown immediately, replaced by the real image as it loads
+                                if (decodedBlurHashBitmap != null) {
+                                    Image(
+                                        painter = blurHashPainter,
+                                        contentDescription = null,
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    )
                                 }
-                            )
-                        }
+
+                                // Real image — crossfades in over the BlurHash once loaded
+                                // IMPORTANT: ImageRequest must be stable across recompositions so Coil does not
+                                // cancel and restart in-flight network requests when unrelated state (e.g.
+                                // memberUpdateCounter) changes. Without remember{}, rapid recompositions cause
+                                // every in-flight image load to be cancelled and restarted, leaving images
+                                // permanently stuck at the BlurHash placeholder.
+                                val imageRequest = remember(imageUrl, bypassCoilCache, authToken) {
+                                    ImageRequest.Builder(context)
+                                        .data(imageUrl ?: "")
+                                        .memoryCachePolicy(
+                                            if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED,
+                                        )
+                                        .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                        .crossfade(300)
+                                        .build()
+                                }
+                                AsyncImage(
+                                    model = imageRequest,
+                                    imageLoader = imageLoader,
+                                    contentDescription = mediaMessage.filename,
+                                    modifier = Modifier.fillMaxSize(),
+                                    error = blurHashPainter,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+                                    onSuccess = { state ->
+                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
+
+                                        val painter = state.painter
+                                        val intrinsicSize = painter.intrinsicSize
+                                        if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
+                                            hasLoadedDimensions = true
+                                            val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d(
+                                                "Andromuks",
+                                                "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)",
+                                            )
+                                            }
+                                            if (!hasValidJsonDimensions) {
+                                                loadedAspectRatio = actualAspectRatio
+                                                if (BuildConfig.DEBUG) {
+                                                    Log.d(
+                                                    "Andromuks",
+                                                    "Updated aspect ratio from loaded image: $actualAspectRatio",
+                                                )
+                                                }
+                                                TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
+                                            }
+                                        }
+                                    },
+                                    onError = {
+                                        bypassCoilCache = true
+                                    },
+                                    onLoading = { state ->
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
+                                            "Andromuks",
+                                            "⏳ Image loading: $imageUrl, state: $state",
+                                        )
+                                        }
+                                    },
+                                )
+                            }
                         }
                     } else if (mediaMessage.msgType == "m.video") {
                         // Check if we should show inline player or thumbnail
@@ -1318,40 +1353,43 @@ private fun MediaContent(
                                     onFullscreenRequest(currentPosition, isPlaying)
                                 },
                                 onLongPress = onImageLongPress,
-                                modifier = Modifier
+                                modifier = Modifier,
                             )
                         } else {
-                        // Video thumbnail with play button overlay
-                        // Fill frame width and maintain aspect ratio, clipped by frame
-                        
-                        // State to track loaded thumbnail dimensions for dynamic aspect ratio adjustment
-                        var loadedThumbnailAspectRatio by remember { mutableFloatStateOf(aspectRatio) }
-                        var hasLoadedThumbnailDimensions by remember { mutableStateOf(false) }
-                        
-                        // Check if video has a thumbnail
-                        val thumbnailUrl = mediaMessage.info.thumbnailUrl
-                        
-                        // Check if JSON dimensions were actually valid for video
-                        val hasValidVideoJsonDimensions = 
-                            (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 && 
-                             mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) ||
-                            (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
-                        
-                        // Reset when thumbnail URL changes
-                        LaunchedEffect(thumbnailUrl) {
-                            loadedThumbnailAspectRatio = aspectRatio
-                            hasLoadedThumbnailDimensions = false
-                        }
-                            
+                            // Video thumbnail with play button overlay
+                            // Fill frame width and maintain aspect ratio, clipped by frame
+
+                            // State to track loaded thumbnail dimensions for dynamic aspect ratio adjustment
+                            var loadedThumbnailAspectRatio by remember { mutableFloatStateOf(aspectRatio) }
+                            var hasLoadedThumbnailDimensions by remember { mutableStateOf(false) }
+
+                            // Check if video has a thumbnail
+                            val thumbnailUrl = mediaMessage.info.thumbnailUrl
+
+                            // Check if JSON dimensions were actually valid for video
+                            val hasValidVideoJsonDimensions =
+                                (
+                                    mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 &&
+                                    mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0
+                                ) ||
+                                    (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
+
+                            // Reset when thumbnail URL changes
+                            LaunchedEffect(thumbnailUrl) {
+                                loadedThumbnailAspectRatio = aspectRatio
+                                hasLoadedThumbnailDimensions = false
+                            }
+
                             // Get blurhash for video
                             val videoBlurHash = mediaMessage.info.thumbnailBlurHash ?: mediaMessage.info.blurHash
-                            
+
                             // Calculate blurhash dimensions based on thumbnail or original video dimensions
                             // Use a reasonable size (100px on smaller dimension) while maintaining aspect ratio
                             val videoBlurHashWidth: Int
                             val videoBlurHashHeight: Int
                             if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailHeight != null &&
-                                mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0) {
+                                mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0
+                            ) {
                                 // Use thumbnail dimensions
                                 val thumbW = mediaMessage.info.thumbnailWidth!!
                                 val thumbH = mediaMessage.info.thumbnailHeight!!
@@ -1368,241 +1406,55 @@ private fun MediaContent(
                                 videoBlurHashWidth = 32
                                 videoBlurHashHeight = 32
                             }
-                            
+
                             // CRITICAL FIX: Decode video BlurHash asynchronously to prevent blocking UI thread
-                            var decodedVideoBlurHashBitmap by remember(videoBlurHash, videoBlurHashWidth, videoBlurHashHeight) {
+                            var decodedVideoBlurHashBitmap by remember(
+                                videoBlurHash,
+                                videoBlurHashWidth,
+                                videoBlurHashHeight,
+                            ) {
                                 mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)
                             }
-                            
+
                             // Decode video BlurHash in background thread
                             LaunchedEffect(videoBlurHash, videoBlurHashWidth, videoBlurHashHeight) {
                                 if (videoBlurHash != null) {
                                     decodedVideoBlurHashBitmap = null // Reset while decoding
                                     withContext(Dispatchers.Default) {
-                                        val bitmap = BlurHashUtils.decodeBlurHash(videoBlurHash!!, videoBlurHashWidth, videoBlurHashHeight)
-                                    if (bitmap != null) {
+                                        val bitmap = BlurHashUtils.decodeBlurHash(
+                                            videoBlurHash!!,
+                                            videoBlurHashWidth,
+                                            videoBlurHashHeight,
+                                        )
+                                        if (bitmap != null) {
                                             decodedVideoBlurHashBitmap = bitmap.asImageBitmap()
                                         }
                                     }
-                                    } else {
+                                } else {
                                     decodedVideoBlurHashBitmap = null
                                 }
                             }
-                            
-                            val videoBlurHashPainter = remember(decodedVideoBlurHashBitmap, videoBlurHashWidth, videoBlurHashHeight) {
+
+                            val videoBlurHashPainter =
+                                remember(decodedVideoBlurHashBitmap, videoBlurHashWidth, videoBlurHashHeight) {
                                 decodedVideoBlurHashBitmap?.let { imageBitmap ->
                                     BitmapPainter(imageBitmap)
                                 } ?: BitmapPainter(
-                                        BlurHashUtils.createPlaceholderBitmap(
-                                            videoBlurHashWidth,
-                                            videoBlurHashHeight,
-                                            androidx.compose.ui.graphics.Color.Gray
-                                        )
-                                    )
-                            }
-                        
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .aspectRatio(loadedThumbnailAspectRatio)
-                                .scale(1.02f), // Make thumbnail slightly larger than frame so it gets clipped
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (shouldShowPlaceholder) {
-                                // Show blurhash placeholder with "Tap to show" text
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .combinedClickable(
-                                            onClick = {
-                                                // First tap: reveal thumbnail
-                                                isRevealed = true
-                                            },
-                                            onLongClick = { onImageLongPress?.invoke() }
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    // Show blurhash or empty box
-                                    if (videoBlurHash != null) {
-                                        Image(
-                                            painter = videoBlurHashPainter,
-                                            contentDescription = null,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                                        )
-                                    } else {
-                                        // Empty box with background
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxSize()
-                                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                        )
-                                    }
-                                    
-                                    // Play icon overlay (centered, only shown when video is not playing)
-                                    // Note: Parent Box handles clicks, so this is just visual
-                                    if (!isVideoPlayingInline) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color.Black.copy(alpha = 0.6f),
-                                            modifier = Modifier.size(64.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.PlayArrow,
-                                                contentDescription = "Play video",
-                                                tint = Color.White,
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(start = 4.dp) // Slight offset to visually center the play icon
-                                            )
-                                        }
-                                    }
-                                    
-                                    // "Tap to show" text overlay (below play icon)
-                                    Text(
-                                        text = "Tap to show",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier
-                                            .padding(top = 80.dp) // Position below play icon
-                                            .background(
-                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                                                RoundedCornerShape(8.dp)
-                                            )
-                                            .padding(horizontal = 12.dp, vertical = 6.dp)
-                                    )
-                                }
-                            } else if (thumbnailUrl != null) {
-                                val thumbnailFinalUrl = remember(thumbnailUrl, mediaMessage.info.thumbnailIsEncrypted) {
-                                    val httpUrl = MediaUtils.mxcToThumbnailUrl(thumbnailUrl, homeserverUrl, registerMapping = false)
-                                    if (mediaMessage.info.thumbnailIsEncrypted && httpUrl != null) {
-                                        val separator = if (httpUrl.contains("?")) "&" else "?"
-                                        "$httpUrl${separator}encrypted=true"
-                                    } else {
-                                        httpUrl
-                                    }
-                                }
-
-                                LaunchedEffect(thumbnailFinalUrl, thumbnailUrl) {
-                                    val url = thumbnailFinalUrl ?: return@LaunchedEffect
-                                    CoilUrlMapper.registerMapping(url, thumbnailUrl)
-                                }
-
-                                // One-time retry with Coil caches disabled if thumbnail decode fails.
-                                var bypassCoilCacheForVideoThumb by remember(thumbnailFinalUrl) { mutableStateOf(false) }
-
-                                // Reuse the outer videoBlurHashPainter — avoids decoding the same BlurHash twice
-                                val thumbnailBlurHashPainter = videoBlurHashPainter
-
-                                val videoThumbnailRequest = remember(thumbnailFinalUrl, bypassCoilCacheForVideoThumb, authToken) {
-                                    ImageRequest.Builder(context)
-                                        .data(thumbnailFinalUrl)
-                                        .memoryCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                        .diskCachePolicy(if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                        .crossfade(300)
-                                        .build()
-                                }
-                                AsyncImage(
-                                    model = videoThumbnailRequest,
-                                    imageLoader = imageLoader,
-                                    contentDescription =
-                                        "Video thumbnail: ${mediaMessage.filename}",
-                                    modifier =
-                                        Modifier
-                                            .fillMaxSize()
-                                            .combinedClickable(
-                                                onClick = { onImageClick(previewBounds) },
-                                                onLongClick = { onImageLongPress?.invoke() }
-                                            ),
-                                    placeholder = thumbnailBlurHashPainter,
-                                    error = thumbnailBlurHashPainter,
-                                    contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
-                                    onSuccess = { state ->
-                                        if (BuildConfig.DEBUG) Log.d(
-                                            "Andromuks",
-                                            "✅ Video thumbnail loaded: $thumbnailFinalUrl"
-                                        )
-                                        
-                                        // Extract actual thumbnail dimensions from loaded image
-                                        val painter = state.painter
-                                        val intrinsicSize = painter.intrinsicSize
-                                        if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedThumbnailDimensions) {
-                                            val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
-                                            if (BuildConfig.DEBUG) Log.d(
-                                                "Andromuks",
-                                                "Video thumbnail loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidVideoJsonDimensions)"
-                                            )
-                                            // Only update if we didn't have valid dimensions from JSON
-                                            if (!hasValidVideoJsonDimensions) {
-                                                loadedThumbnailAspectRatio = actualAspectRatio
-                                                hasLoadedThumbnailDimensions = true
-                                                if (BuildConfig.DEBUG) Log.d(
-                                                    "Andromuks",
-                                                    "Updated video thumbnail aspect ratio from loaded image: $actualAspectRatio"
-                                                )
-                                                TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
-                                            }
-                                        }
-                                    },
-                                    onError = {
-                                        // Force Coil to fetch fresh bytes from backend on next recomposition.
-                                        bypassCoilCacheForVideoThumb = true
-                                    }
+                                    BlurHashUtils.createPlaceholderBitmap(
+                                        videoBlurHashWidth,
+                                        videoBlurHashHeight,
+                                        androidx.compose.ui.graphics.Color.Gray,
+                                    ),
                                 )
+                            }
 
-                                // Play icon overlay (centered, only shown when video is not playing)
-                                if (!isVideoPlayingInline) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .combinedClickable(
-                                                onClick = { onImageClick(previewBounds) },
-                                                onLongClick = { onImageLongPress?.invoke() }
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Surface(
-                                            shape = CircleShape,
-                                            color = Color.Black.copy(alpha = 0.6f),
-                                            modifier = Modifier.size(64.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.PlayArrow,
-                                                contentDescription = "Play video",
-                                                tint = Color.White,
-                                                modifier = Modifier
-                                                    .fillMaxSize()
-                                                    .padding(start = 4.dp) // Slight offset to visually center the play icon
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Duration badge in bottom-right corner
-                                mediaMessage.info.duration?.let { durationMs ->
-                                    Box(
-                                        modifier = Modifier.fillMaxSize().padding(8.dp),
-                                        contentAlignment = Alignment.BottomEnd
-                                    ) {
-                                        Surface(
-                                            shape = RoundedCornerShape(4.dp),
-                                            color = Color.Black.copy(alpha = 0.7f)
-                                        ) {
-                                            Text(
-                                                text = formatDuration(durationMs),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = Color.White,
-                                                modifier =
-                                                    Modifier.padding(
-                                                        horizontal = 4.dp,
-                                                        vertical = 2.dp
-                                                    )
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                // Fallback: No thumbnail available
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .aspectRatio(loadedThumbnailAspectRatio)
+                                    .scale(1.02f), // Make thumbnail slightly larger than frame so it gets clipped
+                                contentAlignment = Alignment.Center,
+                            ) {
                                 if (shouldShowPlaceholder) {
                                     // Show blurhash placeholder with "Tap to show" text
                                     Box(
@@ -1610,12 +1462,12 @@ private fun MediaContent(
                                             .fillMaxSize()
                                             .combinedClickable(
                                                 onClick = {
-                                                    // First tap: for videos without thumbnails, open viewer directly
-                                                    onImageClick(previewBounds)
+                                                    // First tap: reveal thumbnail
+                                                    isRevealed = true
                                                 },
-                                                onLongClick = { onImageLongPress?.invoke() }
+                                                onLongClick = { onImageLongPress?.invoke() },
                                             ),
-                                        contentAlignment = Alignment.Center
+                                        contentAlignment = Alignment.Center,
                                     ) {
                                         // Show blurhash or empty box
                                         if (videoBlurHash != null) {
@@ -1623,24 +1475,24 @@ private fun MediaContent(
                                                 painter = videoBlurHashPainter,
                                                 contentDescription = null,
                                                 modifier = Modifier.fillMaxSize(),
-                                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                             )
                                         } else {
                                             // Empty box with background
                                             Box(
                                                 modifier = Modifier
                                                     .fillMaxSize()
-                                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                    .background(MaterialTheme.colorScheme.surfaceVariant),
                                             )
                                         }
-                                        
+
                                         // Play icon overlay (centered, only shown when video is not playing)
                                         // Note: Parent Box handles clicks, so this is just visual
                                         if (!isVideoPlayingInline) {
                                             Surface(
                                                 shape = CircleShape,
                                                 color = Color.Black.copy(alpha = 0.6f),
-                                                modifier = Modifier.size(64.dp)
+                                                modifier = Modifier.size(64.dp),
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Filled.PlayArrow,
@@ -1648,11 +1500,11 @@ private fun MediaContent(
                                                     tint = Color.White,
                                                     modifier = Modifier
                                                         .fillMaxSize()
-                                                        .padding(start = 4.dp) // Slight offset to visually center the play icon
+                                                        .padding(start = 4.dp), // Slight offset to visually center the play icon
                                                 )
                                             }
                                         }
-                                        
+
                                         // "Tap to show" text overlay (below play icon)
                                         Text(
                                             text = "Tap to show",
@@ -1662,52 +1514,127 @@ private fun MediaContent(
                                                 .padding(top = 80.dp) // Position below play icon
                                                 .background(
                                                     MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                                                    RoundedCornerShape(8.dp)
+                                                    RoundedCornerShape(8.dp),
                                                 )
-                                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
                                         )
                                     }
-                                } else {
-                                    // No thumbnail available, show placeholder
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(aspectRatio)
+                                } else if (thumbnailUrl != null) {
+                                    val thumbnailFinalUrl =
+                                        remember(thumbnailUrl, mediaMessage.info.thumbnailIsEncrypted) {
+                                        val httpUrl = MediaUtils.mxcToThumbnailUrl(
+                                            thumbnailUrl,
+                                            homeserverUrl,
+                                            registerMapping = false,
+                                        )
+                                        if (mediaMessage.info.thumbnailIsEncrypted && httpUrl != null) {
+                                            val separator = if (httpUrl.contains("?")) "&" else "?"
+                                            "$httpUrl${separator}encrypted=true"
+                                        } else {
+                                            httpUrl
+                                        }
+                                    }
+
+                                    LaunchedEffect(thumbnailFinalUrl, thumbnailUrl) {
+                                        val url = thumbnailFinalUrl ?: return@LaunchedEffect
+                                        CoilUrlMapper.registerMapping(url, thumbnailUrl)
+                                    }
+
+                                    // One-time retry with Coil caches disabled if thumbnail decode fails.
+                                    var bypassCoilCacheForVideoThumb by remember(
+                                        thumbnailFinalUrl,
+                                    ) { mutableStateOf(false) }
+
+                                    // Reuse the outer videoBlurHashPainter — avoids decoding the same BlurHash twice
+                                    val thumbnailBlurHashPainter = videoBlurHashPainter
+
+                                    val videoThumbnailRequest = remember(
+                                        thumbnailFinalUrl,
+                                        bypassCoilCacheForVideoThumb,
+                                        authToken,
+                                    ) {
+                                        ImageRequest.Builder(context)
+                                            .data(thumbnailFinalUrl)
+                                            .memoryCachePolicy(
+                                                if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED,
+                                            )
+                                            .diskCachePolicy(
+                                                if (bypassCoilCacheForVideoThumb) CachePolicy.DISABLED else CachePolicy.ENABLED,
+                                            )
+                                            .crossfade(300)
+                                            .build()
+                                    }
+                                    AsyncImage(
+                                        model = videoThumbnailRequest,
+                                        imageLoader = imageLoader,
+                                        contentDescription =
+                                        "Video thumbnail: ${mediaMessage.filename}",
+                                        modifier =
+                                        Modifier
+                                            .fillMaxSize()
                                             .combinedClickable(
                                                 onClick = { onImageClick(previewBounds) },
-                                                onLongClick = { onImageLongPress?.invoke() }
+                                                onLongClick = { onImageLongPress?.invoke() },
                                             ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center
+                                        placeholder = thumbnailBlurHashPainter,
+                                        error = thumbnailBlurHashPainter,
+                                        contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
+                                        onSuccess = { state ->
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d(
+                                                "Andromuks",
+                                                "✅ Video thumbnail loaded: $thumbnailFinalUrl",
+                                            )
+                                            }
+
+                                            // Extract actual thumbnail dimensions from loaded image
+                                            val painter = state.painter
+                                            val intrinsicSize = painter.intrinsicSize
+                                            if (intrinsicSize.width > 0 && intrinsicSize.height > 0 &&
+                                                !hasLoadedThumbnailDimensions
+                                            ) {
+                                                val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
+                                                if (BuildConfig.DEBUG) {
+                                                    Log.d(
+                                                    "Andromuks",
+                                                    "Video thumbnail loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidVideoJsonDimensions)",
+                                                )
+                                                }
+                                                // Only update if we didn't have valid dimensions from JSON
+                                                if (!hasValidVideoJsonDimensions) {
+                                                    loadedThumbnailAspectRatio = actualAspectRatio
+                                                    hasLoadedThumbnailDimensions = true
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "Updated video thumbnail aspect ratio from loaded image: $actualAspectRatio",
+                                                    )
+                                                    }
+                                                    TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
+                                                }
+                                            }
+                                        },
+                                        onError = {
+                                            // Force Coil to fetch fresh bytes from backend on next recomposition.
+                                            bypassCoilCacheForVideoThumb = true
+                                        },
+                                    )
+
+                                    // Play icon overlay (centered, only shown when video is not playing)
+                                    if (!isVideoPlayingInline) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .combinedClickable(
+                                                    onClick = { onImageClick(previewBounds) },
+                                                    onLongClick = { onImageLongPress?.invoke() },
+                                                ),
+                                            contentAlignment = Alignment.Center,
                                         ) {
-                                            Text(
-                                                text = "🎥",
-                                                style = MaterialTheme.typography.headlineMedium
-                                            )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = mediaMessage.filename,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                        
-                                        // Play icon overlay (centered, only shown when video is not playing)
-                                        if (!isVideoPlayingInline) {
                                             Surface(
                                                 shape = CircleShape,
                                                 color = Color.Black.copy(alpha = 0.6f),
-                                                modifier = Modifier
-                                                    .size(64.dp)
-                                                    .combinedClickable(
-                                                        onClick = { onImageClick(previewBounds) },
-                                                        onLongClick = { onImageLongPress?.invoke() }
-                                                    )
+                                                modifier = Modifier.size(64.dp),
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Filled.PlayArrow,
@@ -1715,12 +1642,155 @@ private fun MediaContent(
                                                     tint = Color.White,
                                                     modifier = Modifier
                                                         .fillMaxSize()
-                                                        .padding(start = 4.dp) // Slight offset to visually center the play icon
+                                                        .padding(start = 4.dp), // Slight offset to visually center the play icon
                                                 )
                                             }
                                         }
                                     }
-                                }
+
+                                    // Duration badge in bottom-right corner
+                                    mediaMessage.info.duration?.let { durationMs ->
+                                        Box(
+                                            modifier = Modifier.fillMaxSize().padding(8.dp),
+                                            contentAlignment = Alignment.BottomEnd,
+                                        ) {
+                                            Surface(
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = Color.Black.copy(alpha = 0.7f),
+                                            ) {
+                                                Text(
+                                                    text = formatDuration(durationMs),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = Color.White,
+                                                    modifier =
+                                                    Modifier.padding(
+                                                        horizontal = 4.dp,
+                                                        vertical = 2.dp,
+                                                    ),
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Fallback: No thumbnail available
+                                    if (shouldShowPlaceholder) {
+                                        // Show blurhash placeholder with "Tap to show" text
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .combinedClickable(
+                                                    onClick = {
+                                                        // First tap: for videos without thumbnails, open viewer directly
+                                                        onImageClick(previewBounds)
+                                                    },
+                                                    onLongClick = { onImageLongPress?.invoke() },
+                                                ),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            // Show blurhash or empty box
+                                            if (videoBlurHash != null) {
+                                                Image(
+                                                    painter = videoBlurHashPainter,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
+                                                )
+                                            } else {
+                                                // Empty box with background
+                                                Box(
+                                                    modifier = Modifier
+                                                        .fillMaxSize()
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                                                )
+                                            }
+
+                                            // Play icon overlay (centered, only shown when video is not playing)
+                                            // Note: Parent Box handles clicks, so this is just visual
+                                            if (!isVideoPlayingInline) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = Color.Black.copy(alpha = 0.6f),
+                                                    modifier = Modifier.size(64.dp),
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.PlayArrow,
+                                                        contentDescription = "Play video",
+                                                        tint = Color.White,
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .padding(start = 4.dp), // Slight offset to visually center the play icon
+                                                    )
+                                                }
+                                            }
+
+                                            // "Tap to show" text overlay (below play icon)
+                                            Text(
+                                                text = "Tap to show",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier
+                                                    .padding(top = 80.dp) // Position below play icon
+                                                    .background(
+                                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                                                        RoundedCornerShape(8.dp),
+                                                    )
+                                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            )
+                                        }
+                                    } else {
+                                        // No thumbnail available, show placeholder
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .aspectRatio(aspectRatio)
+                                                .combinedClickable(
+                                                    onClick = { onImageClick(previewBounds) },
+                                                    onLongClick = { onImageLongPress?.invoke() },
+                                                ),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center,
+                                            ) {
+                                                Text(
+                                                    text = "🎥",
+                                                    style = MaterialTheme.typography.headlineMedium,
+                                                )
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text(
+                                                    text = mediaMessage.filename,
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+
+                                            // Play icon overlay (centered, only shown when video is not playing)
+                                            if (!isVideoPlayingInline) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = Color.Black.copy(alpha = 0.6f),
+                                                    modifier = Modifier
+                                                        .size(64.dp)
+                                                        .combinedClickable(
+                                                            onClick = { onImageClick(previewBounds) },
+                                                            onLongClick = { onImageLongPress?.invoke() },
+                                                        ),
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.PlayArrow,
+                                                        contentDescription = "Play video",
+                                                        tint = Color.White,
+                                                        modifier = Modifier
+                                                            .fillMaxSize()
+                                                            .padding(start = 4.dp), // Slight offset to visually center the play icon
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1749,19 +1819,19 @@ private fun InlineVideoPlayer(
     videoId: String,
     onFullscreenClick: (currentPosition: Long, isPlaying: Boolean) -> Unit,
     onLongPress: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val colorScheme = MaterialTheme.colorScheme
     val primaryColor = colorScheme.primary
-    
+
     // Player state
     var player by remember(videoId) { mutableStateOf<ExoPlayer?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var showControls by remember { mutableStateOf(true) }
     var controlsVisible by remember { mutableStateOf(true) }
-    
+
     // Auto-hide controls after 1 second (faster for better UX)
     LaunchedEffect(isPlaying, showControls) {
         if (isPlaying && showControls) {
@@ -1773,14 +1843,14 @@ private fun InlineVideoPlayer(
             controlsVisible = true
         }
     }
-    
+
     // Reset controls visibility when user interacts
     LaunchedEffect(showControls) {
         if (showControls) {
             controlsVisible = true
         }
     }
-    
+
     // Convert MXC URL to HTTP URL
     val videoHttpUrl = remember(mediaMessage.url, isEncrypted) {
         val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
@@ -1790,11 +1860,11 @@ private fun InlineVideoPlayer(
             httpUrl ?: ""
         }
     }
-    
+
     // Create and manage ExoPlayer
     DisposableEffect(videoId, videoHttpUrl) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayer: Creating player for $videoId")
-        
+
         val upstreamFactory = MediaHttpDataSource.factory(authToken)
 
         val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
@@ -1814,10 +1884,10 @@ private fun InlineVideoPlayer(
                         .setUsage(androidx.media3.common.C.USAGE_MEDIA)
                         .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
                         .build(),
-                    true
+                    true,
                 )
             }
-        
+
         // Set media item
         if (videoHttpUrl.isNotEmpty()) {
             val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
@@ -1827,7 +1897,7 @@ private fun InlineVideoPlayer(
             exoPlayer.play()
             InlineVideoPlayerManager.setCurrentVideo(videoId, exoPlayer)
         }
-        
+
         // Register listener
         val listener = object : androidx.media3.common.Player.Listener {
             override fun onIsPlayingChanged(isPlayingValue: Boolean) {
@@ -1836,9 +1906,9 @@ private fun InlineVideoPlayer(
             }
         }
         exoPlayer.addListener(listener)
-        
+
         player = exoPlayer
-        
+
         onDispose {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayer: Releasing player for $videoId")
             exoPlayer.removeListener(listener)
@@ -1848,7 +1918,7 @@ private fun InlineVideoPlayer(
             player = null
         }
     }
-    
+
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -1869,10 +1939,10 @@ private fun InlineVideoPlayer(
                             controlsVisible = true
                         }
                     },
-                    onLongPress = { onLongPress?.invoke() }
+                    onLongPress = { onLongPress?.invoke() },
                 )
             },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         // ExoPlayer view
         player?.let { p ->
@@ -1886,15 +1956,15 @@ private fun InlineVideoPlayer(
                 modifier = Modifier.fillMaxSize(),
                 update = { view ->
                     view.player = p
-                }
+                },
             )
         }
-        
+
         // Controls overlay
         AnimatedVisibility(
             visible = controlsVisible,
             enter = fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(200))),
-            exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(200))) // Faster fade-out
+            exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(200))), // Faster fade-out
         ) {
             Box(
                 modifier = Modifier
@@ -1906,9 +1976,9 @@ private fun InlineVideoPlayer(
                                 showControls = true
                                 controlsVisible = true
                             },
-                            onLongPress = { onLongPress?.invoke() }
+                            onLongPress = { onLongPress?.invoke() },
                         )
-                    }
+                    },
             ) {
                 // Play/Pause button (center)
                 Box(
@@ -1927,14 +1997,14 @@ private fun InlineVideoPlayer(
                                         showControls = true
                                         controlsVisible = true
                                     }
-                                }
+                                },
                             )
-                        }
+                        },
                 ) {
                     Surface(
                         shape = CircleShape,
                         color = Color.Black.copy(alpha = 0.6f),
-                        modifier = Modifier.size(56.dp)
+                        modifier = Modifier.size(56.dp),
                     ) {
                         IconButton(
                             onClick = {
@@ -1949,28 +2019,28 @@ private fun InlineVideoPlayer(
                                     controlsVisible = true
                                 }
                             },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
                         ) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = if (isPlaying) "Pause" else "Play",
                                 tint = Color.White,
-                                modifier = Modifier.size(32.dp)
+                                modifier = Modifier.size(32.dp),
                             )
                         }
                     }
                 }
-                
+
                 // Fullscreen button (top-right)
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
+                        .padding(8.dp),
                 ) {
                     Surface(
                         shape = CircleShape,
                         color = Color.Black.copy(alpha = 0.6f),
-                        modifier = Modifier.size(40.dp)
+                        modifier = Modifier.size(40.dp),
                     ) {
                         IconButton(
                             onClick = {
@@ -1980,13 +2050,13 @@ private fun InlineVideoPlayer(
                                     onFullscreenClick(0L, false)
                                 }
                             },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.Fullscreen,
                                 contentDescription = "Fullscreen",
                                 tint = Color.White,
-                                modifier = Modifier.size(24.dp)
+                                modifier = Modifier.size(24.dp),
                             )
                         }
                     }
@@ -2019,7 +2089,7 @@ fun normalizeWaveform(
     waveform: List<Int>,
     durationMs: Int = 0,
     targetBars: Int = 0,
-    minHeight: Float = 0.12f
+    minHeight: Float = 0.12f,
 ): List<Float> {
     if (waveform.isEmpty()) return emptyList()
     val bars = when {
@@ -2067,7 +2137,7 @@ private fun WaveformSeekBar(
     playedColor: Color,
     unplayedColor: Color,
     modifier: Modifier = Modifier,
-    onSeek: (Float) -> Unit = {}
+    onSeek: (Float) -> Unit = {},
 ) {
     val clampedProgress = progress.coerceIn(0f, 1f)
     Canvas(
@@ -2081,7 +2151,7 @@ private fun WaveformSeekBar(
                 detectHorizontalDragGestures { change, _ ->
                     if (size.width > 0) onSeek((change.position.x / size.width).coerceIn(0f, 1f))
                 }
-            }
+            },
     ) {
         val n = bars.size
         if (n == 0) return@Canvas
@@ -2099,7 +2169,7 @@ private fun WaveformSeekBar(
                 color = if (i < playedThreshold) playedColor else unplayedColor,
                 topLeft = androidx.compose.ui.geometry.Offset(left, top),
                 size = androidx.compose.ui.geometry.Size(barWidth, h),
-                cornerRadius = radius
+                cornerRadius = radius,
             )
         }
     }
@@ -2116,7 +2186,7 @@ private fun AudioPlayer(
     authToken: String,
     isEncrypted: Boolean,
     context: android.content.Context,
-    onLongPress: (() -> Unit)? = null
+    onLongPress: (() -> Unit)? = null,
 ) {
     // Convert MXC URL to HTTP URL
     val audioHttpUrl = remember(mediaMessage.url, isEncrypted) {
@@ -2127,7 +2197,7 @@ private fun AudioPlayer(
             httpUrl ?: ""
         }
     }
-    
+
     // ExoPlayer instance for audio playback
     val exoPlayer = remember {
         // Create MediaItem with authentication headers
@@ -2135,7 +2205,7 @@ private fun AudioPlayer(
 
         val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
             .setDataSourceFactory(dataSourceFactory)
-        
+
         androidx.media3.exoplayer.ExoPlayer.Builder(context)
             .setMediaSourceFactory(mediaSourceFactory)
             .build()
@@ -2146,19 +2216,19 @@ private fun AudioPlayer(
                 prepare()
             }
     }
-    
+
     // Dispose player when component is removed
     DisposableEffect(Unit) {
         onDispose {
             exoPlayer.release()
         }
     }
-    
+
     // State for play/pause and progress
     var isPlaying by remember { mutableStateOf(false) }
     var duration by remember { mutableStateOf(0L) }
     var currentPosition by remember { mutableStateOf(0L) }
-    
+
     // Listen to player state changes
     LaunchedEffect(exoPlayer) {
         while (true) {
@@ -2168,7 +2238,7 @@ private fun AudioPlayer(
             kotlinx.coroutines.delay(100) // Update every 100ms
         }
     }
-    
+
     // Audio player UI
     Box(
         modifier = Modifier
@@ -2177,19 +2247,19 @@ private fun AudioPlayer(
             .padding(horizontal = 12.dp, vertical = 8.dp)
             .pointerInput(onLongPress) {
                 detectTapGestures(
-                    onLongPress = { onLongPress?.invoke() }
+                    onLongPress = { onLongPress?.invoke() },
                 )
-            }
+            },
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
         ) {
             // Top row: filename and duration
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = mediaMessage.filename,
@@ -2197,9 +2267,9 @@ private fun AudioPlayer(
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
-                
+
                 Text(
                     text = if (duration > 0) {
                         "${formatDurationMs(duration.toInt())}"
@@ -2207,16 +2277,16 @@ private fun AudioPlayer(
                         mediaMessage.info.duration?.let { formatDuration(it) } ?: "--:--"
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             // Bottom row: play button and progress slider
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 // Play/Pause button
                 IconButton(
@@ -2227,16 +2297,16 @@ private fun AudioPlayer(
                             exoPlayer.play()
                         }
                     },
-                    modifier = Modifier.size(40.dp)
+                    modifier = Modifier.size(40.dp),
                 ) {
                     Icon(
                         imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play",
                         tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(28.dp)
+                        modifier = Modifier.size(28.dp),
                     )
                 }
-                
+
                 Spacer(modifier = Modifier.width(8.dp))
 
                 // Progress: waveform seek bar when MSC1767 amplitude samples are present
@@ -2247,11 +2317,13 @@ private fun AudioPlayer(
                     }
                 }
                 Column(
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 ) {
                     val playbackProgress = if (duration > 0) {
                         currentPosition.toFloat() / duration.toFloat()
-                    } else 0f
+                    } else {
+                        0f
+                    }
                     if (!waveformBars.isNullOrEmpty()) {
                         WaveformSeekBar(
                             bars = waveformBars,
@@ -2265,7 +2337,7 @@ private fun AudioPlayer(
                                 if (duration > 0) {
                                     exoPlayer.seekTo((fraction * duration).toLong())
                                 }
-                            }
+                            },
                         )
                     } else {
                         Slider(
@@ -2280,22 +2352,22 @@ private fun AudioPlayer(
                             colors = SliderDefaults.colors(
                                 thumbColor = MaterialTheme.colorScheme.primary,
                                 activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                            )
+                                inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                            ),
                         )
                     }
 
                     // Current position and duration
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
                             text = formatDurationMs(currentPosition.toInt()),
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        
+
                         Text(
                             text = if (duration > 0) {
                                 formatDurationMs(duration.toInt())
@@ -2303,7 +2375,7 @@ private fun AudioPlayer(
                                 mediaMessage.info.duration?.let { formatDuration(it) } ?: "--:--"
                             },
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -2324,6 +2396,7 @@ private fun AudioPlayer(
  * The gomuks backend decrypts encrypted media server-side (the timeline URL carries
  * `?encrypted=true`), so we only ever deal with plain PDF bytes here.
  */
+
 /**
  * Size cap (bytes) for auto-rendering a PDF's first-page timeline preview. Page-0 rendering
  * requires the whole file on disk, so above this we skip the preview and show only the chip.
@@ -2333,6 +2406,7 @@ private const val PDF_PREVIEW_MAX_BYTES = 500L * 1024L
 private object PdfThumbnailCache {
     private const val MAX_MEMORY_ENTRIES = 24
     private val client = OkHttpClient()
+
     // PdfRenderer is not thread-safe; serialize open/render across concurrently visible PDFs.
     private val renderMutex = kotlinx.coroutines.sync.Mutex()
 
@@ -2346,78 +2420,86 @@ private object PdfThumbnailCache {
     fun getMemory(key: String): Bitmap? = memCache[key]
 
     @Synchronized
-    private fun putMemory(key: String, bmp: Bitmap) { memCache[key] = bmp }
+    private fun putMemory(key: String, bmp: Bitmap) {
+        memCache[key] = bmp
+    }
 
     private fun fileNameFor(mxcUrl: String): String =
         mxcUrl.removePrefix("mxc://").replace('/', '_').replace(':', '_') + ".pdf"
 
     /** Render the first page of the PDF to a bitmap, or null on any failure. */
-    suspend fun render(
-        context: Context,
-        mxcUrl: String,
-        httpUrl: String,
-        authToken: String
-    ): Bitmap? = withContext(Dispatchers.IO) {
-        getMemory(mxcUrl)?.let { return@withContext it }
-        if (httpUrl.isBlank()) return@withContext null
+    suspend fun render(context: Context, mxcUrl: String, httpUrl: String, authToken: String): Bitmap? =
+        withContext(Dispatchers.IO) {
+            getMemory(mxcUrl)?.let { return@withContext it }
+            if (httpUrl.isBlank()) return@withContext null
 
-        val dir = File(context.cacheDir, "pdf_thumbs").apply { mkdirs() }
-        val pdfFile = File(dir, fileNameFor(mxcUrl))
+            val dir = File(context.cacheDir, "pdf_thumbs").apply { mkdirs() }
+            val pdfFile = File(dir, fileNameFor(mxcUrl))
 
-        // Fetch the PDF bytes once and keep them on disk.
-        if (!pdfFile.exists() || pdfFile.length() == 0L) {
-            try {
-                val request = Request.Builder()
-                    .url(httpUrl)
-                    .header("Cookie", "gomuks_auth=$authToken")
-                    .build()
-                client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) {
-                        Log.w("Andromuks", "PDF thumbnail download HTTP ${response.code} for $mxcUrl")
-                        return@withContext null
+            // Fetch the PDF bytes once and keep them on disk.
+            if (!pdfFile.exists() || pdfFile.length() == 0L) {
+                try {
+                    val request = Request.Builder()
+                        .url(httpUrl)
+                        .header("Cookie", "gomuks_auth=$authToken")
+                        .build()
+                    client.newCall(request).execute().use { response ->
+                        if (!response.isSuccessful) {
+                            Log.w("Andromuks", "PDF thumbnail download HTTP ${response.code} for $mxcUrl")
+                            return@withContext null
+                        }
+                        val tmp = File(dir, pdfFile.name + ".tmp")
+                        response.body?.byteStream()?.use { input ->
+                            FileOutputStream(tmp).use { output -> input.copyTo(output) }
+                        } ?: return@withContext null
+                        if (tmp.length() == 0L) {
+                            tmp.delete();
+                            return@withContext null
+                        }
+                        if (!tmp.renameTo(pdfFile)) {
+                            tmp.copyTo(pdfFile, overwrite = true);
+                            tmp.delete()
+                        }
                     }
-                    val tmp = File(dir, pdfFile.name + ".tmp")
-                    response.body?.byteStream()?.use { input ->
-                        FileOutputStream(tmp).use { output -> input.copyTo(output) }
-                    } ?: return@withContext null
-                    if (tmp.length() == 0L) { tmp.delete(); return@withContext null }
-                    if (!tmp.renameTo(pdfFile)) { tmp.copyTo(pdfFile, overwrite = true); tmp.delete() }
+                } catch (e: Exception) {
+                    Log.w("Andromuks", "PDF thumbnail download failed for $mxcUrl: ${e.message}")
+                    return@withContext null
+                }
+            }
+
+            renderMutex.lock()
+            var pfd: ParcelFileDescriptor? = null
+            var renderer: PdfRenderer? = null
+            try {
+                pfd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
+                renderer = PdfRenderer(pfd)
+                if (renderer.pageCount <= 0) return@withContext null
+                renderer.openPage(0).use { page ->
+                    // Scale page-0 to ~1080px wide for a crisp-but-bounded thumbnail.
+                    val targetWidth = 1080
+                    val scale = targetWidth.toFloat() / page.width.toFloat()
+                    val height = (page.height * scale).toInt().coerceAtLeast(1)
+                    val bmp = Bitmap.createBitmap(targetWidth, height, Bitmap.Config.ARGB_8888)
+                    bmp.eraseColor(android.graphics.Color.WHITE)
+                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                    putMemory(mxcUrl, bmp)
+                    bmp
                 }
             } catch (e: Exception) {
-                Log.w("Andromuks", "PDF thumbnail download failed for $mxcUrl: ${e.message}")
-                return@withContext null
+                Log.w("Andromuks", "PDF thumbnail render failed for $mxcUrl: ${e.message}")
+                // Corrupt/partial download — drop it so a later attempt can re-fetch.
+                pdfFile.delete()
+                null
+            } finally {
+                try {
+                    renderer?.close()
+                } catch (_: Exception) {}
+                try {
+                    pfd?.close()
+                } catch (_: Exception) {}
+                renderMutex.unlock()
             }
         }
-
-        renderMutex.lock()
-        var pfd: ParcelFileDescriptor? = null
-        var renderer: PdfRenderer? = null
-        try {
-            pfd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
-            renderer = PdfRenderer(pfd)
-            if (renderer.pageCount <= 0) return@withContext null
-            renderer.openPage(0).use { page ->
-                // Scale page-0 to ~1080px wide for a crisp-but-bounded thumbnail.
-                val targetWidth = 1080
-                val scale = targetWidth.toFloat() / page.width.toFloat()
-                val height = (page.height * scale).toInt().coerceAtLeast(1)
-                val bmp = Bitmap.createBitmap(targetWidth, height, Bitmap.Config.ARGB_8888)
-                bmp.eraseColor(android.graphics.Color.WHITE)
-                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                putMemory(mxcUrl, bmp)
-                bmp
-            }
-        } catch (e: Exception) {
-            Log.w("Andromuks", "PDF thumbnail render failed for $mxcUrl: ${e.message}")
-            // Corrupt/partial download — drop it so a later attempt can re-fetch.
-            pdfFile.delete()
-            null
-        } finally {
-            try { renderer?.close() } catch (_: Exception) {}
-            try { pfd?.close() } catch (_: Exception) {}
-            renderMutex.unlock()
-        }
-    }
 }
 
 /**
@@ -2434,7 +2516,7 @@ private fun PdfTimelineThumbnail(
     authToken: String,
     onTap: () -> Unit,
     onLongPress: (() -> Unit)?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     var bitmap by remember(mxcUrl) { mutableStateOf<Bitmap?>(PdfThumbnailCache.getMemory(mxcUrl)) }
@@ -2458,16 +2540,17 @@ private fun PdfTimelineThumbnail(
                 .pointerInput(onTap, onLongPress) {
                     detectTapGestures(
                         onTap = { onTap() },
-                        onLongPress = { onLongPress?.invoke() }
+                        onLongPress = { onLongPress?.invoke() },
                     )
                 },
-            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth,
         )
+
         !failed -> Box(
             modifier = modifier
                 .fillMaxWidth()
                 .height(120.dp),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             CircularProgressIndicator(modifier = Modifier.size(28.dp))
         }
@@ -2489,7 +2572,7 @@ private fun FileDownload(
     onLongPress: (() -> Unit)? = null,
     event: net.vrkknn.andromuks.TimelineEvent? = null,
     onUserClick: (String) -> Unit = {},
-    appViewModel: net.vrkknn.andromuks.AppViewModel? = null
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
 ) {
     // Convert MXC URL to HTTP URL
     val fileHttpUrl = remember(mediaMessage.url, isEncrypted) {
@@ -2500,21 +2583,21 @@ private fun FileDownload(
             httpUrl ?: ""
         }
     }
-    
+
     val coroutineScope = rememberCoroutineScope()
 
     val triggerDownload: () -> Unit = {
         android.widget.Toast.makeText(
             context,
             "Downloading ${mediaMessage.filename}",
-            android.widget.Toast.LENGTH_SHORT
+            android.widget.Toast.LENGTH_SHORT,
         ).show()
         coroutineScope.launch {
             downloadFile(
                 context = context,
                 url = fileHttpUrl,
                 filename = mediaMessage.filename,
-                authToken = authToken
+                authToken = authToken,
             )
         }
     }
@@ -2527,130 +2610,125 @@ private fun FileDownload(
     val showPdfPreview = isPdf && pdfSize <= PDF_PREVIEW_MAX_BYTES
 
     Column(modifier = Modifier.fillMaxWidth()) {
-    // First-page preview for small PDFs, mirroring the pre-send upload preview.
-    if (showPdfPreview) {
-        PdfTimelineThumbnail(
-            mxcUrl = mediaMessage.url,
-            httpUrl = fileHttpUrl,
-            authToken = authToken,
-            onTap = triggerDownload,
-            onLongPress = onLongPress,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-        )
-    }
-
-    // File download UI
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .pointerInput(onLongPress) {
-                detectTapGestures(
-                    onLongPress = { onLongPress?.invoke() }
-                )
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // File icon
-        @Suppress("DEPRECATION")
-        Icon(
-            imageVector = Icons.Filled.InsertDriveFile,
-            contentDescription = "File",
-            modifier = Modifier.size(32.dp),
-            tint = MaterialTheme.colorScheme.primary
-        )
-        
-        // File info
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            // Filename / body — use HtmlMessageText when sanitized_html is available
-            if (event != null && supportsHtmlRendering(event)) {
-                HtmlMessageText(
-                    event = event,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    onMatrixUserClick = onUserClick,
-                    appViewModel = appViewModel
-                )
-            } else {
-                Text(
-                    text = mediaMessage.filename,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            
-            Spacer(modifier = Modifier.height(4.dp))
-            
-            // Size and mimetype
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // File size
-                mediaMessage.info.size?.let { sizeBytes ->
-                    Text(
-                        text = formatFileSize(sizeBytes),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                
-                // MIME type
-                mediaMessage.info.mimeType?.let { mimeType ->
-                    Text(
-                        text = mimeType,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false)
-                    )
-                }
-            }
-        }
-        
-        // Download button
-        IconButton(
-            onClick = triggerDownload,
-            modifier = Modifier.size(40.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Filled.Download,
-                contentDescription = "Download",
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(24.dp)
+        // First-page preview for small PDFs, mirroring the pre-send upload preview.
+        if (showPdfPreview) {
+            PdfTimelineThumbnail(
+                mxcUrl = mediaMessage.url,
+                httpUrl = fileHttpUrl,
+                authToken = authToken,
+                onTap = triggerDownload,
+                onLongPress = onLongPress,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             )
         }
-    }
+
+        // File download UI
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .pointerInput(onLongPress) {
+                    detectTapGestures(
+                        onLongPress = { onLongPress?.invoke() },
+                    )
+                },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // File icon
+            @Suppress("DEPRECATION")
+            Icon(
+                imageVector = Icons.Filled.InsertDriveFile,
+                contentDescription = "File",
+                modifier = Modifier.size(32.dp),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+
+            // File info
+            Column(
+                modifier = Modifier.weight(1f),
+            ) {
+                // Filename / body — use HtmlMessageText when sanitized_html is available
+                if (event != null && supportsHtmlRendering(event)) {
+                    HtmlMessageText(
+                        event = event,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        onMatrixUserClick = onUserClick,
+                        appViewModel = appViewModel,
+                    )
+                } else {
+                    Text(
+                        text = mediaMessage.filename,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Size and mimetype
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // File size
+                    mediaMessage.info.size?.let { sizeBytes ->
+                        Text(
+                            text = formatFileSize(sizeBytes),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+
+                    // MIME type
+                    mediaMessage.info.mimeType?.let { mimeType ->
+                        Text(
+                            text = mimeType,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                }
+            }
+
+            // Download button
+            IconButton(
+                onClick = triggerDownload,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Download,
+                    contentDescription = "Download",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
     }
 }
 
 /**
  * Download file using OkHttp and Android DownloadManager
  */
-private suspend fun downloadFile(
-    context: android.content.Context,
-    url: String,
-    filename: String,
-    authToken: String
-) {
+private suspend fun downloadFile(context: android.content.Context, url: String, filename: String, authToken: String) {
     try {
         // Use Android DownloadManager for system-level download handling
         val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
         val request = DownloadManager.Request(Uri.parse(url))
-        
+
         // Set authentication header
         request.addRequestHeader("Cookie", "gomuks_auth=$authToken")
-        
+
         // Set destination directory (Downloads folder)
         val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         val file = File(downloadsDir, filename)
-        
+
         // Handle duplicate filenames
         var finalFile = file
         var counter = 1
@@ -2665,16 +2743,15 @@ private suspend fun downloadFile(
             finalFile = File(downloadsDir, newFilename)
             counter++
         }
-        
+
         request.setDestinationUri(Uri.fromFile(finalFile))
         request.setTitle("Downloading $filename")
         request.setDescription("Downloading file from Andromuks")
         request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-        
+
         downloadManager.enqueue(request)
-        
+
         if (BuildConfig.DEBUG) Log.d("Andromuks", "File download started: $filename to ${finalFile.absolutePath}")
-        
     } catch (e: Exception) {
         Log.e("Andromuks", "Failed to download file: $filename", e)
         // Fallback: Try using OkHttp for download
@@ -2693,7 +2770,7 @@ private suspend fun downloadFileWithOkHttp(
     context: android.content.Context,
     url: String,
     filename: String,
-    authToken: String
+    authToken: String,
 ) {
     try {
         val client = OkHttpClient()
@@ -2701,15 +2778,15 @@ private suspend fun downloadFileWithOkHttp(
             .url(url)
             .addHeader("Cookie", "gomuks_auth=$authToken")
             .build()
-        
+
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 throw Exception("HTTP ${response.code}: ${response.message}")
             }
-            
+
             val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             val file = File(downloadsDir, filename)
-            
+
             // Handle duplicate filenames
             var finalFile = file
             var counter = 1
@@ -2724,13 +2801,13 @@ private suspend fun downloadFileWithOkHttp(
                 finalFile = File(downloadsDir, newFilename)
                 counter++
             }
-            
+
             response.body?.byteStream()?.use { input ->
                 FileOutputStream(finalFile).use { output ->
                     input.copyTo(output)
                 }
             }
-            
+
             if (BuildConfig.DEBUG) Log.d("Andromuks", "File downloaded successfully: $filename to ${finalFile.absolutePath}")
         }
     } catch (e: Exception) {
@@ -2746,7 +2823,7 @@ private fun formatFileSize(bytes: Long): String {
     val kb = 1024.0
     val mb = kb * 1024
     val gb = mb * 1024
-    
+
     return when {
         bytes >= gb -> String.format("%.1f GB", bytes / gb)
         bytes >= mb -> String.format("%.1f MB", bytes / mb)
@@ -2763,7 +2840,7 @@ private fun formatDurationMs(durationMs: Int): String {
     val hours = seconds / 3600
     val minutes = (seconds % 3600) / 60
     val secs = seconds % 60
-    
+
     return if (hours > 0) {
         String.format("%d:%02d:%02d", hours, minutes, secs)
     } else {
@@ -2780,11 +2857,11 @@ private suspend fun saveImageToGallery(
     cachedFile: File?,
     imageUrl: String,
     filename: String?,
-    authToken: String
+    authToken: String,
 ) = withContext(Dispatchers.IO) {
     try {
         var imageFile: File? = cachedFile
-        
+
         // If we don't have bitmap or cached file, download the image
         if (bitmap == null && imageFile == null) {
             val httpUrl = if (imageUrl.startsWith("http")) {
@@ -2798,19 +2875,19 @@ private suspend fun saveImageToGallery(
                 imageFile = File(imageUrl)
                 null
             }
-            
+
             if (httpUrl != null) {
                 val client = OkHttpClient()
                 val request = Request.Builder()
                     .url(httpUrl)
                     .addHeader("Cookie", "gomuks_auth=$authToken")
                     .build()
-                
+
                 val response = client.newCall(request).execute()
                 if (!response.isSuccessful) {
                     throw Exception("Failed to download image: ${response.code}")
                 }
-                
+
                 response.body?.byteStream()?.use { input ->
                     val tempFile = File(context.cacheDir, "temp_image_${System.currentTimeMillis()}.jpg")
                     FileOutputStream(tempFile).use { output ->
@@ -2820,16 +2897,16 @@ private suspend fun saveImageToGallery(
                 }
             }
         }
-        
+
         // Determine filename
-        val displayName = filename?.takeIf { it.isNotBlank() } 
+        val displayName = filename?.takeIf { it.isNotBlank() }
             ?: "image_${System.currentTimeMillis()}.jpg"
         val finalFilename = if (!displayName.contains(".")) {
             "$displayName.jpg"
         } else {
             displayName
         }
-        
+
         // Save to MediaStore
         val contentValues = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, finalFilename)
@@ -2839,12 +2916,12 @@ private suspend fun saveImageToGallery(
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
         }
-        
+
         val uri = context.contentResolver.insert(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            contentValues
+            contentValues,
         ) ?: throw Exception("Failed to create MediaStore entry")
-        
+
         // Write image data
         context.contentResolver.openOutputStream(uri)?.use { output ->
             if (bitmap != null) {
@@ -2859,23 +2936,23 @@ private suspend fun saveImageToGallery(
                 throw Exception("No image data available")
             }
         }
-        
+
         // Mark as not pending (Android Q+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             contentValues.clear()
             contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
             context.contentResolver.update(uri, contentValues, null, null)
         }
-        
+
         // Show success toast
         withContext(Dispatchers.Main) {
             android.widget.Toast.makeText(
                 context,
                 "Image saved to gallery",
-                android.widget.Toast.LENGTH_SHORT
+                android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
-        
+
         if (BuildConfig.DEBUG) Log.d("Andromuks", "Image saved to gallery: $finalFilename")
     } catch (e: Exception) {
         Log.e("Andromuks", "Failed to save image to gallery", e)
@@ -2883,7 +2960,7 @@ private suspend fun saveImageToGallery(
             android.widget.Toast.makeText(
                 context,
                 "Failed to save image: ${e.message}",
-                android.widget.Toast.LENGTH_SHORT
+                android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
     }
@@ -2911,41 +2988,41 @@ internal fun ImageViewerDialog(
     authToken: String,
     isEncrypted: Boolean,
     sourceBounds: Rect? = null,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
     // Track cumulative rotation (can be any value, not just 0-360) to avoid wrap-around animation issues
     var rotationDegrees by remember { mutableFloatStateOf(0f) }
-    
+
     // Button visibility state - auto-hide after 1 second of inactivity
     var showButtons by remember { mutableStateOf(true) }
     var lastInteractionTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
-    
+
     // Animate rotation smoothly - normalize to 0-360 range only for rendering
     val animatedRotation by animateFloatAsState(
         targetValue = rotationDegrees,
         animationSpec = tween(durationMillis = scaledTweenMs(300)), // 300ms animation
-        label = "rotation"
+        label = "rotation",
     )
-    
+
     // Normalize rotation to 0-360 range for rendering (handles wrap-around correctly)
     val normalizedRotation = (animatedRotation % 360f + 360f) % 360f
-    
+
     // Animate button visibility
     val buttonsAlpha by animateFloatAsState(
         targetValue = if (showButtons) 1f else 0f,
         animationSpec = tween(durationMillis = scaledTweenMs(300)),
-        label = "buttons_alpha"
+        label = "buttons_alpha",
     )
-    
+
     // Function to reset button visibility timer
     fun resetButtonTimer() {
         lastInteractionTime = System.currentTimeMillis()
         showButtons = true
     }
-    
+
     val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
         resetButtonTimer() // Reset timer on zoom/pan
         scale = (scale * zoomChange).coerceIn(0.5f, 5f)
@@ -2955,7 +3032,7 @@ internal fun ImageViewerDialog(
         offsetX = (offsetX + offsetChange.x * panScale).coerceIn(-maxPan, maxPan)
         offsetY = (offsetY + offsetChange.y * panScale).coerceIn(-maxPan, maxPan)
     }
-    
+
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
     var cachedFile by remember { mutableStateOf<File?>(null) }
@@ -3034,7 +3111,7 @@ internal fun ImageViewerDialog(
         finishedListener = { value ->
             if (isClosingManually && value == 0f) onDismiss()
         },
-        label = "image_viewer_open_progress"
+        label = "image_viewer_open_progress",
     )
 
     fun requestClose() {
@@ -3052,14 +3129,14 @@ internal fun ImageViewerDialog(
             isOpening = false
         }
     }
-    
+
     // Reset button timer when opening animation completes
     LaunchedEffect(openProgress) {
         if (openProgress == 1f) {
             resetButtonTimer() // Show buttons when animation completes
         }
     }
-    
+
     // Auto-hide buttons after 1 second of inactivity
     LaunchedEffect(lastInteractionTime, openProgress) {
         if (openProgress < 1f) return@LaunchedEffect // Don't hide during opening animation
@@ -3072,25 +3149,25 @@ internal fun ImageViewerDialog(
     }
 
     Dialog(
-                onDismissRequest = { requestClose() },
-                properties = DialogProperties(
-                    dismissOnBackPress = true, // Allow back button to dismiss
-                    dismissOnClickOutside = false, // We handle this manually
-                    usePlatformDefaultWidth = false
-                )
-            ) {
-                // Handle back button/gesture to dismiss
-                BackHandler(enabled = true) {
-                    requestClose()
-                }
-                // Pure black background - tapping it dismisses the dialog
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.72f * openProgress))
-                        .clickable(onClick = { requestClose() }) // Tap background to dismiss
-                ) {
-                var fullImageLoaded by remember(imageUrl) { mutableStateOf(false) }
+        onDismissRequest = { requestClose() },
+        properties = DialogProperties(
+            dismissOnBackPress = true, // Allow back button to dismiss
+            dismissOnClickOutside = false, // We handle this manually
+            usePlatformDefaultWidth = false,
+        ),
+    ) {
+        // Handle back button/gesture to dismiss
+        BackHandler(enabled = true) {
+            requestClose()
+        }
+        // Pure black background - tapping it dismisses the dialog
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.72f * openProgress))
+                .clickable(onClick = { requestClose() }), // Tap background to dismiss
+        ) {
+            var fullImageLoaded by remember(imageUrl) { mutableStateOf(false) }
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                 // Image with zoom and pan
                 val density = LocalDensity.current
@@ -3136,7 +3213,13 @@ internal fun ImageViewerDialog(
                 val containerTx = currentCenterX - targetCenterX
                 val containerTy = currentCenterY - targetCenterY
 
-                val thumbnailUrl = remember(mediaMessage.info.thumbnailUrl, mediaMessage.url, homeserverUrl, mediaMessage.info.thumbnailIsEncrypted, isEncrypted) {
+                val thumbnailUrl = remember(
+                    mediaMessage.info.thumbnailUrl,
+                    mediaMessage.url,
+                    homeserverUrl,
+                    mediaMessage.info.thumbnailIsEncrypted,
+                    isEncrypted,
+                ) {
                     val thumbMxc = mediaMessage.info.thumbnailUrl
                     if (!thumbMxc.isNullOrBlank()) {
                         val thumbHttp = MediaUtils.mxcToThumbnailUrl(thumbMxc, homeserverUrl)
@@ -3154,7 +3237,7 @@ internal fun ImageViewerDialog(
                 val fullImageAlpha by animateFloatAsState(
                     targetValue = if (fullImageLoaded) 1f else 0f,
                     animationSpec = tween(durationMillis = scaledTweenMs(220)),
-                    label = "full_image_overlay_alpha"
+                    label = "full_image_overlay_alpha",
                 )
 
                 Box(
@@ -3166,7 +3249,7 @@ internal fun ImageViewerDialog(
                             scaleX = if (openProgress < 1f) containerScaleX else 1f,
                             scaleY = if (openProgress < 1f) containerScaleY else 1f,
                             translationX = if (openProgress < 1f) containerTx else 0f,
-                            translationY = if (openProgress < 1f) containerTy else 0f
+                            translationY = if (openProgress < 1f) containerTy else 0f,
                         )
                         .then(
                             // Only clip during opening animation to allow zoom beyond bounds when complete
@@ -3174,8 +3257,8 @@ internal fun ImageViewerDialog(
                                 Modifier.clip(RoundedCornerShape(8.dp))
                             } else {
                                 Modifier // No clipping when animation complete - allows full zoom
-                            }
-                        )
+                            },
+                        ),
                 ) {
                     Box(
                         modifier = Modifier
@@ -3185,7 +3268,7 @@ internal fun ImageViewerDialog(
                                 scaleY = scale,
                                 translationX = offsetX,
                                 translationY = offsetY,
-                                rotationZ = normalizedRotation
+                                rotationZ = normalizedRotation,
                             )
                             .transformable(state = transformableState)
                             .pointerInput(Unit) {
@@ -3196,9 +3279,9 @@ internal fun ImageViewerDialog(
                                         scale = 1f
                                         offsetX = 0f
                                         offsetY = 0f
-                                    }
+                                    },
                                 )
-                            }
+                            },
                     ) {
                         val thumbnailRequest = remember(thumbnailUrl, cachedFile, authToken) {
                             ImageRequest.Builder(context)
@@ -3216,11 +3299,16 @@ internal fun ImageViewerDialog(
                             imageLoader = imageLoader,
                             contentDescription = mediaMessage.filename,
                             contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize(),
                         )
 
                         val fullImageRequest = remember(imageUrl, cachedFile, bypassCoilCache) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ImageViewer: Building fullImageRequest — url=$imageUrl cachedFile=$cachedFile bypassCoilCache=$bypassCoilCache")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "ImageViewer: Building fullImageRequest — url=$imageUrl cachedFile=$cachedFile bypassCoilCache=$bypassCoilCache",
+                            )
+                            }
                             ImageRequest.Builder(context)
                                 .data(imageUrl)
                                 .size(Size.ORIGINAL)
@@ -3238,19 +3326,32 @@ internal fun ImageViewerDialog(
                                 .fillMaxSize()
                                 .graphicsLayer(alpha = fullImageAlpha),
                             onLoading = {
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ ImageViewer: Full image loading: $imageUrl")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "⏳ ImageViewer: Full image loading: $imageUrl",
+                                )
+                                }
                             },
                             onSuccess = {
                                 fullImageLoaded = true
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Full image loaded: $imageUrl")
                             },
                             onError = { state ->
-                                if (BuildConfig.DEBUG) Log.e("Andromuks", "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable?.message} cachedFile=$cachedFile")
+                                if (BuildConfig.DEBUG) {
+                                    Log.e(
+                                    "Andromuks",
+                                    "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable?.message} cachedFile=$cachedFile",
+                                )
+                                }
                                 if (cachedFile != null) {
                                     // Cached file failed to decode — evict and retry via HTTP.
                                     val badMxcUrl = mediaMessage.url
                                     if (BuildConfig.DEBUG) {
-                                        Log.w("Andromuks", "ImageViewer: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}")
+                                        Log.w(
+                                            "Andromuks",
+                                            "ImageViewer: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}",
+                                        )
                                     }
                                     cachedFile = null
                                     coroutineScope.launch {
@@ -3264,167 +3365,174 @@ internal fun ImageViewerDialog(
                                     // First HTTP failure — retry without Coil caches.
                                     bypassCoilCache = true
                                 }
-                            }
+                            },
                         )
                     }
                 }
             }
-                    
-                    // Broken image indicator — shown when the media is unavailable on the server.
-                    // The backend's error response (status + JSON body) is shown beneath it.
-                    if (fullImageFailed) {
-                        Column(
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.BrokenImage,
-                                contentDescription = "Media unavailable",
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(64.dp)
-                            )
-                            val details = errorDetails
-                            if (details != null) {
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Surface(
-                                    color = Color.Black.copy(alpha = 0.55f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = details,
-                                        color = Color.White,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                        modifier = Modifier
-                                            .heightIn(max = 240.dp)
-                                            .verticalScroll(rememberScrollState())
-                                            .padding(12.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
 
-                    // Top toolbar with action buttons
-                    Row(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .graphicsLayer(alpha = openProgress * buttonsAlpha) // Combine openProgress and buttonsAlpha
-                            .windowInsetsPadding(WindowInsets.statusBars)
-                            .padding(horizontal = 8.dp)
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        // Rotate Left button
-                        IconButton(
-                            onClick = {
-                                resetButtonTimer() // Show buttons on click
-                                // Always subtract 90 (don't normalize here - let animation handle it)
-                                rotationDegrees = rotationDegrees - 90f
-                                // Reset zoom/pan when rotating
-                                scale = 1f
-                                offsetX = 0f
-                                offsetY = 0f
-                            },
-                            colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            modifier = Modifier.size(48.dp)
+            // Broken image indicator — shown when the media is unavailable on the server.
+            // The backend's error response (status + JSON body) is shown beneath it.
+            if (fullImageFailed) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.BrokenImage,
+                        contentDescription = "Media unavailable",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(64.dp),
+                    )
+                    val details = errorDetails
+                    if (details != null) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Surface(
+                            color = Color.Black.copy(alpha = 0.55f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.RotateLeft,
-                                contentDescription = "Rotate Left",
-                                modifier = Modifier.size(24.dp)
+                            Text(
+                                text = details,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                modifier = Modifier
+                                    .heightIn(max = 240.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(12.dp),
                             )
                         }
-                        
-                        // Rotate Right button
-                        IconButton(
-                            onClick = {
-                                resetButtonTimer() // Show buttons on click
-                                // Always add 90 (don't normalize here - let animation handle it)
-                                rotationDegrees = rotationDegrees + 90f
-                                // Reset zoom/pan when rotating
-                                scale = 1f
-                                offsetX = 0f
-                                offsetY = 0f
-                            },
-                            colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.RotateRight,
-                                contentDescription = "Rotate Right",
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        
-                        // Save button
-                        IconButton(
-                            onClick = {
-                                resetButtonTimer() // Show buttons on click
-                                coroutineScope.launch {
-                                    saveImageToGallery(context, null, cachedFile, imageUrl, mediaMessage.filename, authToken)
-                                }
-                            },
-                            colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Save,
-                                contentDescription = "Save to Gallery",
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        
-                        // Close button
-                        IconButton(
-                            onClick = {
-                                resetButtonTimer() // Show buttons on click
-                                requestClose()
-                            },
-                            colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                            ),
-                            modifier = Modifier.size(48.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = "Close",
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
-
-                    // Spinner in the bottom-left corner while the full image is downloading.
-                    // The thumbnail renders behind it; this disappears once the full image is ready.
-                    AnimatedVisibility(
-                        visible = !fullImageLoaded && !fullImageFailed,
-                        enter = fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
-                        exit = fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .windowInsetsPadding(WindowInsets.navigationBars)
-                            .padding(start = 16.dp, bottom = 16.dp)
-                    ) {
-                        ContainedExpressiveLoadingIndicator(
-                            modifier = Modifier.size(40.dp)
-                        )
                     }
                 }
             }
+
+            // Top toolbar with action buttons
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .graphicsLayer(alpha = openProgress * buttonsAlpha) // Combine openProgress and buttonsAlpha
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(horizontal = 8.dp)
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                // Rotate Left button
+                IconButton(
+                    onClick = {
+                        resetButtonTimer() // Show buttons on click
+                        // Always subtract 90 (don't normalize here - let animation handle it)
+                        rotationDegrees = rotationDegrees - 90f
+                        // Reset zoom/pan when rotating
+                        scale = 1f
+                        offsetX = 0f
+                        offsetY = 0f
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.RotateLeft,
+                        contentDescription = "Rotate Left",
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+
+                // Rotate Right button
+                IconButton(
+                    onClick = {
+                        resetButtonTimer() // Show buttons on click
+                        // Always add 90 (don't normalize here - let animation handle it)
+                        rotationDegrees = rotationDegrees + 90f
+                        // Reset zoom/pan when rotating
+                        scale = 1f
+                        offsetX = 0f
+                        offsetY = 0f
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.RotateRight,
+                        contentDescription = "Rotate Right",
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+
+                // Save button
+                IconButton(
+                    onClick = {
+                        resetButtonTimer() // Show buttons on click
+                        coroutineScope.launch {
+                            saveImageToGallery(
+                                context,
+                                null,
+                                cachedFile,
+                                imageUrl,
+                                mediaMessage.filename,
+                                authToken,
+                            )
+                        }
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Save,
+                        contentDescription = "Save to Gallery",
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+
+                // Close button
+                IconButton(
+                    onClick = {
+                        resetButtonTimer() // Show buttons on click
+                        requestClose()
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    ),
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close",
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+
+            // Spinner in the bottom-left corner while the full image is downloading.
+            // The thumbnail renders behind it; this disappears once the full image is ready.
+            AnimatedVisibility(
+                visible = !fullImageLoaded && !fullImageFailed,
+                enter = fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
+                exit = fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(start = 16.dp, bottom = 16.dp),
+            ) {
+                ContainedExpressiveLoadingIndicator(
+                    modifier = Modifier.size(40.dp),
+                )
+            }
+        }
+    }
 }
 
 /**
@@ -3435,7 +3543,7 @@ private suspend fun saveVideoToGallery(
     videoUrl: String,
     filename: String?,
     mimeType: String,
-    authToken: String
+    authToken: String,
 ) = withContext(Dispatchers.IO) {
     try {
         // Determine filename and extension from MIME type
@@ -3446,27 +3554,27 @@ private suspend fun saveVideoToGallery(
             mimeType.contains("mkv") -> "mkv"
             else -> "mp4" // Default to mp4
         }
-        
-        val displayName = filename?.takeIf { it.isNotBlank() } 
+
+        val displayName = filename?.takeIf { it.isNotBlank() }
             ?: "video_${System.currentTimeMillis()}.$extension"
         val finalFilename = if (!displayName.contains(".")) {
             "$displayName.$extension"
         } else {
             displayName
         }
-        
+
         // Download video using OkHttp
         val client = OkHttpClient()
         val request = Request.Builder()
             .url(videoUrl)
             .addHeader("Cookie", "gomuks_auth=$authToken")
             .build()
-        
+
         val response = client.newCall(request).execute()
         if (!response.isSuccessful) {
             throw Exception("Failed to download video: ${response.code}")
         }
-        
+
         // Save to MediaStore
         val contentValues = ContentValues().apply {
             put(MediaStore.Video.Media.DISPLAY_NAME, finalFilename)
@@ -3476,35 +3584,35 @@ private suspend fun saveVideoToGallery(
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
         }
-        
+
         val uri = context.contentResolver.insert(
             MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-            contentValues
+            contentValues,
         ) ?: throw Exception("Failed to create MediaStore entry")
-        
+
         // Write video data
         context.contentResolver.openOutputStream(uri)?.use { output ->
             response.body?.byteStream()?.use { input ->
                 input.copyTo(output)
             }
         }
-        
+
         // Mark as not pending (Android Q+)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             contentValues.clear()
             contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
             context.contentResolver.update(uri, contentValues, null, null)
         }
-        
+
         // Show success toast
         withContext(Dispatchers.Main) {
             android.widget.Toast.makeText(
                 context,
                 "Video saved to gallery",
-                android.widget.Toast.LENGTH_SHORT
+                android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
-        
+
         if (BuildConfig.DEBUG) Log.d("Andromuks", "Video saved to gallery: $finalFilename")
     } catch (e: Exception) {
         Log.e("Andromuks", "Failed to save video to gallery", e)
@@ -3512,7 +3620,7 @@ private suspend fun saveVideoToGallery(
             android.widget.Toast.makeText(
                 context,
                 "Failed to save video: ${e.message}",
-                android.widget.Toast.LENGTH_SHORT
+                android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
     }
@@ -3541,11 +3649,11 @@ fun VideoPlayerDialog(
     isEncrypted: Boolean,
     initialPosition: Long = 0L,
     shouldAutoPlay: Boolean = false,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     // Video player container
     val context = LocalContext.current
-    
+
     // Convert MXC URL to HTTP URL
     val videoHttpUrl = remember(mediaMessage.url, isEncrypted) {
         val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
@@ -3555,18 +3663,18 @@ fun VideoPlayerDialog(
             httpUrl ?: ""
         }
     }
-    
+
     // Track the actual ExoPlayer instance that's playing
     var actualPlayer by remember { mutableStateOf<androidx.media3.exoplayer.ExoPlayer?>(null) }
-    
+
     // Track player state for progress bar
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(false) }
     var playbackState by remember { mutableStateOf(androidx.media3.common.Player.STATE_IDLE) }
-    
+
     val coroutineScope = rememberCoroutineScope()
-    
+
     // Get Material 3 colors for ExoPlayer controls
     val colorScheme = MaterialTheme.colorScheme
     val primaryColor = colorScheme.primary
@@ -3574,9 +3682,9 @@ fun VideoPlayerDialog(
         primaryColor.red,
         primaryColor.green,
         primaryColor.blue,
-        primaryColor.alpha
+        primaryColor.alpha,
     ).toArgb()
-    
+
     Dialog(
         onDismissRequest = {
             // Stop the actual playing player before dismissing the dialog
@@ -3589,8 +3697,8 @@ fun VideoPlayerDialog(
         properties = DialogProperties(
             dismissOnBackPress = false, // We handle this manually with BackHandler
             dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false
-        )
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         // Handle back button/gesture to stop video and dismiss
         BackHandler {
@@ -3601,13 +3709,12 @@ fun VideoPlayerDialog(
             }
             onDismiss()
         }
-        
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black)
+                .background(Color.Black),
         ) {
-            
             // Stop and dispose player when dialog is dismissed
             // Use Unit as key so it only runs on actual dispose, not when actualPlayer changes
             androidx.compose.runtime.DisposableEffect(Unit) {
@@ -3618,7 +3725,7 @@ fun VideoPlayerDialog(
                     }
                 }
             }
-            
+
             // Update position and state periodically using LaunchedEffect
             LaunchedEffect(actualPlayer) {
                 while (actualPlayer != null) {
@@ -3633,34 +3740,34 @@ fun VideoPlayerDialog(
                     }
                 }
             }
-            
+
             // Player view - use key to prevent recreation
             androidx.compose.ui.viewinterop.AndroidView(
                 factory = { ctx ->
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Creating PlayerView")
-                        // Set custom request headers for authentication
-                        val upstreamFactory = MediaHttpDataSource.factory(authToken)
+                    // Set custom request headers for authentication
+                    val upstreamFactory = MediaHttpDataSource.factory(authToken)
 
-                        val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
-                            .setCache(VideoCache.get(ctx))
-                            .setUpstreamDataSourceFactory(upstreamFactory)
-                            .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+                    val cacheDataSourceFactory = androidx.media3.datasource.cache.CacheDataSource.Factory()
+                        .setCache(VideoCache.get(ctx))
+                        .setUpstreamDataSourceFactory(upstreamFactory)
+                        .setFlags(androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-                        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(ctx)
-                            .setDataSourceFactory(cacheDataSourceFactory)
-                        
+                    val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(ctx)
+                        .setDataSourceFactory(cacheDataSourceFactory)
+
                     // Create player with custom data source factory
                     val player = androidx.media3.exoplayer.ExoPlayer.Builder(ctx)
-                            .setMediaSourceFactory(mediaSourceFactory)
-                            .build()
-                    
+                        .setMediaSourceFactory(mediaSourceFactory)
+                        .build()
+
                     // Store reference to the actual player FIRST
                     actualPlayer = player
-                    
+
                     // Track if we've already performed the initial seek and resume
                     var hasSeekedToInitialPosition = false
                     val handler = android.os.Handler(android.os.Looper.getMainLooper())
-                    
+
                     // Listen to player state changes
                     val listener = object : androidx.media3.common.Player.Listener {
                         override fun onIsPlayingChanged(isPlayingValue: Boolean) {
@@ -3673,7 +3780,12 @@ fun VideoPlayerDialog(
                                 // Seek to initial position when ready (if provided and not already seeked)
                                 if (initialPosition > 0L && !hasSeekedToInitialPosition) {
                                     hasSeekedToInitialPosition = true
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Seeking to position $initialPosition, shouldAutoPlay=$shouldAutoPlay")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Seeking to position $initialPosition, shouldAutoPlay=$shouldAutoPlay",
+                                    )
+                                    }
                                     // Set playWhenReady BEFORE seeking, so playback resumes automatically after seek completes
                                     if (shouldAutoPlay) {
                                         player.playWhenReady = true
@@ -3682,8 +3794,15 @@ fun VideoPlayerDialog(
                                     // Also explicitly call play() to ensure playback starts
                                     if (shouldAutoPlay) {
                                         handler.postDelayed({
-                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Ensuring playback after seek, currentPosition=${player.currentPosition}, state=${player.playbackState}, isPlaying=${player.isPlaying}")
-                                            if (!player.isPlaying && player.playbackState == androidx.media3.common.Player.STATE_READY) {
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d(
+                                                "Andromuks",
+                                                "VideoPlayerDialog: Ensuring playback after seek, currentPosition=${player.currentPosition}, state=${player.playbackState}, isPlaying=${player.isPlaying}",
+                                            )
+                                            }
+                                            if (!player.isPlaying &&
+                                                player.playbackState == androidx.media3.common.Player.STATE_READY
+                                            ) {
                                                 player.play()
                                             }
                                         }, 200)
@@ -3694,17 +3813,23 @@ fun VideoPlayerDialog(
                         override fun onPositionDiscontinuity(
                             oldPosition: androidx.media3.common.Player.PositionInfo,
                             newPosition: androidx.media3.common.Player.PositionInfo,
-                            reason: Int
+                            reason: Int,
                         ) {
                             currentPosition = player.currentPosition
                             // If we just seeked and should be playing, ensure playback resumes
-                            if (reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK && 
-                                shouldAutoPlay && 
+                            if (reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK &&
+                                shouldAutoPlay &&
                                 hasSeekedToInitialPosition &&
                                 !player.isPlaying &&
-                                player.playbackState == androidx.media3.common.Player.STATE_READY) {
+                                player.playbackState == androidx.media3.common.Player.STATE_READY
+                            ) {
                                 handler.post {
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Resuming playback after seek discontinuity, position=${player.currentPosition}")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Resuming playback after seek discontinuity, position=${player.currentPosition}",
+                                    )
+                                    }
                                     player.playWhenReady = true
                                     player.play()
                                 }
@@ -3712,16 +3837,21 @@ fun VideoPlayerDialog(
                         }
                     }
                     player.addListener(listener)
-                    
+
                     androidx.media3.ui.PlayerView(ctx).apply {
                         // Set player FIRST before preparing media
                         this.player = player
-                        
+
                         // Set media item and prepare AFTER player is attached to view
                         // Only proceed if we have a valid video URL
                         if (videoHttpUrl.isNotEmpty()) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Setting up video: $videoHttpUrl, initialPosition=$initialPosition, shouldAutoPlay=$shouldAutoPlay")
-                                val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "VideoPlayerDialog: Setting up video: $videoHttpUrl, initialPosition=$initialPosition, shouldAutoPlay=$shouldAutoPlay",
+                            )
+                            }
+                            val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
                             player.setMediaItem(mediaItem)
                             player.prepare()
                             // Set playWhenReady based on shouldAutoPlay
@@ -3744,13 +3874,13 @@ fun VideoPlayerDialog(
                         // Hide fullscreen button (the X button in top right)
                         // Note: setShowFullscreenButton might not be available in all ExoPlayer versions
                         // We'll hide it via ViewTreeObserver instead
-                        
+
                         // Hide default progress bar - we'll use Compose wavy progress bar instead
                         val progressBar = findViewById<androidx.media3.ui.DefaultTimeBar>(
-                            androidx.media3.ui.R.id.exo_progress
+                            androidx.media3.ui.R.id.exo_progress,
                         )
                         progressBar?.visibility = android.view.View.GONE
-                        
+
                         // Function to hide close buttons
                         fun hideCloseButtons(v: android.view.View) {
                             if (v is android.widget.ImageButton) {
@@ -3770,10 +3900,11 @@ fun VideoPlayerDialog(
                                 } catch (e: Exception) {
                                     false
                                 }
-                                if (contentDesc.contains("close") || contentDesc.contains("fullscreen") || 
+                                if (contentDesc.contains("close") || contentDesc.contains("fullscreen") ||
                                     tag.contains("close") || tag.contains("fullscreen") ||
                                     idName.contains("close") || idName.contains("fullscreen") ||
-                                    isTopRight) {
+                                    isTopRight
+                                ) {
                                     v.visibility = android.view.View.GONE
                                 }
                             }
@@ -3783,19 +3914,29 @@ fun VideoPlayerDialog(
                                 }
                             }
                         }
-                        
+
                         // Function to hide rewind/fast forward and prev/next buttons
                         fun hideRewindFastForwardButtons() {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: hideRewindFastForwardButtons called")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "VideoPlayerDialog: hideRewindFastForwardButtons called",
+                            )
+                            }
                             val controllerView = findViewById<ViewGroup>(
-                                androidx.media3.ui.R.id.exo_controller
+                                androidx.media3.ui.R.id.exo_controller,
                             )
                             if (controllerView == null) {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: controllerView is null")
                                 return
                             }
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: controllerView found, childCount=${controllerView.childCount}")
-                            
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "VideoPlayerDialog: controllerView found, childCount=${controllerView.childCount}",
+                            )
+                            }
+
                             // Log ALL views (not just ImageButtons) in controller for debugging
                             fun logAllViews(v: android.view.View, depth: Int = 0) {
                                 val idName = try {
@@ -3809,15 +3950,21 @@ fun VideoPlayerDialog(
                                     android.view.View.GONE -> "GONE"
                                     android.view.View.INVISIBLE -> "INVISIBLE"
                                     else -> "OTHER"
-                                    }
+                                }
                                 val viewType = v.javaClass.simpleName
                                 // Log views that might be buttons or contain "rew"/"ffwd" in their ID
-                                if (v is ImageButton || v is android.widget.Button || 
-                                    idName.contains("rew") || idName.contains("ffwd") || 
+                                if (v is ImageButton || v is android.widget.Button ||
+                                    idName.contains("rew") || idName.contains("ffwd") ||
                                     idName.contains("rewind") || idName.contains("fastforward") ||
                                     contentDesc.contains("rewind") || contentDesc.contains("fast forward") ||
-                                    contentDesc.contains("backward") || contentDesc.contains("forward")) {
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Found view: type=$viewType, id=$idName, desc=$contentDesc, visibility=$visibility, depth=$depth")
+                                    contentDesc.contains("backward") || contentDesc.contains("forward")
+                                ) {
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Found view: type=$viewType, id=$idName, desc=$contentDesc, visibility=$visibility, depth=$depth",
+                                    )
+                                    }
                                 }
                                 if (v is android.view.ViewGroup) {
                                     for (i in 0 until v.childCount) {
@@ -3826,7 +3973,7 @@ fun VideoPlayerDialog(
                                 }
                             }
                             if (BuildConfig.DEBUG) logAllViews(controllerView)
-                            
+
                             // Also search for ANY view type that might be rewind/fast forward/prev/next
                             fun findAndHideAnyUnwantedButtons(v: android.view.View) {
                                 val idName = try {
@@ -3839,15 +3986,23 @@ fun VideoPlayerDialog(
                                 if (idName.contains("rew") || idName.contains("rewind") ||
                                     contentDesc.contains("rewind") || contentDesc.contains("backward") ||
                                     idName == "exo_rew" || idName == "exo_rew_with_amount" ||
-                                    idName.contains("ffwd") || idName.contains("fastforward") || idName.contains("fast_forward") ||
+                                    idName.contains(
+                                        "ffwd",
+                                    ) || idName.contains("fastforward") || idName.contains("fast_forward") ||
                                     contentDesc.contains("fast forward") || contentDesc.contains("forward") ||
                                     idName == "exo_ffwd" || idName == "exo_ffwd_with_amount" ||
                                     idName == "exo_prev" || idName.contains("prev") ||
                                     contentDesc.contains("previous") || contentDesc.contains("anterior") ||
                                     idName == "exo_next" || idName.contains("next") ||
-                                    contentDesc.contains("next") || contentDesc.contains("seguinte")) {
+                                    contentDesc.contains("next") || contentDesc.contains("seguinte")
+                                ) {
                                     v.visibility = android.view.View.GONE
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Hid view (any type): type=${v.javaClass.simpleName}, id=$idName, desc=$contentDesc")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Hid view (any type): type=${v.javaClass.simpleName}, id=$idName, desc=$contentDesc",
+                                    )
+                                    }
                                 }
                                 if (v is android.view.ViewGroup) {
                                     for (i in 0 until v.childCount) {
@@ -3857,24 +4012,34 @@ fun VideoPlayerDialog(
                             }
                             findAndHideAnyUnwantedButtons(controllerView)
                             findAndHideAnyUnwantedButtons(this@apply)
-                            
+
                             // Also try direct find for prev/next
                             val prevButton = controllerView.findViewById<ImageButton>(
-                                androidx.media3.ui.R.id.exo_prev
+                                androidx.media3.ui.R.id.exo_prev,
                             )
                             if (prevButton != null) {
                                 prevButton.visibility = android.view.View.GONE
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Hid prev button (direct find)")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "VideoPlayerDialog: Hid prev button (direct find)",
+                                )
+                                }
                             }
-                            
+
                             val nextButton = controllerView.findViewById<ImageButton>(
-                                androidx.media3.ui.R.id.exo_next
+                                androidx.media3.ui.R.id.exo_next,
                             )
                             if (nextButton != null) {
                                 nextButton.visibility = android.view.View.GONE
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Hid next button (direct find)")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "VideoPlayerDialog: Hid next button (direct find)",
+                                )
+                                }
                             }
-                            
+
                             // Helper function to find and hide rewind/fast forward buttons (check all, not just visible)
                             fun findAndHideRewindFastForward(v: android.view.View) {
                                 if (v is ImageButton) {
@@ -3888,11 +4053,19 @@ fun VideoPlayerDialog(
                                     if (idName.contains("rew") || idName.contains("rewind") ||
                                         contentDesc.contains("rewind") || contentDesc.contains("backward") ||
                                         idName == "exo_rew" ||
-                                        idName.contains("ffwd") || idName.contains("fastforward") || idName.contains("fast_forward") ||
+                                        idName.contains(
+                                            "ffwd",
+                                        ) || idName.contains("fastforward") || idName.contains("fast_forward") ||
                                         contentDesc.contains("fast forward") || contentDesc.contains("forward") ||
-                                        idName == "exo_ffwd") {
+                                        idName == "exo_ffwd"
+                                    ) {
                                         v.visibility = android.view.View.GONE
-                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Hid button (id=$idName, desc=$contentDesc)")
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
+                                            "Andromuks",
+                                            "VideoPlayerDialog: Hid button (id=$idName, desc=$contentDesc)",
+                                        )
+                                        }
                                     }
                                 }
                                 if (v is android.view.ViewGroup) {
@@ -3901,39 +4074,49 @@ fun VideoPlayerDialog(
                                     }
                                 }
                             }
-                            
+
                             // Try direct find first
                             val rewindButton = controllerView.findViewById<ImageButton>(
-                                androidx.media3.ui.R.id.exo_rew
+                                androidx.media3.ui.R.id.exo_rew,
                             )
                             if (rewindButton != null) {
                                 rewindButton.visibility = android.view.View.GONE
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Hid rewind button (direct find)")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "VideoPlayerDialog: Hid rewind button (direct find)",
+                                )
+                                }
                             }
-                            
+
                             val fastForwardButton = controllerView.findViewById<ImageButton>(
-                                androidx.media3.ui.R.id.exo_ffwd
+                                androidx.media3.ui.R.id.exo_ffwd,
                             )
                             if (fastForwardButton != null) {
                                 fastForwardButton.visibility = android.view.View.GONE
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Hid fast forward button (direct find)")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "VideoPlayerDialog: Hid fast forward button (direct find)",
+                                )
+                                }
                             }
-                            
+
                             // Search recursively through entire controller and PlayerView
                             findAndHideRewindFastForward(controllerView)
                             findAndHideRewindFastForward(this@apply)
                         }
-                        
+
                         // Use ViewTreeObserver to continuously monitor and hide buttons
                         val observer = viewTreeObserver
                         val layoutListener = object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
                             override fun onGlobalLayout() {
                                 // Hide rewind/fast forward buttons
                                 hideRewindFastForwardButtons()
-                                
+
                                 // Hide all ImageButtons in overlay (where fullscreen button typically is)
                                 val overlay = findViewById<android.view.ViewGroup>(
-                                    androidx.media3.ui.R.id.exo_overlay
+                                    androidx.media3.ui.R.id.exo_overlay,
                                 )
                                 overlay?.let { overlayGroup ->
                                     for (i in 0 until overlayGroup.childCount) {
@@ -3943,21 +4126,30 @@ fun VideoPlayerDialog(
                                         }
                                     }
                                 }
-                                
+
                                 // Recursively search and hide any top-right buttons
                                 val rootView = rootView
                                 if (rootView != null) {
                                     val screenWidth = resources.displayMetrics.widthPixels
                                     val screenHeight = resources.displayMetrics.heightPixels
                                     fun findAndHideTopRightButtons(v: android.view.View) {
-                                        if (v is android.widget.ImageButton && v.visibility == android.view.View.VISIBLE) {
+                                        if (v is android.widget.ImageButton &&
+                                            v.visibility == android.view.View.VISIBLE
+                                        ) {
                                             try {
                                                 val location = IntArray(2)
                                                 v.getLocationOnScreen(location)
                                                 // Check if button is in top-right area (last 15% width, first 20% height)
-                                                if (location[0] > screenWidth * 0.85f && location[1] < screenHeight * 0.2f) {
+                                                if (location[0] > screenWidth * 0.85f &&
+                                                    location[1] < screenHeight * 0.2f
+                                                ) {
                                                     v.visibility = android.view.View.GONE
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Hid top-right button at (${location[0]}, ${location[1]})")
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "VideoPlayerDialog: Hid top-right button at (${location[0]}, ${location[1]})",
+                                                    )
+                                                    }
                                                 }
                                             } catch (e: Exception) {
                                                 // Button might not be laid out yet, try hiding by ID/description
@@ -3968,7 +4160,10 @@ fun VideoPlayerDialog(
                                                 }
                                                 val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
                                                 if (idName.contains("close") || idName.contains("fullscreen") ||
-                                                    contentDesc.contains("close") || contentDesc.contains("fullscreen")) {
+                                                    contentDesc.contains(
+                                                        "close",
+                                                    ) || contentDesc.contains("fullscreen")
+                                                ) {
                                                     v.visibility = android.view.View.GONE
                                                 }
                                             }
@@ -3981,52 +4176,52 @@ fun VideoPlayerDialog(
                                     }
                                     findAndHideTopRightButtons(rootView)
                                 }
-                                
+
                                 // Also use the recursive hideCloseButtons function
                                 hideCloseButtons(this@apply)
                             }
                         }
                         observer.addOnGlobalLayoutListener(layoutListener)
-                        
+
                         // Post to ensure view is laid out before customizing controls
                         post {
                             hideCloseButtons(this)
                         }
-                        
+
                         // Function to theme buttons and hide rewind/fast forward
                         fun themeAllButtons() {
                             // Find and customize control views
                             val controllerView = findViewById<ViewGroup>(
-                                androidx.media3.ui.R.id.exo_controller
+                                androidx.media3.ui.R.id.exo_controller,
                             )
                             controllerView?.let { controller ->
                                 // Customize play/pause button
                                 val playButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_play_pause
+                                    androidx.media3.ui.R.id.exo_play_pause,
                                 )
                                 playButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                 }
-                                
+
                                 // Customize previous button
                                 val prevButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_prev
+                                    androidx.media3.ui.R.id.exo_prev,
                                 )
                                 prevButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                 }
-                                
+
                                 // Customize next button
                                 val nextButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_next
+                                    androidx.media3.ui.R.id.exo_next,
                                 )
                                 nextButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                 }
-                                
+
                                 // Customize rewind button (minus 5 seconds) - search more thoroughly
                                 var rewindButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_rew
+                                    androidx.media3.ui.R.id.exo_rew,
                                 )
                                 // Also try finding by traversing all children recursively
                                 if (rewindButton == null) {
@@ -4039,7 +4234,8 @@ fun VideoPlayerDialog(
                                             }
                                             val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
                                             if (idName.contains("rew") || idName.contains("rewind") ||
-                                                contentDesc.contains("rewind") || contentDesc.contains("backward")) {
+                                                contentDesc.contains("rewind") || contentDesc.contains("backward")
+                                            ) {
                                                 return v
                                             }
                                         }
@@ -4057,10 +4253,10 @@ fun VideoPlayerDialog(
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Themed rewind button")
                                 }
-                                
+
                                 // Customize fast forward button (plus 15 seconds) - search more thoroughly
                                 var fastForwardButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_ffwd
+                                    androidx.media3.ui.R.id.exo_ffwd,
                                 )
                                 // Also try finding by traversing all children recursively
                                 if (fastForwardButton == null) {
@@ -4072,8 +4268,15 @@ fun VideoPlayerDialog(
                                                 ""
                                             }
                                             val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
-                                            if (idName.contains("ffwd") || idName.contains("fastforward") || idName.contains("fast_forward") ||
-                                                contentDesc.contains("fast forward") || contentDesc.contains("forward")) {
+                                            if (idName.contains(
+                                                    "ffwd",
+                                                ) || idName.contains(
+                                                    "fastforward",
+                                                ) || idName.contains("fast_forward") ||
+                                                contentDesc.contains(
+                                                    "fast forward",
+                                                ) || contentDesc.contains("forward")
+                                            ) {
                                                 return v
                                             }
                                         }
@@ -4089,45 +4292,50 @@ fun VideoPlayerDialog(
                                 }
                                 fastForwardButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Themed fast forward button")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Themed fast forward button",
+                                    )
+                                    }
                                 }
-                                
+
                                 // Customize settings/overflow menu button (bottom right)
                                 val settingsButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_settings
+                                    androidx.media3.ui.R.id.exo_settings,
                                 ) ?: controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_overflow_show
+                                    androidx.media3.ui.R.id.exo_overflow_show,
                                 )
                                 settingsButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                 }
-                                
+
                                 // Customize time text views
                                 val currentTime = controller.findViewById<TextView>(
-                                    androidx.media3.ui.R.id.exo_position
+                                    androidx.media3.ui.R.id.exo_position,
                                 )
                                 currentTime?.setTextColor(primaryColorInt)
-                                
+
                                 val totalTime = controller.findViewById<TextView>(
-                                    androidx.media3.ui.R.id.exo_duration
+                                    androidx.media3.ui.R.id.exo_duration,
                                 )
                                 totalTime?.setTextColor(primaryColorInt)
                             }
                         }
-                        
+
                         // Theme buttons immediately, then again after delays to catch late-created buttons
                         themeAllButtons()
                         post {
                             themeAllButtons()
                         }
-                        
+
                         // Use ViewTreeObserver to theme buttons whenever layout changes (catches late-created buttons)
                         viewTreeObserver.addOnGlobalLayoutListener(object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
                             override fun onGlobalLayout() {
                                 themeAllButtons()
                             }
                         })
-                        
+
                         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                             themeAllButtons()
                         }, 100)
@@ -4140,36 +4348,36 @@ fun VideoPlayerDialog(
                         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
                             // Find and customize control views
                             val controllerView = findViewById<ViewGroup>(
-                                androidx.media3.ui.R.id.exo_controller
+                                androidx.media3.ui.R.id.exo_controller,
                             )
                             controllerView?.let { controller ->
                                 // Customize play/pause button
                                 val playButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_play_pause
+                                    androidx.media3.ui.R.id.exo_play_pause,
                                 )
                                 playButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                 }
-                                
+
                                 // Customize previous button
                                 val prevButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_prev
+                                    androidx.media3.ui.R.id.exo_prev,
                                 )
                                 prevButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                 }
-                                
+
                                 // Customize next button
                                 val nextButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_next
+                                    androidx.media3.ui.R.id.exo_next,
                                 )
                                 nextButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                 }
-                                
+
                                 // Customize rewind button (minus 5 seconds) - search more thoroughly
                                 var rewindButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_rew
+                                    androidx.media3.ui.R.id.exo_rew,
                                 )
                                 // Also try finding by traversing all children recursively
                                 if (rewindButton == null) {
@@ -4182,7 +4390,8 @@ fun VideoPlayerDialog(
                                             }
                                             val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
                                             if (idName.contains("rew") || idName.contains("rewind") ||
-                                                contentDesc.contains("rewind") || contentDesc.contains("backward")) {
+                                                contentDesc.contains("rewind") || contentDesc.contains("backward")
+                                            ) {
                                                 return v
                                             }
                                         }
@@ -4200,10 +4409,10 @@ fun VideoPlayerDialog(
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Themed rewind button")
                                 }
-                                
+
                                 // Customize fast forward button (plus 15 seconds) - search more thoroughly
                                 var fastForwardButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_ffwd
+                                    androidx.media3.ui.R.id.exo_ffwd,
                                 )
                                 // Also try finding by traversing all children recursively
                                 if (fastForwardButton == null) {
@@ -4215,8 +4424,15 @@ fun VideoPlayerDialog(
                                                 ""
                                             }
                                             val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
-                                            if (idName.contains("ffwd") || idName.contains("fastforward") || idName.contains("fast_forward") ||
-                                                contentDesc.contains("fast forward") || contentDesc.contains("forward")) {
+                                            if (idName.contains(
+                                                    "ffwd",
+                                                ) || idName.contains(
+                                                    "fastforward",
+                                                ) || idName.contains("fast_forward") ||
+                                                contentDesc.contains(
+                                                    "fast forward",
+                                                ) || contentDesc.contains("forward")
+                                            ) {
                                                 return v
                                             }
                                         }
@@ -4232,27 +4448,32 @@ fun VideoPlayerDialog(
                                 }
                                 fastForwardButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Themed fast forward button")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Themed fast forward button",
+                                    )
+                                    }
                                 }
-                                
+
                                 // Customize settings/overflow menu button (bottom right)
                                 val settingsButton = controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_settings
+                                    androidx.media3.ui.R.id.exo_settings,
                                 ) ?: controller.findViewById<ImageButton>(
-                                    androidx.media3.ui.R.id.exo_overflow_show
+                                    androidx.media3.ui.R.id.exo_overflow_show,
                                 )
                                 settingsButton?.let {
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                 }
-                                
+
                                 // Customize time text views
                                 val currentTime = controller.findViewById<TextView>(
-                                    androidx.media3.ui.R.id.exo_position
+                                    androidx.media3.ui.R.id.exo_position,
                                 )
                                 currentTime?.setTextColor(primaryColorInt)
-                                
+
                                 val totalTime = controller.findViewById<TextView>(
-                                    androidx.media3.ui.R.id.exo_duration
+                                    androidx.media3.ui.R.id.exo_duration,
                                 )
                                 totalTime?.setTextColor(primaryColorInt)
                             }
@@ -4266,19 +4487,19 @@ fun VideoPlayerDialog(
                         primaryColor.red,
                         primaryColor.green,
                         primaryColor.blue,
-                        primaryColor.alpha
+                        primaryColor.alpha,
                     ).toArgb()
-                    
+
                     view.post {
                         // Hide ExoPlayer's default progress bar in update block too
                         val progressBar = view.findViewById<androidx.media3.ui.DefaultTimeBar>(
-                            androidx.media3.ui.R.id.exo_progress
+                            androidx.media3.ui.R.id.exo_progress,
                         )
                         progressBar?.visibility = android.view.View.GONE
-                        
+
                         // Hide any overlay buttons (like fullscreen/close) that might appear
                         val overlay = view.findViewById<android.view.ViewGroup>(
-                            androidx.media3.ui.R.id.exo_overlay
+                            androidx.media3.ui.R.id.exo_overlay,
                         )
                         overlay?.let { overlayGroup ->
                             for (i in 0 until overlayGroup.childCount) {
@@ -4288,7 +4509,7 @@ fun VideoPlayerDialog(
                                 }
                             }
                         }
-                        
+
                         // Hide all ImageButtons/Buttons except play/pause and settings
                         fun hideUnwantedButtons(v: android.view.View) {
                             if (v is ImageButton || v is android.widget.Button) {
@@ -4299,10 +4520,16 @@ fun VideoPlayerDialog(
                                 }
                                 // Keep only: play_pause, settings, overflow_show
                                 // Hide everything else (rew, ffwd, prev, next, etc.)
-                                if (idName != "exo_play_pause" && 
-                                    idName != "exo_settings" && idName != "exo_overflow_show") {
+                                if (idName != "exo_play_pause" &&
+                                    idName != "exo_settings" && idName != "exo_overflow_show"
+                                ) {
                                     v.visibility = android.view.View.GONE
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Hid button in update (id=$idName)")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Hid button in update (id=$idName)",
+                                    )
+                                    }
                                 }
                             }
                             if (v is android.view.ViewGroup) {
@@ -4312,69 +4539,69 @@ fun VideoPlayerDialog(
                             }
                         }
                         hideUnwantedButtons(view)
-                        
+
                         // Also explicitly hide prev/next buttons
                         val prevButton = view.findViewById<ImageButton>(
-                            androidx.media3.ui.R.id.exo_prev
+                            androidx.media3.ui.R.id.exo_prev,
                         )
                         prevButton?.visibility = android.view.View.GONE
-                        
+
                         val nextButton = view.findViewById<ImageButton>(
-                            androidx.media3.ui.R.id.exo_next
+                            androidx.media3.ui.R.id.exo_next,
                         )
                         nextButton?.visibility = android.view.View.GONE
-                        
+
                         val controllerView = view.findViewById<ViewGroup>(
-                            androidx.media3.ui.R.id.exo_controller
+                            androidx.media3.ui.R.id.exo_controller,
                         )
                         controllerView?.let { controller ->
                             val playButton = controller.findViewById<ImageButton>(
-                                androidx.media3.ui.R.id.exo_play_pause
+                                androidx.media3.ui.R.id.exo_play_pause,
                             )
                             playButton?.imageTintList = ColorStateList.valueOf(primaryColorInt)
-                            
+
                             // Note: prev/next buttons are hidden, so no need to theme them
-                            
+
                             // Hide rewind and fast forward explicitly
                             val rewindButton = controller.findViewById<ImageButton>(
-                                androidx.media3.ui.R.id.exo_rew
+                                androidx.media3.ui.R.id.exo_rew,
                             )
                             rewindButton?.visibility = android.view.View.GONE
-                            
+
                             val fastForwardButton = controller.findViewById<ImageButton>(
-                                androidx.media3.ui.R.id.exo_ffwd
+                                androidx.media3.ui.R.id.exo_ffwd,
                             )
                             fastForwardButton?.visibility = android.view.View.GONE
-                            
+
                             // Customize settings/overflow menu button (bottom right)
                             val settingsButton = controller.findViewById<ImageButton>(
-                                androidx.media3.ui.R.id.exo_settings
+                                androidx.media3.ui.R.id.exo_settings,
                             ) ?: controller.findViewById<ImageButton>(
-                                androidx.media3.ui.R.id.exo_overflow_show
+                                androidx.media3.ui.R.id.exo_overflow_show,
                             )
                             settingsButton?.let {
                                 it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                             }
-                            
+
                             val currentTime = controller.findViewById<TextView>(
-                                androidx.media3.ui.R.id.exo_position
+                                androidx.media3.ui.R.id.exo_position,
                             )
                             currentTime?.setTextColor(primaryColorInt)
-                            
+
                             val totalTime = controller.findViewById<TextView>(
-                                androidx.media3.ui.R.id.exo_duration
+                                androidx.media3.ui.R.id.exo_duration,
                             )
                             totalTime?.setTextColor(primaryColorInt)
                         }
                     }
-                }
+                },
             )
-            
+
             // Wavy progress bar overlay at bottom
             val progressState = remember {
                 mutableStateOf(0f)
             }
-            
+
             // Update progress state
             LaunchedEffect(currentPosition, duration) {
                 progressState.value = if (duration > 0) {
@@ -4383,7 +4610,7 @@ fun VideoPlayerDialog(
                     0f
                 }
             }
-            
+
             Box(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -4400,7 +4627,7 @@ fun VideoPlayerDialog(
                                     val newPosition = (progress * duration).toLong()
                                     actualPlayer?.seekTo(newPosition)
                                 }
-                            }
+                            },
                         )
                     }
                     .pointerInput(Unit) {
@@ -4415,9 +4642,9 @@ fun VideoPlayerDialog(
                                 }
                             },
                             onDragEnd = { },
-                            onDragCancel = { }
+                            onDragCancel = { },
                         )
-                    }
+                    },
             ) {
                 val horizontalPaddingDp = 16.dp
                 val barHeightDp = 6.dp
@@ -4429,7 +4656,7 @@ fun VideoPlayerDialog(
                 val smoothProgress by animateFloatAsState(
                     targetValue = progressState.value,
                     animationSpec = tween(durationMillis = scaledTweenMs(100), easing = LinearEasing),
-                    label = "videoProgressThumb"
+                    label = "videoProgressThumb",
                 )
 
                 // Inner box whose height matches the thumb, with the bar and the
@@ -4440,7 +4667,7 @@ fun VideoPlayerDialog(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(thumbHeightDp)
-                        .padding(horizontal = horizontalPaddingDp)
+                        .padding(horizontal = horizontalPaddingDp),
                 ) {
                     @OptIn(ExperimentalMaterial3ExpressiveApi::class)
                     LinearWavyProgressIndicator(
@@ -4458,7 +4685,7 @@ fun VideoPlayerDialog(
                                 0.0f // Flat when paused or ended
                             }
                         },
-                        wavelength = WavyProgressIndicatorDefaults.LinearIndeterminateWavelength
+                        wavelength = WavyProgressIndicatorDefaults.LinearIndeterminateWavelength,
                     )
                     // Vertical position indicator – same bounds as the outer Box so
                     // (0, 0)→(0, size.height) bisects the bar's horizontal axis.
@@ -4469,12 +4696,12 @@ fun VideoPlayerDialog(
                             start = androidx.compose.ui.geometry.Offset(thumbX, 0f),
                             end = androidx.compose.ui.geometry.Offset(thumbX, size.height),
                             strokeWidth = 5.dp.toPx(),
-                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round,
                         )
                     }
                 }
             }
-            
+
             // Top toolbar with action buttons
             Row(
                 modifier = Modifier
@@ -4483,34 +4710,34 @@ fun VideoPlayerDialog(
                     .windowInsetsPadding(WindowInsets.statusBars)
                     .padding(horizontal = 8.dp)
                     .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
+                horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
                 // Save button
                 IconButton(
                     onClick = {
                         coroutineScope.launch {
                             saveVideoToGallery(
-                                context, 
-                                videoHttpUrl, 
-                                mediaMessage.filename, 
+                                context,
+                                videoHttpUrl,
+                                mediaMessage.filename,
                                 mediaMessage.info.mimeType ?: "video/mp4",
-                                authToken
+                                authToken,
                             )
                         }
                     },
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     ),
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Save,
                         contentDescription = "Save to Gallery",
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(24.dp),
                     )
                 }
-                
+
                 // Close button
                 IconButton(
                     onClick = {
@@ -4523,18 +4750,17 @@ fun VideoPlayerDialog(
                     },
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
                     ),
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Close,
                         contentDescription = "Close",
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(24.dp),
                     )
                 }
             }
-            
         }
     }
 }

@@ -1,9 +1,5 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.ui.theme.scaledStiffness
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
-import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
-import net.vrkknn.andromuks.ui.theme.scaledColumnExit
 import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
@@ -14,41 +10,26 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import android.view.OrientationEventListener
 import android.view.Surface
-import java.io.File
-import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.resolutionselector.AspectRatioStrategy
-import androidx.camera.core.resolutionselector.ResolutionSelector
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.Preview
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import androidx.camera.video.FileOutputOptions
-import androidx.camera.video.Recorder
-import androidx.camera.video.Recording
-import androidx.camera.video.VideoCapture
-import androidx.camera.video.VideoRecordEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,23 +37,18 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -82,200 +58,153 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mood
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SyncProblem
+import androidx.compose.material.icons.filled.VideoCall
+import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.collectAsState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Mood
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.SyncProblem
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.VideoCall
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.FlashOff
-import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.FlashAuto
-import androidx.compose.material.icons.filled.Cameraswitch
-import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.OutlinedButton
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.surfaceColorAtElevation
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.animation.core.updateTransition
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.core.net.toUri
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.flow.distinctUntilChanged
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import kotlin.math.min
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.filterNotNull
+import coil3.memory.MemoryCache
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import coil3.request.ImageRequest
-import coil3.request.CachePolicy
-import coil3.memory.MemoryCache
-import net.vrkknn.andromuks.ScrollHighlightState
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.LocalScrollHighlightState
+import net.vrkknn.andromuks.ScrollHighlightState
 import net.vrkknn.andromuks.ui.components.AvatarImage
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.runtime.key
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
-import net.vrkknn.andromuks.ui.theme.AndromuksTheme
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
+import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
+import net.vrkknn.andromuks.ui.theme.scaledColumnExit
+import net.vrkknn.andromuks.ui.theme.scaledStiffness
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
+import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.CodeViewer
+import net.vrkknn.andromuks.utils.CommandSuggestionList
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
-import net.vrkknn.andromuks.utils.StickerSelectionDialog
-import net.vrkknn.andromuks.utils.EmoteEventNarrator
-import net.vrkknn.andromuks.utils.HtmlMessageText
-import net.vrkknn.andromuks.utils.CodeViewer
-import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
-import net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars
-import net.vrkknn.andromuks.utils.navigateToUserInfo
-import net.vrkknn.andromuks.utils.MediaMessage
+import net.vrkknn.andromuks.utils.EmojiShortcodes
+import net.vrkknn.andromuks.utils.EmojiSuggestionList
+import net.vrkknn.andromuks.utils.ImageLoaderSingleton
+import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
 import net.vrkknn.andromuks.utils.MediaPreviewDialog
 import net.vrkknn.andromuks.utils.MediaPreviewDialogMultiple
-import net.vrkknn.andromuks.utils.MediaPreviewItemSendState
 import net.vrkknn.andromuks.utils.MediaUploadUtils
-import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.MessageMenuBar
 import net.vrkknn.andromuks.utils.MessageMenuConfig
-import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
 import net.vrkknn.andromuks.utils.MessageSoundPlayer
-import net.vrkknn.andromuks.utils.ReactionBadges
-import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
-import net.vrkknn.andromuks.utils.SmartMessageText
-import net.vrkknn.andromuks.utils.StickerMessage
-import net.vrkknn.andromuks.utils.SystemEventNarrator
+import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.TypingNotificationArea
-import net.vrkknn.andromuks.utils.UploadingDialog
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
-import net.vrkknn.andromuks.utils.extractStickerFromEvent
-import net.vrkknn.andromuks.utils.supportsHtmlRendering
-import net.vrkknn.andromuks.utils.EmojiShortcodes
-import net.vrkknn.andromuks.utils.EmojiSuggestionList
-import net.vrkknn.andromuks.utils.CommandSuggestionList
-import net.vrkknn.andromuks.utils.CommandDefinition
-import net.vrkknn.andromuks.utils.AvatarUtils
-import net.vrkknn.andromuks.utils.ImageLoaderSingleton
-import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.navigateToUserInfo
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.min
 
 /** Sealed class for timeline items (events and date dividers) */
 sealed class TimelineItem {
     // PERFORMANCE: Stable key for LazyColumn items
     abstract val stableKey: String
-    
+
     // absorbedReceiptEventIds: non-rendered event IDs (reactions, redactions, edits, hidden
     // membership, bridge status) that flatten their read receipts onto this rendered event — see
     // ReceiptFunctions.gatherFlattenedReceipts. Computed in the produceState timeline build.
@@ -283,7 +212,7 @@ sealed class TimelineItem {
         val event: TimelineEvent,
         val isConsecutive: Boolean = false,
         val hasPerMessageProfile: Boolean = false,
-        val absorbedReceiptEventIds: List<String> = emptyList()
+        val absorbedReceiptEventIds: List<String> = emptyList(),
     ) : TimelineItem() {
         override val stableKey: String
             get() = event.eventId
@@ -332,15 +261,13 @@ private data class PaginateSnapshot(
     val total: Int,
     val lastVisible: Int,
     val isPaginating: Boolean,
-    val pendingScrollRestoration: Boolean
+    val pendingScrollRestoration: Boolean,
 )
 
 private val dateFormatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
 
 /** Format timestamp to date string (dd / MM / yyyy) */
-internal fun formatDate(timestamp: Long): String {
-    return dateFormatter.format(Date(timestamp))
-}
+internal fun formatDate(timestamp: Long): String = dateFormatter.format(Date(timestamp))
 
 /**
  * True for the membership events hidden by show_membership_events=false: a user joining, a user
@@ -351,9 +278,13 @@ private fun isHideableMembershipEvent(event: TimelineEvent): Boolean {
     if (event.type != "m.room.member") return false
     val membership = event.content?.optString("membership")?.takeIf { it.isNotBlank() } ?: return false
     return when (membership) {
-        "join" -> true                          // plain join + display-name/avatar changes
-        "leave" -> event.sender == event.stateKey // self-leave only; kicks stay visible
-        else -> false                            // invite, ban, knock, etc.
+        "join" -> true
+
+        // plain join + display-name/avatar changes
+        "leave" -> event.sender == event.stateKey
+
+        // self-leave only; kicks stay visible
+        else -> false // invite, ban, knock, etc.
     }
 }
 
@@ -368,23 +299,34 @@ suspend fun processTimelineEvents(
     showMembershipEvents: Boolean = true,
     // Thread view: paginate_manual returns every event with timeline_rowid = -1, so the thread
     // viewer must render those instead of treating them as non-renderable reply-context events.
-    renderContextEvents: Boolean = false
+    renderContextEvents: Boolean = false,
 ): List<TimelineEvent> = withContext(Dispatchers.Default) {
-    if (BuildConfig.DEBUG) Log.d(
+    if (BuildConfig.DEBUG) {
+        Log.d(
         "Andromuks",
-        "RoomTimelineScreen: Background processing ${timelineEvents.size} timeline events"
+        "RoomTimelineScreen: Background processing ${timelineEvents.size} timeline events",
     )
+    }
 
     // Debug: Log event types in timeline
     val eventTypes = timelineEvents.groupBy { it.type }
-    if (BuildConfig.DEBUG) Log.d(
+    if (BuildConfig.DEBUG) {
+        Log.d(
         "Andromuks",
-        "RoomTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(", ")}"
+        "RoomTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(
+            ", ",
+        )}",
     )
+    }
     // Debug: Check specifically for tombstone events
     val tombstoneEvents = timelineEvents.filter { it.type == "m.room.tombstone" }
     if (BuildConfig.DEBUG && tombstoneEvents.isNotEmpty()) {
-        Log.d("Andromuks", "RoomTimelineScreen: Found ${tombstoneEvents.size} tombstone event(s): ${tombstoneEvents.map { it.eventId }}")
+        Log.d(
+            "Andromuks",
+            "RoomTimelineScreen: Found ${tombstoneEvents.size} tombstone event(s): ${tombstoneEvents.map {
+                it.eventId
+            }}",
+        )
     }
 
     val filteredEvents = timelineEvents.filter { event ->
@@ -401,12 +343,14 @@ suspend fun processTimelineEvents(
         if (showHiddenEvents) return@filter true
         // Filter out org.matrix.msc4075.* events (call notifications)
         if (event.type.startsWith("org.matrix.msc4075.") ||
-            event.decryptedType?.startsWith("org.matrix.msc4075.") == true) {
+            event.decryptedType?.startsWith("org.matrix.msc4075.") == true
+        ) {
             return@filter false
         }
         // Filter out Element Call reaction events
         if (event.type == "io.element.call.reaction" ||
-            event.decryptedType == "io.element.call.reaction") {
+            event.decryptedType == "io.element.call.reaction"
+        ) {
             return@filter false
         }
         // Only allow events in the whitelist
@@ -416,7 +360,12 @@ suspend fun processTimelineEvents(
     // Debug: Check if tombstone events passed the filter
     val filteredTombstoneEvents = filteredEvents.filter { it.type == "m.room.tombstone" }
     if (BuildConfig.DEBUG && filteredTombstoneEvents.isNotEmpty()) {
-        Log.d("Andromuks", "RoomTimelineScreen: ${filteredTombstoneEvents.size} tombstone event(s) passed filtering: ${filteredTombstoneEvents.map { it.eventId }}")
+        Log.d(
+            "Andromuks",
+            "RoomTimelineScreen: ${filteredTombstoneEvents.size} tombstone event(s) passed filtering: ${filteredTombstoneEvents.map {
+                it.eventId
+            }}",
+        )
     }
 
     // PERFORMANCE: Remove edit events (m.replace) but keep the original messages in the list.
@@ -426,32 +375,51 @@ suspend fun processTimelineEvents(
                 val isEditEvent = event.relationType == "m.replace" ||
                     event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                 if (isEditEvent) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Filtering out edit event (m.replace) ${event.eventId}")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Filtering out edit event (m.replace) ${event.eventId}",
+                    )
+                    }
                 }
                 !isEditEvent
             }
+
             event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
                 val isEditEvent = event.relationType == "m.replace" ||
                     event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                 if (isEditEvent) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Filtering out encrypted edit event ${event.eventId}")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Filtering out encrypted edit event ${event.eventId}",
+                    )
+                    }
                 }
                 !isEditEvent
             }
+
             else -> true
         }
     }
 
-    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: After edit filtering: ${eventsWithoutEdits.size} events")
+    if (BuildConfig.DEBUG) {
+        Log.d(
+        "Andromuks",
+        "RoomTimelineScreen: After edit filtering: ${eventsWithoutEdits.size} events",
+    )
+    }
 
     // Sort by timeline_rowid (server order) while ensuring pending echoes (~ prefixed IDs)
     // sort last. Chronicled backfilled events (negative rowid, lower=older) sort first.
-    val sorted = eventsWithoutEdits.sortedWith(compareBy(
+    val sorted = eventsWithoutEdits.sortedWith(
+        compareBy(
         { it.eventId.startsWith("~") },
         { it.timelineRowid },
         { it.timestamp },
-        { it.eventId }
-    ))
+        { it.eventId },
+    )
+    )
     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Final sorted events: ${sorted.size} events")
 
     sorted
@@ -465,18 +433,18 @@ fun MentionMemberList(
     onMemberSelect: (String, String?) -> Unit,
     homeserverUrl: String,
     authToken: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val filteredMembers = remember(members, query) {
         members.filter { (userId, profile) ->
             val displayName = profile.displayName
             val username = userId.removePrefix("@").substringBefore(":")
-            query.isBlank() || 
-            displayName?.contains(query, ignoreCase = true) == true ||
-            username.contains(query, ignoreCase = true) ||
-            userId.contains(query, ignoreCase = true)
-        }.entries.sortedBy { (userId, profile) -> 
-            profile.displayName ?: userId 
+            query.isBlank() ||
+                displayName?.contains(query, ignoreCase = true) == true ||
+                username.contains(query, ignoreCase = true) ||
+                userId.contains(query, ignoreCase = true)
+        }.entries.sortedBy { (userId, profile) ->
+            profile.displayName ?: userId
         }
     }
 
@@ -487,17 +455,17 @@ fun MentionMemberList(
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
             ),
         shape = RoundedCornerShape(16.dp), // Rounder corners
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
+        tonalElevation = 8.dp, // Use tonalElevation for dark mode visibility
     ) {
         LazyColumn(
             modifier = Modifier
                 .widthIn(max = 250.dp)
                 .height(200.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
         ) {
             items(filteredMembers.size) { index ->
                 val (userId, profile) = filteredMembers[index]
@@ -506,7 +474,7 @@ fun MentionMemberList(
                         .fillMaxWidth()
                         .clickable { onMemberSelect(userId, profile.displayName) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AvatarImage(
                         mxcUrl = profile.avatarUrl,
@@ -515,20 +483,20 @@ fun MentionMemberList(
                         fallbackText = (profile.displayName ?: userId).take(1),
                         size = 32.dp,
                         userId = userId,
-                        displayName = profile.displayName
+                        displayName = profile.displayName,
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = profile.displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@"),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         if (profile.displayName != null) {
                             Text(
                                 text = userId,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -546,13 +514,13 @@ fun RoomSuggestionList(
     onRoomSelect: (String, String) -> Unit, // (roomId, canonicalAlias)
     homeserverUrl: String,
     authToken: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val filteredRooms = remember(rooms, query) {
         rooms.filter { (room, alias) ->
-            query.isBlank() || 
-            room.name.contains(query, ignoreCase = true) ||
-            alias.contains(query, ignoreCase = true)
+            query.isBlank() ||
+                room.name.contains(query, ignoreCase = true) ||
+                alias.contains(query, ignoreCase = true)
         }.sortedBy { it.first.name }
     }
 
@@ -563,17 +531,17 @@ fun RoomSuggestionList(
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
             ),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
+        tonalElevation = 8.dp,
     ) {
         LazyColumn(
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .height(200.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
         ) {
             items(filteredRooms.size) { index ->
                 val (room, alias) = filteredRooms[index]
@@ -582,7 +550,7 @@ fun RoomSuggestionList(
                         .fillMaxWidth()
                         .clickable { onRoomSelect(room.id, alias) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AvatarImage(
                         mxcUrl = room.avatarUrl,
@@ -591,19 +559,19 @@ fun RoomSuggestionList(
                         fallbackText = room.name.take(1),
                         size = 32.dp,
                         userId = room.id,
-                        displayName = room.name
+                        displayName = room.name,
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = room.name,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
                             text = alias,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -617,13 +585,13 @@ fun RoomSuggestionList(
 fun DateDivider(date: String) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.foundation.layout.Spacer(
             modifier =
-                Modifier.weight(1f)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+            Modifier.weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
         )
 
         Text(
@@ -631,14 +599,14 @@ fun DateDivider(date: String) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 16.dp)
+            modifier = Modifier.padding(horizontal = 16.dp),
         )
 
         androidx.compose.foundation.layout.Spacer(
             modifier =
-                Modifier.weight(1f)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+            Modifier.weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
         )
     }
 }
@@ -648,13 +616,13 @@ fun DateDivider(date: String) {
 fun UnreadMarker() {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.foundation.layout.Spacer(
             modifier =
-                Modifier.weight(1f)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+            Modifier.weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
         )
 
         Text(
@@ -662,21 +630,26 @@ fun UnreadMarker() {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.primary,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 16.dp)
+            modifier = Modifier.padding(horizontal = 16.dp),
         )
 
         androidx.compose.foundation.layout.Spacer(
             modifier =
-                Modifier.weight(1f)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+            Modifier.weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
         )
     }
 }
 
 // NOTE: Keep this screen in sync with `BubbleTimelineScreen`. Any structural or data-flow changes
 // should be mirrored between both implementations. Refer to `docs/BUBBLE_IMPLEMENTATION.md`.
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class, ExperimentalSharedTransitionApi::class, FlowPreview::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterialApi::class,
+    ExperimentalSharedTransitionApi::class,
+    FlowPreview::class,
+)
 @Composable
 fun RoomTimelineScreen(
     roomId: String,
@@ -685,7 +658,7 @@ fun RoomTimelineScreen(
     modifier: Modifier = Modifier,
     appViewModel: AppViewModel = viewModel(),
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
@@ -706,7 +679,7 @@ fun RoomTimelineScreen(
     val myUserId = appViewModel.currentUserId
     val homeserverUrlFromPrefs = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", "") ?: "" }
     val homeserverUrl = appViewModel.homeserverUrl.ifEmpty { homeserverUrlFromPrefs }
-    //Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
+    // Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     // PERFORMANCE FIX: Use timelineEvents directly instead of pre-rendered flow.
     // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.
     // Timeline is now rendered lazily when room is opened via processCachedEvents().
@@ -787,7 +760,7 @@ fun RoomTimelineScreen(
         val required = pl.events["m.room.message"] ?: pl.eventsDefault
         myPl >= required
     }
-    
+
     // Track batch processing state (Catching up)
     val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
     val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
@@ -805,10 +778,12 @@ fun RoomTimelineScreen(
         val currentSize = timelineEvents.size
         val currentIsLoading = isLoading
         if (currentSize != previousSize || currentIsLoading != previousIsLoading) {
-            if (BuildConfig.DEBUG) Log.d(
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Timeline events count: $currentSize, isLoading: $currentIsLoading"
+                "RoomTimelineScreen: Timeline events count: $currentSize, isLoading: $currentIsLoading",
             )
+            }
             previousSize = currentSize
             previousIsLoading = currentIsLoading
         }
@@ -827,13 +802,13 @@ fun RoomTimelineScreen(
     // Emoji selection state
     var showEmojiSelection by remember { mutableStateOf(false) }
     var reactingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
-    
+
     // Emoji selection state for text input
     var showEmojiPickerForText by remember { mutableStateOf(false) }
-    
+
     // Sticker selection state for text input
     var showStickerPickerForText by remember { mutableStateOf(false) }
-    
+
     // Code viewer state
     var showCodeViewer by remember { mutableStateOf(false) }
     var codeViewerContent by remember { mutableStateOf("") }
@@ -847,10 +822,12 @@ fun RoomTimelineScreen(
     var pendingEventContextScrollRestore by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var pendingNotificationJumpEventId by remember(roomId) {
         val consumed = appViewModel.consumePendingHighlightEvent(roomId)
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "RoomTimelineScreen: remember(roomId=$roomId) pendingNotificationJumpEventId = ${consumed ?: "NULL"}"
+            "RoomTimelineScreen: remember(roomId=$roomId) pendingNotificationJumpEventId = ${consumed ?: "NULL"}",
         )
+        }
         mutableStateOf(consumed)
     }
     // Inter-room link jump target: an event permalink tapped in another room stashes the event id
@@ -882,10 +859,12 @@ fun RoomTimelineScreen(
                 appViewModel.clearDirectRoomNavigation()
                 val eventId = appViewModel.consumePendingHighlightEvent(roomId)
                 if (eventId != null) {
-                    if (BuildConfig.DEBUG) Log.d(
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
                         "Andromuks",
-                        "RoomTimelineScreen: Notification tap while room $roomId is open — highlighting event $eventId"
+                        "RoomTimelineScreen: Notification tap while room $roomId is open — highlighting event $eventId",
                     )
+                    }
                     pendingNotificationJumpEventId = eventId
                 }
                 // Restore currentRoomId: onAppBecameInvisible clears it to enable notifications.
@@ -902,10 +881,12 @@ fun RoomTimelineScreen(
                 // LaunchedEffect blocks in RoomListScreen (Unit, spacesLoaded, navigationTrigger)
                 // all fire on re-entry and race to consume directRoomNavigation, so the trigger
                 // handler can read null and skip navigation entirely.
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Navigation for different room $targetRoomId (current=$roomId)"
+                    "RoomTimelineScreen: Navigation for different room $targetRoomId (current=$roomId)",
                 )
+                }
                 val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
                 appViewModel.clearDirectRoomNavigation()
                 // Set currentRoomId to targetRoomId BEFORE suspending in flushSyncBatchForRoom.
@@ -923,11 +904,16 @@ fun RoomTimelineScreen(
                     timeoutMs = 15_000L,
                     roomId = targetRoomId,
                 )
-                Androlog("FCMOpen", "RoomTimelineScreen hot-swap OPEN room=$targetRoomId (from=$roomId) isReady=$isReady → room_timeline")
-                if (BuildConfig.DEBUG) Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Room $targetRoomId readiness=$isReady before navigating (hot-swap)"
+                Androlog(
+                    "FCMOpen",
+                    "RoomTimelineScreen hot-swap OPEN room=$targetRoomId (from=$roomId) isReady=$isReady → room_timeline",
                 )
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Room $targetRoomId readiness=$isReady before navigating (hot-swap)",
+                )
+                }
 
                 appViewModel.openedViaDirectNotification = true
                 // Synthesize a [room_list, room_timeline] back stack so Back returns to the room
@@ -960,10 +946,10 @@ fun RoomTimelineScreen(
     var selectedMediaIsVideo by remember { mutableStateOf(false) }
     var showMediaPreview by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
-    
+
     // Multiple media items (e.g. from share) for batch preview and send
     var selectedMediaItems by remember { mutableStateOf<List<SharedMediaItem>?>(null) }
-    
+
     // Attachment menu state
     var showAttachmentMenu by remember { mutableStateOf(false) }
     // Location picker overlay — shown instead of navigating so the room stays alive
@@ -975,7 +961,7 @@ fun RoomTimelineScreen(
     var showVideoOverlay by rememberSaveable { mutableStateOf(false) }
     var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
-    
+
     // Camera state
     var cameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var cameraVideoUri by remember { mutableStateOf<Uri?>(null) }
@@ -985,7 +971,7 @@ fun RoomTimelineScreen(
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
-    
+
     // Focus requester for text field (to focus when replying)
     val textFieldFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -993,7 +979,7 @@ fun RoomTimelineScreen(
     // AnimatedVisibility enter/exit and the keyboard-raise delay so the keyboard only starts
     // pushing the input box up *after* the preview has finished expanding.
     val replyPreviewGrowMs = 220
-    
+
     // Track text field height to match button heights
     var textFieldHeight by remember { mutableStateOf(0) }
     val density = LocalDensity.current
@@ -1017,10 +1003,12 @@ fun RoomTimelineScreen(
     LaunchedEffect(appViewModel.pendingShareUpdateCounter) {
         val sharePayload = appViewModel.consumePendingShareForRoom(roomId)
         if (sharePayload != null) {
-            if (BuildConfig.DEBUG) Log.d(
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Received pending share for room $roomId with ${sharePayload.items.size} items"
+                "RoomTimelineScreen: Received pending share for room $roomId with ${sharePayload.items.size} items",
             )
+            }
             if (!sharePayload.text.isNullOrBlank() && draft.isBlank()) {
                 draft = sharePayload.text
             }
@@ -1048,15 +1036,18 @@ fun RoomTimelineScreen(
                                 selectedMediaIsVideo = false
                                 showMediaPreview = true
                             }
+
                             resolvedMime.startsWith("video/") -> {
                                 selectedMediaUri = uri
                                 selectedMediaIsVideo = true
                                 showMediaPreview = true
                             }
+
                             resolvedMime.startsWith("audio/") -> {
                                 selectedAudioUri = uri
                                 showMediaPreview = true
                             }
+
                             else -> {
                                 selectedFileUri = uri
                                 selectedMediaIsVideo = resolvedMime.startsWith("video/")
@@ -1064,34 +1055,40 @@ fun RoomTimelineScreen(
                             }
                         }
                     } catch (e: Exception) {
-                        if (BuildConfig.DEBUG) Log.w("Andromuks", "RoomTimelineScreen: Failed to resolve shared media URI", e)
+                        if (BuildConfig.DEBUG) {
+                            Log.w(
+                            "Andromuks",
+                            "RoomTimelineScreen: Failed to resolve shared media URI",
+                            e,
+                        )
+                        }
                     }
                 }
             }
         }
     }
-    
+
     // Room joiner state
     var showRoomJoiner by remember { mutableStateOf(false) }
     var roomLinkToJoin by remember { mutableStateOf<RoomLink?>(null) }
-    
+
     // Mention state
     var showMentionList by remember { mutableStateOf(false) }
     var mentionQuery by remember { mutableStateOf("") }
     var mentionStartIndex by remember { mutableStateOf(-1) }
     var isWaitingForFullMemberList by remember { mutableStateOf(false) }
     var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }
-    
+
     // Emoji shortcode ( :shortname: ) state
     var showEmojiSuggestionList by remember { mutableStateOf(false) }
     var emojiQuery by remember { mutableStateOf("") }
     var emojiStartIndex by remember { mutableStateOf(-1) }
-    
+
     // Room mention ( #roomalias ) state
     var showRoomSuggestionList by remember { mutableStateOf(false) }
     var roomQuery by remember { mutableStateOf("") }
     var roomStartIndex by remember { mutableStateOf(-1) }
-    
+
     // Command ( /command ) state
     var showCommandSuggestionList by remember { mutableStateOf(false) }
     var commandQuery by remember { mutableStateOf("") }
@@ -1101,8 +1098,10 @@ fun RoomTimelineScreen(
     var showPmpProfilePicker by remember { mutableStateOf(false) }
 
     // Avatar command state (for commands that need image picker)
-    var pendingAvatarCommand by remember { mutableStateOf<String?>(null) } // "myroomavatar", "globalavatar", or "roomavatar"
-    
+    var pendingAvatarCommand by remember {
+        mutableStateOf<String?>(null)
+    } // "myroomavatar", "globalavatar", or "roomavatar"
+
     // Message menu state (for bottom menu bar)
     var messageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
     var retainedMessageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
@@ -1115,26 +1114,26 @@ fun RoomTimelineScreen(
             retainedMessageMenuConfig = messageMenuConfig
         }
     }
-    
+
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
         if (textFieldValue.text != draft) {
             textFieldValue = textFieldValue.copy(text = draft, selection = TextRange(draft.length))
         }
     }
-    
+
     // Pre-fill draft when editing starts
     LaunchedEffect(editingEvent) {
         if (editingEvent != null) {
             // Use ViewModel helper so E2EE + sync_complete edits (m.new_content only) pre-fill correctly
             val body = appViewModel.getBodyTextForEdit(editingEvent!!)
             draft = body
-            
+
             // Hide mention list when editing
             showMentionList = false
         }
     }
-    
+
     // Hide mention list when replying starts and focus text field with keyboard
     LaunchedEffect(replyingToEvent) {
         if (replyingToEvent != null) {
@@ -1150,20 +1149,25 @@ fun RoomTimelineScreen(
             keyboardController?.show()
         }
     }
-    
+
     // Show mention list when full member list is loaded
     LaunchedEffect(appViewModel.memberUpdateCounter, isWaitingForFullMemberList) {
         if (isWaitingForFullMemberList && appViewModel.memberUpdateCounter > lastMemberUpdateCounterBeforeMention) {
             // Full member list has been loaded, now show the mention list
             val memberMap = appViewModel.getMemberMap(roomId)
             if (memberMap.isNotEmpty()) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Full member list loaded (${memberMap.size} members), showing mention list")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Full member list loaded (${memberMap.size} members), showing mention list",
+                )
+                }
                 showMentionList = true
                 isWaitingForFullMemberList = false
             }
         }
     }
-    
+
     // Hide attachment menu when editing or replying starts
     LaunchedEffect(editingEvent, replyingToEvent) {
         if (editingEvent != null || replyingToEvent != null) {
@@ -1171,7 +1175,7 @@ fun RoomTimelineScreen(
         }
     }
 
-    // PERFORMANCE: Typing detection with debouncing - UI level rate limiting removed 
+    // PERFORMANCE: Typing detection with debouncing - UI level rate limiting removed
     // since AppViewModel.sendTyping() now handles rate limiting internally (3 seconds)
     LaunchedEffect(draft) {
         if (draft.isNotBlank()) {
@@ -1193,7 +1197,7 @@ fun RoomTimelineScreen(
                     // Handle avatar upload
                     val command = pendingAvatarCommand
                     pendingAvatarCommand = null
-                    
+
                     if (command != null) {
                         coroutineScope.launch {
                             try {
@@ -1204,9 +1208,9 @@ fun RoomTimelineScreen(
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     isEncrypted = false,
-                                    compressOriginal = false
+                                    compressOriginal = false,
                                 )
-                                
+
                                 if (uploadResult != null) {
                                     // Set the avatar based on command type
                                     when (command) {
@@ -1215,23 +1219,25 @@ fun RoomTimelineScreen(
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "Room avatar updated",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
+
                                         "globalavatar" -> {
                                             appViewModel.setGlobalAvatar(uploadResult.mxcUrl)
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "Global avatar updated",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
+
                                         "roomavatar" -> {
                                             appViewModel.setRoomAvatar(roomId, uploadResult.mxcUrl)
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "Room avatar updated",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
                                     }
@@ -1239,7 +1245,7 @@ fun RoomTimelineScreen(
                                     android.widget.Toast.makeText(
                                         context,
                                         "Failed to upload avatar",
-                                        android.widget.Toast.LENGTH_SHORT
+                                        android.widget.Toast.LENGTH_SHORT,
                                     ).show()
                                 }
                             } catch (e: Exception) {
@@ -1247,7 +1253,7 @@ fun RoomTimelineScreen(
                                 android.widget.Toast.makeText(
                                     context,
                                     "Error uploading avatar: ${e.message}",
-                                    android.widget.Toast.LENGTH_SHORT
+                                    android.widget.Toast.LENGTH_SHORT,
                                 ).show()
                             }
                         }
@@ -1256,23 +1262,22 @@ fun RoomTimelineScreen(
                     android.widget.Toast.makeText(
                         context,
                         "Please select an image file",
-                        android.widget.Toast.LENGTH_SHORT
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     pendingAvatarCommand = null
                 }
             }
         }
-    
+
     // Media picker launcher - accepts both images and videos via the Android Photo Picker
     // (PickVisualMedia). No storage permission required; shows the consistent Photo/Album sheet.
     val mediaPickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) {
-            uri: Uri? ->
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
             uri?.let {
                 // Check if this is an image or video file
                 val mimeType = context.contentResolver.getType(it)
                 val isImageOrVideo = mimeType?.startsWith("image/") == true || mimeType?.startsWith("video/") == true
-                
+
                 if (isImageOrVideo) {
                     selectedMediaUri = it
                     // Detect if this is a video or image
@@ -1283,26 +1288,24 @@ fun RoomTimelineScreen(
                     android.widget.Toast.makeText(
                         context,
                         "Please select an image or video file",
-                        android.widget.Toast.LENGTH_SHORT
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
                 }
             }
         }
-    
+
     // Audio picker launcher
     val audioPickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) {
-            uri: Uri? ->
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
             uri?.let {
                 selectedAudioUri = it
                 showMediaPreview = true
             }
         }
-    
+
     // File picker launcher
     val filePickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) {
-            uri: Uri? ->
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
             uri?.let {
                 selectedFileUri = it
                 // Detect if this is a video file
@@ -1311,10 +1314,10 @@ fun RoomTimelineScreen(
                 showMediaPreview = true
             }
         }
-    
+
     // Camera photo launcher
     val cameraPhotoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
+        contract = ActivityResultContracts.TakePicture(),
     ) { success ->
         if (success && cameraPhotoUri != null) {
             cameraPhotoUri?.let { uri ->
@@ -1325,10 +1328,10 @@ fun RoomTimelineScreen(
         }
         cameraPhotoUri = null
     }
-    
+
     // Camera video launcher
     val cameraVideoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CaptureVideo()
+        contract = ActivityResultContracts.CaptureVideo(),
     ) { success ->
         if (success && cameraVideoUri != null) {
             cameraVideoUri?.let { uri ->
@@ -1339,33 +1342,40 @@ fun RoomTimelineScreen(
         }
         cameraVideoUri = null
     }
-    
+
     // Helper function to create camera file URI
-    fun createCameraFileUri(isVideo: Boolean): Uri? {
-        return try {
-            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
-            val fileName = if (isVideo) "VID_${timeStamp}.mp4" else "IMG_${timeStamp}.jpg"
-            val contentValues = android.content.ContentValues().apply {
-                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (isVideo) "video/mp4" else "image/jpeg")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, if (isVideo) android.os.Environment.DIRECTORY_MOVIES else android.os.Environment.DIRECTORY_PICTURES)
-                }
+    fun createCameraFileUri(isVideo: Boolean): Uri? = try {
+        val timeStamp = java.text.SimpleDateFormat(
+            "yyyyMMdd_HHmmss",
+            java.util.Locale.getDefault(),
+        ).format(java.util.Date())
+        val fileName = if (isVideo) "VID_$timeStamp.mp4" else "IMG_$timeStamp.jpg"
+        val contentValues = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (isVideo) "video/mp4" else "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                    if (isVideo) android.os.Environment.DIRECTORY_MOVIES else android.os.Environment.DIRECTORY_PICTURES,
+                )
             }
-            context.contentResolver.insert(
-                if (isVideo) android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                else android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                contentValues
-            )
-        } catch (e: Exception) {
-            Log.e("Andromuks", "Error creating camera file URI", e)
-            null
         }
+        context.contentResolver.insert(
+            if (isVideo) {
+                android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            } else {
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            },
+            contentValues,
+        )
+    } catch (e: Exception) {
+        Log.e("Andromuks", "Error creating camera file URI", e)
+        null
     }
-    
+
     // Camera permission launcher for photo
     val cameraPhotoPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
+        contract = ActivityResultContracts.RequestPermission(),
     ) { isGranted ->
         if (isGranted) {
             val uri = createCameraFileUri(false) // Photo
@@ -1377,21 +1387,21 @@ fun RoomTimelineScreen(
                 android.widget.Toast.makeText(
                     context,
                     "Error creating camera file",
-                    android.widget.Toast.LENGTH_SHORT
+                    android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
         } else {
             android.widget.Toast.makeText(
                 context,
                 "Camera permission is required to take photos",
-                android.widget.Toast.LENGTH_SHORT
+                android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
     }
-    
+
     // Camera permission launcher for video
     val cameraVideoPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
+        contract = ActivityResultContracts.RequestPermission(),
     ) { isGranted ->
         if (isGranted) {
             val uri = createCameraFileUri(true) // Video
@@ -1403,14 +1413,14 @@ fun RoomTimelineScreen(
                 android.widget.Toast.makeText(
                     context,
                     "Error creating camera file",
-                    android.widget.Toast.LENGTH_SHORT
+                    android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
         } else {
             android.widget.Toast.makeText(
                 context,
                 "Camera permission is required to record videos",
-                android.widget.Toast.LENGTH_SHORT
+                android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
     }
@@ -1422,7 +1432,11 @@ fun RoomTimelineScreen(
 
     // Helper function to launch camera
     fun launchCamera(isVideo: Boolean) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
             val uri = createCameraFileUri(isVideo)
             if (uri != null) {
                 if (isVideo) {
@@ -1437,7 +1451,7 @@ fun RoomTimelineScreen(
                 android.widget.Toast.makeText(
                     context,
                     "Error creating camera file",
-                    android.widget.Toast.LENGTH_SHORT
+                    android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
         } else {
@@ -1456,14 +1470,14 @@ fun RoomTimelineScreen(
         appViewModel.getMemberMap(roomId).filter { (userId, profile) ->
             // Exclude current user
             userId != myUserId &&
-            // Ensure userId is a valid Matrix user ID format (@user:domain)
-            userId.startsWith("@") && 
-            userId.contains(":") &&
-            // Ensure userId is not empty or malformed
-            userId.length > 3
+                // Ensure userId is a valid Matrix user ID format (@user:domain)
+                userId.startsWith("@") &&
+                userId.contains(":") &&
+                // Ensure userId is not empty or malformed
+                userId.length > 3
         }
     }
-    
+
     // Get rooms with canonical aliases for room mentions
     val roomsWithAliases = remember(appViewModel.allRooms) {
         appViewModel.getRoomsWithCanonicalAliases()
@@ -1472,7 +1486,7 @@ fun RoomTimelineScreen(
     // Mention detection and handling functions
     fun detectMention(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for @ at or before cursor position
         var atIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -1485,23 +1499,25 @@ fun RoomTimelineScreen(
                 break
             }
         }
-        
+
         // Also check if cursor is right after @ at the beginning or after space
         if (atIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '@') {
                 // Check if @ is at beginning or preceded by space/newline
-                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                if (cursorPosition == 1 ||
+                    (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))
+                ) {
                     atIndex = cursorPosition - 1
                 }
             }
         }
-        
+
         if (atIndex == -1) return null
-        
+
         // Extract the query after @
         val queryStart = atIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Look for space after cursor position to find end of mention
         if (cursorPosition < text.length) {
             for (i in cursorPosition until text.length) {
@@ -1512,7 +1528,7 @@ fun RoomTimelineScreen(
                 queryEnd = i + 1
             }
         }
-        
+
         // Allow showing mention list even if we just typed @ (empty query)
         if (queryStart <= cursorPosition) {
             val query = if (queryStart < min(queryEnd, text.length)) {
@@ -1522,14 +1538,14 @@ fun RoomTimelineScreen(
             }
             return Pair(query, atIndex)
         }
-        
+
         return null
     }
 
     // Emoji shortcode detection function (for ':' based autocomplete)
     fun detectEmojiShortcode(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for ':' at or before cursor position
         var colonIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -1543,9 +1559,9 @@ fun RoomTimelineScreen(
                 break
             }
         }
-        
+
         if (colonIndex == -1) return null
-        
+
         // Ensure ':' is at start of text or preceded by whitespace/newline
         if (colonIndex > 0) {
             val prev = text[colonIndex - 1]
@@ -1553,10 +1569,10 @@ fun RoomTimelineScreen(
                 return null
             }
         }
-        
+
         val queryStart = colonIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Stop query at next delimiter or second ':'
         if (cursorPosition < text.length) {
             for (i in cursorPosition until text.length) {
@@ -1567,21 +1583,21 @@ fun RoomTimelineScreen(
                 queryEnd = i + 1
             }
         }
-        
+
         if (queryStart <= cursorPosition) {
             val safeEnd = min(queryEnd, text.length)
             val query =
                 if (queryStart < safeEnd) text.substring(queryStart, safeEnd) else ""
             return Pair(query, colonIndex)
         }
-        
+
         return null
     }
 
     // Room mention detection function (for '#' based autocomplete)
     fun detectRoomMention(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for '#' at or before cursor position
         var hashIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -1594,28 +1610,33 @@ fun RoomTimelineScreen(
                 break
             }
         }
-        
+
         // Also check if cursor is right after # (similar to mention detection)
         if (hashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '#') {
                 // Check if # is at beginning or preceded by space/newline (same logic as mention detection)
-                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                if (cursorPosition == 1 ||
+                    (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))
+                ) {
                     hashIndex = cursorPosition - 1
                 }
             }
         }
-        
+
         if (hashIndex == -1) {
             if (BuildConfig.DEBUG && text.contains('#')) {
-                Log.d("Andromuks", "RoomTimelineScreen: detectRoomMention - # found in text but hashIndex is -1, text='$text', cursorPosition=$cursorPosition")
+                Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: detectRoomMention - # found in text but hashIndex is -1, text='$text', cursorPosition=$cursorPosition",
+                )
             }
             return null
         }
-        
+
         // Extract the query after #
         val queryStart = hashIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Look for space after cursor position to find end of mention
         if (cursorPosition < text.length) {
             for (i in cursorPosition until text.length) {
@@ -1626,7 +1647,7 @@ fun RoomTimelineScreen(
                 queryEnd = i + 1
             }
         }
-        
+
         // Allow showing room list even if we just typed # (empty query)
         if (queryStart <= cursorPosition) {
             val query = if (queryStart < min(queryEnd, text.length)) {
@@ -1636,7 +1657,7 @@ fun RoomTimelineScreen(
             }
             return Pair(query, hashIndex)
         }
-        
+
         return null
     }
 
@@ -1644,7 +1665,7 @@ fun RoomTimelineScreen(
     // Commands only trigger when '/' is the very first character.
     fun detectCommand(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for '/' at or before cursor position
         var slashIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -1657,7 +1678,7 @@ fun RoomTimelineScreen(
                 break
             }
         }
-        
+
         // Also check if cursor is right after / (similar to mention detection)
         if (slashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '/') {
@@ -1667,14 +1688,14 @@ fun RoomTimelineScreen(
                 }
             }
         }
-        
+
         if (slashIndex == -1) return null
         if (slashIndex != 0) return null
-        
+
         // Extract the query after / (only the command name, up to first space/newline or cursor)
         val queryStart = slashIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Find the first space or newline after / and before/at cursor position
         for (i in queryStart until min(cursorPosition, text.length)) {
             if (text[i] == ' ' || text[i] == '\n') {
@@ -1682,7 +1703,7 @@ fun RoomTimelineScreen(
                 break
             }
         }
-        
+
         // Allow showing command list even if we just typed / (empty query)
         if (queryStart <= cursorPosition) {
             val query = if (queryStart < min(queryEnd, text.length)) {
@@ -1692,34 +1713,31 @@ fun RoomTimelineScreen(
             }
             return Pair(query, slashIndex)
         }
-        
+
         return null
     }
 
     // Handle backspace deletion of custom emoji markdown
-    fun handleCustomEmojiDeletion(
-        oldValue: TextFieldValue,
-        newValue: TextFieldValue
-    ): TextFieldValue {
+    fun handleCustomEmojiDeletion(oldValue: TextFieldValue, newValue: TextFieldValue): TextFieldValue {
         // Check if text was deleted (backspace was pressed)
         if (newValue.text.length >= oldValue.text.length) return newValue
-        
+
         val oldText = oldValue.text
         val newText = newValue.text
         val cursor = newValue.selection.start
         val deletedLength = oldText.length - newText.length
-        
+
         // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
         val customEmojiRegex = Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
-        
+
         // Find all custom emoji markdowns in the old text
         val matches = customEmojiRegex.findAll(oldText).toList()
-        
+
         // Check if cursor is within or right after a custom emoji markdown
         for (match in matches) {
             val markdownStart = match.range.first
             val markdownEnd = match.range.last + 1
-            
+
             // Only trigger if cursor is inside the markdown, not at the boundary
             if (cursor >= markdownStart && cursor < markdownEnd && deletedLength == 1) {
                 // User is deleting the custom emoji, remove the entire markdown
@@ -1727,26 +1745,24 @@ fun RoomTimelineScreen(
                 val afterMarkdown = oldText.substring(markdownEnd)
                 val finalText = beforeMarkdown + afterMarkdown
                 val finalCursor = markdownStart
-                
+
                 return TextFieldValue(
                     text = finalText,
-                    selection = TextRange(finalCursor)
+                    selection = TextRange(finalCursor),
                 )
             }
         }
-        
+
         return newValue
     }
 
     // Replace completed :shortcode: with its emoji/custom emoji representation
-    fun applyCompletedEmojiShortcode(
-        value: TextFieldValue
-    ): TextFieldValue {
+    fun applyCompletedEmojiShortcode(value: TextFieldValue): TextFieldValue {
         val text = value.text
         val cursor = value.selection.start
         if (cursor <= 0 || cursor > text.length) return value
         if (text[cursor - 1] != ':') return value
-        
+
         // Find matching opening ':'
         var start = cursor - 2
         while (start >= 0) {
@@ -1759,38 +1775,48 @@ fun RoomTimelineScreen(
             }
             start--
         }
-        
+
         if (start < 0 || text[start] != ':') return value
-        
+
         val nameStart = start + 1
         val nameEnd = cursor - 1
         if (nameEnd <= nameStart) return value
-        
+
         val shortcode = text.substring(nameStart, nameEnd)
         val suggestion =
             EmojiShortcodes.findByShortcode(shortcode, appViewModel.customEmojiPacks)
                 ?: return value
-        
+
         val replacement =
             suggestion.emoji
                 ?: suggestion.customEmoji?.let { custom ->
                     "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
                 }
                 ?: return value
-        
+
         val newText =
             text.substring(0, start) + replacement + text.substring(cursor)
         val newCursorPos = start + replacement.length
-        
+
         return TextFieldValue(
             text = newText,
-            selection = TextRange(newCursorPos)
+            selection = TextRange(newCursorPos),
         )
     }
 
-    fun handleMentionSelection(userId: String, displayName: String?, originalText: String, startIndex: Int, endIndex: Int): String {
+    fun handleMentionSelection(
+        userId: String,
+        displayName: String?,
+        originalText: String,
+        startIndex: Int,
+        endIndex: Int,
+    ): String {
         // Escape square brackets in display name to prevent regex issues
-        val escapedDisplayName = (displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":"))
+        val escapedDisplayName = (
+            displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix(
+            "@",
+        ).substringBefore(":")
+        )
             .replace("[", "\\[")
             .replace("]", "\\]")
         val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
@@ -1810,7 +1836,7 @@ fun RoomTimelineScreen(
             "m.room.pinned_events",
             "m.room.tombstone",
             "m.reaction",
-            "m.sticker"
+            "m.sticker",
             // m.room.redaction is intentionally excluded - redaction events should not appear in
             // timeline
             // org.matrix.msc3401.call.member is intentionally excluded — it only renders when
@@ -1832,14 +1858,14 @@ fun RoomTimelineScreen(
         if (shouldLog && BuildConfig.DEBUG) {
             Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, roomId=$roomId"
+                "RoomTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, roomId=$roomId",
             )
         }
         sortedEvents = processTimelineEvents(
             timelineEvents = timelineEvents,
             allowedEventTypes = allowedEventTypes,
             showHiddenEvents = showHiddenEvents,
-            showMembershipEvents = showMembershipEvents
+            showMembershipEvents = showMembershipEvents,
         )
     }
 
@@ -1899,7 +1925,11 @@ fun RoomTimelineScreen(
     // later sent/received event can't flip a "caught up on entry" room into showing the divider.
     val readMarkerDecision = remember(roomId) { ReadMarkerDecision() }
 
-    val timelineItems by produceState<List<TimelineItem>>(initialValue = emptyList(), sortedEvents, fullyReadMarkerEventId) {
+    val timelineItems by produceState<List<TimelineItem>>(
+        initialValue = emptyList(),
+        sortedEvents,
+        fullyReadMarkerEventId,
+    ) {
         value = withContext(Dispatchers.Default) {
             val items = mutableListOf<TimelineItem>()
             var lastDate: String? = null
@@ -1915,7 +1945,7 @@ fun RoomTimelineScreen(
                 { it.eventId.startsWith("~") },
                 { it.timelineRowid },
                 { it.timestamp },
-                { it.eventId }
+                { it.eventId },
             )
             val fullyReadEvent = fullyReadMarkerEventId?.let { id ->
                 timelineEvents.firstOrNull { it.eventId == id }
@@ -1984,23 +2014,31 @@ fun RoomTimelineScreen(
                 }
 
                 // Check if this event has per-message profile (from bridges like Beeper)
-                val hasPerMessageProfile = 
+                val hasPerMessageProfile =
                     event.content?.has("com.beeper.per_message_profile") == true ||
-                    event.decrypted?.has("com.beeper.per_message_profile") == true
+                        event.decrypted?.has("com.beeper.per_message_profile") == true
 
                 // Check if this is a consecutive message from the same sender
-                val timeDifference = if (previousEvent != null) kotlin.math.abs(event.timestamp - previousEvent.timestamp) else 0L
-                val isConsecutive = !hasPerMessageProfile && 
+                val timeDifference = if (previousEvent != null) {
+                    kotlin.math.abs(
+                    event.timestamp - previousEvent.timestamp,
+                )
+                } else {
+                    0L
+                }
+                val isConsecutive = !hasPerMessageProfile &&
                     previousEvent?.sender == event.sender &&
                     timeDifference <= 5 * 60 * 1000
 
                 // Add the event with pre-computed flags
-                items.add(TimelineItem.Event(
+                items.add(
+                    TimelineItem.Event(
                     event = event,
                     isConsecutive = isConsecutive,
                     hasPerMessageProfile = hasPerMessageProfile,
-                    absorbedReceiptEventIds = absorbedByAnchor[event.eventId] ?: emptyList()
-                ))
+                    absorbedReceiptEventIds = absorbedByAnchor[event.eventId] ?: emptyList(),
+                )
+                )
 
                 previousEvent = event
             }
@@ -2013,7 +2051,7 @@ fun RoomTimelineScreen(
     // Processing all senders with map/distinct/sorted can block UI thread and cause ANR
     // Using just size is sufficient - if size changes, we need to recompute anyway
     val sortedEventsSize = sortedEvents.size
-    
+
     // CRITICAL FIX: Ensure current user profile is included in memberMapWithFallback
     // The current user's profile might not be in the room's member map if there's no m.room.member event for them
     // This fixes the issue where own messages show username instead of display name/avatar
@@ -2026,7 +2064,7 @@ fun RoomTimelineScreen(
             if (currentProfile != null) {
                 enhancedMap[myUserId] = MemberProfile(
                     displayName = currentProfile.displayName,
-                    avatarUrl = currentProfile.avatarUrl
+                    avatarUrl = currentProfile.avatarUrl,
                 )
             }
         }
@@ -2080,11 +2118,7 @@ fun RoomTimelineScreen(
     val prefetchedTimelineMemoryKeys = remember(roomId) { mutableSetOf<String>() }
     val prefetchGuardband = 50
 
-    fun enqueueTimelinePrefetch(
-        mxcUrl: String?,
-        keyPrefix: String,
-        requestSize: Int
-    ) {
+    fun enqueueTimelinePrefetch(mxcUrl: String?, keyPrefix: String, requestSize: Int) {
         if (mxcUrl.isNullOrBlank()) return
         val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl) ?: return
         val memoryKey = "timeline_prefetch:$roomId:$keyPrefix:${mxcUrl.hashCode()}"
@@ -2125,7 +2159,7 @@ fun RoomTimelineScreen(
                     enqueueTimelinePrefetch(
                         mxcUrl = avatarMxc,
                         keyPrefix = "avatar:${event.sender}",
-                        requestSize = 256
+                        requestSize = 256,
                     )
 
                     // Prefetch media thumbnail (or media URL fallback) for image/video/sticker events
@@ -2150,7 +2184,7 @@ fun RoomTimelineScreen(
                         enqueueTimelinePrefetch(
                             mxcUrl = thumbnailMxc ?: mediaMxc,
                             keyPrefix = "media:${event.eventId}",
-                            requestSize = 512
+                            requestSize = 512,
                         )
                     }
                 }
@@ -2166,7 +2200,7 @@ fun RoomTimelineScreen(
             prefetchedTimelineMemoryKeys.clear()
         }
     }
-    
+
     // Track scroll position for pagination restoration
     // With reverseLayout, we capture the highest visible index (oldest message at top)
     // After pagination adds older events, we scroll so that index is at the bottom of view
@@ -2183,7 +2217,6 @@ fun RoomTimelineScreen(
     var refillRoundCount by remember(roomId) { mutableStateOf(0) }
     var prevItemsAbove by remember(roomId) { mutableStateOf(Int.MAX_VALUE) }
 
-
     // Pull-to-refresh state
     var isRefreshingPull by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullRefreshState(
@@ -2194,37 +2227,46 @@ fun RoomTimelineScreen(
             // After pagination adds older events, we'll scroll so this index is at bottom of view
             val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
             val highestVisibleIndex = visibleIndices.maxOrNull()
-            
+
             if (highestVisibleIndex != null && timelineItems.isNotEmpty()) {
                 highestVisibleIndexBeforePagination = highestVisibleIndex
                 anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
                 pendingScrollRestoration = true
                 expectedTimelineSizeBeforePagination = timelineItems.size
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Pull-to-refresh triggered, capturing highest visible index: $highestVisibleIndex (out of ${timelineItems.size} items)"
+                    "RoomTimelineScreen: Pull-to-refresh triggered, capturing highest visible index: $highestVisibleIndex (out of ${timelineItems.size} items)",
                 )
+                }
             } else {
                 // Fallback: use first visible item index
                 highestVisibleIndexBeforePagination = listState.firstVisibleItemIndex
                 anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
                 pendingScrollRestoration = true
                 expectedTimelineSizeBeforePagination = timelineItems.size
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Pull-to-refresh triggered, no visible items, using first visible index: ${listState.firstVisibleItemIndex}"
+                    "RoomTimelineScreen: Pull-to-refresh triggered, no visible items, using first visible index: ${listState.firstVisibleItemIndex}",
                 )
+                }
             }
-            
+
             // Use the oldest event from cache, not the oldest rendered event
             // The cache may have events that aren't currently rendered, so we need to use
             // the absolute oldest event to avoid requesting duplicates
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest cached event")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest cached event",
+            )
+            }
             isRefreshingPull = true
             appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
-        }
+        },
     )
-    
+
     // Monitor pagination state to stop refresh indicator
     // Note: Refresh indicator is now cleared in scroll restoration LaunchedEffect
     // This is kept as a fallback in case scroll restoration doesn't trigger
@@ -2236,10 +2278,10 @@ fun RoomTimelineScreen(
 
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
-    
+
     // Track previous app visibility state to detect background/foreground transitions
     var previousAppVisibleState by remember(roomId) { mutableStateOf(appViewModel.isAppVisible) }
-    
+
     // CRITICAL FIX: Immediately set scroll position to bottom when timelineItems first becomes available
     // With reverseLayout, index 0 is the bottom (newest message)
     var hasSetInitialScrollPosition by remember(roomId) { mutableStateOf(false) }
@@ -2253,15 +2295,17 @@ fun RoomTimelineScreen(
                 // With reverseLayout, index 0 is the bottom (newest message)
                 listState.scrollToItem(0)
                 isAttachedToBottom = true
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Set initial scroll position to bottom (index=0, items=${timelineItems.size}) - reverseLayout anchors at bottom"
+                    "RoomTimelineScreen: Set initial scroll position to bottom (index=0, items=${timelineItems.size}) - reverseLayout anchors at bottom",
                 )
+                }
             }
             hasSetInitialScrollPosition = true
         }
     }
-    
+
     // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
     // With reverseLayout, index 0 is bottom (newest message)
     // CRITICAL: Skip during scroll restoration (pagination) to avoid jumping to bottom
@@ -2278,22 +2322,24 @@ fun RoomTimelineScreen(
         }
         if (timelineItems.isNotEmpty() && isAttachedToBottom && hasSetInitialScrollPosition) {
             val currentFirstVisible = listState.firstVisibleItemIndex
-            
+
             // Only adjust if we're not already at bottom (index 0)
             if (currentFirstVisible > 0) {
                 // Immediately adjust scroll position - happens in same frame as item addition
                 listState.scrollToItem(0)
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Adjusted scroll position for new items (was at index=$currentFirstVisible, scrolled to 0) - reverseLayout"
+                    "RoomTimelineScreen: Adjusted scroll position for new items (was at index=$currentFirstVisible, scrolled to 0) - reverseLayout",
                 )
+                }
             }
         }
     }
 
     // Track if this is the first load (to avoid animation on initial room open)
     var isInitialLoad by remember { mutableStateOf(true) }
-    
+
     // Track if we're refreshing (to scroll to bottom after refresh)
     var isRefreshing by remember { mutableStateOf(false) }
 
@@ -2322,37 +2368,41 @@ fun RoomTimelineScreen(
             if (timelineItems.isNotEmpty()) {
                 coroutineScope.launch {
                     animatedScrollTo(0)
-                    if (BuildConfig.DEBUG) Log.d(
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
                         "Andromuks",
-                        "RoomTimelineScreen: App resumed, animating scroll to bottom (index=0, items=${timelineItems.size}) - reverseLayout"
+                        "RoomTimelineScreen: App resumed, animating scroll to bottom (index=0, items=${timelineItems.size}) - reverseLayout",
                     )
+                    }
                 }
             }
-            
+
             // Also set up a delayed check in case more items arrive during batch processing
             kotlinx.coroutines.delay(150)
-            
+
             // Re-check after a brief delay to catch any items added during batch processing
             if (timelineItems.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
                 val currentFirstVisible = listState.firstVisibleItemIndex
                 val actuallyAtBottom = currentFirstVisible == 0
-                
+
                 if (!actuallyAtBottom) {
                     // Still not at bottom after batch processing - animate scroll again
                     coroutineScope.launch {
                         animatedScrollTo(0)
-                        if (BuildConfig.DEBUG) Log.d(
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
                             "Andromuks",
-                            "RoomTimelineScreen: App resumed, adjusted animated scroll after batch (was at index=$currentFirstVisible, scrolled to 0)"
+                            "RoomTimelineScreen: App resumed, adjusted animated scroll after batch (was at index=$currentFirstVisible, scrolled to 0)",
                         )
+                        }
                     }
                 }
             }
         }
-        
+
         previousAppVisibleState = appViewModel.isAppVisible
     }
-    
+
     // Bottom attachment: single snapshotFlow over (index, offset) so both read in one frame.
     // Avoids races between separate isScrollInProgress vs offset effects during keyboard transitions.
     // With reverseLayout=true, bottom == first item; offset tolerance matches Signal/WhatsApp UX.
@@ -2373,7 +2423,7 @@ fun RoomTimelineScreen(
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "RoomTimelineScreen: Attachment updated, isAttachedToBottom=$atBottom (index=$index, offset=$offset)"
+                                "RoomTimelineScreen: Attachment updated, isAttachedToBottom=$atBottom (index=$index, offset=$offset)",
                             )
                         }
                     }
@@ -2384,7 +2434,7 @@ fun RoomTimelineScreen(
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "RoomTimelineScreen: Keyboard open, user scrolled up — detached (index=$index, offset=$offset)"
+                                "RoomTimelineScreen: Keyboard open, user scrolled up — detached (index=$index, offset=$offset)",
                             )
                         }
                     }
@@ -2421,9 +2471,9 @@ fun RoomTimelineScreen(
     // The total > 0 guard is intentionally absent: with hasLoadedInitialBatch and
     // hasInitialSnapCompleted already gating the effect, total == 0 with hasMoreMessages == true
     // is exactly the case we need to paginate through (room with no renderable initial events).
-    val REFILL_TRIGGER = 10          // start refilling when this few renderable items remain above the viewport
-    val REFILL_TARGET = 50           // keep fetching until at least this many renderable items sit above the viewport
-    val MAX_REFILL_ROUNDS = 20       // safety valve against a backend that keeps advancing with no real yield
+    val REFILL_TRIGGER = 10 // start refilling when this few renderable items remain above the viewport
+    val REFILL_TARGET = 50 // keep fetching until at least this many renderable items sit above the viewport
+    val MAX_REFILL_ROUNDS = 20 // safety valve against a backend that keeps advancing with no real yield
     LaunchedEffect(listState, roomId) {
         snapshotFlow {
             val info = listState.layoutInfo
@@ -2445,29 +2495,33 @@ fun RoomTimelineScreen(
                     refillRoundCount = 0
                 }
                 // Exit conditions: target reached, history exhausted, or safety cap hit.
-                if (itemsAbove >= REFILL_TARGET || !appViewModel.hasMoreMessages || refillRoundCount >= MAX_REFILL_ROUNDS) {
-                    if (isRefillingBuffer && BuildConfig.DEBUG) Log.d(
+                if (itemsAbove >= REFILL_TARGET || !appViewModel.hasMoreMessages ||
+                    refillRoundCount >= MAX_REFILL_ROUNDS
+                ) {
+                    if (isRefillingBuffer && BuildConfig.DEBUG) {
+                        Log.d(
                         "Andromuks",
-                        "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages})"
+                        "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages})",
                     )
+                    }
                     isRefillingBuffer = false
                 }
                 prevItemsAbove = itemsAbove
 
-                if (isRefillingBuffer
-                    && hasLoadedInitialBatch
-                    && hasInitialSnapCompleted
-                    && !pendingScrollRestoration
-                    && !snap.isPaginating
-                    && !appViewModel.isTimelineLoading
-                    && timelineItems.isNotEmpty()
-                    && appViewModel.hasMoreMessages
+                if (isRefillingBuffer &&
+                    hasLoadedInitialBatch &&
+                    hasInitialSnapCompleted &&
+                    !pendingScrollRestoration &&
+                    !snap.isPaginating &&
+                    !appViewModel.isTimelineLoading &&
+                    timelineItems.isNotEmpty() &&
+                    appViewModel.hasMoreMessages &&
                     // Guard against stale composition during navigation crossfade: the previous
                     // room's screen is briefly still composed and its timelineItems may transiently
                     // hit 0 as items are swept for the new room. Without this check, it fires an
                     // auto-paginate for the *previous* room (wrong roomId, wasted request, can
                     // also starve the new room of a request slot).
-                    && roomId == appViewModel.currentRoomId
+                    roomId == appViewModel.currentRoomId
                 ) {
                     // Only capture a scroll anchor when the user is scrolled up. When at the
                     // bottom (index 0), older events are added above the viewport at higher
@@ -2482,15 +2536,19 @@ fun RoomTimelineScreen(
                         anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
                         pendingScrollRestoration = true
                         expectedTimelineSizeBeforePagination = timelineItems.size
-                        if (BuildConfig.DEBUG) Log.d(
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
                             "Andromuks",
-                            "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, highestVisible=$highestVisible)"
+                            "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, highestVisible=$highestVisible)",
                         )
+                        }
                     } else {
-                        if (BuildConfig.DEBUG) Log.d(
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
                             "Andromuks",
-                            "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total) — skipping scroll restoration"
+                            "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total) — skipping scroll restoration",
                         )
+                        }
                     }
                     refillRoundCount++
                     appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
@@ -2510,18 +2568,20 @@ fun RoomTimelineScreen(
         if (!hasInitialSnapCompleted || !hasLoadedInitialBatch) {
             return@LaunchedEffect
         }
-        
+
         if (timelineItems.isEmpty() || listState.layoutInfo.totalItemsCount == 0) {
             return@LaunchedEffect
         }
-        
+
         if (isKeyboardOpen && isAttachedToBottom) {
             // Keyboard is open and we're attached - just scroll to bottom for new messages
             // With reverseLayout, index 0 is bottom
-            if (BuildConfig.DEBUG) Log.d(
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Keyboard open, attached to bottom, new message arrived. Scrolling to bottom (index=0)"
+                "RoomTimelineScreen: Keyboard open, attached to bottom, new message arrived. Scrolling to bottom (index=0)",
             )
+            }
             coroutineScope.launch {
                 // Small delay to let message render
                 kotlinx.coroutines.delay(50)
@@ -2529,26 +2589,28 @@ fun RoomTimelineScreen(
             }
             return@LaunchedEffect // Skip the position check below when keyboard is open
         }
-        
+
         // CRITICAL: Only check scroll position when keyboard is CLOSED
         // With reverseLayout, firstVisibleItemIndex == 0 means at bottom
         if (!isKeyboardOpen && isAttachedToBottom && timelineItems.isNotEmpty()) {
             // Wait a moment for layout to settle after new items are added
             kotlinx.coroutines.delay(100)
-            
+
             // Re-check conditions after delay
             if (listState.layoutInfo.totalItemsCount > 0 && timelineItems.isNotEmpty()) {
                 val currentFirstVisible = listState.firstVisibleItemIndex
                 val currentOffset = listState.firstVisibleItemScrollOffset
                 // Match attachment tolerance (index==0 && offset<100) to avoid scroll fighting
                 val actuallyAtBottom = currentFirstVisible == 0 && currentOffset < 100
-                
+
                 if (!actuallyAtBottom) {
                     // We're attached but not actually at bottom - scroll to bottom
-                    if (BuildConfig.DEBUG) Log.d(
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
                         "Andromuks",
-                        "RoomTimelineScreen: Keyboard closed, attached to bottom but not at bottom (firstVisible=$currentFirstVisible). Auto-scrolling to show new items."
+                        "RoomTimelineScreen: Keyboard closed, attached to bottom but not at bottom (firstVisible=$currentFirstVisible). Auto-scrolling to show new items.",
                     )
+                    }
                     coroutineScope.launch {
                         listState.scrollToItem(0)
                     }
@@ -2559,35 +2621,37 @@ fun RoomTimelineScreen(
 
     // Track previous pagination state to detect when pagination finishes
     var previousIsPaginating by remember { mutableStateOf(appViewModel.isPaginating) }
-    
+
     // Detect when pagination completes and trigger scroll restoration
     // CRITICAL FIX: Only depend on isPaginating, not timelineItems.size
     // This prevents scroll restoration from triggering when new messages arrive
     LaunchedEffect(appViewModel.isPaginating) {
         val paginationJustFinished = previousIsPaginating && !appViewModel.isPaginating
         previousIsPaginating = appViewModel.isPaginating
-        
+
         // When pagination finishes and we have scroll restoration pending
         if (paginationJustFinished && pendingScrollRestoration) {
             val highestIndex = highestVisibleIndexBeforePagination
             val oldSize = expectedTimelineSizeBeforePagination
-            
+
             // CRITICAL: Check timelineEvents.size (from ViewModel) not timelineItems.size (from UI)
             // timelineItems.size may not be updated yet when this LaunchedEffect fires
             val newSize = appViewModel.timelineEvents.size
-            
+
             if (highestIndex != null && oldSize != null && newSize > oldSize) {
                 // With reverseLayout, new events are added at higher indices (older messages at top)
                 // We want to scroll so that the old highest index is at the TOP of the view
                 // Since new events were added, the old highest index is still valid
                 // We scroll to it so it appears at the top of the viewport
-                
-                if (BuildConfig.DEBUG) Log.d(
+
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
                     "RoomTimelineScreen: Pagination completed, restoring scroll. " +
-                    "Old highest visible index: $highestIndex, old size: $oldSize, new size: $newSize"
+                        "Old highest visible index: $highestIndex, old size: $oldSize, new size: $newSize",
                 )
-                
+                }
+
                 // Wait for timelineItems to be rebuilt from timelineEvents
                 // We need to wait for the UI to process the new events
                 var waitCount = 0
@@ -2595,34 +2659,38 @@ fun RoomTimelineScreen(
                     kotlinx.coroutines.delay(50)
                     waitCount++
                 }
-                
+
                 // Wait for layout to settle after new items are added
                 kotlinx.coroutines.delay(100)
-                
+
                 // Scroll so that the old highest index is at the TOP of the viewport
                 // With reverseLayout, higher indices are at the top, so scrolling to this index
                 // with offset 0 will place it at the top (where it was when pull-to-refresh was triggered)
                 val targetIndex = highestIndex.coerceIn(0, timelineItems.lastIndex)
-                
+
                 // Use animateScrollToItem with smooth animation for smooth UX
                 // scrollOffset = 0 ensures the item is at the top of the viewport
                 // The animation duration is controlled by Compose's default animation
                 animatedScrollTo(targetIndex, 0)
-                
-                if (BuildConfig.DEBUG) Log.d(
+
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: ✅ Scroll position restored to index $targetIndex (old highest visible index) at top of viewport"
+                    "RoomTimelineScreen: ✅ Scroll position restored to index $targetIndex (old highest visible index) at top of viewport",
                 )
-                
+                }
+
                 // Wait for animation to complete (default is ~300-500ms) plus a bit more for layout to settle
                 kotlinx.coroutines.delay(600)
             } else {
                 // Fallback: maintain current scroll position
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
                     "RoomTimelineScreen: Pagination completed, but no valid index captured or no new events. " +
-                    "highestIndex=$highestIndex, oldSize=$oldSize, newSize=$newSize"
+                        "highestIndex=$highestIndex, oldSize=$oldSize, newSize=$newSize",
                 )
+                }
                 kotlinx.coroutines.delay(100)
                 val currentFirstIndex = listState.firstVisibleItemIndex
                 if (currentFirstIndex >= 0 && currentFirstIndex < timelineItems.size) {
@@ -2630,7 +2698,7 @@ fun RoomTimelineScreen(
                 }
                 kotlinx.coroutines.delay(300)
             }
-            
+
             // Clear restoration state AFTER scroll has completed and timeline has settled
             pendingScrollRestoration = false
             highestVisibleIndexBeforePagination = null
@@ -2639,7 +2707,7 @@ fun RoomTimelineScreen(
             isRefreshingPull = false
         }
     }
-    
+
     // REMOVED: This LaunchedEffect was clearing pendingScrollRestoration too early,
     // before scroll restoration completed. The scroll restoration LaunchedEffect now
     // handles clearing the flag after scroll completes.
@@ -2649,7 +2717,12 @@ fun RoomTimelineScreen(
     LaunchedEffect(isRefreshing, timelineItems.size) {
         if (isRefreshing && timelineItems.isNotEmpty() && !appViewModel.hasPendingTimelineRequest(roomId)) {
             listState.scrollToItem(0, 0)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Manual refresh loaded ${timelineItems.size} items - scrolled to bottom (index=0)")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Manual refresh loaded ${timelineItems.size} items - scrolled to bottom (index=0)",
+            )
+            }
             isAttachedToBottom = true
             hasInitialSnapCompleted = true
             hasCompletedInitialLayout = true
@@ -2657,13 +2730,16 @@ fun RoomTimelineScreen(
             isRefreshing = false
         }
     }
-    
+
     // Safety fallback: if refresh takes too long, re-enable auto-pagination to avoid being stuck
     LaunchedEffect(isRefreshing) {
         if (isRefreshing) {
             kotlinx.coroutines.delay(2000)
             if (isRefreshing && !appViewModel.hasPendingTimelineRequest(roomId)) {
-                Log.w("Andromuks", "RoomTimelineScreen: Manual refresh timeout - marking refresh as complete (no pending requests)")
+                Log.w(
+                    "Andromuks",
+                    "RoomTimelineScreen: Manual refresh timeout - marking refresh as complete (no pending requests)",
+                )
                 isRefreshing = false
             }
         }
@@ -2673,12 +2749,14 @@ fun RoomTimelineScreen(
     LaunchedEffect(
         timelineItems,
         isLoading,
-        appViewModel.isPaginating
+        appViewModel.isPaginating,
     ) {
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
+            "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted",
         )
+        }
 
         // UNIFIED OPEN PATH: a notification's target event no longer hijacks the initial scroll.
         // We always land at the bottom (like an in-app / shortcut open); the event is highlighted
@@ -2699,20 +2777,30 @@ fun RoomTimelineScreen(
                     kotlinx.coroutines.delay(50)
                     waitCount++
                 }
-                
+
                 // Final check before scrolling
                 if (timelineItems.isEmpty() || (isLoading && waitCount >= maxWaitAttempts)) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})",
+                    )
+                    }
                     // Still mark as completed to avoid infinite loop
                     hasInitialSnapCompleted = true
                     return@launch
                 }
-                
+
                 // Check if we're returning from a thread viewer — scroll to the tapped message
                 // instead of jumping to the bottom. The event ID survives composable recreation
                 // because it's stored in AppViewModel.
                 val threadReturnEventId = appViewModel.threadReturnScrollEventId
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Initial scroll check - threadReturnScrollEventId=$threadReturnEventId, timelineItems=${timelineItems.size}")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Initial scroll check - threadReturnScrollEventId=$threadReturnEventId, timelineItems=${timelineItems.size}",
+                )
+                }
                 if (threadReturnEventId != null) {
                     // Suppress all other scroll effects BEFORE suspending at scrollToItem.
                     // Without this, the readinessCheckComplete LaunchedEffect races us: it wakes
@@ -2730,13 +2818,23 @@ fun RoomTimelineScreen(
                         val reversedIndex = timelineItems.size - 1 - targetIndex
                         listState.scrollToItem(reversedIndex)
                         isAttachedToBottom = false
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: ✅ Restored scroll to thread-tapped event $threadReturnEventId at index=$targetIndex (reversedIndex=$reversedIndex) after returning from thread viewer")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "RoomTimelineScreen: ✅ Restored scroll to thread-tapped event $threadReturnEventId at index=$targetIndex (reversedIndex=$reversedIndex) after returning from thread viewer",
+                        )
+                        }
                     } else {
                         // Event not found (e.g. paginated away) — fall back to bottom
                         pendingScrollRestoration = false
                         listState.scrollToItem(0)
                         isAttachedToBottom = true
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Thread return event $threadReturnEventId not found, falling back to bottom")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "RoomTimelineScreen: Thread return event $threadReturnEventId not found, falling back to bottom",
+                        )
+                        }
                     }
                 } else {
                     // Normal initial load — scroll to bottom (newest message)
@@ -2754,7 +2852,12 @@ fun RoomTimelineScreen(
                     pendingScrollRestoration = false
                 }
 
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items) - reverseLayout")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items) - reverseLayout",
+                )
+                }
             }
             return@LaunchedEffect
         }
@@ -2763,7 +2866,12 @@ fun RoomTimelineScreen(
 
         // Skip handling new items if we're waiting for scroll restoration after pagination
         if (pendingScrollRestoration) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Skipping new items handling - pending scroll restoration")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Skipping new items handling - pending scroll restoration",
+            )
+            }
             return@LaunchedEffect
         }
 
@@ -2772,15 +2880,20 @@ fun RoomTimelineScreen(
         // With reverseLayout, index 0 is bottom
         if (
             hasNewItems &&
-                isAttachedToBottom &&
-                lastEventId != null &&
-                lastEventId != lastKnownTimelineEventId &&
-                !isKeyboardOpen // ONLY handle when keyboard is CLOSED
+            isAttachedToBottom &&
+            lastEventId != null &&
+            lastEventId != lastKnownTimelineEventId &&
+            !isKeyboardOpen // ONLY handle when keyboard is CLOSED
         ) {
             coroutineScope.launch {
                 // New-message scroll is a short hop — don't suppress images for it.
                 listState.animateScrollToItem(0)
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: New message arrived (keyboard closed), animateScrollToItem to bottom (index=0, attached=$isAttachedToBottom)")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: New message arrived (keyboard closed), animateScrollToItem to bottom (index=0, attached=$isAttachedToBottom)",
+                )
+                }
             }
             lastKnownTimelineEventId = lastEventId
         }
@@ -2794,13 +2907,13 @@ fun RoomTimelineScreen(
         }
     }
 
-    
     // NOTE: markRoomAsRead is handled by navigateToRoomWithCache, so we don't need to call it here
     // This prevents duplicate mark_read calls and race conditions
 
     LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll) {
         if (pendingInitialScroll && readinessCheckComplete && timelineItems.isNotEmpty() &&
-            timelineItems.size != lastInitialScrollSize) {
+            timelineItems.size != lastInitialScrollSize
+        ) {
             coroutineScope.launch {
                 // Skip bottom-scroll if the main initial-scroll effect is already handling
                 // thread-return restoration (it sets pendingScrollRestoration before suspending).
@@ -2837,7 +2950,7 @@ fun RoomTimelineScreen(
             RoomTimelineCache.markAllStale()
         }
         val mustFetchFreshTimeline = appViewModel.needsFreshTimelinePaginate()
-        
+
         // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded.
         // RoomListScreen already calls it when user clicks, so we skip duplicate processing.
         // Also treat isTimelineLoading==true as "already in progress" — after the fix that
@@ -2849,16 +2962,33 @@ fun RoomTimelineScreen(
         // firing a second call would race with the in-flight flush and may clobber the timeline.
         val isAlreadyLoaded = appViewModel.currentRoomId == roomId &&
             !mustFetchFreshTimeline &&
-            (appViewModel.timelineEvents.isNotEmpty() || appViewModel.isTimelineLoading
-                || appViewModel.isPendingNavigationFromNotification)
+            (
+                appViewModel.timelineEvents.isNotEmpty() || appViewModel.isTimelineLoading ||
+                appViewModel.isPendingNavigationFromNotification
+            )
         if (!isAlreadyLoaded) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache",
+            )
+            }
             appViewModel.navigateToRoomWithCache(roomId)
         } else if (mustFetchFreshTimeline) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: WS was down — forcing requestRoomTimeline for $roomId")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: WS was down — forcing requestRoomTimeline for $roomId",
+            )
+            }
             appViewModel.requestRoomTimeline(roomId)
         } else {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room $roomId already loaded/loading (${appViewModel.timelineEvents.size} events, isTimelineLoading=${appViewModel.isTimelineLoading}, isPendingNavFromNotif=${appViewModel.isPendingNavigationFromNotification}), skipping navigateToRoomWithCache")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Room $roomId already loaded/loading (${appViewModel.timelineEvents.size} events, isTimelineLoading=${appViewModel.isTimelineLoading}, isPendingNavFromNotif=${appViewModel.isPendingNavigationFromNotification}), skipping navigateToRoomWithCache",
+            )
+            }
         }
 
         if (!isWarmTimelineReturn) {
@@ -2867,12 +2997,23 @@ fun RoomTimelineScreen(
             val dataAlreadyReady = appViewModel.timelineEvents.isNotEmpty() && !appViewModel.isTimelineLoading
             if (!dataAlreadyReady) {
                 val requireInitComplete = !appViewModel.isWebSocketConnected()
-                val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete, roomId = roomId)
+                val readinessResult = appViewModel.awaitRoomDataReadiness(
+                    requireInitComplete = requireInitComplete,
+                    roomId = roomId,
+                )
                 if (!readinessResult && BuildConfig.DEBUG) {
-                    Log.w("Andromuks", "RoomTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
+                    Log.w(
+                        "Andromuks",
+                        "RoomTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data",
+                    )
                 }
             } else {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Data already ready for $roomId (${appViewModel.timelineEvents.size} events), skipping readiness wait")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Data already ready for $roomId (${appViewModel.timelineEvents.size} events), skipping readiness wait",
+                )
+                }
             }
             readinessCheckComplete = true
         } else if (BuildConfig.DEBUG) {
@@ -2889,7 +3030,7 @@ fun RoomTimelineScreen(
         // CRITICAL: Add room to opened rooms (exempt from cache clearing on WebSocket reconnect)
         // This is also done in setCurrentRoomIdForTimeline, but we ensure it here too
         RoomTimelineCache.addOpenedRoom(roomId)
-        
+
         // Reset state for new room.
         // Skip the scroll-related resets when returning from thread viewer — the big
         // initial-scroll LaunchedEffect already restored the position and owns those flags.
@@ -2901,7 +3042,7 @@ fun RoomTimelineScreen(
         }
         highestVisibleIndexBeforePagination = null
         hasLoadedInitialBatch = false
-        
+
         // CRITICAL FIX: Ensure loading state is set early when opening a new room
         // This ensures "Room loading..." shows immediately while room data is being loaded/processed
         if (appViewModel.currentRoomId != roomId || appViewModel.timelineEvents.isEmpty()) {
@@ -2909,7 +3050,7 @@ fun RoomTimelineScreen(
             // This prevents showing loading when resuming the same room
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Setting loading state for room: $roomId")
         }
-        
+
         // Request room state on cold open only to avoid jank on warm pop-back from UserInfo.
         if (!isWarmTimelineReturn) {
             // NOTE: navigateToRoomWithCache() already calls requestRoomTimeline() if cache is empty,
@@ -2917,7 +3058,7 @@ fun RoomTimelineScreen(
             appViewModel.requestRoomState(roomId)
         }
     }
-    
+
     // CRITICAL FIX: Clear currentRoomId when leaving the room (back navigation or room change)
     // This ensures notifications resume when user navigates away
     // Using roomId as key ensures this disposes when:
@@ -2926,7 +3067,7 @@ fun RoomTimelineScreen(
     DisposableEffect(roomId) {
         // CRITICAL: Add room to opened rooms when screen opens (exempt from cache clearing on reconnect)
         RoomTimelineCache.addOpenedRoom(roomId)
-        
+
         onDispose {
             val destinationRoute = navController.currentBackStackEntry?.destination?.route.orEmpty()
             // Keep timeline warm when navigating to UserInfo (pop-back remains fluid) or
@@ -2942,24 +3083,34 @@ fun RoomTimelineScreen(
             // Only clear if this room is still the current room (user navigated away)
             // If user switched to a different room, the new room's LaunchedEffect will have already set currentRoomId
             if (!keepWarm && appViewModel.currentRoomId == roomId) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Disposing - clearing currentRoomId for room: $roomId")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Disposing - clearing currentRoomId for room: $roomId",
+                )
+                }
                 appViewModel.clearCurrentRoomId()
             } else {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Disposing - not clearing currentRoomId (current: ${appViewModel.currentRoomId}, this room: $roomId)")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Disposing - not clearing currentRoomId (current: ${appViewModel.currentRoomId}, this room: $roomId)",
+                )
+                }
             }
         }
     }
-    
+
     // Track last known refresh trigger to detect when app resumes
     var lastKnownRefreshTrigger by remember { mutableStateOf(appViewModel.timelineRefreshTrigger) }
     var isInitialLoadComplete by remember(roomId) { mutableStateOf(false) }
-    
+
     // Mark initial load as complete after a short delay to distinguish from app resume
     LaunchedEffect(roomId) {
         kotlinx.coroutines.delay(500) // Wait 500ms after room opens
         isInitialLoadComplete = true
     }
-    
+
     // Refresh timeline when app resumes (to show new events received while suspended)
     // or after a batch flush. Only fires after initial load is complete.
     // Guard: currentRoomId == roomId prevents calling requestRoomTimeline for a non-current room.
@@ -2969,8 +3120,14 @@ fun RoomTimelineScreen(
         if (appViewModel.timelineRefreshTrigger > 0 &&
             appViewModel.currentRoomId == roomId &&
             isInitialLoadComplete &&
-            appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId")
+            appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger
+        ) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId",
+            )
+            }
             appViewModel.requestRoomTimeline(roomId)
         }
         // Always sync the tracker so the next increment is detectable regardless of whether
@@ -2983,7 +3140,12 @@ fun RoomTimelineScreen(
         val foregroundRefreshReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Received FOREGROUND_REFRESH broadcast, restoring timeline from cache for room: $roomId")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Received FOREGROUND_REFRESH broadcast, restoring timeline from cache for room: $roomId",
+                    )
+                    }
                     // Guard: only restore if this screen's room is still the current room.
                     // Without this, a FOREGROUND_REFRESH racing with a pending FCM/shortcut
                     // navigation to a different room would repopulate eventChainMap with the old
@@ -2995,15 +3157,25 @@ fun RoomTimelineScreen(
                 }
             }
         }
-        
+
         val filter = IntentFilter("net.vrkknn.andromuks.FOREGROUND_REFRESH")
         context.registerReceiver(foregroundRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Registered FOREGROUND_REFRESH broadcast receiver")
-        
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            "Andromuks",
+            "RoomTimelineScreen: Registered FOREGROUND_REFRESH broadcast receiver",
+        )
+        }
+
         onDispose {
             try {
                 context.unregisterReceiver(foregroundRefreshReceiver)
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Unregistered FOREGROUND_REFRESH broadcast receiver")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Unregistered FOREGROUND_REFRESH broadcast receiver",
+                )
+                }
             } catch (e: Exception) {
                 Log.w("Andromuks", "RoomTimelineScreen: Error unregistering foreground refresh receiver", e)
             }
@@ -3037,10 +3209,12 @@ fun RoomTimelineScreen(
         val hash = senderSet.hashCode()
         if (hash == lastValidatedSenderSetHash) return@LaunchedEffect
         lastValidatedSenderSetHash = hash
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "RoomTimelineScreen: Validating user profiles for ${sortedEvents.size} events (${senderSet.size} distinct senders)"
+            "RoomTimelineScreen: Validating user profiles for ${sortedEvents.size} events (${senderSet.size} distinct senders)",
         )
+        }
         appViewModel.validateAndRequestMissingProfiles(roomId, sortedEvents)
     }
 
@@ -3051,12 +3225,14 @@ fun RoomTimelineScreen(
         if (!appViewModel.isAppVisible || appViewModel.currentRoomId != roomId) {
             return@LaunchedEffect
         }
-        
-        if (BuildConfig.DEBUG) Log.d(
+
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "RoomTimelineScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
+            "RoomTimelineScreen: Using opportunistic profile loading for $roomId (no bulk loading)",
         )
-        
+        }
+
         // Only request profiles for users that are actually visible in the timeline
         // This dramatically reduces memory usage for large rooms
         if (sortedEvents.isNotEmpty()) {
@@ -3066,12 +3242,14 @@ fun RoomTimelineScreen(
                 sortedEvents.take(50).forEach { add(it.sender) }
                 sortedEvents.takeLast(50).forEach { add(it.sender) }
             }
-            
-            if (BuildConfig.DEBUG) Log.d(
+
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)"
+                "RoomTimelineScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)",
             )
-            
+            }
+
             // Request profiles one by one as needed (including current user if missing)
             visibleUsers.forEach { userId ->
                 // Check if profile is missing (including for current user)
@@ -3093,14 +3271,24 @@ fun RoomTimelineScreen(
     LaunchedEffect(timelineEvents, appViewModel.isAppVisible, appViewModel.currentRoomId) {
         // Only react to changes for the current room and when app is visible
         if (appViewModel.currentRoomId == roomId && appViewModel.isAppVisible) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId")
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events")
-            
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId",
+            )
+            }
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events",
+            )
+            }
+
             // Force recomposition when timeline events change
             // This ensures the UI updates even when battery optimization might skip updates
         }
     }
-    
+
     // CRITICAL FIX: Observe timeline changes reactively using state flows
     // This detects new events that were persisted to DB but might not have triggered timeline updates
     // (e.g., due to race conditions, timing issues, or if events weren't in sync batch)
@@ -3126,7 +3314,7 @@ fun RoomTimelineScreen(
     val isRootDestination = isBackStackEmpty
     BackHandler(
         enabled = messageMenuConfig != null || showLocationPickerOverlay || showCameraOverlay || showVideoOverlay ||
-                showAttachmentMenu || jumpBackStack.isNotEmpty() || isRootDestination
+            showAttachmentMenu || jumpBackStack.isNotEmpty() || isRootDestination,
     ) {
         if (messageMenuConfig != null) {
             messageMenuConfig = null
@@ -3152,11 +3340,13 @@ fun RoomTimelineScreen(
 
     // Navigation bar padding - read once, not during composition
     // Note: bottomInset was removed as it's not used - .imePadding() modifier handles keyboard padding
-    
+
     // Track scroll position before keyboard opens to preserve it
-    var scrollPositionBeforeKeyboard by remember { mutableStateOf<Pair<Int, Int>?>(null) } // (firstVisibleIndex, scrollOffset)
+    var scrollPositionBeforeKeyboard by remember {
+        mutableStateOf<Pair<Int, Int>?>(null)
+    } // (firstVisibleIndex, scrollOffset)
     var wasAttachedBeforeKeyboard by remember { mutableStateOf(false) }
-    
+
     // Jump to an event that should live in THIS room's timeline: scroll+highlight it if it's in
     // the loaded window, otherwise open EventContextScreen (a partial timeline around the event).
     // Shared by same-room permalink taps and the inter-room landing effect below.
@@ -3167,7 +3357,7 @@ fun RoomTimelineScreen(
         if (indexInOriginal >= 0) {
             val reversedIndex = timelineItems.lastIndex - indexInOriginal
             jumpBackStack.addLast(
-                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset,
             )
             coroutineScope.launch {
                 listState.scrollToItem(reversedIndex)
@@ -3192,7 +3382,7 @@ fun RoomTimelineScreen(
         timelineItems,
         readinessCheckComplete,
         pendingInitialScroll,
-        appViewModel.isContentVisible
+        appViewModel.isContentVisible,
     ) {
         val targetEventId = pendingInterRoomJumpEventId ?: return@LaunchedEffect
         if (!readinessCheckComplete || pendingInitialScroll || !appViewModel.isContentVisible) {
@@ -3202,10 +3392,12 @@ fun RoomTimelineScreen(
         // Give layout a beat to settle after the initial snap before measuring/scrolling.
         kotlinx.coroutines.delay(100)
         pendingInterRoomJumpEventId = null
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "RoomTimelineScreen: Inter-room link landing on event=$targetEventId in room=$roomId"
+            "RoomTimelineScreen: Inter-room link landing on event=$targetEventId in room=$roomId",
         )
+        }
         jumpToLocalEvent(targetEventId)
     }
 
@@ -3220,7 +3412,7 @@ fun RoomTimelineScreen(
         pendingNotificationJumpEventId,
         timelineItems,
         readinessCheckComplete,
-        appViewModel.isContentVisible
+        appViewModel.isContentVisible,
     ) {
         val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
         // Defer the highlight (and its 1600ms auto-clear timer) until the content is actually
@@ -3237,16 +3429,18 @@ fun RoomTimelineScreen(
             highlightedEventId = targetEventId
             highlightRequestId++
             pendingNotificationJumpEventId = null
-            if (BuildConfig.DEBUG) Log.d(
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Highlighting notification target event=$targetEventId in place (no scroll)"
+                "RoomTimelineScreen: Highlighting notification target event=$targetEventId in place (no scroll)",
             )
+            }
         }
         // Not (yet) loaded: leave pendingNotificationJumpEventId set so a subsequent timeline
         // rebuild can still highlight it. It is reset by remember(roomId) on room change, so it
         // cannot leak across rooms.
     }
-    
+
     // CRITICAL FIX: Handle keyboard state changes without losing scroll position
     // PERFORMANCE: Use isKeyboardOpen derived state instead of imeBottom to reduce recomposition
     // The derived state only changes when keyboard crosses threshold, not during animation
@@ -3256,22 +3450,24 @@ fun RoomTimelineScreen(
             previousKeyboardOpen = isKeyboardOpen
             return@LaunchedEffect
         }
-        
+
         val keyboardJustOpened = !previousKeyboardOpen && isKeyboardOpen
         val keyboardJustClosed = previousKeyboardOpen && !isKeyboardOpen
-        
+
         // CRITICAL: Capture scroll position BEFORE keyboard opens
         if (keyboardJustOpened) {
             val firstVisibleIndex = listState.firstVisibleItemIndex
             val scrollOffset = listState.firstVisibleItemScrollOffset
             scrollPositionBeforeKeyboard = Pair(firstVisibleIndex, scrollOffset)
             wasAttachedBeforeKeyboard = isAttachedToBottom
-            
-            if (BuildConfig.DEBUG) Log.d(
+
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Keyboard opening - captured scroll position: index=$firstVisibleIndex, offset=$scrollOffset, attached=$isAttachedToBottom"
+                "RoomTimelineScreen: Keyboard opening - captured scroll position: index=$firstVisibleIndex, offset=$scrollOffset, attached=$isAttachedToBottom",
             )
-            
+            }
+
             // Wait for layout to adjust after keyboard opens
             // Use a longer delay and wait for layout to actually change
             var layoutSettled = false
@@ -3288,14 +3484,19 @@ fun RoomTimelineScreen(
             }
             // Additional small delay to ensure layout is fully settled
             kotlinx.coroutines.delay(50)
-            
+
             if (timelineItems.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
                 if (isAttachedToBottom) {
                     // We were attached to bottom - with reverseLayout, bottom anchor stays fixed automatically
                     // But we can explicitly scroll to 0 to ensure we're at bottom
                     coroutineScope.launch {
                         animatedScrollTo(0)
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard opened, animated scroll to bottom (index=0) after layout settled - reverseLayout")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "RoomTimelineScreen: Keyboard opened, animated scroll to bottom (index=0) after layout settled - reverseLayout",
+                        )
+                        }
                     }
                 } else {
                     // We were NOT attached - maintain the same visible item after layout adjustment
@@ -3306,13 +3507,18 @@ fun RoomTimelineScreen(
                         coroutineScope.launch {
                             // Try to maintain the same item visible, but adjust if needed
                             animatedScrollTo(validIndex, savedOffset)
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard opened, maintained scroll position: index=$validIndex, offset=$savedOffset after layout settled")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "RoomTimelineScreen: Keyboard opened, maintained scroll position: index=$validIndex, offset=$savedOffset after layout settled",
+                            )
+                            }
                         }
                     }
                 }
             }
         }
-        
+
         // CRITICAL: Restore scroll position when keyboard closes
         if (keyboardJustClosed) {
             // Wait for layout to settle after keyboard closes
@@ -3331,14 +3537,19 @@ fun RoomTimelineScreen(
             }
             // Additional small delay to ensure layout is fully settled
             kotlinx.coroutines.delay(50)
-            
+
             if (timelineItems.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
                 if (wasAttachedBeforeKeyboard) {
                     // We were attached to bottom - with reverseLayout, index 0 is bottom
                     coroutineScope.launch {
                         animatedScrollTo(0)
                         isAttachedToBottom = true
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard closed, animated scroll to bottom (index=0) - reverseLayout")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "RoomTimelineScreen: Keyboard closed, animated scroll to bottom (index=0) - reverseLayout",
+                        )
+                        }
                     }
                 } else if (scrollPositionBeforeKeyboard != null) {
                     // We were NOT attached to bottom, restore exact scroll position
@@ -3350,1771 +3561,2236 @@ fun RoomTimelineScreen(
                         coroutineScope.launch {
                             animatedScrollTo(validIndex, savedOffset)
                             isAttachedToBottom = false // Keep detached state
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard closed, restored scroll position: index=$validIndex, offset=$savedOffset (was NOT attached)")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "RoomTimelineScreen: Keyboard closed, restored scroll position: index=$validIndex, offset=$savedOffset (was NOT attached)",
+                            )
+                            }
                         }
                     }
                     scrollPositionBeforeKeyboard = null
                 }
             }
         }
-        
+
         previousKeyboardOpen = isKeyboardOpen
     }
 
     CompositionLocalProvider(
         LocalScrollHighlightState provides ScrollHighlightState(
             eventId = highlightedEventId,
-            requestId = highlightRequestId
+            requestId = highlightRequestId,
         ),
         LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId,
-        net.vrkknn.andromuks.ui.components.LocalIsScrollingFast provides isAnimatedScrolling
+        net.vrkknn.andromuks.ui.components.LocalIsScrollingFast provides isAnimatedScrolling,
     ) {
         AndromuksTheme {
             Surface {
                 Box(modifier = modifier.fillMaxSize()) {
-                Column(
-                    modifier =
+                    Column(
+                        modifier =
                         Modifier.fillMaxSize()
-                            .imePadding()  // Handle keyboard padding at Column level
+                            .imePadding() // Handle keyboard padding at Column level
                             .then(
                                 if (showDeleteDialog) {
                                     Modifier.blur(10.dp)
                                 } else {
                                     Modifier
-                                }
-                            )
-                ) {
-                    // 1. Room Header (always visible at the top, below status bar)
-                    RoomHeader(
-                        roomState = currentRoomState,
-                        fallbackName = displayRoomName,
-                        fallbackAvatarUrl = displayAvatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        roomId = roomId,
-                        syncStatusType = appViewModel.syncStatusType,
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope,
-                        onHeaderClick = {
-                            // Navigate to room info screen
-                            navController.navigate("room_info/$roomId")
-                        },
-                        onBackClick = {
-                            if (appViewModel.currentRoomId == roomId) {
-                                appViewModel.clearCurrentRoomId()
-                            }
-                            if (!navController.popBackStack()) {
-                                context.findActivityForFinish()?.finish()
-                            }
-                        },
-                        onNotificationsClick = {
-                            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                            navController.navigate("mentions?roomId=$encodedRoomId")
-                        },
-                        onCallClick = {
-                            if (appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId) {
-                                appViewModel.setCallMiniPip(false, "")
-                            } else {
-                                appViewModel.startCall(roomId)
-                            }
-                        },
-                        callInProgress = appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId,
-                        callActiveInRoom = appViewModel.activeCallRooms.contains(roomId),
-                        onRefreshClick = {
-                            // Full refresh: drop all on-disk and in-RAM data, then fetch 100 events
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Full refresh button clicked for room $roomId")
-                            isRefreshing = true
-                            appViewModel.setAutoPaginationEnabled(false, "manual_refresh_ui_$roomId")
-                            appViewModel.fullRefreshRoomTimeline(roomId)
-                        },
-                        onSearchClick = {
-                            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                            navController.navigate("search?roomId=$encodedRoomId")
-                        }
-                    )
-
-                    if (isProcessingBatch) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
-
-                    if (appViewModel.notificationActionInProgress) {
-                        ExpressiveStatusRow(
-                            text = "Completing notification action...",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            indicatorColor = MaterialTheme.colorScheme.primary,
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
-                        )
-                    }
-                    
-                    // Show upload status when uploads are in progress
-                    if (appViewModel.hasUploadInProgress(roomId)) {
-                        val uploadType = appViewModel.getUploadType(roomId)
-                        val retryCount = appViewModel.getUploadRetryCount(roomId)
-                        val retrySuffix = if (retryCount > 0) " (Retrying $retryCount/3)" else ""
-                        val statusText = when (uploadType) {
-                            "video" -> "Uploading video$retrySuffix..."
-                            "audio" -> "Uploading audio$retrySuffix..."
-                            "file" -> "Uploading file$retrySuffix..."
-                            "image" -> "Uploading image$retrySuffix..."
-                            else -> "Uploading media$retrySuffix..."
-                        }
-                        val uploadProgress = appViewModel.getUploadProgress(roomId)
-                        ExpressiveStatusRow(
-                            text = statusText,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            indicatorColor = MaterialTheme.colorScheme.primary,
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
-                            progress = uploadProgress
-                        )
-                    }
-
-                    // Pagination indicator: visible while older messages are being fetched/merged
-                    AnimatedVisibility(visible = appViewModel.isPaginating, enter = scaledColumnEnter(), exit = scaledColumnExit()) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
-                    // 2. Timeline (compressible, scrollable content)
-                    Box(
-                        modifier = Modifier.weight(1f).fillMaxWidth()
-                            .then(
-                                if (showAttachmentMenu || messageMenuConfig != null) {
-                                    Modifier.clickable {
-                                        // Close attachment menu or message menu when tapping outside
-                                        showAttachmentMenu = false
-                                        messageMenuConfig = null
-                                    }
-                                } else {
-                                    Modifier
-                                }
-                            )
-                    ) {
-                        // CRITICAL FIX: Show "Room loading..." while room is being loaded/processed
-                        // This ensures the UI doesn't show incomplete state when navigating to a room
-                        // Show the full-screen loader only when there's nothing to render yet. A bare
-                        // isLoading=true must NOT wipe an already-populated timeline: on a warm re-open
-                        // (e.g. WS was down while backgrounded) the cached events stay on screen while a
-                        // background paginate merges newer ones, and isTimelineLoading is briefly true
-                        // during that async rebuild. Room *switches* clear timelineEvents synchronously,
-                        // so timelineItems.isEmpty() still gates the loader correctly there.
-        val shouldShowLoading = !readinessCheckComplete ||
-            (timelineItems.isEmpty() && (isLoading || !hasInitialSnapCompleted))
-                        
-                        if (shouldShowLoading) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    ExpressiveLoadingIndicator(modifier = Modifier.size(96.dp))
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        text = if (appViewModel.postJoinLoadingRooms.contains(roomId)) "Waiting for room data" else "Room loading...",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        } else {
-                            // When media async-load changes height (portrait E2EE), re-anchor scroll if at bottom
-                            DisposableEffect(listState, coroutineScope) {
-                                TimelineMediaLayoutCallback.callback = {
-                                    coroutineScope.launch {
-                                        if (pendingScrollRestoration) return@launch
-                                        if (listState.firstVisibleItemIndex == 0 &&
-                                            listState.firstVisibleItemScrollOffset < 100
-                                        ) {
-                                            animatedScrollTo(0)
-                                        }
-                                    }
-                                }
-                                onDispose { TimelineMediaLayoutCallback.callback = null }
-                            }
-                            // clipToBounds ensures the date pill slides from behind the header rather than over it
-                            Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
-                            // PERF: Memoize reversed list — .reversed() allocates a new list on every recomposition.
-                            // Only recompute when timelineItems itself changes.
-                            val reversedTimelineItems = remember(timelineItems) { timelineItems.reversed() }
-
-                            // Oldest visible item is at the highest index in the reversed list (top of screen)
-                            val oldestVisibleDateRoom by remember(reversedTimelineItems) {
-                                derivedStateOf {
-                                    val highestIdx = listState.layoutInfo.visibleItemsInfo
-                                        .maxOfOrNull { it.index } ?: return@derivedStateOf null
-                                    when (val item = reversedTimelineItems.getOrNull(highestIdx)) {
-                                        is TimelineItem.Event -> formatDate(item.event.timestamp)
-                                        is TimelineItem.DateDivider -> item.date
-                                        else -> null
-                                    }
-                                }
-                            }
-                            val scrollKeyRoom by remember { derivedStateOf { listState.firstVisibleItemIndex } }
-
-                            LazyColumn(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .pullRefresh(pullRefreshState),
-                                state = listState,
-                            // CRITICAL: Use reverseLayout to anchor list at bottom (like WhatsApp/Google Messages)
-                            // This makes keyboard handling automatic - viewport shrinks but bottom anchor stays fixed
-                            reverseLayout = true,
-                            // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                start = 8.dp,
-                                end = 0.dp,
-                                top = 8.dp,
-                                bottom = 120.dp // Extra padding at bottom for better scroll performance
+                                },
                             ),
-                            // PERFORMANCE: Enable smooth scrolling optimizations
-                            userScrollEnabled = true
+                    ) {
+                        // 1. Room Header (always visible at the top, below status bar)
+                        RoomHeader(
+                            roomState = currentRoomState,
+                            fallbackName = displayRoomName,
+                            fallbackAvatarUrl = displayAvatarUrl,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            roomId = roomId,
+                            syncStatusType = appViewModel.syncStatusType,
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
+                            onHeaderClick = {
+                                // Navigate to room info screen
+                                navController.navigate("room_info/$roomId")
+                            },
+                            onBackClick = {
+                                if (appViewModel.currentRoomId == roomId) {
+                                    appViewModel.clearCurrentRoomId()
+                                }
+                                if (!navController.popBackStack()) {
+                                    context.findActivityForFinish()?.finish()
+                                }
+                            },
+                            onNotificationsClick = {
+                                val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                navController.navigate("mentions?roomId=$encodedRoomId")
+                            },
+                            onCallClick = {
+                                if (appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId) {
+                                    appViewModel.setCallMiniPip(false, "")
+                                } else {
+                                    appViewModel.startCall(roomId)
+                                }
+                            },
+                            callInProgress = appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId,
+                            callActiveInRoom = appViewModel.activeCallRooms.contains(roomId),
+                            onRefreshClick = {
+                                // Full refresh: drop all on-disk and in-RAM data, then fetch 100 events
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "RoomTimelineScreen: Full refresh button clicked for room $roomId",
+                                )
+                                }
+                                isRefreshing = true
+                                appViewModel.setAutoPaginationEnabled(false, "manual_refresh_ui_$roomId")
+                                appViewModel.fullRefreshRoomTimeline(roomId)
+                            },
+                            onSearchClick = {
+                                val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                navController.navigate("search?roomId=$encodedRoomId")
+                            },
+                        )
+
+                        if (isProcessingBatch) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+
+                        if (appViewModel.notificationActionInProgress) {
+                            ExpressiveStatusRow(
+                                text = "Completing notification action...",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                            )
+                        }
+
+                        // Show upload status when uploads are in progress
+                        if (appViewModel.hasUploadInProgress(roomId)) {
+                            val uploadType = appViewModel.getUploadType(roomId)
+                            val retryCount = appViewModel.getUploadRetryCount(roomId)
+                            val retrySuffix = if (retryCount > 0) " (Retrying $retryCount/3)" else ""
+                            val statusText = when (uploadType) {
+                                "video" -> "Uploading video$retrySuffix..."
+                                "audio" -> "Uploading audio$retrySuffix..."
+                                "file" -> "Uploading file$retrySuffix..."
+                                "image" -> "Uploading image$retrySuffix..."
+                                else -> "Uploading media$retrySuffix..."
+                            }
+                            val uploadProgress = appViewModel.getUploadProgress(roomId)
+                            ExpressiveStatusRow(
+                                text = statusText,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                                progress = uploadProgress,
+                            )
+                        }
+
+                        // Pagination indicator: visible while older messages are being fetched/merged
+                        AnimatedVisibility(
+                            visible = appViewModel.isPaginating,
+                            enter = scaledColumnEnter(),
+                            exit = scaledColumnExit(),
                         ) {
-                            // PERFORMANCE: Use stable keys and pre-computed consecutive flags
-                            // CRITICAL: Reverse items list since reverseLayout flips rendering order but not data order
-                            itemsIndexed(
-                                items = reversedTimelineItems,
-                                key = { _, item -> item.stableKey }
-                            ) { index, item ->
-                                when (item) {
-                                    is TimelineItem.DateDivider -> {
-                                        DateDivider(item.date)
-                                    }
-                                    is TimelineItem.ReadMarker -> {
-                                        UnreadMarker()
-                                    }
-                                    is TimelineItem.Event -> {
-                                        val event = item.event
-                                        // PERFORMANCE: Removed logging from item rendering to improve scroll performance
-                                        // Note: myUserId is non-null String, so myUserId != null check is redundant
-                                        val isMine = event.sender == myUserId
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        // 2. Timeline (compressible, scrollable content)
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth()
+                                .then(
+                                    if (showAttachmentMenu || messageMenuConfig != null) {
+                                        Modifier.clickable {
+                                            // Close attachment menu or message menu when tapping outside
+                                            showAttachmentMenu = false
+                                            messageMenuConfig = null
+                                        }
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                        ) {
+                            // CRITICAL FIX: Show "Room loading..." while room is being loaded/processed
+                            // This ensures the UI doesn't show incomplete state when navigating to a room
+                            // Show the full-screen loader only when there's nothing to render yet. A bare
+                            // isLoading=true must NOT wipe an already-populated timeline: on a warm re-open
+                            // (e.g. WS was down while backgrounded) the cached events stay on screen while a
+                            // background paginate merges newer ones, and isTimelineLoading is briefly true
+                            // during that async rebuild. Room *switches* clear timelineEvents synchronously,
+                            // so timelineItems.isEmpty() still gates the loader correctly there.
+                            val shouldShowLoading = !readinessCheckComplete ||
+                                (timelineItems.isEmpty() && (isLoading || !hasInitialSnapCompleted))
 
-                                        // PERFORMANCE: Use pre-computed consecutive flag instead of index-based lookup
-                                        val isConsecutive = item.isConsecutive
-
-                                        // Add a little extra spacing before non-consecutive messages
-                                        // (only when the previous timeline item is also an event).
-                                        val previousItem = if (index > 0) timelineItems[index - 1] else null
-                                        val addTopSpacing =
-                                            previousItem is TimelineItem.Event && !isConsecutive
-
-                                        val threadInfo = event.getThreadInfo()
-                                        // All thread-diagnostics gated behind BuildConfig.DEBUG: this whole
-                                        // block runs per-visible-event per-recomposition. The optJSONObject /
-                                        // optString lookups allocate JSONObject wrappers + Strings whether or
-                                        // not the Log call actually emits — observed thousands of needless
-                                        // allocations during a 1-minute scroll. Diagnostic value is debug-only;
-                                        // there's no behavior tied to these reads.
-                                        if (BuildConfig.DEBUG) {
-                                            if (threadInfo != null) {
-                                                Log.d(
-                                                    "Andromuks",
-                                                    "RoomTimelineScreen: Rendering thread event ${event.eventId} -> root=${threadInfo.threadRootEventId}, fallbackReply=${threadInfo.fallbackReplyToEventId ?: "<none>"}"
+                            if (shouldShowLoading) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                    ) {
+                                        ExpressiveLoadingIndicator(modifier = Modifier.size(96.dp))
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = if (appViewModel.postJoinLoadingRooms.contains(
+                                                    roomId,
                                                 )
-                                            } else if (
-                                                event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.thread" ||
-                                                event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.thread"
                                             ) {
-                                                val relationType = event.relationType
-                                                val relatesToId = event.relatesTo
-                                                val rawRelType = event.content?.optJSONObject("m.relates_to")?.optString("rel_type")
-                                                val decryptedRelType = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type")
-                                                val rawEventId = event.content?.optJSONObject("m.relates_to")?.optString("event_id")
-                                                val decryptedEventId = event.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")
-                                                Log.w(
-                                                    "Andromuks",
-                                                    "RoomTimelineScreen: Event ${event.eventId} has thread relates_to but getThreadInfo() returned null (relationType=$relationType, relatesTo=$relatesToId, rawRelType=$rawRelType, decryptedRelType=$decryptedRelType, rawEventId=$rawEventId, decryptedEventId=$decryptedEventId)"
-                                                )
-                                            } else {
-                                                val threadRootIdFromRelates = event.content?.optJSONObject("m.relates_to")?.optString("event_id")
-                                                    ?: event.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")
-                                                if (threadRootIdFromRelates != null) {
-                                                    Log.d(
-                                                        "Andromuks",
-                                                        "RoomTimelineScreen: Event ${event.eventId} relates_to thread root $threadRootIdFromRelates but threadInfo is null"
-                                                    )
-                                                }
+                                                    "Waiting for room data"
+                                                } else {
+                                                    "Room loading..."
+                                                },
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            } else {
+                                // When media async-load changes height (portrait E2EE), re-anchor scroll if at bottom
+                                DisposableEffect(listState, coroutineScope) {
+                                    TimelineMediaLayoutCallback.callback = {
+                                        coroutineScope.launch {
+                                            if (pendingScrollRestoration) return@launch
+                                            if (listState.firstVisibleItemIndex == 0 &&
+                                                listState.firstVisibleItemScrollOffset < 100
+                                            ) {
+                                                animatedScrollTo(0)
                                             }
                                         }
+                                    }
+                                    onDispose { TimelineMediaLayoutCallback.callback = null }
+                                }
+                                // clipToBounds ensures the date pill slides from behind the header rather than over it
+                                Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
+                                    // PERF: Memoize reversed list — .reversed() allocates a new list on every recomposition.
+                                    // Only recompute when timelineItems itself changes.
+                                    val reversedTimelineItems = remember(timelineItems) { timelineItems.reversed() }
 
-                                        Column {
-                                            if (addTopSpacing) {
-                                                Spacer(modifier = Modifier.height(6.dp))
+                                    // Oldest visible item is at the highest index in the reversed list (top of screen)
+                                    val oldestVisibleDateRoom by remember(reversedTimelineItems) {
+                                        derivedStateOf {
+                                            val highestIdx = listState.layoutInfo.visibleItemsInfo
+                                                .maxOfOrNull { it.index } ?: return@derivedStateOf null
+                                            when (val item = reversedTimelineItems.getOrNull(highestIdx)) {
+                                                is TimelineItem.Event -> formatDate(item.event.timestamp)
+                                                is TimelineItem.DateDivider -> item.date
+                                                else -> null
                                             }
+                                        }
+                                    }
+                                    val scrollKeyRoom by remember { derivedStateOf { listState.firstVisibleItemIndex } }
 
-                                            TimelineEventItem(
-                                                event = event,
-                                                timelineEvents = timelineEvents,
-                                                editsByTargetId = editEventsByTargetId,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken,
-                                                userProfileCache = memberMapWithFallback,
-                                                isMine = isMine,
-                                                myUserId = myUserId,
-                                                isConsecutive = isConsecutive,
-                                                absorbedReceiptEventIds = item.absorbedReceiptEventIds,
-                                                appViewModel = appViewModel,
-                                                sharedTransitionScope = sharedTransitionScope,  // ← ADD THIS
-                                                animatedVisibilityScope = animatedVisibilityScope,  // ← ADD THIS
-                                                onScrollToMessage = { eventId ->
-                                                // Reply-jump: scroll+highlight if in the loaded window, else EventContextScreen.
-                                                // Shares the same logic as inter-room permalink landing.
-                                                jumpToLocalEvent(eventId)
-                                                },
-                                                onReply = { event -> replyingToEvent = event },
-                                                onReact = { event ->
-                                                reactingToEvent = event
-                                                showEmojiSelection = true
-                                                },
-                                                onEdit = { event -> editingEvent = event },
-                                                onDelete = { event ->
-                                                deletingEvent = event
-                                                showDeleteDialog = true
-                                                },
-                                                onUserAvatarClick = { userId, tappedEventId ->
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: onUserAvatarClick -> userId=$userId, tappedEventId=$tappedEventId")
-                                                navController.navigateToUserInfo(userId, roomId, tappedEventId)
-                                                },
-                                                onUserClick = { userId ->
-                                                // Pass eventId for shared transition animation
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Navigating to user info - userId=$userId, eventId=${event.eventId}")
-                                                navController.navigateToUserInfo(userId, roomId, event.eventId)
-                                                },
-                                                onRoomLinkClick = { roomLink ->
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")
-                                                
-                                                // Extract server from message sender (format: @user:server.com)
-                                                val senderServer = try {
-                                                    if (event.sender.contains(":")) {
-                                                        event.sender.substringAfter(":")
-                                                    } else {
-                                                        null
-                                                    }
-                                                } catch (e: Exception) {
-                                                    null
-                                                }
-                                                
-                                                // Add sender's server to viaServers if available
-                                                val enhancedViaServers = if (senderServer != null && !roomLink.viaServers.contains(senderServer)) {
-                                                    roomLink.viaServers + senderServer
-                                                } else {
-                                                    roomLink.viaServers
-                                                }
-                                                
-                                                val enhancedRoomLink = roomLink.copy(viaServers = enhancedViaServers)
-                                                // Event permalink target (null for plain room links)
-                                                val jumpEventId = enhancedRoomLink.eventId
-
-                                                if (jumpEventId != null && enhancedRoomLink.roomIdOrAlias == roomId) {
-                                                    // Permalink into the room we're already viewing — jump in place, no renavigation.
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Same-room event permalink, jumping to $jumpEventId")
-                                                    jumpToLocalEvent(jumpEventId)
-                                                } else {
-                                                // If it's a room ID, check if we're already joined
-                                                val existingRoom = if (enhancedRoomLink.roomIdOrAlias.startsWith("!")) {
-                                                    val room = appViewModel.getRoomById(enhancedRoomLink.roomIdOrAlias)
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Checked for existing room ${enhancedRoomLink.roomIdOrAlias}, found: ${room != null}")
-                                                    room
-                                                } else {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Room link is an alias, showing joiner")
-                                                    null
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .pullRefresh(pullRefreshState),
+                                        state = listState,
+                                        // CRITICAL: Use reverseLayout to anchor list at bottom (like WhatsApp/Google Messages)
+                                        // This makes keyboard handling automatic - viewport shrinks but bottom anchor stays fixed
+                                        reverseLayout = true,
+                                        // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                            start = 8.dp,
+                                            end = 0.dp,
+                                            top = 8.dp,
+                                            bottom = 120.dp, // Extra padding at bottom for better scroll performance
+                                        ),
+                                        // PERFORMANCE: Enable smooth scrolling optimizations
+                                        userScrollEnabled = true,
+                                    ) {
+                                        // PERFORMANCE: Use stable keys and pre-computed consecutive flags
+                                        // CRITICAL: Reverse items list since reverseLayout flips rendering order but not data order
+                                        itemsIndexed(
+                                            items = reversedTimelineItems,
+                                            key = { _, item -> item.stableKey },
+                                        ) { index, item ->
+                                            when (item) {
+                                                is TimelineItem.DateDivider -> {
+                                                    DateDivider(item.date)
                                                 }
 
-                                                if (existingRoom != null) {
-                                                    // Already joined, navigate directly
-                                                    val targetRoomId = enhancedRoomLink.roomIdOrAlias
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Already joined, navigating to $targetRoomId")
-                                                    // If this is an event permalink, stash the jump so the target room lands on it
-                                                    // (scroll if in the loaded window, else EventContextScreen) once it opens.
-                                                    if (jumpEventId != null) appViewModel.setPendingInterRoomJump(targetRoomId, jumpEventId)
-                                                    // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
-                                                    // and navigate via room_list, letting RoomListScreen handle the final navigation.
-                                                    // This matches the pattern used by notifications/shortcuts and ensures proper state management.
-                                                    appViewModel.setCurrentRoomIdForTimeline(targetRoomId)
-                                                    appViewModel.setDirectRoomNavigation(targetRoomId)
-                                                    navController.navigate("room_list")
-                                                } else {
-                                                    // For aliases or non-joined rooms, show room joiner. Per design, a not-joined
-                                                    // event permalink just opens/joins the room — we do NOT scroll or open
-                                                    // EventContextScreen (a fresh join may not have the referenced history yet).
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Not joined, showing room joiner with via servers: $enhancedViaServers")
-                                                    roomLinkToJoin = enhancedRoomLink
-                                                    showRoomJoiner = true
+                                                is TimelineItem.ReadMarker -> {
+                                                    UnreadMarker()
                                                 }
-                                                }
-                                                },
-                                                onThreadClick = { threadEvent ->
-                                                // Navigate to thread viewer
-                                                val threadInfo = threadEvent.getThreadInfo()
-                                                if (threadInfo != null) {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}")
-                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                                    val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
-                                                    appViewModel.threadReturnScrollEventId = threadEvent.eventId
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Set threadReturnScrollEventId=${threadEvent.eventId}")
-                                                    navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
-                                                }
-                                                },
-                                                onCodeBlockClick = { code ->
-                                                codeViewerContent = code
-                                                showCodeViewer = true
-                                                },
-                                                onShowMenu = { menuConfig ->
-                                                // Close attach menu if open
-                                                showAttachmentMenu = false
-                                                messageMenuConfig = menuConfig.copy(
-                                                    // Long-press path only: the menu bar's Reply
-                                                    // button calls onDismiss() (which kicks off the
-                                                    // ~620ms slide-down exit) and then this. If we
-                                                    // raised the reply preview immediately, its rise
-                                                    // would play under the menu sliding down and be
-                                                    // masked. Wait for the menu exit to finish, then
-                                                    // set replyingToEvent so the grow has the stage to
-                                                    // itself. (Swipe-to-reply uses the instant onReply
-                                                    // at the TimelineEventItem call site instead.)
-                                                    onReply = {
-                                                        coroutineScope.launch {
-                                                            kotlinx.coroutines.delay(scaledTweenMs(620).toLong())
-                                                            replyingToEvent = menuConfig.event
-                                                        }
-                                                    },
-                                                    onViewSource = { code ->
-                                                        codeViewerContent = code
-                                                        showCodeViewer = true
-                                                    },
-                                                    onViewRenderedText = { text ->
-                                                        codeViewerContent = text
-                                                        showCodeViewer = true
-                                                    },
-                                                    onShowReactions = {
-                                                        // Backfill detailed reactions for this event (user + timestamp) via get_related_events.
-                                                        appViewModel.requestReactionDetails(roomId, menuConfig.event.eventId)
-                                                        reactionsEventId = menuConfig.event.eventId
-                                                        showReactionsDialog = true
-                                                    },
-                                                    onViewInThread = if (menuConfig.event.isThreadMessage()) {
-                                                        {
-                                                            val threadInfo = menuConfig.event.getThreadInfo()
-                                                            if (threadInfo != null) {
-                                                                val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                                                val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
-                                                                appViewModel.threadReturnScrollEventId = menuConfig.event.eventId
-                                                                navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
+
+                                                is TimelineItem.Event -> {
+                                                    val event = item.event
+                                                    // PERFORMANCE: Removed logging from item rendering to improve scroll performance
+                                                    // Note: myUserId is non-null String, so myUserId != null check is redundant
+                                                    val isMine = event.sender == myUserId
+
+                                                    // PERFORMANCE: Use pre-computed consecutive flag instead of index-based lookup
+                                                    val isConsecutive = item.isConsecutive
+
+                                                    // Add a little extra spacing before non-consecutive messages
+                                                    // (only when the previous timeline item is also an event).
+                                                    val previousItem = if (index > 0) timelineItems[index - 1] else null
+                                                    val addTopSpacing =
+                                                        previousItem is TimelineItem.Event && !isConsecutive
+
+                                                    val threadInfo = event.getThreadInfo()
+                                                    // All thread-diagnostics gated behind BuildConfig.DEBUG: this whole
+                                                    // block runs per-visible-event per-recomposition. The optJSONObject /
+                                                    // optString lookups allocate JSONObject wrappers + Strings whether or
+                                                    // not the Log call actually emits — observed thousands of needless
+                                                    // allocations during a 1-minute scroll. Diagnostic value is debug-only;
+                                                    // there's no behavior tied to these reads.
+                                                    if (BuildConfig.DEBUG) {
+                                                        if (threadInfo != null) {
+                                                            Log.d(
+                                                                "Andromuks",
+                                                                "RoomTimelineScreen: Rendering thread event ${event.eventId} -> root=${threadInfo.threadRootEventId}, fallbackReply=${threadInfo.fallbackReplyToEventId ?: "<none>"}",
+                                                            )
+                                                        } else if (
+                                                            event.content?.optJSONObject(
+                                                                "m.relates_to",
+                                                            )?.optString("rel_type") == "m.thread" ||
+                                                            event.decrypted?.optJSONObject(
+                                                                "m.relates_to",
+                                                            )?.optString("rel_type") == "m.thread"
+                                                        ) {
+                                                            val relationType = event.relationType
+                                                            val relatesToId = event.relatesTo
+                                                            val rawRelType = event.content?.optJSONObject(
+                                                                "m.relates_to",
+                                                            )?.optString("rel_type")
+                                                            val decryptedRelType = event.decrypted?.optJSONObject(
+                                                                "m.relates_to",
+                                                            )?.optString("rel_type")
+                                                            val rawEventId = event.content?.optJSONObject(
+                                                                "m.relates_to",
+                                                            )?.optString("event_id")
+                                                            val decryptedEventId = event.decrypted?.optJSONObject(
+                                                                "m.relates_to",
+                                                            )?.optString("event_id")
+                                                            Log.w(
+                                                                "Andromuks",
+                                                                "RoomTimelineScreen: Event ${event.eventId} has thread relates_to but getThreadInfo() returned null (relationType=$relationType, relatesTo=$relatesToId, rawRelType=$rawRelType, decryptedRelType=$decryptedRelType, rawEventId=$rawEventId, decryptedEventId=$decryptedEventId)",
+                                                            )
+                                                        } else {
+                                                            val threadRootIdFromRelates = event.content?.optJSONObject(
+                                                                "m.relates_to",
+                                                            )?.optString("event_id")
+                                                                ?: event.decrypted?.optJSONObject(
+                                                                    "m.relates_to",
+                                                                )?.optString("event_id")
+                                                            if (threadRootIdFromRelates != null) {
+                                                                Log.d(
+                                                                    "Andromuks",
+                                                                    "RoomTimelineScreen: Event ${event.eventId} relates_to thread root $threadRootIdFromRelates but threadInfo is null",
+                                                                )
                                                             }
                                                         }
-                                                    } else null,
-                                                    // For messages that aren't themselves thread replies, offer Start/View
-                                                    // thread rooted at this message. ThreadViewerScreen renders the single
-                                                    // root via getThreadMessages; the m.thread relation is created on the
-                                                    // first reply. Label depends on whether replies already exist.
-                                                    onStartOrViewThread = if (!menuConfig.event.isThreadMessage()) {
-                                                        {
-                                                            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                                            val encodedThreadRoot = java.net.URLEncoder.encode(menuConfig.event.eventId, "UTF-8")
-                                                            appViewModel.threadReturnScrollEventId = menuConfig.event.eventId
-                                                            navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
+                                                    }
+
+                                                    Column {
+                                                        if (addTopSpacing) {
+                                                            Spacer(modifier = Modifier.height(6.dp))
                                                         }
-                                                    } else null,
-                                                    startThreadIsExisting = appViewModel.hasThreadReplies(roomId, menuConfig.event.eventId),
-                                                    onShowBridgeDeliveryInfo = if (appViewModel.messageBridgeSendStatus.containsKey(menuConfig.event.eventId)) {
-                                                        {
-                                                            bridgeDeliveryEventId = menuConfig.event.eventId
-                                                            showBridgeDeliveryDialog = true
-                                                        }
-                                                    } else null
-                                                )
-                                                },
-                                                onShowReactions = {
-                                                    // Direct reactions button (without opening the full menu)
-                                                    appViewModel.requestReactionDetails(roomId, event.eventId)
-                                                    reactionsEventId = event.eventId
-                                                    showReactionsDialog = true
+
+                                                        TimelineEventItem(
+                                                            event = event,
+                                                            timelineEvents = timelineEvents,
+                                                            editsByTargetId = editEventsByTargetId,
+                                                            homeserverUrl = homeserverUrl,
+                                                            authToken = authToken,
+                                                            userProfileCache = memberMapWithFallback,
+                                                            isMine = isMine,
+                                                            myUserId = myUserId,
+                                                            isConsecutive = isConsecutive,
+                                                            absorbedReceiptEventIds = item.absorbedReceiptEventIds,
+                                                            appViewModel = appViewModel,
+                                                            sharedTransitionScope = sharedTransitionScope, // ← ADD THIS
+                                                            animatedVisibilityScope = animatedVisibilityScope, // ← ADD THIS
+                                                            onScrollToMessage = { eventId ->
+                                                                // Reply-jump: scroll+highlight if in the loaded window, else EventContextScreen.
+                                                                // Shares the same logic as inter-room permalink landing.
+                                                                jumpToLocalEvent(eventId)
+                                                            },
+                                                            onReply = { event -> replyingToEvent = event },
+                                                            onReact = { event ->
+                                                                reactingToEvent = event
+                                                                showEmojiSelection = true
+                                                            },
+                                                            onEdit = { event -> editingEvent = event },
+                                                            onDelete = { event ->
+                                                                deletingEvent = event
+                                                                showDeleteDialog = true
+                                                            },
+                                                            onUserAvatarClick = { userId, tappedEventId ->
+                                                                if (BuildConfig.DEBUG) {
+                                                                    Log.d(
+                                                                    "Andromuks",
+                                                                    "RoomTimelineScreen: onUserAvatarClick -> userId=$userId, tappedEventId=$tappedEventId",
+                                                                )
+                                                                }
+                                                                navController.navigateToUserInfo(userId, roomId, tappedEventId)
+                                                            },
+                                                            onUserClick = { userId ->
+                                                                // Pass eventId for shared transition animation
+                                                                if (BuildConfig.DEBUG) {
+                                                                    Log.d(
+                                                                    "Andromuks",
+                                                                    "RoomTimelineScreen: Navigating to user info - userId=$userId, eventId=${event.eventId}",
+                                                                )
+                                                                }
+                                                                navController.navigateToUserInfo(userId, roomId, event.eventId)
+                                                            },
+                                                            onRoomLinkClick = { roomLink ->
+                                                                if (BuildConfig.DEBUG) {
+                                                                    Log.d(
+                                                                    "Andromuks",
+                                                                    "RoomTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}",
+                                                                )
+                                                                }
+
+                                                                // Extract server from message sender (format: @user:server.com)
+                                                                val senderServer = try {
+                                                                    if (event.sender.contains(":")) {
+                                                                        event.sender.substringAfter(":")
+                                                                    } else {
+                                                                        null
+                                                                    }
+                                                                } catch (e: Exception) {
+                                                                    null
+                                                                }
+
+                                                                // Add sender's server to viaServers if available
+                                                                val enhancedViaServers = if (senderServer != null &&
+                                                                    !roomLink.viaServers.contains(
+                                                                        senderServer,
+                                                                    )
+                                                                ) {
+                                                                    roomLink.viaServers + senderServer
+                                                                } else {
+                                                                    roomLink.viaServers
+                                                                }
+
+                                                                val enhancedRoomLink = roomLink.copy(viaServers = enhancedViaServers)
+                                                                // Event permalink target (null for plain room links)
+                                                                val jumpEventId = enhancedRoomLink.eventId
+
+                                                                if (jumpEventId != null && enhancedRoomLink.roomIdOrAlias == roomId) {
+                                                                    // Permalink into the room we're already viewing — jump in place, no renavigation.
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                        "Andromuks",
+                                                                        "RoomTimelineScreen: Same-room event permalink, jumping to $jumpEventId",
+                                                                    )
+                                                                    }
+                                                                    jumpToLocalEvent(jumpEventId)
+                                                                } else {
+                                                                    // If it's a room ID, check if we're already joined
+                                                                    val existingRoom = if (enhancedRoomLink.roomIdOrAlias.startsWith("!")) {
+                                                                        val room = appViewModel.getRoomById(enhancedRoomLink.roomIdOrAlias)
+                                                                        if (BuildConfig.DEBUG) {
+                                                                            Log.d(
+                                                                            "Andromuks",
+                                                                            "RoomTimelineScreen: Checked for existing room ${enhancedRoomLink.roomIdOrAlias}, found: ${room != null}",
+                                                                        )
+                                                                        }
+                                                                        room
+                                                                    } else {
+                                                                        if (BuildConfig.DEBUG) {
+                                                                            Log.d(
+                                                                            "Andromuks",
+                                                                            "RoomTimelineScreen: Room link is an alias, showing joiner",
+                                                                        )
+                                                                        }
+                                                                        null
+                                                                    }
+
+                                                                    if (existingRoom != null) {
+                                                                        // Already joined, navigate directly
+                                                                        val targetRoomId = enhancedRoomLink.roomIdOrAlias
+                                                                        if (BuildConfig.DEBUG) {
+                                                                            Log.d(
+                                                                            "Andromuks",
+                                                                            "RoomTimelineScreen: Already joined, navigating to $targetRoomId",
+                                                                        )
+                                                                        }
+                                                                        // If this is an event permalink, stash the jump so the target room lands on it
+                                                                        // (scroll if in the loaded window, else EventContextScreen) once it opens.
+                                                                        if (jumpEventId != null) {
+                                                                            appViewModel.setPendingInterRoomJump(
+                                                                            targetRoomId,
+                                                                            jumpEventId,
+                                                                        )
+                                                                        }
+                                                                        // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
+                                                                        // and navigate via room_list, letting RoomListScreen handle the final navigation.
+                                                                        // This matches the pattern used by notifications/shortcuts and ensures proper state management.
+                                                                        appViewModel.setCurrentRoomIdForTimeline(targetRoomId)
+                                                                        appViewModel.setDirectRoomNavigation(targetRoomId)
+                                                                        navController.navigate("room_list")
+                                                                    } else {
+                                                                        // For aliases or non-joined rooms, show room joiner. Per design, a not-joined
+                                                                        // event permalink just opens/joins the room — we do NOT scroll or open
+                                                                        // EventContextScreen (a fresh join may not have the referenced history yet).
+                                                                        if (BuildConfig.DEBUG) {
+                                                                            Log.d(
+                                                                            "Andromuks",
+                                                                            "RoomTimelineScreen: Not joined, showing room joiner with via servers: $enhancedViaServers",
+                                                                        )
+                                                                        }
+                                                                        roomLinkToJoin = enhancedRoomLink
+                                                                        showRoomJoiner = true
+                                                                    }
+                                                                }
+                                                            },
+                                                            onThreadClick = { threadEvent ->
+                                                                // Navigate to thread viewer
+                                                                val threadInfo = threadEvent.getThreadInfo()
+                                                                if (threadInfo != null) {
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                        "Andromuks",
+                                                                        "RoomTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}",
+                                                                    )
+                                                                    }
+                                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                                                    val encodedThreadRoot = java.net.URLEncoder.encode(
+                                                                        threadInfo.threadRootEventId,
+                                                                        "UTF-8",
+                                                                    )
+                                                                    appViewModel.threadReturnScrollEventId = threadEvent.eventId
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                        "Andromuks",
+                                                                        "RoomTimelineScreen: Set threadReturnScrollEventId=${threadEvent.eventId}",
+                                                                    )
+                                                                    }
+                                                                    navController.navigate(
+                                                                        "thread_viewer/$encodedRoomId/$encodedThreadRoot",
+                                                                    )
+                                                                }
+                                                            },
+                                                            onCodeBlockClick = { code ->
+                                                                codeViewerContent = code
+                                                                showCodeViewer = true
+                                                            },
+                                                            onShowMenu = { menuConfig ->
+                                                                // Close attach menu if open
+                                                                showAttachmentMenu = false
+                                                                messageMenuConfig = menuConfig.copy(
+                                                                    // Long-press path only: the menu bar's Reply
+                                                                    // button calls onDismiss() (which kicks off the
+                                                                    // ~620ms slide-down exit) and then this. If we
+                                                                    // raised the reply preview immediately, its rise
+                                                                    // would play under the menu sliding down and be
+                                                                    // masked. Wait for the menu exit to finish, then
+                                                                    // set replyingToEvent so the grow has the stage to
+                                                                    // itself. (Swipe-to-reply uses the instant onReply
+                                                                    // at the TimelineEventItem call site instead.)
+                                                                    onReply = {
+                                                                        coroutineScope.launch {
+                                                                            kotlinx.coroutines.delay(scaledTweenMs(620).toLong())
+                                                                            replyingToEvent = menuConfig.event
+                                                                        }
+                                                                    },
+                                                                    onViewSource = { code ->
+                                                                        codeViewerContent = code
+                                                                        showCodeViewer = true
+                                                                    },
+                                                                    onViewRenderedText = { text ->
+                                                                        codeViewerContent = text
+                                                                        showCodeViewer = true
+                                                                    },
+                                                                    onShowReactions = {
+                                                                        // Backfill detailed reactions for this event (user + timestamp) via get_related_events.
+                                                                        appViewModel.requestReactionDetails(
+                                                                            roomId,
+                                                                            menuConfig.event.eventId,
+                                                                        )
+                                                                        reactionsEventId = menuConfig.event.eventId
+                                                                        showReactionsDialog = true
+                                                                    },
+                                                                    onViewInThread = if (menuConfig.event.isThreadMessage()) {
+                                                                        {
+                                                                            val threadInfo = menuConfig.event.getThreadInfo()
+                                                                            if (threadInfo != null) {
+                                                                                val encodedRoomId = java.net.URLEncoder.encode(
+                                                                                    roomId,
+                                                                                    "UTF-8",
+                                                                                )
+                                                                                val encodedThreadRoot = java.net.URLEncoder.encode(
+                                                                                    threadInfo.threadRootEventId,
+                                                                                    "UTF-8",
+                                                                                )
+                                                                                appViewModel.threadReturnScrollEventId =
+                                                                                    menuConfig.event.eventId
+                                                                                navController.navigate(
+                                                                                    "thread_viewer/$encodedRoomId/$encodedThreadRoot",
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        null
+                                                                    },
+                                                                    // For messages that aren't themselves thread replies, offer Start/View
+                                                                    // thread rooted at this message. ThreadViewerScreen renders the single
+                                                                    // root via getThreadMessages; the m.thread relation is created on the
+                                                                    // first reply. Label depends on whether replies already exist.
+                                                                    onStartOrViewThread = if (!menuConfig.event.isThreadMessage()) {
+                                                                        {
+                                                                            val encodedRoomId = java.net.URLEncoder.encode(
+                                                                                roomId,
+                                                                                "UTF-8",
+                                                                            )
+                                                                            val encodedThreadRoot = java.net.URLEncoder.encode(
+                                                                                menuConfig.event.eventId,
+                                                                                "UTF-8",
+                                                                            )
+                                                                            appViewModel.threadReturnScrollEventId =
+                                                                                menuConfig.event.eventId
+                                                                            navController.navigate(
+                                                                                "thread_viewer/$encodedRoomId/$encodedThreadRoot",
+                                                                            )
+                                                                        }
+                                                                    } else {
+                                                                        null
+                                                                    },
+                                                                    startThreadIsExisting = appViewModel.hasThreadReplies(
+                                                                        roomId,
+                                                                        menuConfig.event.eventId,
+                                                                    ),
+                                                                    onShowBridgeDeliveryInfo = if (appViewModel.messageBridgeSendStatus.containsKey(
+                                                                            menuConfig.event.eventId,
+                                                                        )
+                                                                    ) {
+                                                                        {
+                                                                            bridgeDeliveryEventId = menuConfig.event.eventId
+                                                                            showBridgeDeliveryDialog = true
+                                                                        }
+                                                                    } else {
+                                                                        null
+                                                                    },
+                                                                )
+                                                            },
+                                                            onShowReactions = {
+                                                                // Direct reactions button (without opening the full menu)
+                                                                appViewModel.requestReactionDetails(roomId, event.eventId)
+                                                                reactionsEventId = event.eventId
+                                                                showReactionsDialog = true
+                                                            },
+                                                        )
+                                                    }
                                                 }
-                                            )
+                                            }
                                         }
                                     }
-                                }
-                            }
-                        }
-                            
-                            // Sticky date pill — shows date of oldest visible event while scrolling up
-                            net.vrkknn.andromuks.utils.StickyDateIndicator(
-                                oldestVisibleDate = oldestVisibleDateRoom,
-                                scrollPositionKey = scrollKeyRoom,
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = 8.dp)
-                                    .zIndex(1f)
-                            )
 
-                            // Pull-to-refresh indicator (outside LazyColumn, inside Box)
-                            PullRefreshIndicator(
-                                refreshing = isRefreshingPull,
-                                state = pullRefreshState,
-                                modifier = Modifier.align(Alignment.TopCenter)
-                            )
-                        }
-                    }
-                    }
+                                    // Sticky date pill — shows date of oldest visible event while scrolling up
+                                    net.vrkknn.andromuks.utils.StickyDateIndicator(
+                                        oldestVisibleDate = oldestVisibleDateRoom,
+                                        scrollPositionKey = scrollKeyRoom,
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .padding(top = 8.dp)
+                                            .zIndex(1f),
+                                    )
 
-                    // 4. Typing notification area (stacks naturally above text box).
-                    // Hoist getTypingUsersForRoom behind remember keyed on the observable
-                    // typingUsers field. Reuse the already-hoisted `memberMap` (line ~1962)
-                    // instead of calling getMemberMap(roomId) inline — that inline call
-                    // produced 36 cache reads of the previous room during a single
-                    // navigation crossfade, because getMemberMap falls back to
-                    // RoomTimelineCache.getCachedEvents() for non-current rooms and was
-                    // running on every parent recomposition.
-                    val typingUsersForRoom = remember(roomId, appViewModel.typingUsers) {
-                        appViewModel.getTypingUsersForRoom(roomId)
-                    }
-                    TypingNotificationArea(
-                        typingUsers = typingUsersForRoom,
-                        roomId = roomId,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        userProfileCache = memberMap,
-                        appViewModel = appViewModel
-                    )
-
-                    // 5. Text box (always at the bottom, above keyboard/nav bar)
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp,
-                        modifier =
-                            Modifier.fillMaxWidth()
-                                .navigationBarsPadding()
-                                // .imePadding() removed - Column handles it now
-                    ) {
-                    Row(
-                        modifier =
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        // Main attach button
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            tonalElevation = 1.dp,
-                            modifier = Modifier.width(48.dp).height(buttonHeight)
-                        ) {
-                            IconButton(
-                                enabled = isInputEnabled,
-                                onClick = { 
-                                    if (isInputEnabled) {
-                                        // Close message menu if open
-                                        messageMenuConfig = null
-                                        showAttachmentMenu = !showAttachmentMenu
-                                    }
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.AttachFile,
-                                    contentDescription = "Attach",
-                                    tint = if (isInputEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Pill-shaped text input with optional reply preview inside
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                            shape =
-                                RoundedCornerShape(
-                                    16.dp
-                                ), // Rounded rectangle that works both as pill and expanded
-                            tonalElevation = 1.dp,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Column {
-                                // Edit preview inside the text input (if editing)
-                                if (editingEvent != null) {
-                                    EditPreviewInput(
-                                        event = editingEvent!!,
-                                        onCancel = {
-                                            editingEvent = null
-                                            draft = "" // Clear draft when canceling edit
-                                        }
+                                    // Pull-to-refresh indicator (outside LazyColumn, inside Box)
+                                    PullRefreshIndicator(
+                                        refreshing = isRefreshingPull,
+                                        state = pullRefreshState,
+                                        modifier = Modifier.align(Alignment.TopCenter),
                                     )
                                 }
+                            }
+                        }
 
-                                // Reply preview inside the text input (if replying).
-                                // Keep the last event around so the shrink/fade exit can still
-                                // render content after replyingToEvent is cleared on cancel/send.
-                                var lastReplyPreviewEvent by remember { mutableStateOf<TimelineEvent?>(null) }
-                                LaunchedEffect(replyingToEvent) {
-                                    if (replyingToEvent != null) lastReplyPreviewEvent = replyingToEvent
-                                }
-                                AnimatedVisibility(
-                                    visible = replyingToEvent != null,
-                                    // Deterministic tween (not a spring) so the grow finishes at a
-                                    // known time and the keyboard-raise can be sequenced after it.
-                                    enter = fadeIn(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))) +
-                                        expandVertically(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))),
-                                    exit = shrinkVertically(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))) +
-                                        fadeOut(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs)))
+                        // 4. Typing notification area (stacks naturally above text box).
+                        // Hoist getTypingUsersForRoom behind remember keyed on the observable
+                        // typingUsers field. Reuse the already-hoisted `memberMap` (line ~1962)
+                        // instead of calling getMemberMap(roomId) inline — that inline call
+                        // produced 36 cache reads of the previous room during a single
+                        // navigation crossfade, because getMemberMap falls back to
+                        // RoomTimelineCache.getCachedEvents() for non-current rooms and was
+                        // running on every parent recomposition.
+                        val typingUsersForRoom = remember(roomId, appViewModel.typingUsers) {
+                            appViewModel.getTypingUsersForRoom(roomId)
+                        }
+                        TypingNotificationArea(
+                            typingUsers = typingUsersForRoom,
+                            roomId = roomId,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            userProfileCache = memberMap,
+                            appViewModel = appViewModel,
+                        )
+
+                        // 5. Text box (always at the bottom, above keyboard/nav bar)
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 0.dp,
+                            modifier =
+                            Modifier.fillMaxWidth()
+                                .navigationBarsPadding(),
+                            // .imePadding() removed - Column handles it now
+                        ) {
+                            Row(
+                                modifier =
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.Bottom,
+                            ) {
+                                // Main attach button
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.width(48.dp).height(buttonHeight),
                                 ) {
-                                    lastReplyPreviewEvent?.let { previewEvent ->
-                                        ReplyPreviewInput(
-                                            event = previewEvent,
-                                            userProfileCache = memberMapWithFallback, // Use reactive memberMap with fallback profiles
-                                            onCancel = { replyingToEvent = null },
-                                            appViewModel = appViewModel,
-                                            roomId = roomId
+                                    IconButton(
+                                        enabled = isInputEnabled,
+                                        onClick = {
+                                            if (isInputEnabled) {
+                                                // Close message menu if open
+                                                messageMenuConfig = null
+                                                showAttachmentMenu = !showAttachmentMenu
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxSize(),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.AttachFile,
+                                            contentDescription = "Attach",
+                                            tint = if (isInputEnabled) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                alpha = 0.38f,
+                                            )
+                                            },
                                         )
                                     }
                                 }
 
-                                // URL preview composition bar
-                                if (appViewModel.resolveSendBundledUrlPreviews(roomId)) {
-                                    UrlPreviewCompositionBar(
-                                        text = draft,
-                                        controller = urlPreviewController,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        isRoomEncrypted = currentRoomState?.isEncrypted ?: false
-                                    )
-                                }
+                                Spacer(modifier = Modifier.width(8.dp))
 
-                                // Create combined transformation for mentions and custom emojis
-                                val colorScheme = MaterialTheme.colorScheme
-                                val customEmojiPacks = appViewModel.customEmojiPacks
-                                val mentionAndEmojiTransformation = remember(colorScheme, customEmojiPacks) {
-                                    VisualTransformation { text ->
-                                        val mentionRegex = Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
-                                        // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
-                                        val customEmojiRegex = Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
-                                        
-                                        val annotatedString = buildAnnotatedString {
-                                            var lastIndex = 0
-                                            
-                                            // Collect all matches (mentions and custom emojis) and sort by position
-                                            val allMatches = mutableListOf<Pair<Int, MatchResult>>()
-                                            mentionRegex.findAll(text.text).forEach { 
-                                                allMatches.add(Pair(0, it)) // 0 = mention
-                                            }
-                                            customEmojiRegex.findAll(text.text).forEach { 
-                                                allMatches.add(Pair(1, it)) // 1 = custom emoji
-                                            }
-                                            allMatches.sortBy { it.second.range.first }
-                                            
-                                            for ((type, match) in allMatches) {
-                                                // Add text before match
-                                                if (match.range.first > lastIndex) {
-                                                    append(text.text.substring(lastIndex, match.range.first))
-                                                }
-                                                
-                                                if (type == 0) {
-                                                    // Handle mention
-                                                    val escapedDisplayName = match.groupValues[1]
-                                                    val displayName = escapedDisplayName
-                                                        .replace("\\[", "[")
-                                                        .replace("\\]", "]")
-                                                    withStyle(
-                                                        style = SpanStyle(
-                                                            color = colorScheme.onPrimaryContainer,
-                                                            background = colorScheme.primaryContainer
-                                                        )
-                                                    ) {
-                                                        append(" $displayName ")
-                                                    }
-                                                } else {
-                                                    // Handle custom emoji - replace markdown with just the emoji name
-                                                    val emojiName = match.groupValues[1]
-                                                    append(":$emojiName:")
-                                                }
-                                                
-                                                lastIndex = match.range.last + 1
-                                            }
-                                            
-                                            // Add remaining text
-                                            if (lastIndex < text.text.length) {
-                                                append(text.text.substring(lastIndex))
+                                // Pill-shaped text input with optional reply preview inside
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape =
+                                    RoundedCornerShape(
+                                        16.dp,
+                                    ), // Rounded rectangle that works both as pill and expanded
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Column {
+                                        // Edit preview inside the text input (if editing)
+                                        if (editingEvent != null) {
+                                            EditPreviewInput(
+                                                event = editingEvent!!,
+                                                onCancel = {
+                                                    editingEvent = null
+                                                    draft = "" // Clear draft when canceling edit
+                                                },
+                                            )
+                                        }
+
+                                        // Reply preview inside the text input (if replying).
+                                        // Keep the last event around so the shrink/fade exit can still
+                                        // render content after replyingToEvent is cleared on cancel/send.
+                                        var lastReplyPreviewEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+                                        LaunchedEffect(replyingToEvent) {
+                                            if (replyingToEvent != null) lastReplyPreviewEvent = replyingToEvent
+                                        }
+                                        AnimatedVisibility(
+                                            visible = replyingToEvent != null,
+                                            // Deterministic tween (not a spring) so the grow finishes at a
+                                            // known time and the keyboard-raise can be sequenced after it.
+                                            enter = fadeIn(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))) +
+                                                expandVertically(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))),
+                                            exit = shrinkVertically(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))) +
+                                                fadeOut(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))),
+                                        ) {
+                                            lastReplyPreviewEvent?.let { previewEvent ->
+                                                ReplyPreviewInput(
+                                                    event = previewEvent,
+                                                    userProfileCache = memberMapWithFallback, // Use reactive memberMap with fallback profiles
+                                                    onCancel = { replyingToEvent = null },
+                                                    appViewModel = appViewModel,
+                                                    roomId = roomId,
+                                                )
                                             }
                                         }
-                                        
-                                        // Create proper offset mapping to handle the text length changes
-                                        val offsetMapping = object : OffsetMapping {
-                                            override fun originalToTransformed(offset: Int): Int {
-                                                // Clamp offset to valid range
-                                                val clampedOffset = offset.coerceIn(0, text.text.length)
-                                                var transformedOffset = 0
-                                                var originalOffset = 0
-                                                
-                                                for (match in mentionRegex.findAll(text.text)) {
-                                                    // Add text before mention
-                                                    val beforeLength = match.range.first - originalOffset
-                                                    if (clampedOffset <= match.range.first) {
+
+                                        // URL preview composition bar
+                                        if (appViewModel.resolveSendBundledUrlPreviews(roomId)) {
+                                            UrlPreviewCompositionBar(
+                                                text = draft,
+                                                controller = urlPreviewController,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isRoomEncrypted = currentRoomState?.isEncrypted ?: false,
+                                            )
+                                        }
+
+                                        // Create combined transformation for mentions and custom emojis
+                                        val colorScheme = MaterialTheme.colorScheme
+                                        val customEmojiPacks = appViewModel.customEmojiPacks
+                                        val mentionAndEmojiTransformation = remember(colorScheme, customEmojiPacks) {
+                                            VisualTransformation { text ->
+                                                val mentionRegex = Regex(
+                                                    """\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""",
+                                                )
+                                                // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
+                                                val customEmojiRegex =
+                                                    Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+
+                                                val annotatedString = buildAnnotatedString {
+                                                    var lastIndex = 0
+
+                                                    // Collect all matches (mentions and custom emojis) and sort by position
+                                                    val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                    mentionRegex.findAll(text.text).forEach {
+                                                        allMatches.add(Pair(0, it)) // 0 = mention
+                                                    }
+                                                    customEmojiRegex.findAll(text.text).forEach {
+                                                        allMatches.add(Pair(1, it)) // 1 = custom emoji
+                                                    }
+                                                    allMatches.sortBy { it.second.range.first }
+
+                                                    for ((type, match) in allMatches) {
+                                                        // Add text before match
+                                                        if (match.range.first > lastIndex) {
+                                                            append(text.text.substring(lastIndex, match.range.first))
+                                                        }
+
+                                                        if (type == 0) {
+                                                            // Handle mention
+                                                            val escapedDisplayName = match.groupValues[1]
+                                                            val displayName = escapedDisplayName
+                                                                .replace("\\[", "[")
+                                                                .replace("\\]", "]")
+                                                            withStyle(
+                                                                style = SpanStyle(
+                                                                    color = colorScheme.onPrimaryContainer,
+                                                                    background = colorScheme.primaryContainer,
+                                                                ),
+                                                            ) {
+                                                                append(" $displayName ")
+                                                            }
+                                                        } else {
+                                                            // Handle custom emoji - replace markdown with just the emoji name
+                                                            val emojiName = match.groupValues[1]
+                                                            append(":$emojiName:")
+                                                        }
+
+                                                        lastIndex = match.range.last + 1
+                                                    }
+
+                                                    // Add remaining text
+                                                    if (lastIndex < text.text.length) {
+                                                        append(text.text.substring(lastIndex))
+                                                    }
+                                                }
+
+                                                // Create proper offset mapping to handle the text length changes
+                                                val offsetMapping = object : OffsetMapping {
+                                                    override fun originalToTransformed(offset: Int): Int {
+                                                        // Clamp offset to valid range
+                                                        val clampedOffset = offset.coerceIn(0, text.text.length)
+                                                        var transformedOffset = 0
+                                                        var originalOffset = 0
+
+                                                        for (match in mentionRegex.findAll(text.text)) {
+                                                            // Add text before mention
+                                                            val beforeLength = match.range.first - originalOffset
+                                                            if (clampedOffset <= match.range.first) {
+                                                                val result =
+                                                                    transformedOffset + (clampedOffset - originalOffset)
+                                                                return result.coerceIn(0, annotatedString.length)
+                                                            }
+                                                            transformedOffset += beforeLength
+                                                            originalOffset = match.range.first
+
+                                                            // Handle mention transformation
+                                                            val escapedDisplayName = match.groupValues[1]
+                                                            val displayName = escapedDisplayName
+                                                                .replace("\\[", "[")
+                                                                .replace("\\]", "]")
+                                                            val transformedMentionLength = " $displayName ".length
+
+                                                            if (clampedOffset <= match.range.last + 1) {
+                                                                val result = transformedOffset + transformedMentionLength
+                                                                return result.coerceIn(0, annotatedString.length)
+                                                            }
+
+                                                            transformedOffset += transformedMentionLength
+                                                            originalOffset = match.range.last + 1
+                                                        }
+
+                                                        // Handle remaining text
                                                         val result = transformedOffset + (clampedOffset - originalOffset)
                                                         return result.coerceIn(0, annotatedString.length)
                                                     }
-                                                    transformedOffset += beforeLength
-                                                    originalOffset = match.range.first
-                                                    
-                                                    // Handle mention transformation
-                                                    val escapedDisplayName = match.groupValues[1]
-                                                    val displayName = escapedDisplayName
-                                                        .replace("\\[", "[")
-                                                        .replace("\\]", "]")
-                                                    val transformedMentionLength = " $displayName ".length
-                                                    
-                                                    if (clampedOffset <= match.range.last + 1) {
-                                                        val result = transformedOffset + transformedMentionLength
-                                                        return result.coerceIn(0, annotatedString.length)
-                                                    }
-                                                    
-                                                    transformedOffset += transformedMentionLength
-                                                    originalOffset = match.range.last + 1
-                                                }
-                                                
-                                                // Handle remaining text
-                                                val result = transformedOffset + (clampedOffset - originalOffset)
-                                                return result.coerceIn(0, annotatedString.length)
-                                            }
-                                            
-                                            override fun transformedToOriginal(offset: Int): Int {
-                                                // Clamp offset to valid range
-                                                val clampedOffset = offset.coerceIn(0, annotatedString.length)
-                                                var transformedOffset = 0
-                                                var originalOffset = 0
-                                                
-                                                for (match in mentionRegex.findAll(text.text)) {
-                                                    val beforeLength = match.range.first - originalOffset
-                                                    if (clampedOffset <= transformedOffset + beforeLength) {
+
+                                                    override fun transformedToOriginal(offset: Int): Int {
+                                                        // Clamp offset to valid range
+                                                        val clampedOffset = offset.coerceIn(0, annotatedString.length)
+                                                        var transformedOffset = 0
+                                                        var originalOffset = 0
+
+                                                        for (match in mentionRegex.findAll(text.text)) {
+                                                            val beforeLength = match.range.first - originalOffset
+                                                            if (clampedOffset <= transformedOffset + beforeLength) {
+                                                                val result =
+                                                                    originalOffset + (clampedOffset - transformedOffset)
+                                                                return result.coerceIn(0, text.text.length)
+                                                            }
+                                                            transformedOffset += beforeLength
+                                                            originalOffset = match.range.first
+
+                                                            val escapedDisplayName = match.groupValues[1]
+                                                            val displayName = escapedDisplayName
+                                                                .replace("\\[", "[")
+                                                                .replace("\\]", "]")
+                                                            val transformedMentionLength = " $displayName ".length
+
+                                                            if (clampedOffset <= transformedOffset + transformedMentionLength) {
+                                                                return match.range.last + 1
+                                                            }
+
+                                                            transformedOffset += transformedMentionLength
+                                                            originalOffset = match.range.last + 1
+                                                        }
+
                                                         val result = originalOffset + (clampedOffset - transformedOffset)
                                                         return result.coerceIn(0, text.text.length)
                                                     }
-                                                    transformedOffset += beforeLength
-                                                    originalOffset = match.range.first
-                                                    
-                                                    val escapedDisplayName = match.groupValues[1]
-                                                    val displayName = escapedDisplayName
-                                                        .replace("\\[", "[")
-                                                        .replace("\\]", "]")
-                                                    val transformedMentionLength = " $displayName ".length
-                                                    
-                                                    if (clampedOffset <= transformedOffset + transformedMentionLength) {
-                                                        return match.range.last + 1
-                                                    }
-                                                    
-                                                    transformedOffset += transformedMentionLength
-                                                    originalOffset = match.range.last + 1
                                                 }
-                                                
-                                                val result = originalOffset + (clampedOffset - transformedOffset)
-                                                return result.coerceIn(0, text.text.length)
-                                            }
-                                        }
-                                        
-                                        TransformedText(
-                                            annotatedString,
-                                            offsetMapping
-                                        )
-                                    }
-                                }
 
-                                // Text input field with mention support
-                                CustomBubbleTextField(
-                                    value = textFieldValue,
-                                    enabled = isInputEnabled,
-                                    onValueChange = { newValue: TextFieldValue ->
-                                        if (!isInputEnabled) return@CustomBubbleTextField
-                                        // First, handle custom emoji deletion (backspace on :name:)
-                                        val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
-                                        
-                                        // Then, apply any completed :shortcode: replacement
-                                        val replacedValue = applyCompletedEmojiShortcode(afterDeletion)
-                                        textFieldValue = replacedValue
-                                        draft = replacedValue.text
-                                        
-                                        // Detect commands first ( /command ) - check before everything else
-                                        val commandResult = detectCommand(
-                                            replacedValue.text,
-                                            replacedValue.selection.start
-                                        )
-                                        // Detect /pmp picker: draft is exactly "/pmp" or "/pmp " with nothing after
-                                        val trimmedForPmp = replacedValue.text.trimEnd()
-                                        showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
-                                            trimmedForPmp.equals("/profile", ignoreCase = true) ||
-                                            (trimmedForPmp.startsWith("/pmp ", ignoreCase = true) && trimmedForPmp.drop(5).isBlank()) ||
-                                            (trimmedForPmp.startsWith("/profile ", ignoreCase = true) && trimmedForPmp.drop(9).isBlank())
-
-                                        if (commandResult != null) {
-                                            val (query, startIndex) = commandResult
-                                            commandQuery = query
-                                            commandStartIndex = startIndex
-                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: / detected, query='$query'")
-                                            showCommandSuggestionList = !showPmpProfilePicker
-                                            // Hide other suggestion lists when command is active
-                                            showMentionList = false
-                                            showEmojiSuggestionList = false
-                                            showRoomSuggestionList = false
-                                        } else {
-                                            showCommandSuggestionList = false
-                                            
-                                            // Detect room mentions ( #roomalias ) - check before mentions/emojis
-                                            val roomResult = detectRoomMention(
-                                                replacedValue.text,
-                                                replacedValue.selection.start
-                                            )
-                                            if (roomResult != null) {
-                                                val (query, startIndex) = roomResult
-                                                roomQuery = query
-                                                roomStartIndex = startIndex
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: # detected, query='$query', roomsWithAliases.size=${roomsWithAliases.size}")
-                                                showRoomSuggestionList = true
-                                                // Hide other suggestion lists when room mention is active
-                                                showMentionList = false
-                                                showEmojiSuggestionList = false
-                                            } else {
-                                                showRoomSuggestionList = false
-                                                
-                                                // Detect mentions
-                                                val mentionResult = detectMention(
-                                                    replacedValue.text,
-                                                    replacedValue.selection.start
+                                                TransformedText(
+                                                    annotatedString,
+                                                    offsetMapping,
                                                 )
-                                                if (mentionResult != null) {
-                                                    val (query, startIndex) = mentionResult
-                                                    mentionQuery = query
-                                                    mentionStartIndex = startIndex
-                                                    
-                                                    // CRITICAL FIX: Load cached members immediately, then request fresh data
-                                                    if (!isWaitingForFullMemberList && !showMentionList) {
-                                                        // Check if we already have members in memory cache
-                                                        val memberMap = appViewModel.getMemberMap(roomId)
-                                                        if (memberMap.isEmpty() || memberMap.size < 10) {
-                                                            // Profiles are loaded opportunistically when rendering events
-                                                            // Request full member list to populate cache
-                                                            // Request fresh data from server (will update when it arrives)
-                                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: @ detected, requesting fresh member list for room $roomId")
-                                                            isWaitingForFullMemberList = true
-                                                            lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
-                                                            appViewModel.requestFullMemberList(roomId)
-                                                        } else {
-                                                            // We already have members in memory, show list immediately
-                                                            showMentionList = true
-                                                        }
-                                                    }
-                                                    // Hide other suggestion lists when mention is active
-                                                    showEmojiSuggestionList = false
-                                                } else {
-                                                    showMentionList = false
-                                                    isWaitingForFullMemberList = false
-                                                    
-                                                    // Detect emoji shortcodes ( :shortname )
-                                                    val emojiResult = detectEmojiShortcode(
-                                                        replacedValue.text,
-                                                        replacedValue.selection.start
-                                                    )
-                                                    if (emojiResult != null) {
-                                                        val (query, startIndex) = emojiResult
-                                                        emojiQuery = query
-                                                        emojiStartIndex = startIndex
-                                                        showEmojiSuggestionList = true
-                                                    } else {
-                                                        showEmojiSuggestionList = false
-                                                    }
-                                                }
                                             }
                                         }
-                                    },
-                                    placeholder = {
-                                        Text(
-                                            text = when {
-                                                !canSendMessage -> "You don't have permission to send messages"
-                                                isProcessingBatch -> if (processingBatchSize > 0) "Rushing $processingBatchSize messages..." else "Rushing messages..."
-                                                else -> {
-                                                    val networkName = currentRoomState?.bridgeInfo?.displayName
-                                                    if (networkName != null && networkName.isNotBlank()) {
-                                                        "Type a $networkName message..."
+
+                                        // Text input field with mention support
+                                        CustomBubbleTextField(
+                                            value = textFieldValue,
+                                            enabled = isInputEnabled,
+                                            onValueChange = { newValue: TextFieldValue ->
+                                                if (!isInputEnabled) return@CustomBubbleTextField
+                                                // First, handle custom emoji deletion (backspace on :name:)
+                                                val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
+
+                                                // Then, apply any completed :shortcode: replacement
+                                                val replacedValue = applyCompletedEmojiShortcode(afterDeletion)
+                                                textFieldValue = replacedValue
+                                                draft = replacedValue.text
+
+                                                // Detect commands first ( /command ) - check before everything else
+                                                val commandResult = detectCommand(
+                                                    replacedValue.text,
+                                                    replacedValue.selection.start,
+                                                )
+                                                // Detect /pmp picker: draft is exactly "/pmp" or "/pmp " with nothing after
+                                                val trimmedForPmp = replacedValue.text.trimEnd()
+                                                showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
+                                                    trimmedForPmp.equals("/profile", ignoreCase = true) ||
+                                                    (
+                                                        trimmedForPmp.startsWith(
+                                                        "/pmp ",
+                                                        ignoreCase = true,
+                                                    ) && trimmedForPmp.drop(5).isBlank()
+                                                    ) ||
+                                                    (
+                                                        trimmedForPmp.startsWith(
+                                                        "/profile ",
+                                                        ignoreCase = true,
+                                                    ) && trimmedForPmp.drop(9).isBlank()
+                                                    )
+
+                                                if (commandResult != null) {
+                                                    val (query, startIndex) = commandResult
+                                                    commandQuery = query
+                                                    commandStartIndex = startIndex
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: / detected, query='$query'",
+                                                    )
+                                                    }
+                                                    showCommandSuggestionList = !showPmpProfilePicker
+                                                    // Hide other suggestion lists when command is active
+                                                    showMentionList = false
+                                                    showEmojiSuggestionList = false
+                                                    showRoomSuggestionList = false
+                                                } else {
+                                                    showCommandSuggestionList = false
+
+                                                    // Detect room mentions ( #roomalias ) - check before mentions/emojis
+                                                    val roomResult = detectRoomMention(
+                                                        replacedValue.text,
+                                                        replacedValue.selection.start,
+                                                    )
+                                                    if (roomResult != null) {
+                                                        val (query, startIndex) = roomResult
+                                                        roomQuery = query
+                                                        roomStartIndex = startIndex
+                                                        if (BuildConfig.DEBUG) {
+                                                            Log.d(
+                                                            "Andromuks",
+                                                            "RoomTimelineScreen: # detected, query='$query', roomsWithAliases.size=${roomsWithAliases.size}",
+                                                        )
+                                                        }
+                                                        showRoomSuggestionList = true
+                                                        // Hide other suggestion lists when room mention is active
+                                                        showMentionList = false
+                                                        showEmojiSuggestionList = false
                                                     } else {
-                                                        "Type a message..."
+                                                        showRoomSuggestionList = false
+
+                                                        // Detect mentions
+                                                        val mentionResult = detectMention(
+                                                            replacedValue.text,
+                                                            replacedValue.selection.start,
+                                                        )
+                                                        if (mentionResult != null) {
+                                                            val (query, startIndex) = mentionResult
+                                                            mentionQuery = query
+                                                            mentionStartIndex = startIndex
+
+                                                            // CRITICAL FIX: Load cached members immediately, then request fresh data
+                                                            if (!isWaitingForFullMemberList && !showMentionList) {
+                                                                // Check if we already have members in memory cache
+                                                                val memberMap = appViewModel.getMemberMap(roomId)
+                                                                if (memberMap.isEmpty() || memberMap.size < 10) {
+                                                                    // Profiles are loaded opportunistically when rendering events
+                                                                    // Request full member list to populate cache
+                                                                    // Request fresh data from server (will update when it arrives)
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                        "Andromuks",
+                                                                        "RoomTimelineScreen: @ detected, requesting fresh member list for room $roomId",
+                                                                    )
+                                                                    }
+                                                                    isWaitingForFullMemberList = true
+                                                                    lastMemberUpdateCounterBeforeMention =
+                                                                        appViewModel.memberUpdateCounter
+                                                                    appViewModel.requestFullMemberList(roomId)
+                                                                } else {
+                                                                    // We already have members in memory, show list immediately
+                                                                    showMentionList = true
+                                                                }
+                                                            }
+                                                            // Hide other suggestion lists when mention is active
+                                                            showEmojiSuggestionList = false
+                                                        } else {
+                                                            showMentionList = false
+                                                            isWaitingForFullMemberList = false
+
+                                                            // Detect emoji shortcodes ( :shortname )
+                                                            val emojiResult = detectEmojiShortcode(
+                                                                replacedValue.text,
+                                                                replacedValue.selection.start,
+                                                            )
+                                                            if (emojiResult != null) {
+                                                                val (query, startIndex) = emojiResult
+                                                                emojiQuery = query
+                                                                emojiStartIndex = startIndex
+                                                                showEmojiSuggestionList = true
+                                                            } else {
+                                                                showEmojiSuggestionList = false
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontStyle = FontStyle.Italic,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            placeholder = {
+                                                Text(
+                                                    text = when {
+                                                        !canSendMessage -> "You don't have permission to send messages"
+
+                                                        isProcessingBatch -> if (processingBatchSize >
+                                                            0
+                                                        ) {
+                                                                "Rushing $processingBatchSize messages..."
+                                                            } else {
+                                                                "Rushing messages..."
+                                                            }
+
+                                                        else -> {
+                                                            val networkName = currentRoomState?.bridgeInfo?.displayName
+                                                            if (networkName != null && networkName.isNotBlank()) {
+                                                                "Type a $networkName message..."
+                                                            } else {
+                                                                "Type a message..."
+                                                            }
+                                                        }
+                                                    },
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontStyle = FontStyle.Italic,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .focusRequester(textFieldFocusRequester),
+                                            minLines = 1,
+                                            maxLines = 5,
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+                                            onHeightChanged = { height ->
+                                                // Only update if text is empty or single-line (to get the minimum height)
+                                                val lineCount = draft.lines().size.coerceAtLeast(1)
+                                                if (lineCount == 1 && (textFieldHeight == 0 || height < textFieldHeight)) {
+                                                    textFieldHeight = height
+                                                }
+                                            },
+                                            trailingIcon = {
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                ) {
+                                                    // Sticker button
+                                                    IconButton(
+                                                        enabled = isInputEnabled,
+                                                        onClick = { if (isInputEnabled) showStickerPickerForText = true },
+                                                        modifier = Modifier.size(32.dp),
+                                                    ) {
+                                                        @Suppress("DEPRECATION")
+                                                        Icon(
+                                                            imageVector = Icons.Outlined.StickyNote2,
+                                                            contentDescription = "Stickers",
+                                                            tint = if (isInputEnabled) {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                            } else {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                                alpha = 0.38f,
+                                                            )
+                                                            },
+                                                        )
+                                                    }
+                                                    // Emoji button
+                                                    IconButton(
+                                                        enabled = isInputEnabled,
+                                                        onClick = { if (isInputEnabled) showEmojiPickerForText = true },
+                                                        modifier = Modifier.size(32.dp),
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.Mood,
+                                                            contentDescription = "Emoji",
+                                                            tint = if (isInputEnabled) {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                            } else {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                                alpha = 0.38f,
+                                                            )
+                                                            },
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                            keyboardOptions = KeyboardOptions(
+                                                capitalization = KeyboardCapitalization.Sentences,
+                                                keyboardType = KeyboardType.Text,
+                                                autoCorrectEnabled = true,
+                                                imeAction = ImeAction.Default, // Enter always creates newline, send button always sends
+                                            ),
+                                            keyboardActions = KeyboardActions(
+                                                onSend = {
+                                                    if (!isInputEnabled) {
+                                                        android.widget.Toast.makeText(
+                                                            context,
+                                                            when {
+                                                                isProcessingBatch -> "Catching up on messages..."
+                                                                else -> "You don't have permission to send messages"
+                                                            },
+                                                            android.widget.Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                        return@KeyboardActions
+                                                    }
+                                                    if (draft.isNotBlank()) {
+                                                        // Check if this is a command first
+                                                        val isCommand = appViewModel.executeCommand(
+                                                            roomId,
+                                                            draft,
+                                                            context,
+                                                            navController,
+                                                        )
+                                                        if (isCommand) {
+                                                            // Command was executed, clear draft
+                                                            draft = ""
+                                                            textFieldValue = TextFieldValue("")
+                                                            return@KeyboardActions
+                                                        } else if (draft.trim().startsWith("/")) {
+                                                            // Check if it's an avatar command that needs image picker
+                                                            val command = draft.trim().lowercase()
+                                                            when {
+                                                                command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                                    pendingAvatarCommand = "myroomavatar"
+                                                                    avatarImagePickerLauncher.launch(
+                                                                        PickVisualMediaRequest(
+                                                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                                        ),
+                                                                    )
+                                                                    draft = ""
+                                                                    textFieldValue = TextFieldValue("")
+                                                                    return@KeyboardActions
+                                                                }
+
+                                                                command == "/globalavatar" || command == "/globalavatar " -> {
+                                                                    pendingAvatarCommand = "globalavatar"
+                                                                    avatarImagePickerLauncher.launch(
+                                                                        PickVisualMediaRequest(
+                                                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                                        ),
+                                                                    )
+                                                                    draft = ""
+                                                                    textFieldValue = TextFieldValue("")
+                                                                    return@KeyboardActions
+                                                                }
+
+                                                                command == "/roomavatar" || command == "/roomavatar " -> {
+                                                                    pendingAvatarCommand = "roomavatar"
+                                                                    avatarImagePickerLauncher.launch(
+                                                                        PickVisualMediaRequest(
+                                                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                                        ),
+                                                                    )
+                                                                    draft = ""
+                                                                    textFieldValue = TextFieldValue("")
+                                                                    return@KeyboardActions
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Send edit if editing a message
+                                                        if (editingEvent != null) {
+                                                            appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                                            editingEvent = null // Clear edit state
+                                                        }
+                                                        // Send reply if replying to a message
+                                                        else if (replyingToEvent != null) {
+                                                            // Check if replying to a thread message
+                                                            val threadInfo = replyingToEvent!!.getThreadInfo()
+                                                            if (threadInfo != null) {
+                                                                // Send thread reply
+                                                                appViewModel.sendThreadReply(
+                                                                    roomId = roomId,
+                                                                    text = draft,
+                                                                    threadRootEventId = threadInfo.threadRootEventId,
+                                                                    fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                                )
+                                                            } else {
+                                                                // Send normal reply
+                                                                appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                                            }
+                                                            replyingToEvent = null // Clear reply state
+                                                            messageSoundPlayer.play() // Play sound when sending reply
+                                                        }
+                                                        // Otherwise send regular message
+                                                        else {
+                                                            appViewModel.sendMessage(
+                                                                roomId,
+                                                                draft,
+                                                                urlPreviewController.getReadyPreviews(),
+                                                            )
+                                                            messageSoundPlayer.play() // Play sound when sending message
+                                                        }
+                                                        urlPreviewController.clearAll()
+                                                        draft = "" // Clear the input after sending
+                                                    }
+                                                },
+                                            ),
+                                            visualTransformation = mentionAndEmojiTransformation,
                                         )
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(textFieldFocusRequester),
-                                    minLines = 1,
-                                    maxLines = 5,
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
-                                    onHeightChanged = { height ->
-                                        // Only update if text is empty or single-line (to get the minimum height)
-                                        val lineCount = draft.lines().size.coerceAtLeast(1)
-                                        if (lineCount == 1 && (textFieldHeight == 0 || height < textFieldHeight)) {
-                                            textFieldHeight = height
-                                        }
-                                    },
-                                    trailingIcon = {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            // Sticker button
-                                            IconButton(
-                                                enabled = isInputEnabled,
-                                                onClick = { if (isInputEnabled) showStickerPickerForText = true },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                @Suppress("DEPRECATION")
-                                                Icon(
-                                                    imageVector = Icons.Outlined.StickyNote2,
-                                                    contentDescription = "Stickers",
-                                                    tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                                )
-                                            }
-                                            // Emoji button
-                                            IconButton(
-                                                enabled = isInputEnabled,
-                                                onClick = { if (isInputEnabled) showEmojiPickerForText = true },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Mood,
-                                                    contentDescription = "Emoji",
-                                                    tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                                )
-                                            }
-                                        }
-                                    },
-                                    keyboardOptions = KeyboardOptions(
-                                        capitalization = KeyboardCapitalization.Sentences,
-                                        keyboardType = KeyboardType.Text,
-                                        autoCorrectEnabled = true,
-                                        imeAction = ImeAction.Default // Enter always creates newline, send button always sends
-                                    ),
-                                    keyboardActions = KeyboardActions(
-                                        onSend = {
-                                            if (!isInputEnabled) {
-                                                android.widget.Toast.makeText(
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                // Show expressive indicator when an upload is in progress.
+                                // Message sends use local echo in the timeline instead of a button spinner.
+                                val showSendIndicator = isUploading
+
+                                Button(
+                                    onClick = {
+                                        if (!isInputEnabled) {
+                                            android.widget.Toast.makeText(
                                                 context,
                                                 when {
                                                     isProcessingBatch -> "Catching up on messages..."
                                                     else -> "You don't have permission to send messages"
                                                 },
-                                                android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                                return@KeyboardActions
-                                            }
-                                            if (draft.isNotBlank()) {
-                                                // Check if this is a command first
-                                                val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
-                                                if (isCommand) {
-                                                    // Command was executed, clear draft
-                                                    draft = ""
-                                                    textFieldValue = TextFieldValue("")
-                                                    return@KeyboardActions
-                                                } else if (draft.trim().startsWith("/")) {
-                                                    // Check if it's an avatar command that needs image picker
-                                                    val command = draft.trim().lowercase()
-                                                    when {
-                                                        command == "/myroomavatar" || command == "/myroomavatar " -> {
-                                                            pendingAvatarCommand = "myroomavatar"
-                                                            avatarImagePickerLauncher.launch(
-                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                            )
-                                                            draft = ""
-                                                            textFieldValue = TextFieldValue("")
-                                                            return@KeyboardActions
-                                                        }
-                                                        command == "/globalavatar" || command == "/globalavatar " -> {
-                                                            pendingAvatarCommand = "globalavatar"
-                                                            avatarImagePickerLauncher.launch(
-                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                            )
-                                                            draft = ""
-                                                            textFieldValue = TextFieldValue("")
-                                                            return@KeyboardActions
-                                                        }
-                                                        command == "/roomavatar" || command == "/roomavatar " -> {
-                                                            pendingAvatarCommand = "roomavatar"
-                                                            avatarImagePickerLauncher.launch(
-                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                            )
-                                                            draft = ""
-                                                            textFieldValue = TextFieldValue("")
-                                                            return@KeyboardActions
-                                                        }
-                                                    }
-                                                }
-                                                
-                                                // Send edit if editing a message
-                                                if (editingEvent != null) {
-                                                    appViewModel.sendEdit(roomId, draft, editingEvent!!)
-                                                    editingEvent = null // Clear edit state
-                                                }
-                                                // Send reply if replying to a message
-                                                else if (replyingToEvent != null) {
-                                                    // Check if replying to a thread message
-                                                    val threadInfo = replyingToEvent!!.getThreadInfo()
-                                                    if (threadInfo != null) {
-                                                        // Send thread reply
-                                                        appViewModel.sendThreadReply(
-                                                            roomId = roomId,
-                                                            text = draft,
-                                                            threadRootEventId = threadInfo.threadRootEventId,
-                                                            fallbackReplyToEventId = replyingToEvent!!.eventId
-                                                        )
-                                                    } else {
-                                                        // Send normal reply
-                                                        appViewModel.sendReply(roomId, draft, replyingToEvent!!)
-                                                    }
-                                                    replyingToEvent = null // Clear reply state
-                                                    messageSoundPlayer.play() // Play sound when sending reply
-                                                }
-                                                // Otherwise send regular message
-                                                else {
-                                                    appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
-                                                    messageSoundPlayer.play() // Play sound when sending message
-                                                }
-                                                urlPreviewController.clearAll()
-                                                draft = "" // Clear the input after sending
-                                            }
+                                                android.widget.Toast.LENGTH_SHORT,
+                                            ).show()
+                                            return@Button
                                         }
+                                        if (draft.isNotBlank()) {
+                                            // Check if this is a command first
+                                            val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
+                                            if (isCommand) {
+                                                // Command was executed, clear draft
+                                                draft = ""
+                                                textFieldValue = TextFieldValue("")
+                                                return@Button
+                                            } else if (draft.trim().startsWith("/")) {
+                                                // Check if it's an avatar command that needs image picker
+                                                val command = draft.trim().lowercase()
+                                                when {
+                                                    command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                        pendingAvatarCommand = "myroomavatar"
+                                                        avatarImagePickerLauncher.launch(
+                                                            PickVisualMediaRequest(
+                                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                            ),
+                                                        )
+                                                        draft = ""
+                                                        textFieldValue = TextFieldValue("")
+                                                        return@Button
+                                                    }
+
+                                                    command == "/globalavatar" || command == "/globalavatar " -> {
+                                                        pendingAvatarCommand = "globalavatar"
+                                                        avatarImagePickerLauncher.launch(
+                                                            PickVisualMediaRequest(
+                                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                            ),
+                                                        )
+                                                        draft = ""
+                                                        textFieldValue = TextFieldValue("")
+                                                        return@Button
+                                                    }
+
+                                                    command == "/roomavatar" || command == "/roomavatar " -> {
+                                                        pendingAvatarCommand = "roomavatar"
+                                                        avatarImagePickerLauncher.launch(
+                                                            PickVisualMediaRequest(
+                                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                            ),
+                                                        )
+                                                        draft = ""
+                                                        textFieldValue = TextFieldValue("")
+                                                        return@Button
+                                                    }
+                                                }
+                                            }
+
+                                            // Send edit if editing a message
+                                            if (editingEvent != null) {
+                                                appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                                editingEvent = null // Clear edit state
+                                            }
+                                            // Send reply if replying to a message
+                                            else if (replyingToEvent != null) {
+                                                // Check if replying to a thread message
+                                                val threadInfo = replyingToEvent!!.getThreadInfo()
+                                                if (threadInfo != null) {
+                                                    // Send thread reply
+                                                    appViewModel.sendThreadReply(
+                                                        roomId = roomId,
+                                                        text = draft,
+                                                        threadRootEventId = threadInfo.threadRootEventId,
+                                                        fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                    )
+                                                } else {
+                                                    // Send normal reply
+                                                    appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                                }
+                                                replyingToEvent = null // Clear reply state
+                                                messageSoundPlayer.play() // Play sound when sending reply
+                                            }
+                                            // Otherwise send regular message
+                                            else {
+                                                appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
+                                                messageSoundPlayer.play() // Play sound when sending message
+                                            }
+                                            urlPreviewController.clearAll()
+                                            draft = "" // Clear the input after sending
+                                        }
+                                    },
+                                    enabled = draft.isNotBlank() && isInputEnabled,
+                                    shape = CircleShape, // Perfect circle
+                                    colors =
+                                    ButtonDefaults.buttonColors(
+                                        containerColor =
+                                        if (draft.isNotBlank()) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                        },
                                     ),
-                                    visualTransformation = mentionAndEmojiTransformation
-                                )
+                                    modifier = Modifier.size(buttonHeight), // Fixed height matching single-line text field
+                                    contentPadding = PaddingValues(0.dp), // No padding for perfect circle
+                                ) {
+                                    if (showSendIndicator) {
+                                        ContainedExpressiveLoadingIndicator(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(6.dp),
+                                            shape = CircleShape,
+                                            containerColor =
+                                            if (draft.isNotBlank()) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                            },
+                                            indicatorColor =
+                                            if (draft.isNotBlank()) {
+                                                MaterialTheme.colorScheme.onPrimary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                            contentPadding = 4.dp,
+                                        )
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = "Send",
+                                            tint =
+                                            if (draft.isNotBlank()) {
+                                                MaterialTheme.colorScheme.onPrimary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                        )
+                                    }
+                                }
                             }
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        // Show expressive indicator when an upload is in progress.
-                        // Message sends use local echo in the timeline instead of a button spinner.
-                        val showSendIndicator = isUploading
-                        
-                        Button(
+                    }
+
+                    // Location picker overlay — shown without navigation so the room stays alive
+                    if (showLocationPickerOverlay) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            LocationPickerOverlay(
+                                onDismiss = { showLocationPickerOverlay = false },
+                                onSendLocation = { lat, lon, caption ->
+                                    appViewModel.sendLocationMessage(roomId, lat, lon, description = caption)
+                                    showLocationPickerOverlay = false
+                                },
+                            )
+                        }
+                    }
+
+                    // In-app camera + video capture overlays (shared, full-frame). They own all
+                    // CameraX state internally; we only toggle visibility and feed captures into the
+                    // media-preview pipeline. See utils/AttachmentMenu.kt.
+                    net.vrkknn.andromuks.utils.InAppCameraOverlay(
+                        visible = showCameraOverlay,
+                        onDismiss = { showCameraOverlay = false },
+                        onCaptured = { uri, isVideo ->
+                            selectedMediaUri = uri
+                            selectedMediaIsVideo = isVideo
+                            selectedAudioUri = null
+                            selectedFileUri = null
+                            showMediaPreview = true
+                        },
+                    )
+
+                    net.vrkknn.andromuks.utils.InAppVideoOverlay(
+                        visible = showVideoOverlay,
+                        onDismiss = { showVideoOverlay = false },
+                        onCaptured = { uri, isVideo ->
+                            selectedMediaUri = uri
+                            selectedMediaIsVideo = isVideo
+                            selectedAudioUri = null
+                            selectedFileUri = null
+                            showMediaPreview = true
+                        },
+                    )
+
+                    // Floating action button to scroll to bottom (only shown when detached)
+                    // Keep this in the Box so it can overlay the content
+                    if (!isAttachedToBottom) {
+                        // Push FAB up when attach menu or message menu is open
+                        val menuOpen = showAttachmentMenu || messageMenuConfig != null
+                        val fabBottomPadding = if (menuOpen) 200.dp else 90.dp // Higher when menu is open to avoid clipping
+                        FloatingActionButton(
                             onClick = {
-                                if (!isInputEnabled) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        when {
-                                            isProcessingBatch -> "Catching up on messages..."
-                                            else -> "You don't have permission to send messages"
-                                        },
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                    return@Button
-                                }
-                                if (draft.isNotBlank()) {
-                                    // Check if this is a command first
-                                    val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
-                                    if (isCommand) {
-                                        // Command was executed, clear draft
-                                        draft = ""
-                                        textFieldValue = TextFieldValue("")
-                                        return@Button
-                                    } else if (draft.trim().startsWith("/")) {
-                                        // Check if it's an avatar command that needs image picker
-                                        val command = draft.trim().lowercase()
-                                        when {
-                                            command == "/myroomavatar" || command == "/myroomavatar " -> {
-                                                pendingAvatarCommand = "myroomavatar"
-                                                avatarImagePickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                                draft = ""
-                                                textFieldValue = TextFieldValue("")
-                                                return@Button
-                                            }
-                                            command == "/globalavatar" || command == "/globalavatar " -> {
-                                                pendingAvatarCommand = "globalavatar"
-                                                avatarImagePickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                                draft = ""
-                                                textFieldValue = TextFieldValue("")
-                                                return@Button
-                                            }
-                                            command == "/roomavatar" || command == "/roomavatar " -> {
-                                                pendingAvatarCommand = "roomavatar"
-                                                avatarImagePickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                                draft = ""
-                                                textFieldValue = TextFieldValue("")
-                                                return@Button
-                                            }
-                                        }
-                                    }
-                                    
-                                    // Send edit if editing a message
-                                    if (editingEvent != null) {
-                                        appViewModel.sendEdit(roomId, draft, editingEvent!!)
-                                        editingEvent = null // Clear edit state
-                                    }
-                                    // Send reply if replying to a message
-                                    else if (replyingToEvent != null) {
-                                        // Check if replying to a thread message
-                                        val threadInfo = replyingToEvent!!.getThreadInfo()
-                                        if (threadInfo != null) {
-                                            // Send thread reply
-                                            appViewModel.sendThreadReply(
-                                                roomId = roomId,
-                                                text = draft,
-                                                threadRootEventId = threadInfo.threadRootEventId,
-                                                fallbackReplyToEventId = replyingToEvent!!.eventId
-                                            )
-                                        } else {
-                                            // Send normal reply
-                                            appViewModel.sendReply(roomId, draft, replyingToEvent!!)
-                                        }
-                                        replyingToEvent = null // Clear reply state
-                                        messageSoundPlayer.play() // Play sound when sending reply
-                                    }
-                                    // Otherwise send regular message
-                                    else {
-                                        appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
-                                        messageSoundPlayer.play() // Play sound when sending message
-                                    }
-                                    urlPreviewController.clearAll()
-                                    draft = "" // Clear the input after sending
+                                coroutineScope.launch {
+                                    listState.scrollToItem(0)
+                                    isAttachedToBottom = true
                                 }
                             },
-                            enabled = draft.isNotBlank() && isInputEnabled,
-                            shape = CircleShape, // Perfect circle
-                            colors =
-                                ButtonDefaults.buttonColors(
-                                    containerColor =
-                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.surfaceVariant
-                                ),
-                            modifier = Modifier.size(buttonHeight), // Fixed height matching single-line text field
-                            contentPadding = PaddingValues(0.dp) // No padding for perfect circle
-                        ) {
-                            if (showSendIndicator) {
-                                ContainedExpressiveLoadingIndicator(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(6.dp),
-                                    shape = CircleShape,
-                                    containerColor =
-                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.surfaceVariant,
-                                    indicatorColor =
-                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    contentPadding = 4.dp
-                                )
-                            } else {
-                                @Suppress("DEPRECATION")
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = "Send",
-                                    tint =
-                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-                }
-                
-                // Location picker overlay — shown without navigation so the room stays alive
-                if (showLocationPickerOverlay) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        LocationPickerOverlay(
-                            onDismiss = { showLocationPickerOverlay = false },
-                            onSendLocation = { lat, lon, caption ->
-                                appViewModel.sendLocationMessage(roomId, lat, lon, description = caption)
-                                showLocationPickerOverlay = false
-                            }
-                        )
-                    }
-                }
-
-                // In-app camera + video capture overlays (shared, full-frame). They own all
-                // CameraX state internally; we only toggle visibility and feed captures into the
-                // media-preview pipeline. See utils/AttachmentMenu.kt.
-                net.vrkknn.andromuks.utils.InAppCameraOverlay(
-                    visible = showCameraOverlay,
-                    onDismiss = { showCameraOverlay = false },
-                    onCaptured = { uri, isVideo ->
-                        selectedMediaUri = uri
-                        selectedMediaIsVideo = isVideo
-                        selectedAudioUri = null
-                        selectedFileUri = null
-                        showMediaPreview = true
-                    }
-                )
-
-                net.vrkknn.andromuks.utils.InAppVideoOverlay(
-                    visible = showVideoOverlay,
-                    onDismiss = { showVideoOverlay = false },
-                    onCaptured = { uri, isVideo ->
-                        selectedMediaUri = uri
-                        selectedMediaIsVideo = isVideo
-                        selectedAudioUri = null
-                        selectedFileUri = null
-                        showMediaPreview = true
-                    }
-                )
-
-                // Floating action button to scroll to bottom (only shown when detached)
-                // Keep this in the Box so it can overlay the content
-                if (!isAttachedToBottom) {
-                    // Push FAB up when attach menu or message menu is open
-                    val menuOpen = showAttachmentMenu || messageMenuConfig != null
-                    val fabBottomPadding = if (menuOpen) 200.dp else 90.dp // Higher when menu is open to avoid clipping
-                    FloatingActionButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                listState.scrollToItem(0)
-                                isAttachedToBottom = true
-                            }
-                        },
-                        modifier =
+                            modifier =
                             Modifier.align(Alignment.BottomEnd)
                                 .padding(
                                     end = 16.dp,
-                                    bottom = fabBottomPadding
+                                    bottom = fabBottomPadding,
                                 )
                                 .navigationBarsPadding()
                                 .imePadding(), // Above text input and keyboard
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.KeyboardArrowDown,
-                            contentDescription = "Scroll to bottom"
-                        )
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowDown,
+                                contentDescription = "Scroll to bottom",
+                            )
+                        }
                     }
-                }
 
-                // Jump-to-unread FAB: shown only when pinned to the bottom (same clause that hides
-                // the scroll-down FAB) AND a "New messages" divider is present above. Lets the user
-                // jump straight up to where reading left off. The two FABs are mutually exclusive
-                // (one needs detached, this needs attached), so they never overlap.
-                val unreadMarkerIndex = remember(timelineItems) {
-                    timelineItems.indexOfFirst { it is TimelineItem.ReadMarker }
-                }
-                if (isAttachedToBottom && unreadMarkerIndex >= 0) {
-                    val menuOpen = showAttachmentMenu || messageMenuConfig != null
-                    val fabBottomPadding = if (menuOpen) 200.dp else 90.dp
-                    FloatingActionButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                // timelineItems is oldest-first; the LazyColumn renders it reversed.
-                                val reversedIndex = (timelineItems.lastIndex - unreadMarkerIndex).coerceAtLeast(0)
-                                listState.animateScrollToItem(reversedIndex)
-                                isAttachedToBottom = false
-                            }
-                        },
-                        modifier =
+                    // Jump-to-unread FAB: shown only when pinned to the bottom (same clause that hides
+                    // the scroll-down FAB) AND a "New messages" divider is present above. Lets the user
+                    // jump straight up to where reading left off. The two FABs are mutually exclusive
+                    // (one needs detached, this needs attached), so they never overlap.
+                    val unreadMarkerIndex = remember(timelineItems) {
+                        timelineItems.indexOfFirst { it is TimelineItem.ReadMarker }
+                    }
+                    if (isAttachedToBottom && unreadMarkerIndex >= 0) {
+                        val menuOpen = showAttachmentMenu || messageMenuConfig != null
+                        val fabBottomPadding = if (menuOpen) 200.dp else 90.dp
+                        FloatingActionButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    // timelineItems is oldest-first; the LazyColumn renders it reversed.
+                                    val reversedIndex = (timelineItems.lastIndex - unreadMarkerIndex).coerceAtLeast(0)
+                                    listState.animateScrollToItem(reversedIndex)
+                                    isAttachedToBottom = false
+                                }
+                            },
+                            modifier =
                             Modifier.align(Alignment.BottomEnd)
                                 .padding(
                                     end = 16.dp,
-                                    bottom = fabBottomPadding
+                                    bottom = fabBottomPadding,
                                 )
                                 .navigationBarsPadding()
                                 .imePadding(),
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.KeyboardArrowUp,
-                            contentDescription = "Jump to unread"
-                        )
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowUp,
+                                contentDescription = "Jump to unread",
+                            )
+                        }
                     }
-                }
 
-                // Message menu bar (slides from bottom, same position as attach menu)
-                AnimatedVisibility(
-                    visible = messageMenuConfig != null,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth(),
-                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
-                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))
-                ) {
-                    val messageBarSlideOffsetPx = transition.animateFloat(
-                        transitionSpec = {
-                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                // ENTER: slide in first
-                                tween(durationMillis = scaledTweenMs(120))
-                            } else {
-                                // EXIT: wait for buttons to fade out, then slide down
-                                tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
-                            }
-                        },
-                        label = "messageBarSlideOffset"
-                    ) { state ->
-                        if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
-                    }
-                    val messageButtonsAlpha = transition.animateFloat(
-                        transitionSpec = {
-                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                // ENTER: buttons fade in after bar has slid in
-                                tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
-                            } else {
-                                // EXIT: buttons fade out immediately
-                                tween(durationMillis = scaledTweenMs(500))
-                            }
-                        },
-                        label = "messageButtonsAlpha"
-                    ) { state ->
-                        if (state == EnterExitState.Visible) 1f else 0f
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer {
-                                // Position menu right above footer (same as attach menu)
-                                // Footer height = buttonHeight + 24.dp padding
-                                translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
-                            }
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(5f) // Ensure it's above other content
-                    ) {
-                        net.vrkknn.andromuks.utils.MessageMenuBar(
-                            menuConfig = messageMenuConfig ?: retainedMessageMenuConfig,
-                            onDismiss = { messageMenuConfig = null },
-                            buttonsAlpha = messageButtonsAlpha.value,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-                
-                // Attachment action bar (shared, slides above the footer). See utils/AttachmentMenu.kt.
-                net.vrkknn.andromuks.utils.AttachmentMenuBar(
-                    visible = showAttachmentMenu,
-                    buttonHeight = buttonHeight,
-                    onDismiss = { showAttachmentMenu = false },
-                    onPickImageVideo = {
-                        mediaPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                        )
-                    },
-                    onPickAudio = { audioPickerLauncher.launch("audio/*") },
-                    onPickFile = { filePickerLauncher.launch("*/*") },
-                    onOpenPhotoCamera = { showCameraOverlay = true },
-                    onOpenVideoCamera = { showVideoOverlay = true },
-                    onPickLocation = { showLocationPickerOverlay = true }
-                )
-
-                // Floating emoji shortcode suggestion list
-                if (showEmojiSuggestionList) {
-                    Box(
+                    // Message menu bar (slides from bottom, same position as attach menu)
+                    AnimatedVisibility(
+                        visible = messageMenuConfig != null,
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .padding(
-                                start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 60.dp  // Closer to text input
-                            )
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f)
+                            .fillMaxWidth(),
+                        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
+                        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
                     ) {
-                        EmojiSuggestionList(
-                            query = emojiQuery,
-                            customEmojiPacks = appViewModel.customEmojiPacks,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            onSuggestionSelected = { suggestion ->
-                                val currentText = draft
-                                val cursorPos = textFieldValue.selection.start
-                                val endIndex = cursorPos
-                                
-                                val baseReplacement =
-                                    suggestion.emoji
-                                        ?: suggestion.customEmoji?.let { custom ->
-                                            "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
-                                        }
-                                        ?: ""
-                                
-                                if (baseReplacement.isNotEmpty() && emojiStartIndex >= 0 && emojiStartIndex < endIndex) {
-                                    val newText =
-                                        currentText.substring(0, emojiStartIndex) +
-                                            baseReplacement +
-                                            currentText.substring(endIndex)
-                                    val newCursor = emojiStartIndex + baseReplacement.length
-                                    
-                                    draft = newText
-                                    textFieldValue = TextFieldValue(
-                                        text = newText,
-                                        selection = TextRange(newCursor)
-                                    )
-                                    
-                                    // Update recent emojis (reuse logic from EmojiSelectionDialog for custom emojis)
-                                    val emojiForRecent =
-                                        if (baseReplacement.startsWith("![:") && baseReplacement.contains("mxc://")) {
-                                            val mxcStart = baseReplacement.indexOf("mxc://")
-                                            if (mxcStart >= 0) {
-                                                val mxcEnd = baseReplacement.indexOf("\"", mxcStart)
-                                                if (mxcEnd > mxcStart) {
-                                                    baseReplacement.substring(mxcStart, mxcEnd).trimEnd()
+                        val messageBarSlideOffsetPx = transition.animateFloat(
+                            transitionSpec = {
+                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                    // ENTER: slide in first
+                                    tween(durationMillis = scaledTweenMs(120))
+                                } else {
+                                    // EXIT: wait for buttons to fade out, then slide down
+                                    tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
+                                }
+                            },
+                            label = "messageBarSlideOffset",
+                        ) { state ->
+                            if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
+                        }
+                        val messageButtonsAlpha = transition.animateFloat(
+                            transitionSpec = {
+                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                    // ENTER: buttons fade in after bar has slid in
+                                    tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
+                                } else {
+                                    // EXIT: buttons fade out immediately
+                                    tween(durationMillis = scaledTweenMs(500))
+                                }
+                            },
+                            label = "messageButtonsAlpha",
+                        ) { state ->
+                            if (state == EnterExitState.Visible) 1f else 0f
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    // Position menu right above footer (same as attach menu)
+                                    // Footer height = buttonHeight + 24.dp padding
+                                    translationY = -with(
+                                        density,
+                                    ) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
+                                }
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(5f), // Ensure it's above other content
+                        ) {
+                            net.vrkknn.andromuks.utils.MessageMenuBar(
+                                menuConfig = messageMenuConfig ?: retainedMessageMenuConfig,
+                                onDismiss = { messageMenuConfig = null },
+                                buttonsAlpha = messageButtonsAlpha.value,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
+
+                    // Attachment action bar (shared, slides above the footer). See utils/AttachmentMenu.kt.
+                    net.vrkknn.andromuks.utils.AttachmentMenuBar(
+                        visible = showAttachmentMenu,
+                        buttonHeight = buttonHeight,
+                        onDismiss = { showAttachmentMenu = false },
+                        onPickImageVideo = {
+                            mediaPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                            )
+                        },
+                        onPickAudio = { audioPickerLauncher.launch("audio/*") },
+                        onPickFile = { filePickerLauncher.launch("*/*") },
+                        onOpenPhotoCamera = { showCameraOverlay = true },
+                        onOpenVideoCamera = { showVideoOverlay = true },
+                        onPickLocation = { showLocationPickerOverlay = true },
+                    )
+
+                    // Floating emoji shortcode suggestion list
+                    if (showEmojiSuggestionList) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(
+                                    start = 72.dp, // Align with text input (attach button width + spacing)
+                                    bottom = 60.dp, // Closer to text input
+                                )
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                        ) {
+                            EmojiSuggestionList(
+                                query = emojiQuery,
+                                customEmojiPacks = appViewModel.customEmojiPacks,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                onSuggestionSelected = { suggestion ->
+                                    val currentText = draft
+                                    val cursorPos = textFieldValue.selection.start
+                                    val endIndex = cursorPos
+
+                                    val baseReplacement =
+                                        suggestion.emoji
+                                            ?: suggestion.customEmoji?.let { custom ->
+                                                "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
+                                            }
+                                            ?: ""
+
+                                    if (baseReplacement.isNotEmpty() && emojiStartIndex >= 0 && emojiStartIndex < endIndex) {
+                                        val newText =
+                                            currentText.substring(0, emojiStartIndex) +
+                                                baseReplacement +
+                                                currentText.substring(endIndex)
+                                        val newCursor = emojiStartIndex + baseReplacement.length
+
+                                        draft = newText
+                                        textFieldValue = TextFieldValue(
+                                            text = newText,
+                                            selection = TextRange(newCursor),
+                                        )
+
+                                        // Update recent emojis (reuse logic from EmojiSelectionDialog for custom emojis)
+                                        val emojiForRecent =
+                                            if (baseReplacement.startsWith("![:") && baseReplacement.contains("mxc://")) {
+                                                val mxcStart = baseReplacement.indexOf("mxc://")
+                                                if (mxcStart >= 0) {
+                                                    val mxcEnd = baseReplacement.indexOf("\"", mxcStart)
+                                                    if (mxcEnd > mxcStart) {
+                                                        baseReplacement.substring(mxcStart, mxcEnd).trimEnd()
+                                                    } else {
+                                                        baseReplacement.substring(mxcStart)
+                                                    }
                                                 } else {
-                                                    baseReplacement.substring(mxcStart)
+                                                    baseReplacement
                                                 }
                                             } else {
                                                 baseReplacement
                                             }
-                                        } else {
-                                            baseReplacement
-                                        }
-                                    appViewModel.updateRecentEmojis(emojiForRecent)
-                                }
-                                
-                                showEmojiSuggestionList = false
-                                emojiQuery = ""
-                            },
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-                
-                // Floating per-message profile picker
-                if (showPmpProfilePicker) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 72.dp, bottom = 60.dp)
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f)
-                    ) {
-                        net.vrkknn.andromuks.utils.PerMessageProfilePicker(
-                            appViewModel = appViewModel,
-                            onProfileSelected = { profile ->
-                                val newText = "/pmp ${profile.shortcode} "
-                                draft = newText
-                                textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
-                                showPmpProfilePicker = false
-                            },
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
+                                        appViewModel.updateRecentEmojis(emojiForRecent)
+                                    }
 
-                // Floating command suggestion list
-                if (showCommandSuggestionList) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(
-                                start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 60.dp  // Closer to text input
+                                    showEmojiSuggestionList = false
+                                    emojiQuery = ""
+                                },
+                                modifier = Modifier.zIndex(10f),
                             )
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f)
-                    ) {
-                        CommandSuggestionList(
-                            query = commandQuery,
-                            onCommandSelected = { command ->
-                                // Replace the command text with the selected command
-                                val commandEndIndex = commandStartIndex + 1 + commandQuery.length
-                                val newText = draft.substring(0, commandStartIndex) + command.command + " " + draft.substring(commandEndIndex)
-                                val newCursorPosition = commandStartIndex + command.command.length + 1
-                                
-                                draft = newText
-                                textFieldValue = TextFieldValue(
-                                    text = newText,
-                                    selection = TextRange(newCursorPosition)
+                        }
+                    }
+
+                    // Floating per-message profile picker
+                    if (showPmpProfilePicker) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(start = 72.dp, bottom = 60.dp)
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                        ) {
+                            net.vrkknn.andromuks.utils.PerMessageProfilePicker(
+                                appViewModel = appViewModel,
+                                onProfileSelected = { profile ->
+                                    val newText = "/pmp ${profile.shortcode} "
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
+                                    showPmpProfilePicker = false
+                                },
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    // Floating command suggestion list
+                    if (showCommandSuggestionList) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(
+                                    start = 72.dp, // Align with text input (attach button width + spacing)
+                                    bottom = 60.dp, // Closer to text input
                                 )
-                                
-                                // Hide the command suggestion list
-                                showCommandSuggestionList = false
-                                commandQuery = ""
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                        ) {
+                            CommandSuggestionList(
+                                query = commandQuery,
+                                onCommandSelected = { command ->
+                                    // Replace the command text with the selected command
+                                    val commandEndIndex = commandStartIndex + 1 + commandQuery.length
+                                    val newText = draft.substring(
+                                        0,
+                                        commandStartIndex,
+                                    ) + command.command + " " + draft.substring(commandEndIndex)
+                                    val newCursorPosition = commandStartIndex + command.command.length + 1
+
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursorPosition),
+                                    )
+
+                                    // Hide the command suggestion list
+                                    showCommandSuggestionList = false
+                                    commandQuery = ""
+                                },
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    // Floating room suggestion list for room mentions
+                    if (showRoomSuggestionList) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(
+                                    start = 72.dp, // Align with text input (attach button width + spacing)
+                                    bottom = 60.dp, // Closer to text input
+                                )
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                        ) {
+                            RoomSuggestionList(
+                                rooms = roomsWithAliases,
+                                query = roomQuery,
+                                onRoomSelect = { selectedRoomId, canonicalAlias ->
+                                    // Replace the room mention text with a markdown link
+                                    // Format: [#room:server.com](https://matrix.to/#/%23room%3Aserver.com)
+                                    val roomEndIndex = roomStartIndex + 1 + roomQuery.length
+                                    val encodedAlias = java.net.URLEncoder.encode(canonicalAlias, "UTF-8")
+                                    val roomMentionText = "[$canonicalAlias](https://matrix.to/#/$encodedAlias) "
+                                    val newText = draft.substring(
+                                        0,
+                                        roomStartIndex,
+                                    ) + roomMentionText + draft.substring(roomEndIndex)
+                                    val newCursorPosition = roomStartIndex + roomMentionText.length
+
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursorPosition),
+                                    )
+
+                                    // Hide the room suggestion list
+                                    showRoomSuggestionList = false
+                                    roomQuery = ""
+                                },
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    // Floating member list for mentions
+                    if (showMentionList) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(
+                                    start = 72.dp, // Align with text input (attach button width + spacing)
+                                    bottom = 60.dp, // Closer to text input
+                                )
+                                .navigationBarsPadding()
+                                .imePadding(),
+                        ) {
+                            MentionMemberList(
+                                members = roomMembers,
+                                query = mentionQuery,
+                                onMemberSelect = { userId, displayName ->
+                                    // Replace the mention text with the selected user
+                                    val mentionEndIndex = mentionStartIndex + 1 + mentionQuery.length
+                                    val newText = handleMentionSelection(
+                                        userId,
+                                        displayName,
+                                        draft,
+                                        mentionStartIndex,
+                                        mentionEndIndex,
+                                    )
+
+                                    // Calculate the new cursor position after the inserted mention
+                                    // The cursor should be positioned right after the inserted mention text
+                                    val escapedDisplayName = (
+                                        displayName?.takeIf { it.isNotBlank() }
+                                        ?: userId.removePrefix(
+                                            "@",
+                                        ).substringBefore(":")
+                                    )
+                                        .replace("[", "\\[")
+                                        .replace("]", "\\]")
+                                    val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
+                                    val newCursorPosition = mentionStartIndex + mentionText.length
+
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursorPosition),
+                                    )
+
+                                    // Hide the mention list
+                                    showMentionList = false
+                                    mentionQuery = ""
+                                },
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    // Delete confirmation dialog (with optional reason)
+                    if (showDeleteDialog && deletingEvent != null) {
+                        DeleteMessageDialog(
+                            onDismiss = {
+                                showDeleteDialog = false
+                                deletingEvent = null
                             },
-                            modifier = Modifier.zIndex(10f)
+                            onConfirm = { reason ->
+                                // Send delete request with optional reason
+                                appViewModel.sendDelete(roomId, deletingEvent!!, reason)
+                                showDeleteDialog = false
+                                deletingEvent = null
+                            },
                         )
                     }
-                }
-                
-                // Floating room suggestion list for room mentions
-                if (showRoomSuggestionList) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(
-                                start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 60.dp  // Closer to text input
-                            )
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f)
-                    ) {
-                        RoomSuggestionList(
-                            rooms = roomsWithAliases,
-                            query = roomQuery,
-                            onRoomSelect = { selectedRoomId, canonicalAlias ->
-                                // Replace the room mention text with a markdown link
-                                // Format: [#room:server.com](https://matrix.to/#/%23room%3Aserver.com)
-                                val roomEndIndex = roomStartIndex + 1 + roomQuery.length
-                                val encodedAlias = java.net.URLEncoder.encode(canonicalAlias, "UTF-8")
-                                val roomMentionText = "[$canonicalAlias](https://matrix.to/#/$encodedAlias) "
-                                val newText = draft.substring(0, roomStartIndex) + roomMentionText + draft.substring(roomEndIndex)
-                                val newCursorPosition = roomStartIndex + roomMentionText.length
-                                
-                                draft = newText
-                                textFieldValue = TextFieldValue(
-                                    text = newText,
-                                    selection = TextRange(newCursorPosition)
-                                )
-                                
-                                // Hide the room suggestion list
-                                showRoomSuggestionList = false
-                                roomQuery = ""
-                            },
+
+                    // Room joiner screen
+                    if (showRoomJoiner && roomLinkToJoin != null) {
+                        RoomJoinerScreen(
+                            roomLink = roomLinkToJoin!!,
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
-                            modifier = Modifier.zIndex(10f)
+                            appViewModel = appViewModel,
+                            onDismiss = {
+                                showRoomJoiner = false
+                                roomLinkToJoin = null
+                            },
+                            onJoinSuccess = { joinedRoomId ->
+                                showRoomJoiner = false
+                                roomLinkToJoin = null
+                                // Navigate to the joined room
+                                appViewModel.joinRoomAndNavigate(joinedRoomId, navController)
+                            },
                         )
                     }
-                }
-                
-                // Floating member list for mentions
-                if (showMentionList) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(
-                                start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 60.dp  // Closer to text input
-                            )
-                            .navigationBarsPadding()
-                            .imePadding()
-                    ) {
-                        MentionMemberList(
-                            members = roomMembers,
-                            query = mentionQuery,
-                            onMemberSelect = { userId, displayName ->
-                                // Replace the mention text with the selected user
-                                val mentionEndIndex = mentionStartIndex + 1 + mentionQuery.length
-                                val newText = handleMentionSelection(userId, displayName, draft, mentionStartIndex, mentionEndIndex)
-                                
-                                // Calculate the new cursor position after the inserted mention
-                                // The cursor should be positioned right after the inserted mention text
-                                val escapedDisplayName = (displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":"))
-                                    .replace("[", "\\[")
-                                    .replace("]", "\\]")
-                                val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
-                                val newCursorPosition = mentionStartIndex + mentionText.length
-                                
+
+                    // Emoji selection dialog for reactions
+                    if (showEmojiSelection && reactingToEvent != null) {
+                        EmojiSelectionDialog(
+                            recentEmojis = appViewModel.recentEmojis,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onEmojiSelected = { emoji ->
+                                // Send reaction
+                                appViewModel.sendReaction(roomId, reactingToEvent!!.eventId, emoji)
+                                showEmojiSelection = false
+                                reactingToEvent = null
+                            },
+                            onDismiss = {
+                                showEmojiSelection = false
+                                reactingToEvent = null
+                            },
+                            customEmojiPacks = appViewModel.customEmojiPacks,
+                        )
+                    }
+
+                    // Emoji selection dialog for text input
+                    if (showEmojiPickerForText) {
+                        EmojiSelectionDialog(
+                            recentEmojis = appViewModel.recentEmojis,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onEmojiSelected = { emoji ->
+                                // Insert emoji at cursor position
+                                val currentText = textFieldValue.text
+                                val cursorPosition = textFieldValue.selection.start
+                                val newText = currentText.substring(0, cursorPosition) +
+                                    emoji +
+                                    currentText.substring(cursorPosition)
+                                val newCursorPosition = cursorPosition + emoji.length
+
+                                // Update both draft and textFieldValue
                                 draft = newText
                                 textFieldValue = TextFieldValue(
                                     text = newText,
-                                    selection = TextRange(newCursorPosition)
+                                    selection = TextRange(newCursorPosition),
                                 )
-                                
-                                // Hide the mention list
-                                showMentionList = false
-                                mentionQuery = ""
-                            },
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-                
-                // Delete confirmation dialog (with optional reason)
-                if (showDeleteDialog && deletingEvent != null) {
-                    DeleteMessageDialog(
-                        onDismiss = {
-                            showDeleteDialog = false
-                            deletingEvent = null
-                        },
-                        onConfirm = { reason ->
-                            // Send delete request with optional reason
-                            appViewModel.sendDelete(roomId, deletingEvent!!, reason)
-                            showDeleteDialog = false
-                            deletingEvent = null
-                        }
-                    )
-                }
-                
-                // Room joiner screen
-                if (showRoomJoiner && roomLinkToJoin != null) {
-                    RoomJoinerScreen(
-                        roomLink = roomLinkToJoin!!,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        appViewModel = appViewModel,
-                        onDismiss = {
-                            showRoomJoiner = false
-                            roomLinkToJoin = null
-                        },
-                        onJoinSuccess = { joinedRoomId ->
-                            showRoomJoiner = false
-                            roomLinkToJoin = null
-                            // Navigate to the joined room
-                            appViewModel.joinRoomAndNavigate(joinedRoomId, navController)
-                        }
-                    )
-                }
-                
-                // Emoji selection dialog for reactions
-                if (showEmojiSelection && reactingToEvent != null) {
-                    EmojiSelectionDialog(
-                        recentEmojis = appViewModel.recentEmojis,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onEmojiSelected = { emoji ->
-                            // Send reaction
-                            appViewModel.sendReaction(roomId, reactingToEvent!!.eventId, emoji)
-                            showEmojiSelection = false
-                            reactingToEvent = null
-                        },
-                        onDismiss = {
-                            showEmojiSelection = false
-                            reactingToEvent = null
-                        },
-                        customEmojiPacks = appViewModel.customEmojiPacks
-                    )
-                }
-                
-                // Emoji selection dialog for text input
-                if (showEmojiPickerForText) {
-                    EmojiSelectionDialog(
-                        recentEmojis = appViewModel.recentEmojis,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onEmojiSelected = { emoji ->
-                            // Insert emoji at cursor position
-                            val currentText = textFieldValue.text
-                            val cursorPosition = textFieldValue.selection.start
-                            val newText = currentText.substring(0, cursorPosition) + 
-                                         emoji + 
-                                         currentText.substring(cursorPosition)
-                            val newCursorPosition = cursorPosition + emoji.length
-                            
-                            // Update both draft and textFieldValue
-                            draft = newText
-                            textFieldValue = TextFieldValue(
-                                text = newText,
-                                selection = TextRange(newCursorPosition)
-                            )
-                            
-                            // Update recent emojis (updates in-memory state and sends to backend)
-                            // This will persist via account_data and update the recent emoji tab
-                            // For custom emojis, extract MXC URL from formatted string
-                            val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
-                                // Extract MXC URL from format: ![:name:](mxc://url "Emoji: :name:")
-                                val mxcStart = emoji.indexOf("mxc://")
-                                if (mxcStart >= 0) {
-                                    val mxcEnd = emoji.indexOf("\"", mxcStart)
-                                    if (mxcEnd > mxcStart) {
-                                        emoji.substring(mxcStart, mxcEnd).trimEnd()
+
+                                // Update recent emojis (updates in-memory state and sends to backend)
+                                // This will persist via account_data and update the recent emoji tab
+                                // For custom emojis, extract MXC URL from formatted string
+                                val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
+                                    // Extract MXC URL from format: ![:name:](mxc://url "Emoji: :name:")
+                                    val mxcStart = emoji.indexOf("mxc://")
+                                    if (mxcStart >= 0) {
+                                        val mxcEnd = emoji.indexOf("\"", mxcStart)
+                                        if (mxcEnd > mxcStart) {
+                                            emoji.substring(mxcStart, mxcEnd).trimEnd()
+                                        } else {
+                                            emoji.substring(mxcStart)
+                                        }
                                     } else {
-                                        emoji.substring(mxcStart)
+                                        emoji
                                     }
                                 } else {
                                     emoji
                                 }
-                            } else {
-                                emoji
-                            }
-                            appViewModel.updateRecentEmojis(emojiForRecent)
-                            
-                            // Don't close the picker - user might want to add more emojis
-                        },
-                        onDismiss = {
-                            showEmojiPickerForText = false
-                        },
-                        customEmojiPacks = appViewModel.customEmojiPacks,
-                        allowCustomReactions = false
-                    )
-                }
-                
-                // Sticker selection dialog for text input
-                if (showStickerPickerForText) {
-                    StickerSelectionDialog(
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onStickerSelected = { sticker ->
-                            // Send sticker message
-                            val mimeType = sticker.info?.optString("mimetype") ?: "image/png"
-                            val size = sticker.info?.optLong("size") ?: 0L
-                            val width = sticker.info?.optInt("w", 0) ?: 0
-                            val height = sticker.info?.optInt("h", 0) ?: 0
-                            val body = sticker.body ?: sticker.name
-                            
-                            appViewModel.sendStickerMessage(
-                                roomId = roomId,
-                                mxcUrl = sticker.mxcUrl,
-                                body = body,
-                                mimeType = mimeType,
-                                size = size,
-                                width = width,
-                                height = height
-                            )
-                            
-                            showStickerPickerForText = false
-                        },
-                        onDismiss = {
-                            showStickerPickerForText = false
-                        },
-                        stickerPacks = appViewModel.stickerPacks
-                    )
-                }
-                
-                // Multiple media preview dialog (from share with 2+ items): swipe through, caption each, send all
-                val multiItems = selectedMediaItems
-                if (multiItems != null && multiItems.isNotEmpty()) {
-                    MediaPreviewDialogMultiple(
-                        items = multiItems,
-                        onDismiss = { selectedMediaItems = null },
-                        onSendAll = { list ->
-                            selectedMediaItems = null
-                            coroutineScope.launch {
-                                // Local helper for uploads with retry
-                                suspend fun <T> performUpload(
-                                    type: String,
-                                    uploadBlock: suspend () -> T?
-                                ): T? {
-                                    appViewModel.beginUpload(roomId, type)
-                                    try {
-                                        var result: T? = null
-                                        for (attempt in 0..3) {
-                                            if (attempt > 0) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Retrying $type upload (attempt $attempt/3)")
-                                                appViewModel.setUploadRetryCount(roomId, attempt)
-                                                kotlinx.coroutines.delay(1000L * attempt)
+                                appViewModel.updateRecentEmojis(emojiForRecent)
+
+                                // Don't close the picker - user might want to add more emojis
+                            },
+                            onDismiss = {
+                                showEmojiPickerForText = false
+                            },
+                            customEmojiPacks = appViewModel.customEmojiPacks,
+                            allowCustomReactions = false,
+                        )
+                    }
+
+                    // Sticker selection dialog for text input
+                    if (showStickerPickerForText) {
+                        StickerSelectionDialog(
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onStickerSelected = { sticker ->
+                                // Send sticker message
+                                val mimeType = sticker.info?.optString("mimetype") ?: "image/png"
+                                val size = sticker.info?.optLong("size") ?: 0L
+                                val width = sticker.info?.optInt("w", 0) ?: 0
+                                val height = sticker.info?.optInt("h", 0) ?: 0
+                                val body = sticker.body ?: sticker.name
+
+                                appViewModel.sendStickerMessage(
+                                    roomId = roomId,
+                                    mxcUrl = sticker.mxcUrl,
+                                    body = body,
+                                    mimeType = mimeType,
+                                    size = size,
+                                    width = width,
+                                    height = height,
+                                )
+
+                                showStickerPickerForText = false
+                            },
+                            onDismiss = {
+                                showStickerPickerForText = false
+                            },
+                            stickerPacks = appViewModel.stickerPacks,
+                        )
+                    }
+
+                    // Multiple media preview dialog (from share with 2+ items): swipe through, caption each, send all
+                    val multiItems = selectedMediaItems
+                    if (multiItems != null && multiItems.isNotEmpty()) {
+                        MediaPreviewDialogMultiple(
+                            items = multiItems,
+                            onDismiss = { selectedMediaItems = null },
+                            onSendAll = { list ->
+                                selectedMediaItems = null
+                                coroutineScope.launch {
+                                    // Local helper for uploads with retry
+                                    suspend fun <T> performUpload(type: String, uploadBlock: suspend () -> T?): T? {
+                                        appViewModel.beginUpload(roomId, type)
+                                        try {
+                                            var result: T? = null
+                                            for (attempt in 0..3) {
+                                                if (attempt > 0) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Retrying $type upload (attempt $attempt/3)",
+                                                    )
+                                                    }
+                                                    appViewModel.setUploadRetryCount(roomId, attempt)
+                                                    kotlinx.coroutines.delay(1000L * attempt)
+                                                }
+                                                result = uploadBlock()
+                                                if (result != null) break
                                             }
-                                            result = uploadBlock()
-                                            if (result != null) break
+                                            appViewModel.setUploadRetryCount(roomId, 0)
+                                            return result
+                                        } finally {
+                                            appViewModel.endUpload(roomId, type)
                                         }
-                                        appViewModel.setUploadRetryCount(roomId, 0)
-                                        return result
-                                    } finally {
-                                        appViewModel.endUpload(roomId, type)
+                                    }
+
+                                    for ((index, sendState) in list.withIndex()) {
+                                        val uri = sendState.item.uri
+                                        val mime = sendState.item.mimeType ?: context.contentResolver.getType(uri) ?: ""
+                                        val caption = sendState.caption.takeIf { it.isNotBlank() }
+                                        try {
+                                            when {
+                                                mime.startsWith("video/") -> {
+                                                    val videoResult = performUpload("video") {
+                                                        VideoUploadUtils.uploadVideo(
+                                                            context = context,
+                                                            uri = uri,
+                                                            homeserverUrl = homeserverUrl,
+                                                            authToken = authToken,
+                                                            isEncrypted = false,
+                                                            onProgress = { key, p ->
+                                                                appViewModel.setUploadProgress(roomId, key, p)
+                                                            },
+                                                        )
+                                                    }
+                                                    if (videoResult != null) {
+                                                        appViewModel.sendVideoMessage(
+                                                            roomId = roomId,
+                                                            videoMxcUrl = videoResult.videoMxcUrl,
+                                                            thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
+                                                            width = videoResult.width,
+                                                            height = videoResult.height,
+                                                            duration = videoResult.duration,
+                                                            size = videoResult.size,
+                                                            mimeType = videoResult.mimeType,
+                                                            thumbnailBlurHash = videoResult.thumbnailBlurHash,
+                                                            thumbnailWidth = videoResult.thumbnailWidth,
+                                                            thumbnailHeight = videoResult.thumbnailHeight,
+                                                            thumbnailSize = videoResult.thumbnailSize,
+                                                            caption = caption,
+                                                        )
+                                                    }
+                                                }
+
+                                                mime.startsWith("audio/") -> {
+                                                    val audioResult = performUpload("audio") {
+                                                        MediaUploadUtils.uploadAudio(
+                                                            context = context,
+                                                            uri = uri,
+                                                            homeserverUrl = homeserverUrl,
+                                                            authToken = authToken,
+                                                            isEncrypted = false,
+                                                            onProgress = { key, p ->
+                                                                appViewModel.setUploadProgress(roomId, key, p)
+                                                            },
+                                                        )
+                                                    }
+                                                    if (audioResult != null) {
+                                                        appViewModel.sendAudioMessage(
+                                                            roomId = roomId,
+                                                            mxcUrl = audioResult.mxcUrl,
+                                                            filename = audioResult.filename,
+                                                            duration = audioResult.duration,
+                                                            size = audioResult.size,
+                                                            mimeType = audioResult.mimeType,
+                                                            caption = caption,
+                                                        )
+                                                    }
+                                                }
+
+                                                mime.startsWith("image/") -> {
+                                                    val uploadResult = performUpload("image") {
+                                                        MediaUploadUtils.uploadMedia(
+                                                            context = context,
+                                                            uri = uri,
+                                                            homeserverUrl = homeserverUrl,
+                                                            authToken = authToken,
+                                                            isEncrypted = false,
+                                                            compressOriginal = sendState.compressOriginal,
+                                                            onProgress = { key, p ->
+                                                                appViewModel.setUploadProgress(roomId, key, p)
+                                                            },
+                                                        )
+                                                    }
+                                                    if (uploadResult != null) {
+                                                        appViewModel.sendImageMessage(
+                                                            roomId = roomId,
+                                                            mxcUrl = uploadResult.mxcUrl,
+                                                            width = uploadResult.width,
+                                                            height = uploadResult.height,
+                                                            size = uploadResult.size,
+                                                            mimeType = uploadResult.mimeType,
+                                                            blurHash = uploadResult.blurHash,
+                                                            caption = caption,
+                                                            thumbnailUrl = uploadResult.thumbnailUrl,
+                                                            thumbnailWidth = uploadResult.thumbnailWidth,
+                                                            thumbnailHeight = uploadResult.thumbnailHeight,
+                                                            thumbnailMimeType = uploadResult.thumbnailMimeType,
+                                                            thumbnailSize = uploadResult.thumbnailSize,
+                                                        )
+                                                    }
+                                                }
+
+                                                else -> {
+                                                    val fileResult = performUpload("file") {
+                                                        MediaUploadUtils.uploadFile(
+                                                            context = context,
+                                                            uri = uri,
+                                                            homeserverUrl = homeserverUrl,
+                                                            authToken = authToken,
+                                                            isEncrypted = false,
+                                                            onProgress = { key, p ->
+                                                                appViewModel.setUploadProgress(roomId, key, p)
+                                                            },
+                                                        )
+                                                    }
+                                                    if (fileResult != null) {
+                                                        appViewModel.sendFileMessage(
+                                                            roomId = roomId,
+                                                            mxcUrl = fileResult.mxcUrl,
+                                                            filename = fileResult.filename,
+                                                            size = fileResult.size,
+                                                            mimeType = fileResult.mimeType,
+                                                            caption = caption,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        } catch (e: Exception) {
+                                            Log.e("Andromuks", "RoomTimelineScreen: Multi-send item ${index + 1} failed", e)
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Failed to send item ${index + 1}: ${e.message}",
+                                                android.widget.Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
                                     }
                                 }
+                            },
+                        )
+                    }
 
-                                for ((index, sendState) in list.withIndex()) {
-                                    val uri = sendState.item.uri
-                                    val mime = sendState.item.mimeType ?: context.contentResolver.getType(uri) ?: ""
-                                    val caption = sendState.caption.takeIf { it.isNotBlank() }
+                    // Media preview dialog (shows selected media with caption input)
+                    if (showMediaPreview &&
+                        (selectedMediaUri != null || selectedAudioUri != null || selectedFileUri != null)
+                    ) {
+                        val currentUri = selectedMediaUri ?: selectedAudioUri ?: selectedFileUri!!
+                        val isAudio = selectedAudioUri != null
+                        val isFile = selectedFileUri != null
+
+                        MediaPreviewDialog(
+                            uri = currentUri,
+                            isVideo = selectedMediaIsVideo,
+                            isAudio = isAudio,
+                            isFile = isFile,
+                            onDismiss = {
+                                showMediaPreview = false
+                                selectedMediaUri = null
+                                selectedAudioUri = null
+                                selectedFileUri = null
+                                selectedMediaIsVideo = false
+                            },
+                            onSend = { caption, compressOriginal ->
+                                // Close dialog immediately - upload will continue in background
+                                showMediaPreview = false
+
+                                // Clear media selection state immediately so user can select new media
+                                val mediaUriToUpload = selectedMediaUri
+                                val audioUriToUpload = selectedAudioUri
+                                val fileUriToUpload = selectedFileUri
+                                val isVideoToUpload = selectedMediaIsVideo
+
+                                // Capture the reply target (if any) so the uploaded media is sent as a
+                                // reply to the selected message — mirrors the text-reply thread handling
+                                // above. Cleared immediately (like the media state) so the preview's
+                                // shrink-out plays and a fresh send doesn't inherit a stale target.
+                                val replyTargetEvent = replyingToEvent
+                                val replyThreadRootEventId = replyTargetEvent?.getThreadInfo()?.threadRootEventId
+                                val replyToEventId = replyTargetEvent?.eventId
+
+                                // Clear state immediately
+                                selectedMediaUri = null
+                                selectedAudioUri = null
+                                selectedFileUri = null
+                                selectedMediaIsVideo = false
+                                replyingToEvent = null
+
+                                // Upload and send in background
+                                coroutineScope.launch {
+                                    // Local helper for uploads with retry
+                                    suspend fun <T> performUpload(type: String, uploadBlock: suspend () -> T?): T? {
+                                        appViewModel.beginUpload(roomId, type)
+                                        try {
+                                            var result: T? = null
+                                            for (attempt in 0..3) {
+                                                if (attempt > 0) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Retrying $type upload (attempt $attempt/3)",
+                                                    )
+                                                    }
+                                                    appViewModel.setUploadRetryCount(roomId, attempt)
+                                                    kotlinx.coroutines.delay(1000L * attempt)
+                                                }
+                                                result = uploadBlock()
+                                                if (result != null) break
+                                            }
+                                            appViewModel.setUploadRetryCount(roomId, 0)
+                                            return result
+                                        } finally {
+                                            appViewModel.endUpload(roomId, type)
+                                        }
+                                    }
+
                                     try {
                                         when {
-                                            mime.startsWith("video/") -> {
+                                            isVideoToUpload && mediaUriToUpload != null -> {
+                                                // Upload video with thumbnail
                                                 val videoResult = performUpload("video") {
                                                     VideoUploadUtils.uploadVideo(
                                                         context = context,
-                                                        uri = uri,
+                                                        uri = mediaUriToUpload,
                                                         homeserverUrl = homeserverUrl,
                                                         authToken = authToken,
                                                         isEncrypted = false,
                                                         onProgress = { key, p ->
                                                             appViewModel.setUploadProgress(roomId, key, p)
-                                                        }
+                                                        },
                                                     )
                                                 }
+
                                                 if (videoResult != null) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Video upload successful, sending message",
+                                                    )
+                                                    }
+                                                    // Send video message with metadata
                                                     appViewModel.sendVideoMessage(
                                                         roomId = roomId,
                                                         videoMxcUrl = videoResult.videoMxcUrl,
@@ -5128,24 +5804,46 @@ fun RoomTimelineScreen(
                                                         thumbnailWidth = videoResult.thumbnailWidth,
                                                         thumbnailHeight = videoResult.thumbnailHeight,
                                                         thumbnailSize = videoResult.thumbnailSize,
-                                                        caption = caption
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = replyThreadRootEventId,
+                                                        replyToEventId = replyToEventId,
                                                     )
+                                                } else {
+                                                    Log.e(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Video upload failed after retries",
+                                                    )
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Failed to upload video after 3 attempts",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
                                                 }
                                             }
-                                            mime.startsWith("audio/") -> {
+
+                                            audioUriToUpload != null -> {
+                                                // Upload audio
                                                 val audioResult = performUpload("audio") {
                                                     MediaUploadUtils.uploadAudio(
                                                         context = context,
-                                                        uri = uri,
+                                                        uri = audioUriToUpload,
                                                         homeserverUrl = homeserverUrl,
                                                         authToken = authToken,
                                                         isEncrypted = false,
                                                         onProgress = { key, p ->
                                                             appViewModel.setUploadProgress(roomId, key, p)
-                                                        }
+                                                        },
                                                     )
                                                 }
+
                                                 if (audioResult != null) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Audio upload successful, sending message",
+                                                    )
+                                                    }
+                                                    // Send audio message with metadata
                                                     appViewModel.sendAudioMessage(
                                                         roomId = roomId,
                                                         mxcUrl = audioResult.mxcUrl,
@@ -5153,25 +5851,93 @@ fun RoomTimelineScreen(
                                                         duration = audioResult.duration,
                                                         size = audioResult.size,
                                                         mimeType = audioResult.mimeType,
-                                                        caption = caption
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = replyThreadRootEventId,
+                                                        replyToEventId = replyToEventId,
                                                     )
+                                                } else {
+                                                    Log.e(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Audio upload failed after retries",
+                                                    )
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Failed to upload audio after 3 attempts",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
                                                 }
                                             }
-                                            mime.startsWith("image/") -> {
-                                                val uploadResult = performUpload("image") {
-                                                    MediaUploadUtils.uploadMedia(
+
+                                            fileUriToUpload != null -> {
+                                                // Upload file
+                                                val fileResult = performUpload("file") {
+                                                    MediaUploadUtils.uploadFile(
                                                         context = context,
-                                                        uri = uri,
+                                                        uri = fileUriToUpload,
                                                         homeserverUrl = homeserverUrl,
                                                         authToken = authToken,
                                                         isEncrypted = false,
-                                                        compressOriginal = sendState.compressOriginal,
                                                         onProgress = { key, p ->
                                                             appViewModel.setUploadProgress(roomId, key, p)
-                                                        }
+                                                        },
                                                     )
                                                 }
+
+                                                if (fileResult != null) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: File upload successful, sending message",
+                                                    )
+                                                    }
+                                                    // Send file message with metadata
+                                                    appViewModel.sendFileMessage(
+                                                        roomId = roomId,
+                                                        mxcUrl = fileResult.mxcUrl,
+                                                        filename = fileResult.filename,
+                                                        size = fileResult.size,
+                                                        mimeType = fileResult.mimeType,
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = replyThreadRootEventId,
+                                                        replyToEventId = replyToEventId,
+                                                    )
+                                                } else {
+                                                    Log.e(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: File upload failed after retries",
+                                                    )
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Failed to upload file after 3 attempts",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            }
+
+                                            mediaUriToUpload != null -> {
+                                                // Upload image
+                                                val uploadResult = performUpload("image") {
+                                                    MediaUploadUtils.uploadMedia(
+                                                        context = context,
+                                                        uri = mediaUriToUpload,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        compressOriginal = compressOriginal,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        },
+                                                    )
+                                                }
+
                                                 if (uploadResult != null) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Image upload successful, sending message",
+                                                    )
+                                                    }
+                                                    // Send image message with metadata
                                                     appViewModel.sendImageMessage(
                                                         roomId = roomId,
                                                         mxcUrl = uploadResult.mxcUrl,
@@ -5180,363 +5946,103 @@ fun RoomTimelineScreen(
                                                         size = uploadResult.size,
                                                         mimeType = uploadResult.mimeType,
                                                         blurHash = uploadResult.blurHash,
-                                                        caption = caption,
+                                                        caption = caption.takeIf { it.isNotBlank() },
                                                         thumbnailUrl = uploadResult.thumbnailUrl,
                                                         thumbnailWidth = uploadResult.thumbnailWidth,
                                                         thumbnailHeight = uploadResult.thumbnailHeight,
                                                         thumbnailMimeType = uploadResult.thumbnailMimeType,
-                                                        thumbnailSize = uploadResult.thumbnailSize
+                                                        thumbnailSize = uploadResult.thumbnailSize,
+                                                        threadRootEventId = replyThreadRootEventId,
+                                                        replyToEventId = replyToEventId,
                                                     )
-                                                }
-                                            }
-                                            else -> {
-                                                val fileResult = performUpload("file") {
-                                                    MediaUploadUtils.uploadFile(
-                                                        context = context,
-                                                        uri = uri,
-                                                        homeserverUrl = homeserverUrl,
-                                                        authToken = authToken,
-                                                        isEncrypted = false,
-                                                        onProgress = { key, p ->
-                                                            appViewModel.setUploadProgress(roomId, key, p)
-                                                        }
+                                                } else {
+                                                    Log.e(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Image upload failed after retries",
                                                     )
-                                                }
-                                                if (fileResult != null) {
-                                                    appViewModel.sendFileMessage(
-                                                        roomId = roomId,
-                                                        mxcUrl = fileResult.mxcUrl,
-                                                        filename = fileResult.filename,
-                                                        size = fileResult.size,
-                                                        mimeType = fileResult.mimeType,
-                                                        caption = caption
-                                                    )
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Failed to upload image after 3 attempts",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
                                                 }
                                             }
                                         }
                                     } catch (e: Exception) {
-                                        Log.e("Andromuks", "RoomTimelineScreen: Multi-send item ${index + 1} failed", e)
+                                        Log.e("Andromuks", "RoomTimelineScreen: Upload error", e)
+                                        // Try to clean up upload state - determine type from what was being uploaded
+                                        when {
+                                            isVideoToUpload && mediaUriToUpload != null -> appViewModel.endUpload(
+                                                roomId,
+                                                "video",
+                                            )
+
+                                            audioUriToUpload != null -> appViewModel.endUpload(roomId, "audio")
+
+                                            fileUriToUpload != null -> appViewModel.endUpload(roomId, "file")
+
+                                            mediaUriToUpload != null -> appViewModel.endUpload(roomId, "image")
+
+                                            else -> appViewModel.endUpload(roomId, "image")
+                                        }
                                         android.widget.Toast.makeText(
                                             context,
-                                            "Failed to send item ${index + 1}: ${e.message}",
-                                            android.widget.Toast.LENGTH_SHORT
+                                            "Error uploading media: ${e.message}",
+                                            android.widget.Toast.LENGTH_SHORT,
                                         ).show()
                                     }
                                 }
-                            }
-                        }
-                    )
-                }
-                
-                // Media preview dialog (shows selected media with caption input)
-                if (showMediaPreview && (selectedMediaUri != null || selectedAudioUri != null || selectedFileUri != null)) {
-                    val currentUri = selectedMediaUri ?: selectedAudioUri ?: selectedFileUri!!
-                    val isAudio = selectedAudioUri != null
-                    val isFile = selectedFileUri != null
-                    
-                    MediaPreviewDialog(
-                        uri = currentUri,
-                        isVideo = selectedMediaIsVideo,
-                        isAudio = isAudio,
-                        isFile = isFile,
-                        onDismiss = {
-                            showMediaPreview = false
-                            selectedMediaUri = null
-                            selectedAudioUri = null
-                            selectedFileUri = null
-                            selectedMediaIsVideo = false
-                        },
-                        onSend = { caption, compressOriginal ->
-                            // Close dialog immediately - upload will continue in background
-                            showMediaPreview = false
-                            
-                            // Clear media selection state immediately so user can select new media
-                            val mediaUriToUpload = selectedMediaUri
-                            val audioUriToUpload = selectedAudioUri
-                            val fileUriToUpload = selectedFileUri
-                            val isVideoToUpload = selectedMediaIsVideo
+                            },
+                        )
+                    }
 
-                            // Capture the reply target (if any) so the uploaded media is sent as a
-                            // reply to the selected message — mirrors the text-reply thread handling
-                            // above. Cleared immediately (like the media state) so the preview's
-                            // shrink-out plays and a fresh send doesn't inherit a stale target.
-                            val replyTargetEvent = replyingToEvent
-                            val replyThreadRootEventId = replyTargetEvent?.getThreadInfo()?.threadRootEventId
-                            val replyToEventId = replyTargetEvent?.eventId
+                    // Uploading dialog removed - uploads now happen in background with status row indicator
 
-                            // Clear state immediately
-                            selectedMediaUri = null
-                            selectedAudioUri = null
-                            selectedFileUri = null
-                            selectedMediaIsVideo = false
-                            replyingToEvent = null
+                    // Code viewer dialog
+                    if (showCodeViewer) {
+                        CodeViewer(
+                            code = codeViewerContent,
+                            onDismiss = {
+                                showCodeViewer = false
+                                codeViewerContent = ""
+                            },
+                        )
+                    }
 
-                            // Upload and send in background
-                            coroutineScope.launch {
-                                // Local helper for uploads with retry
-                                suspend fun <T> performUpload(
-                                    type: String,
-                                    uploadBlock: suspend () -> T?
-                                ): T? {
-                                    appViewModel.beginUpload(roomId, type)
-                                    try {
-                                        var result: T? = null
-                                        for (attempt in 0..3) {
-                                            if (attempt > 0) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Retrying $type upload (attempt $attempt/3)")
-                                                appViewModel.setUploadRetryCount(roomId, attempt)
-                                                kotlinx.coroutines.delay(1000L * attempt)
-                                            }
-                                            result = uploadBlock()
-                                            if (result != null) break
-                                        }
-                                        appViewModel.setUploadRetryCount(roomId, 0)
-                                        return result
-                                    } finally {
-                                        appViewModel.endUpload(roomId, type)
-                                    }
-                                }
+                    if (showReactionsDialog && reactionsEventId != null) {
+                        val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
+                        net.vrkknn.andromuks.utils.ReactionDetailsDialog(
+                            reactions = reactions,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onDismiss = { showReactionsDialog = false },
+                            appViewModel = appViewModel,
+                            roomId = roomId,
+                        )
+                    }
 
-                                try {
-                                    when {
-                                        isVideoToUpload && mediaUriToUpload != null -> {
-                                            // Upload video with thumbnail
-                                            val videoResult = performUpload("video") {
-                                                VideoUploadUtils.uploadVideo(
-                                                    context = context,
-                                                    uri = mediaUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            
-                                            if (videoResult != null) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Video upload successful, sending message")
-                                                // Send video message with metadata
-                                                appViewModel.sendVideoMessage(
-                                                    roomId = roomId,
-                                                    videoMxcUrl = videoResult.videoMxcUrl,
-                                                    thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
-                                                    width = videoResult.width,
-                                                    height = videoResult.height,
-                                                    duration = videoResult.duration,
-                                                    size = videoResult.size,
-                                                    mimeType = videoResult.mimeType,
-                                                    thumbnailBlurHash = videoResult.thumbnailBlurHash,
-                                                    thumbnailWidth = videoResult.thumbnailWidth,
-                                                    thumbnailHeight = videoResult.thumbnailHeight,
-                                                    thumbnailSize = videoResult.thumbnailSize,
-                                                    caption = caption.takeIf { it.isNotBlank() },
-                                                    threadRootEventId = replyThreadRootEventId,
-                                                    replyToEventId = replyToEventId
-                                                )
-                                            } else {
-                                                Log.e("Andromuks", "RoomTimelineScreen: Video upload failed after retries")
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Failed to upload video after 3 attempts",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                        audioUriToUpload != null -> {
-                                            // Upload audio
-                                            val audioResult = performUpload("audio") {
-                                                MediaUploadUtils.uploadAudio(
-                                                    context = context,
-                                                    uri = audioUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            
-                                            if (audioResult != null) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Audio upload successful, sending message")
-                                                // Send audio message with metadata
-                                                appViewModel.sendAudioMessage(
-                                                    roomId = roomId,
-                                                    mxcUrl = audioResult.mxcUrl,
-                                                    filename = audioResult.filename,
-                                                    duration = audioResult.duration,
-                                                    size = audioResult.size,
-                                                    mimeType = audioResult.mimeType,
-                                                    caption = caption.takeIf { it.isNotBlank() },
-                                                    threadRootEventId = replyThreadRootEventId,
-                                                    replyToEventId = replyToEventId
-                                                )
-                                            } else {
-                                                Log.e("Andromuks", "RoomTimelineScreen: Audio upload failed after retries")
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Failed to upload audio after 3 attempts",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                        fileUriToUpload != null -> {
-                                            // Upload file
-                                            val fileResult = performUpload("file") {
-                                                MediaUploadUtils.uploadFile(
-                                                    context = context,
-                                                    uri = fileUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            
-                                            if (fileResult != null) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: File upload successful, sending message")
-                                                // Send file message with metadata
-                                                appViewModel.sendFileMessage(
-                                                    roomId = roomId,
-                                                    mxcUrl = fileResult.mxcUrl,
-                                                    filename = fileResult.filename,
-                                                    size = fileResult.size,
-                                                    mimeType = fileResult.mimeType,
-                                                    caption = caption.takeIf { it.isNotBlank() },
-                                                    threadRootEventId = replyThreadRootEventId,
-                                                    replyToEventId = replyToEventId
-                                                )
-                                            } else {
-                                                Log.e("Andromuks", "RoomTimelineScreen: File upload failed after retries")
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Failed to upload file after 3 attempts",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                        mediaUriToUpload != null -> {
-                                            // Upload image
-                                            val uploadResult = performUpload("image") {
-                                                MediaUploadUtils.uploadMedia(
-                                                    context = context,
-                                                    uri = mediaUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    compressOriginal = compressOriginal,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            
-                                            if (uploadResult != null) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Image upload successful, sending message")
-                                                // Send image message with metadata
-                                                appViewModel.sendImageMessage(
-                                                    roomId = roomId,
-                                                    mxcUrl = uploadResult.mxcUrl,
-                                                    width = uploadResult.width,
-                                                    height = uploadResult.height,
-                                                    size = uploadResult.size,
-                                                    mimeType = uploadResult.mimeType,
-                                                    blurHash = uploadResult.blurHash,
-                                                    caption = caption.takeIf { it.isNotBlank() },
-                                                    thumbnailUrl = uploadResult.thumbnailUrl,
-                                                    thumbnailWidth = uploadResult.thumbnailWidth,
-                                                    thumbnailHeight = uploadResult.thumbnailHeight,
-                                                    thumbnailMimeType = uploadResult.thumbnailMimeType,
-                                                    thumbnailSize = uploadResult.thumbnailSize,
-                                                    threadRootEventId = replyThreadRootEventId,
-                                                    replyToEventId = replyToEventId
-                                                )
-                                            } else {
-                                                Log.e("Andromuks", "RoomTimelineScreen: Image upload failed after retries")
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Failed to upload image after 3 attempts",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e("Andromuks", "RoomTimelineScreen: Upload error", e)
-                                    // Try to clean up upload state - determine type from what was being uploaded
-                                    when {
-                                        isVideoToUpload && mediaUriToUpload != null -> appViewModel.endUpload(roomId, "video")
-                                        audioUriToUpload != null -> appViewModel.endUpload(roomId, "audio")
-                                        fileUriToUpload != null -> appViewModel.endUpload(roomId, "file")
-                                        mediaUriToUpload != null -> appViewModel.endUpload(roomId, "image")
-                                        else -> appViewModel.endUpload(roomId, "image")
-                                    }
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Error uploading media: ${e.message}",
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                        }
-                    )
-                }
-                
-                // Uploading dialog removed - uploads now happen in background with status row indicator
-                
-                // Code viewer dialog
-                if (showCodeViewer) {
-                    CodeViewer(
-                        code = codeViewerContent,
-                        onDismiss = {
-                            showCodeViewer = false
-                            codeViewerContent = ""
-                        }
-                    )
-                }
-
-                if (showReactionsDialog && reactionsEventId != null) {
-                    val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
-                    net.vrkknn.andromuks.utils.ReactionDetailsDialog(
-                        reactions = reactions,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onDismiss = { showReactionsDialog = false },
-                        appViewModel = appViewModel,
-                        roomId = roomId
-                    )
-                }
-
-                if (showBridgeDeliveryDialog && bridgeDeliveryEventId != null) {
-                    val eventId = bridgeDeliveryEventId!!
-                    val deliveryInfo = appViewModel.messageBridgeDeliveryInfo[eventId] ?: net.vrkknn.andromuks.BridgeDeliveryInfo()
-                    val deliveryStatus = appViewModel.messageBridgeSendStatus[eventId] ?: "sent"
-                    val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
-                    net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog(
-                        deliveryInfo = deliveryInfo,
-                        status = deliveryStatus,
-                        networkName = networkName,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onDismiss = { showBridgeDeliveryDialog = false },
-                        appViewModel = appViewModel,
-                        roomId = roomId
-                    )
-                }
+                    if (showBridgeDeliveryDialog && bridgeDeliveryEventId != null) {
+                        val eventId = bridgeDeliveryEventId!!
+                        val deliveryInfo =
+                            appViewModel.messageBridgeDeliveryInfo[eventId] ?: net.vrkknn.andromuks.BridgeDeliveryInfo()
+                        val deliveryStatus = appViewModel.messageBridgeSendStatus[eventId] ?: "sent"
+                        val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
+                        net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog(
+                            deliveryInfo = deliveryInfo,
+                            status = deliveryStatus,
+                            networkName = networkName,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onDismiss = { showBridgeDeliveryDialog = false },
+                            appViewModel = appViewModel,
+                            roomId = roomId,
+                        )
+                    }
                 }
             }
         }
     }
 }
-
-
-
-
-
-
 
 @OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
@@ -5557,7 +6063,7 @@ fun RoomHeader(
     callInProgress: Boolean = false,
     callActiveInRoom: Boolean = false,
     onRefreshClick: () -> Unit = {},
-    onSearchClick: () -> Unit = {}
+    onSearchClick: () -> Unit = {},
 ) {
     // Debug logging
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: roomState = $roomState")
@@ -5567,33 +6073,38 @@ fun RoomHeader(
     val connectionState by SyncRepository.connectionState.collectAsState()
     Surface(
         modifier =
-            Modifier.fillMaxWidth()
-                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+        Modifier.fillMaxWidth()
+            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(10.dp),
-        shadowElevation = 12.dp
+        shadowElevation = 12.dp,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Back button
             IconButton(onClick = onBackClick) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
             // Room avatar (clickable for room info)
             Box(
-                modifier = Modifier.clickable(onClick = onHeaderClick)
+                modifier = Modifier.clickable(onClick = onHeaderClick),
             ) {
                 if (sharedTransitionScope != null && animatedVisibilityScope != null && roomId != null) {
-                    val sharedKey = "avatar-${roomId}"
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: composing avatar for $roomId with sharedKey = $sharedKey")
+                    val sharedKey = "avatar-$roomId"
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                        "Andromuks",
+                        "RoomHeader: composing avatar for $roomId with sharedKey = $sharedKey",
+                    )
+                    }
                     with(sharedTransitionScope) {
                         AvatarImage(
                             mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
@@ -5612,17 +6123,22 @@ fun RoomHeader(
                                     boundsTransform = { _, _ ->
                                         spring(
                                             dampingRatio = Spring.DampingRatioLowBouncy,
-                                            stiffness = scaledStiffness(Spring.StiffnessLow)
+                                            stiffness = scaledStiffness(Spring.StiffnessLow),
                                         )
                                     },
                                     renderInOverlayDuringTransition = true,
-                                    zIndexInOverlay = 1f
+                                    zIndexInOverlay = 1f,
                                 )
-                                .clip(CircleShape)
+                                .clip(CircleShape),
                         )
                     }
                 } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomHeader: failed, we loaded the ELSE block")
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                        "Andromuks",
+                        "RoomHeader: failed, we loaded the ELSE block",
+                    )
+                    }
                     AvatarImage(
                         mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
                         homeserverUrl = homeserverUrl,
@@ -5633,7 +6149,7 @@ fun RoomHeader(
                         displayName = roomState?.name ?: fallbackName,
                         isVisible = true,
                         capAvatarSize = true, // CRITICAL: Match RoomListScreen's avatar size so shared-element transitions hit the same Coil cache key
-                        modifier = Modifier.clip(CircleShape)
+                        modifier = Modifier.clip(CircleShape),
                     )
                 }
             }
@@ -5642,7 +6158,7 @@ fun RoomHeader(
 
             // Room info (clickable for room info)
             Column(
-                modifier = Modifier.weight(1f).clickable(onClick = onHeaderClick)
+                modifier = Modifier.weight(1f).clickable(onClick = onHeaderClick),
             ) {
                 // Room name (prefer room state name, fallback to fallback name)
                 val displayName = roomState?.name ?: fallbackName
@@ -5652,7 +6168,7 @@ fun RoomHeader(
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    softWrap = false
+                    softWrap = false,
                 )
 
                 // Room topic / encryption indicator (below display name)
@@ -5661,13 +6177,13 @@ fun RoomHeader(
                 val iconSize = with(LocalDensity.current) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 2.dp)
+                    modifier = Modifier.padding(top = 2.dp),
                 ) {
                     Icon(
                         imageVector = if (isRoomEncrypted) Icons.Filled.Lock else Icons.Filled.LockOpen,
                         contentDescription = if (isRoomEncrypted) "Encrypted room" else "Unencrypted room",
                         modifier = Modifier.size(iconSize),
-                        tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     )
                     if (roomTopic != null && roomTopic.isNotBlank()) {
                         Spacer(modifier = Modifier.width(4.dp))
@@ -5676,17 +6192,17 @@ fun RoomHeader(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
             }
-            
+
             val bridgeInfo = roomState?.bridgeInfo
             AnimatedVisibility(
                 visible = !connectionState.isReady(),
                 enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-                exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+                exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
             ) {
                 val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
                 val offlineAlpha by offlinePulse.animateFloat(
@@ -5694,15 +6210,15 @@ fun RoomHeader(
                     targetValue = 1f,
                     animationSpec = infiniteRepeatable(
                         animation = tween(800, easing = FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Reverse
+                        repeatMode = RepeatMode.Reverse,
                     ),
-                    label = "offline_alpha"
+                    label = "offline_alpha",
                 )
                 Icon(
                     imageVector = Icons.Filled.CloudOff,
                     contentDescription = "No server connection",
                     tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 )
             }
             // gomuks↔homeserver sync health (distinct from the socket health / CloudOff above):
@@ -5711,7 +6227,7 @@ fun RoomHeader(
             AnimatedVisibility(
                 visible = syncStatusType == "waiting" || syncStatusType == "erroring",
                 enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-                exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+                exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
             ) {
                 val syncPulse = rememberInfiniteTransition(label = "rt_sync_status_pulse")
                 val syncAlpha by syncPulse.animateFloat(
@@ -5719,27 +6235,27 @@ fun RoomHeader(
                     targetValue = 1f,
                     animationSpec = infiniteRepeatable(
                         animation = tween(1000, easing = FastOutSlowInEasing),
-                        repeatMode = RepeatMode.Reverse
+                        repeatMode = RepeatMode.Reverse,
                     ),
-                    label = "rt_sync_status_alpha"
+                    label = "rt_sync_status_alpha",
                 )
                 Icon(
                     imageVector = Icons.Filled.Sync,
                     contentDescription = "Server sync degraded",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = syncAlpha),
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 )
             }
             AnimatedVisibility(
                 visible = syncStatusType == "permanently-failed",
                 enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-                exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+                exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
             ) {
                 Icon(
                     imageVector = Icons.Filled.SyncProblem,
                     contentDescription = "Server sync failed",
                     tint = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 )
             }
             val callIsLive = callInProgress || callActiveInRoom
@@ -5749,9 +6265,9 @@ fun RoomHeader(
                 targetValue = if (callIsLive) 0.35f else 1f,
                 animationSpec = infiniteRepeatable(
                     animation = tween(700),
-                    repeatMode = RepeatMode.Reverse
+                    repeatMode = RepeatMode.Reverse,
                 ),
-                label = "call_pulse_alpha"
+                label = "call_pulse_alpha",
             )
             IconButton(onClick = onCallClick) {
                 Icon(
@@ -5764,41 +6280,45 @@ fun RoomHeader(
                     tint = when {
                         callIsLive -> MaterialTheme.colorScheme.primary.copy(alpha = callPulseAlpha)
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    }
+                    },
                 )
             }
 
             if (bridgeInfo != null && bridgeInfo.hasRenderableIcon) {
                 // SHARED TRANSITION: match the "bridge-badge-${roomId}" key used in RoomListItem.
-                val bridgeBadgeModifier: Modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null && roomId != null) {
+                val bridgeBadgeModifier: Modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null &&
+                    roomId != null
+                ) {
                     with(sharedTransitionScope) {
                         Modifier.sharedBounds(
-                            rememberSharedContentState(key = "bridge-badge-${roomId}"),
+                            rememberSharedContentState(key = "bridge-badge-$roomId"),
                             animatedVisibilityScope = animatedVisibilityScope,
                             boundsTransform = { _, _ ->
                                 spring(
                                     dampingRatio = Spring.DampingRatioLowBouncy,
-                                    stiffness = scaledStiffness(Spring.StiffnessLow)
+                                    stiffness = scaledStiffness(Spring.StiffnessLow),
                                 )
                             },
                             renderInOverlayDuringTransition = true,
-                            zIndexInOverlay = 2f
+                            zIndexInOverlay = 2f,
                         )
                     }
-                } else Modifier
+                } else {
+                    Modifier
+                }
                 BridgeNetworkBadge(
                     bridgeInfo = bridgeInfo,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     modifier = bridgeBadgeModifier,
-                    onClick = onRefreshClick
+                    onClick = onRefreshClick,
                 )
             } else {
                 IconButton(onClick = onRefreshClick) {
                     Icon(
                         imageVector = androidx.compose.material.icons.Icons.Filled.Refresh,
                         contentDescription = "Refresh timeline",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -5810,12 +6330,12 @@ fun RoomHeader(
                     Icon(
                         imageVector = Icons.Filled.MoreVert,
                         contentDescription = "More",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 DropdownMenu(
                     expanded = moreExpanded,
-                    onDismissRequest = { moreExpanded = false }
+                    onDismissRequest = { moreExpanded = false },
                 ) {
                     DropdownMenuItem(
                         text = { Text("Mentions") },
@@ -5825,7 +6345,7 @@ fun RoomHeader(
                         },
                         leadingIcon = {
                             Icon(Icons.Filled.Notifications, contentDescription = null)
-                        }
+                        },
                     )
                     DropdownMenuItem(
                         text = { Text("Search") },
@@ -5835,7 +6355,7 @@ fun RoomHeader(
                         },
                         leadingIcon = {
                             Icon(Icons.Filled.Search, contentDescription = null)
-                        }
+                        },
                     )
                 }
             }

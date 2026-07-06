@@ -1,30 +1,32 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
-import android.util.Log
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.clickable
 import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -33,6 +35,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
@@ -46,30 +49,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.AdaptiveMessageText
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import net.vrkknn.andromuks.AdaptiveMessageText
-import net.vrkknn.andromuks.utils.ReplyPreview
-import net.vrkknn.andromuks.utils.BubbleColors
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.BubblePalette
-import androidx.compose.material3.Switch
+import net.vrkknn.andromuks.utils.ReplyPreview
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 // Data classes are defined in AppViewModel.kt
 
@@ -107,10 +103,8 @@ private fun formatTime(timestamp: Long): String {
 /** Sealed class for mention timeline items (events and date dividers) */
 sealed class MentionTimelineItem {
     abstract val stableKey: String
-    
-    data class Event(
-        val mentionEvent: MentionEvent
-    ) : MentionTimelineItem() {
+
+    data class Event(val mentionEvent: MentionEvent) : MentionTimelineItem() {
         override val stableKey: String
             get() = mentionEvent.event.eventId
     }
@@ -126,7 +120,7 @@ fun MentionsScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
     appViewModel: AppViewModel = viewModel(),
-    roomId: String? = null
+    roomId: String? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -147,7 +141,7 @@ fun MentionsScreen(
         onRefresh = {
             isRefreshing = true
             appViewModel.requestMentionsList(type = if (highlightsOnly) 4 else 6, roomId = roomId)
-        }
+        },
     )
 
     val listState = rememberLazyListState()
@@ -163,28 +157,28 @@ fun MentionsScreen(
             isRefreshing = false
         }
     }
-    
+
     // Build timeline items with date dividers
     val timelineItems = remember(mentionEvents) {
         val items = mutableListOf<MentionTimelineItem>()
         var lastDate: String? = null
-        
+
         val sortedEvents = mentionEvents.sortedByDescending { it.event.timestamp }
-        
+
         for (mentionEvent in sortedEvents) {
             val date = net.vrkknn.andromuks.formatDate(mentionEvent.event.timestamp)
-            
+
             if (lastDate == null || date != lastDate) {
                 items.add(MentionTimelineItem.DateDivider(date))
                 lastDate = date
             }
-            
+
             items.add(MentionTimelineItem.Event(mentionEvent))
         }
-        
+
         items
     }
-    
+
     AndromuksTheme {
         Surface {
             Box(modifier = modifier.fillMaxSize()) {
@@ -194,18 +188,18 @@ fun MentionsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
-                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 4.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             IconButton(onClick = { navController.popBackStack() }) {
                                 Icon(
                                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back"
+                                    contentDescription = "Back",
                                 )
                             }
                             Text(
@@ -213,26 +207,26 @@ fun MentionsScreen(
                                 style = MaterialTheme.typography.titleLarge,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f),
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                             )
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(end = 8.dp)
+                                modifier = Modifier.padding(end = 8.dp),
                             ) {
                                 Text(
                                     text = "Highlights",
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Switch(
                                     checked = highlightsOnly,
-                                    onCheckedChange = { highlightsOnly = it }
+                                    onCheckedChange = { highlightsOnly = it },
                                 )
                             }
                         }
                     }
-                    
+
                     // Content
                     // clipToBounds ensures the date pill slides from behind the header rather than over it
                     Box(
@@ -240,7 +234,7 @@ fun MentionsScreen(
                             .weight(1f)
                             .fillMaxWidth()
                             .clipToBounds()
-                            .pullRefresh(pullRefreshState)
+                            .pullRefresh(pullRefreshState),
                     ) {
                         // Top-down layout, but sorted newest-first, so scrolling toward older
                         // content *increases* firstVisibleItemIndex — same direction convention
@@ -248,8 +242,12 @@ fun MentionsScreen(
                         val oldestVisibleDate by remember(timelineItems) {
                             derivedStateOf {
                                 when (val item = timelineItems.getOrNull(listState.firstVisibleItemIndex)) {
-                                    is MentionTimelineItem.Event -> net.vrkknn.andromuks.formatDate(item.mentionEvent.event.timestamp)
+                                    is MentionTimelineItem.Event -> net.vrkknn.andromuks.formatDate(
+                                        item.mentionEvent.event.timestamp,
+                                    )
+
                                     is MentionTimelineItem.DateDivider -> item.date
+
                                     else -> null
                                 }
                             }
@@ -259,30 +257,30 @@ fun MentionsScreen(
                         if (isLoading && mentionEvents.isEmpty()) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
+                                    verticalArrangement = Arrangement.Center,
                                 ) {
                                     ExpressiveLoadingIndicator(modifier = Modifier.size(96.dp))
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
                                         text = "Loading notifications...",
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             }
                         } else if (timelineItems.isEmpty()) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
+                                contentAlignment = Alignment.Center,
                             ) {
                                 Text(
                                     text = "No notifications found",
                                     style = MaterialTheme.typography.bodyLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         } else {
@@ -293,17 +291,18 @@ fun MentionsScreen(
                                     start = 8.dp,
                                     end = 0.dp,
                                     top = 8.dp,
-                                    bottom = 8.dp
-                                )
+                                    bottom = 8.dp,
+                                ),
                             ) {
                                 items(
                                     items = timelineItems,
-                                    key = { item -> item.stableKey }
+                                    key = { item -> item.stableKey },
                                 ) { item ->
                                     when (item) {
                                         is MentionTimelineItem.DateDivider -> {
                                             DateDivider(item.date)
                                         }
+
                                         is MentionTimelineItem.Event -> {
                                             MentionItem(
                                                 mentionEvent = item.mentionEvent,
@@ -316,24 +315,27 @@ fun MentionsScreen(
                                                     // Set pending highlight event to scroll to this message
                                                     appViewModel.setPendingHighlightEvent(
                                                         mentionEvent.mentionEntry.roomId,
-                                                        mentionEvent.mentionEntry.eventId
+                                                        mentionEvent.mentionEntry.eventId,
                                                     )
                                                     // Navigate to room timeline - it will scroll to the event
-                                                    val encodedRoomId = java.net.URLEncoder.encode(mentionEvent.mentionEntry.roomId, "UTF-8")
+                                                    val encodedRoomId = java.net.URLEncoder.encode(
+                                                        mentionEvent.mentionEntry.roomId,
+                                                        "UTF-8",
+                                                    )
                                                     navController.navigate("room_timeline/$encodedRoomId")
-                                                }
+                                                },
                                             )
                                         }
                                     }
                                 }
                             }
                         }
-                        
+
                         // Pull-to-refresh indicator
                         PullRefreshIndicator(
                             refreshing = isRefreshing,
                             state = pullRefreshState,
-                            modifier = Modifier.align(Alignment.TopCenter)
+                            modifier = Modifier.align(Alignment.TopCenter),
                         )
 
                         // Sticky date pill — shows date of the top visible event while scrolling
@@ -344,14 +346,13 @@ fun MentionsScreen(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .padding(top = 8.dp)
-                                .zIndex(1f)
+                                .zIndex(1f),
                         )
                     }
                 }
             }
         }
     }
-    
 }
 
 /** Component for rendering a single mention */
@@ -364,13 +365,13 @@ fun MentionItem(
     appViewModel: AppViewModel,
     navController: NavController,
     onMentionClick: (MentionEvent) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val event = mentionEvent.event
     val roomName = mentionEvent.roomName ?: mentionEvent.mentionEntry.roomId
     val roomAvatarUrl = mentionEvent.roomAvatarUrl
     val roomId = mentionEvent.mentionEntry.roomId
-    
+
     // OPPORTUNISTIC PROFILE LOADING: Request profile on-demand if missing
     LaunchedEffect(event.sender, roomId) {
         val existingProfile = appViewModel.getUserProfile(event.sender, roomId)
@@ -378,7 +379,7 @@ fun MentionItem(
             appViewModel.requestUserProfileOnDemand(event.sender, roomId)
         }
     }
-    
+
     // Get sender profile - prefers room-specific profile, falls back to global
     val senderProfile = appViewModel.getUserProfile(event.sender, roomId)
     val senderName = senderProfile?.displayName ?: event.sender.removePrefix("@").substringBefore(":")
@@ -394,16 +395,24 @@ fun MentionItem(
             return@LaunchedEffect
         }
         while (true) {
-            pulseAnim.animateTo(1f, animationSpec = tween(durationMillis = scaledTweenMs(900), easing = FastOutSlowInEasing))
-            pulseAnim.animateTo(0f, animationSpec = tween(durationMillis = scaledTweenMs(1100), easing = FastOutSlowInEasing))
+            pulseAnim.animateTo(
+                1f,
+                animationSpec = tween(durationMillis = scaledTweenMs(900), easing = FastOutSlowInEasing),
+            )
+            pulseAnim.animateTo(
+                0f,
+                animationSpec = tween(durationMillis = scaledTweenMs(1100), easing = FastOutSlowInEasing),
+            )
         }
     }
     val mentionBorder = if (isDirect) {
         BorderStroke(
             width = 2.dp + (1.dp * pulseAnim.value),
-            color = mentionColor.copy(alpha = 0.35f + (0.45f * pulseAnim.value))
+            color = mentionColor.copy(alpha = 0.35f + (0.45f * pulseAnim.value)),
         )
-    } else null
+    } else {
+        null
+    }
 
     Surface(
         modifier = modifier
@@ -413,17 +422,17 @@ fun MentionItem(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
         tonalElevation = 1.dp,
-        border = mentionBorder
+        border = mentionBorder,
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp)
+                .padding(12.dp),
         ) {
             // Room context
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 AvatarImage(
                     mxcUrl = roomAvatarUrl,
@@ -432,7 +441,7 @@ fun MentionItem(
                     fallbackText = roomName.take(1),
                     size = 24.dp,
                     userId = mentionEvent.mentionEntry.roomId,
-                    displayName = roomName
+                    displayName = roomName,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
@@ -440,16 +449,16 @@ fun MentionItem(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             // Sender and message
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.Top,
             ) {
                 AvatarImage(
                     mxcUrl = senderAvatarUrl,
@@ -458,31 +467,31 @@ fun MentionItem(
                     fallbackText = senderName.take(1),
                     size = 32.dp,
                     userId = event.sender,
-                    displayName = senderName
+                    displayName = senderName,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = senderName,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = formatTime(event.timestamp),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp
+                            fontSize = 11.sp,
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    
+
                     // Render reply preview if this is a reply
                     val replyInfo = event.getReplyInfo()
                     val replyToEvent = mentionEvent.replyToEvent
@@ -494,7 +503,7 @@ fun MentionItem(
                                 appViewModel.requestUserProfileOnDemand(replyToEvent.sender, roomId)
                             }
                         }
-                        
+
                         // Get user profile cache for reply preview - make it reactive to member updates
                         // Ensure reply sender profile is included even if not in member map yet
                         val userProfileCache = remember(roomId, appViewModel.memberUpdateCounter, replyToEvent.sender) {
@@ -506,7 +515,7 @@ fun MentionItem(
                             }
                             memberMap
                         }
-                        
+
                         // Create simple bubble colors for reply preview
                         val colorScheme = MaterialTheme.colorScheme
                         val replyPreviewColors = remember(replyInfo.eventId, myUserId, colorScheme) {
@@ -518,10 +527,10 @@ fun MentionItem(
                                 isThreadMessage = false,
                                 hasSpoiler = false,
                                 isRedacted = false,
-                                isEdited = false
+                                isEdited = false,
                             )
                         }
-                        
+
                         ReplyPreview(
                             replyInfo = replyInfo,
                             originalEvent = replyToEvent,
@@ -539,17 +548,17 @@ fun MentionItem(
                             },
                             timelineEvents = emptyList(), // Not needed for mentions screen
                             onMatrixUserClick = { /* No-op for mentions */ },
-                            appViewModel = appViewModel
+                            appViewModel = appViewModel,
                         )
                     }
-                    
+
                     // Render message content
                     MessageContentPreview(
                         event = event,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         appViewModel = appViewModel,
-                        roomId = mentionEvent.mentionEntry.roomId
+                        roomId = mentionEvent.mentionEntry.roomId,
                     )
                 }
             }
@@ -564,7 +573,7 @@ private fun MessageContentPreview(
     homeserverUrl: String,
     authToken: String,
     appViewModel: AppViewModel,
-    roomId: String
+    roomId: String,
 ) {
     // Get body text - prefer decrypted content for encrypted events
     val content = event.decrypted ?: event.content
@@ -574,12 +583,12 @@ private fun MessageContentPreview(
     } else {
         content?.optString("body", "") ?: ""
     }
-    
+
     // Get user profile cache for this room
     val userProfileCache = remember(roomId, appViewModel.memberUpdateCounter) {
         appViewModel.getMemberMap(roomId)
     }
-    
+
     // Render message content using AdaptiveMessageText
     AdaptiveMessageText(
         event = event,
@@ -591,7 +600,6 @@ private fun MessageContentPreview(
         appViewModel = appViewModel,
         roomId = roomId,
         textColor = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier
+        modifier = Modifier,
     )
 }
-

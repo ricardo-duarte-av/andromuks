@@ -1,15 +1,13 @@
 package net.vrkknn.andromuks.utils
 
-
-
-import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import net.vrkknn.andromuks.BuildConfig
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /**
  * Maps HTTP URLs (used by Coil) to MXC URLs for cache gallery display.
@@ -24,7 +22,7 @@ object CoilUrlMapper {
     private val cacheFileKeyMappings = ConcurrentHashMap<String, String>() // Disk cache file key/hash -> MXC URL
     private val cacheMutex = Mutex()
     private var isLoaded = false
-    
+
     /**
      * Register a mapping from HTTP URL to MXC URL.
      * This should be called whenever an image is loaded with a known MXC URL.
@@ -52,14 +50,12 @@ object CoilUrlMapper {
             }
         }
     }
-    
+
     /**
      * Get MXC URL for an HTTP URL.
      */
-    fun getMxcUrl(httpUrl: String): String? {
-        return urlMappings[httpUrl]
-    }
-    
+    fun getMxcUrl(httpUrl: String): String? = urlMappings[httpUrl]
+
     /**
      * Try to find MXC URL for a Coil cache file by checking registered mappings.
      * This is a best-effort lookup that may not always succeed.
@@ -95,28 +91,34 @@ object CoilUrlMapper {
         for ((httpUrl, mxcUrl) in urlMappings) {
             // Simple heuristic: check if file name contains parts of the URL
             val urlHash = httpUrl.hashCode().toString()
-            if (fileName.contains(urlHash) || 
-                fileName.contains(httpUrl.replace("https://", "").replace("http://", "").take(20))) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "resolveByFile: heuristic match file=$fileName viaUrlHash=$urlHash -> $mxcUrl")
+            if (fileName.contains(urlHash) ||
+                fileName.contains(httpUrl.replace("https://", "").replace("http://", "").take(20))
+            ) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "resolveByFile: heuristic match file=$fileName viaUrlHash=$urlHash -> $mxcUrl",
+                )
+                }
                 return@withLock mxcUrl
             }
         }
         if (BuildConfig.DEBUG) {
             Log.d(
                 TAG,
-                "resolveByFile: miss file=$fileName mappings(url=${urlMappings.size}, fileKeys=${cacheFileKeyMappings.size})"
+                "resolveByFile: miss file=$fileName mappings(url=${urlMappings.size}, fileKeys=${cacheFileKeyMappings.size})",
             )
         }
-        
+
         null
     }
-    
+
     /**
      * Load mappings from disk (called on app startup).
      */
     suspend fun loadMappings(context: Context) = cacheMutex.withLock {
         if (isLoaded) return@withLock
-        
+
         try {
             val mappingFile = File(context.cacheDir, MAPPING_FILE)
             if (mappingFile.exists() && mappingFile.canRead()) {
@@ -159,16 +161,16 @@ object CoilUrlMapper {
                         }
                     }
                 }
-                
+
                 if (BuildConfig.DEBUG) Log.d(TAG, "Loaded $loadedCount URL mappings from disk")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load URL mappings", e)
         }
-        
+
         isLoaded = true
     }
-    
+
     /**
      * Save mappings to disk (called periodically or on app shutdown).
      */
@@ -178,7 +180,7 @@ object CoilUrlMapper {
             val json = org.json.JSONObject()
             val urlJson = org.json.JSONObject()
             val fileKeyJson = org.json.JSONObject()
-            
+
             // Save up to 5000 most recent mappings to avoid large files
             val mappingsToSave = urlMappings.entries.take(5000)
             for ((httpUrl, mxcUrl) in mappingsToSave) {
@@ -190,14 +192,19 @@ object CoilUrlMapper {
             }
             json.put("url_mappings", urlJson)
             json.put("file_key_mappings", fileKeyJson)
-            
+
             mappingFile.writeText(json.toString())
-            if (BuildConfig.DEBUG) Log.d(TAG, "Saved ${mappingsToSave.size} URL mappings and ${fileKeyMappingsToSave.size} file-key mappings to disk")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "Saved ${mappingsToSave.size} URL mappings and ${fileKeyMappingsToSave.size} file-key mappings to disk",
+            )
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save URL mappings", e)
         }
     }
-    
+
     /**
      * Clear all mappings (for testing or cache clearing).
      */
@@ -251,4 +258,3 @@ object CoilUrlMapper {
         return digest.joinToString("") { b -> "%02x".format(b) }
     }
 }
-

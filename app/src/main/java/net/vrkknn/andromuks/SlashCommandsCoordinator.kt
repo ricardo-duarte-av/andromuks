@@ -33,114 +33,147 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 }
                 true
             }
+
             command == "/leave" || command == "/part" -> {
                 leaveRoom(roomId)
                 true
             }
+
             command == "/invite" -> {
                 if (args.isNotEmpty()) {
                     val userId = args[0]
                     val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
                     val requestId = WebSocketService.allocateRequestId()
-                    sendWebSocketCommand("set_membership", requestId, mapOf(
+                    sendWebSocketCommand(
+                        "set_membership", requestId,
+                        mapOf(
                         "room_id" to roomId,
                         "user_id" to userId,
                         "action" to "invite",
-                        "reason" to (reason ?: "")
-                    ))
+                        "reason" to (reason ?: ""),
+                    )
+                    )
                 }
                 true
             }
+
             command == "/kick" -> {
                 if (args.isNotEmpty()) {
                     val userId = args[0]
                     val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
                     val requestId = WebSocketService.allocateRequestId()
-                    sendWebSocketCommand("set_membership", requestId, mapOf(
+                    sendWebSocketCommand(
+                        "set_membership", requestId,
+                        mapOf(
                         "room_id" to roomId,
                         "user_id" to userId,
                         "action" to "kick",
-                        "reason" to (reason ?: "")
-                    ))
+                        "reason" to (reason ?: ""),
+                    )
+                    )
                 }
                 true
             }
+
             command == "/ban" -> {
                 if (args.isNotEmpty()) {
                     val userId = args[0]
                     val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
                     val requestId = WebSocketService.allocateRequestId()
-                    sendWebSocketCommand("set_membership", requestId, mapOf(
+                    sendWebSocketCommand(
+                        "set_membership", requestId,
+                        mapOf(
                         "room_id" to roomId,
                         "user_id" to userId,
                         "action" to "ban",
-                        "reason" to (reason ?: "")
-                    ))
+                        "reason" to (reason ?: ""),
+                    )
+                    )
                 }
                 true
             }
+
             command == "/myroomnick" || command == "/roomnick" -> {
                 if (args.isNotEmpty()) {
                     val name = args.joinToString(" ")
                     val requestId = WebSocketService.allocateRequestId()
-                    sendWebSocketCommand("set_state", requestId, mapOf(
+                    sendWebSocketCommand(
+                        "set_state", requestId,
+                        mapOf(
                         "room_id" to roomId,
                         "type" to "m.room.member",
                         "state_key" to currentUserId,
                         "content" to mapOf(
                             "displayname" to name,
-                            "membership" to "join"
-                        )
-                    ))
+                            "membership" to "join",
+                        ),
+                    )
+                    )
                 }
                 true
             }
+
             command == "/myroomavatar" -> {
                 return false
             }
+
             command == "/globalnick" || command == "/globalname" -> {
                 if (args.isNotEmpty()) {
                     val name = args.joinToString(" ")
                     val requestId = WebSocketService.allocateRequestId()
-                    sendWebSocketCommand("set_profile_field", requestId, mapOf(
+                    sendWebSocketCommand(
+                        "set_profile_field", requestId,
+                        mapOf(
                         "field" to "displayname",
-                        "value" to name
-                    ))
+                        "value" to name,
+                    )
+                    )
                 }
                 true
             }
+
             command == "/globalavatar" -> {
                 return false
             }
+
             command == "/roomname" -> {
                 if (args.isNotEmpty()) {
                     val name = args.joinToString(" ")
                     val requestId = WebSocketService.allocateRequestId()
-                    sendWebSocketCommand("set_state", requestId, mapOf(
+                    sendWebSocketCommand(
+                        "set_state", requestId,
+                        mapOf(
                         "room_id" to roomId,
                         "type" to "m.room.name",
                         "state_key" to "",
-                        "content" to mapOf("name" to name)
-                    ))
+                        "content" to mapOf("name" to name),
+                    )
+                    )
                 }
                 true
             }
+
             command == "/roomavatar" -> {
                 return false
             }
+
             command == "/redact" -> {
                 if (args.isNotEmpty()) {
                     val eventId = args[0]
                     val reason = args.drop(1).joinToString(" ").takeIf { it.isNotBlank() }
                     val requestId = WebSocketService.allocateRequestId()
-                    sendWebSocketCommand("redact_event", requestId, mapOf(
+                    sendWebSocketCommand(
+                        "redact_event", requestId,
+                        mapOf(
                         "room_id" to roomId,
                         "event_id" to eventId,
-                        "reason" to (reason ?: "")
-                    ))
+                        "reason" to (reason ?: ""),
+                    )
+                    )
                 }
                 true
             }
+
             command == "/raw" -> {
                 if (args.isNotEmpty()) {
                     val eventType = args[0]
@@ -154,18 +187,22 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                             val key = keys.next()
                             contentMap[key] = content.get(key)
                         }
-                        sendWebSocketCommand("send_event", requestId, mapOf(
+                        sendWebSocketCommand(
+                            "send_event", requestId,
+                            mapOf(
                             "room_id" to roomId,
                             "type" to eventType,
                             "content" to contentMap,
-                            "disable_encryption" to false
-                        ))
+                            "disable_encryption" to false,
+                        )
+                        )
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Invalid JSON in /raw command", e)
                     }
                 }
                 true
             }
+
             command == "/unencryptedraw" -> {
                 if (args.isNotEmpty()) {
                     val eventType = args[0]
@@ -179,18 +216,22 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                             val key = keys.next()
                             contentMap[key] = content.get(key)
                         }
-                        sendWebSocketCommand("send_event", requestId, mapOf(
+                        sendWebSocketCommand(
+                            "send_event", requestId,
+                            mapOf(
                             "room_id" to roomId,
                             "type" to eventType,
                             "content" to contentMap,
-                            "disable_encryption" to true
-                        ))
+                            "disable_encryption" to true,
+                        )
+                        )
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Invalid JSON in /unencryptedraw command", e)
                     }
                 }
                 true
             }
+
             command == "/rawstate" -> {
                 if (args.size >= 2) {
                     val eventType = args[0]
@@ -205,18 +246,22 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                             val key = keys.next()
                             contentMap[key] = content.get(key)
                         }
-                        sendWebSocketCommand("set_state", requestId, mapOf(
+                        sendWebSocketCommand(
+                            "set_state", requestId,
+                            mapOf(
                             "room_id" to roomId,
                             "type" to eventType,
                             "state_key" to stateKey,
-                            "content" to contentMap
-                        ))
+                            "content" to contentMap,
+                        )
+                        )
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Invalid JSON in /rawstate command", e)
                     }
                 }
                 true
             }
+
             command == "/alias" -> {
                 if (args.size >= 2) {
                     val action = args[0].lowercase()
@@ -224,25 +269,33 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                     val requestId = WebSocketService.allocateRequestId()
                     when (action) {
                         "add", "create" -> {
-                            sendWebSocketCommand("set_state", requestId, mapOf(
+                            sendWebSocketCommand(
+                                "set_state", requestId,
+                                mapOf(
                                 "room_id" to roomId,
                                 "type" to "m.room.canonical_alias",
                                 "state_key" to "",
-                                "content" to mapOf("alias" to alias)
-                            ))
+                                "content" to mapOf("alias" to alias),
+                            )
+                            )
                         }
+
                         "del", "remove", "rm", "delete" -> {
-                            sendWebSocketCommand("set_state", requestId, mapOf(
+                            sendWebSocketCommand(
+                                "set_state", requestId,
+                                mapOf(
                                 "room_id" to roomId,
                                 "type" to "m.room.canonical_alias",
                                 "state_key" to "",
-                                "content" to mapOf("alias" to "")
-                            ))
+                                "content" to mapOf("alias" to ""),
+                            )
+                            )
                         }
                     }
                 }
                 true
             }
+
             command == "/converttodm" -> {
                 val remainder =
                     trimmed.split("\\s+".toRegex(), limit = 2).getOrNull(1)?.trim().orEmpty()
@@ -255,7 +308,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                         android.widget.Toast.makeText(
                             context,
                             "Specify a user (@user:server) or use in a room with exactly one other member",
-                            android.widget.Toast.LENGTH_LONG
+                            android.widget.Toast.LENGTH_LONG,
                         ).show()
                         return true
                     }
@@ -265,7 +318,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                     android.widget.Toast.makeText(
                         context,
                         "Invalid Matrix user ID",
-                        android.widget.Toast.LENGTH_SHORT
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     return true
                 }
@@ -279,6 +332,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 }
                 true
             }
+
             command == "/converttoroom" -> {
                 val map = accountDataCoordinator.mutableDirectMapFromCurrent()
                 val wasDirect = map.values.any { it.contains(roomId) }
@@ -299,6 +353,7 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 }
                 true
             }
+
             command == "/pmp" || command == "/profile" -> {
                 // No args or only shortcode with no message text: let the UI profile picker handle it
                 if (args.isEmpty()) return false
@@ -311,13 +366,14 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                     android.widget.Toast.makeText(
                         context,
                         "Failed to send message: Error: unknown per-message profile: $shortcode",
-                        android.widget.Toast.LENGTH_SHORT
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     return true
                 }
                 // Valid: let the text fall through to normal sendMessage (gomuks handles /pmp natively)
                 false
             }
+
             else -> false
         }
     }

@@ -26,10 +26,7 @@ import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ReconnectionLogScreen(
-    appViewModel: AppViewModel,
-    navController: NavController
-) {
+fun ReconnectionLogScreen(appViewModel: AppViewModel, navController: NavController) {
     val activityLog = remember { appViewModel.getActivityLog() }
     val context = LocalContext.current
     val lastConnectionUrl = remember { WebSocketService.getLastConnectionUrl(context) }
@@ -45,7 +42,7 @@ fun ReconnectionLogScreen(
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("text/plain")
+        contract = ActivityResultContracts.CreateDocument("text/plain"),
     ) { uri ->
         if (uri == null) {
             scope.launch { snackbarHostState.showSnackbar("Export cancelled") }
@@ -70,7 +67,7 @@ fun ReconnectionLogScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
                         )
                     }
                 },
@@ -80,39 +77,39 @@ fun ReconnectionLogScreen(
                         onClick = {
                             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
                             exportLauncher.launch("andromuks_activity_log_$stamp.txt")
-                        }
+                        },
                     ) {
                         Text("Export")
                     }
-                }
+                },
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .padding(innerPadding),
         ) {
             if (activityLog.isEmpty()) {
                 // Empty state
                 Box(
                     modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.Center,
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
                             text = "No activity yet",
                             style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
                             text = "WebSocket activity events will appear here",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -121,33 +118,33 @@ fun ReconnectionLogScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     item {
                         Card(
                             modifier = Modifier.fillMaxWidth(),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                         ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Text(
                                     text = "WebSocket URL",
                                     style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                                 Text(
                                     text = websocketUrl,
                                     style = MaterialTheme.typography.bodyMedium,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
                                 )
                                 if (websocketUrl != "No connection made yet") {
                                     TextButton(
                                         onClick = { copyWebSocketUrl() },
-                                        modifier = Modifier.align(Alignment.End)
+                                        modifier = Modifier.align(Alignment.End),
                                     ) {
                                         Text("Copy")
                                     }
@@ -188,46 +185,46 @@ private fun buildActivityLogExportText(entries: List<AppViewModel.ActivityLogEnt
 fun ActivityLogEntry(entry: AppViewModel.ActivityLogEntry) {
     val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
     val formattedTime = dateFormat.format(Date(entry.timestamp))
-    
+
     Card(
         modifier = Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(
                 text = formattedTime,
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = entry.event,
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
-                
+
                 // Show network type if available
                 entry.networkType?.let { networkType ->
                     Surface(
                         color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = MaterialTheme.shapes.small
+                        shape = MaterialTheme.shapes.small,
                     ) {
                         Text(
                             text = networkType,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         )
                     }
                 }

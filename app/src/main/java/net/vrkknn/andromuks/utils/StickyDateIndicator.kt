@@ -7,7 +7,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.layout.padding
-import net.vrkknn.andromuks.ui.theme.scaledSpring
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -22,6 +21,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import net.vrkknn.andromuks.ui.theme.scaledSpring
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -47,7 +47,7 @@ fun StickyDateIndicator(
     oldestVisibleDate: String?,
     scrollPositionKey: Int = 0,
     reverseScrollLayout: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val today = remember {
         SimpleDateFormat("dd / MM / yyyy", Locale.getDefault()).format(Date())
@@ -73,6 +73,7 @@ fun StickyDateIndicator(
                 // Follow the scroll direction — hide immediately.
                 showPill = false
             }
+
             oldestVisibleDate != null && oldestVisibleDate != today -> {
                 // At old content and either stationary or scrolling toward older — show pill.
                 displayDate = oldestVisibleDate
@@ -80,6 +81,7 @@ fun StickyDateIndicator(
                 delay(3000)
                 showPill = false
             }
+
             else -> {
                 // Today's content or no date — ensure pill is hidden.
                 showPill = false
@@ -89,24 +91,30 @@ fun StickyDateIndicator(
 
     AnimatedVisibility(
         visible = showPill,
-        enter = slideInVertically(initialOffsetY = { -it }, animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
+        enter = slideInVertically(
+            initialOffsetY = { -it },
+            animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow),
+        ) +
             fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
-        exit = slideOutVertically(targetOffsetY = { -it }, animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
+        exit = slideOutVertically(
+            targetOffsetY = { -it },
+            animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow),
+        ) +
             fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
-        modifier = modifier
+        modifier = modifier,
     ) {
         Surface(
             shape = RoundedCornerShape(50),
             // Slightly transparent so timeline content is visible through it
             color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.82f),
             tonalElevation = 4.dp,
-            shadowElevation = 2.dp
+            shadowElevation = 2.dp,
         ) {
             Text(
                 text = displayDate,
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onTertiaryContainer,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
             )
         }
     }

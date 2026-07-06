@@ -2,9 +2,7 @@ package net.vrkknn.andromuks
 
 import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
-import net.vrkknn.andromuks.ui.theme.scaledSpring
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -17,33 +15,32 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.theme.scaledSpring
 import net.vrkknn.andromuks.utils.performHttpLogin
 import okhttp3.OkHttpClient
 
@@ -74,28 +71,35 @@ fun LoginScreen(
     }
 
     val imeVisible = rememberImeVisible()
-    val logoScale by animateFloatAsState(targetValue = if (imeVisible) 1f else 2f, animationSpec = scaledSpring(), label = "logoScale")
+    val logoScale by animateFloatAsState(
+        targetValue = if (imeVisible) 1f else 2f,
+        animationSpec = scaledSpring(),
+        label = "logoScale",
+    )
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .imePadding()
+            .imePadding(),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Top: flexible space for logo
             Box(
                 modifier = Modifier
                     .then(
-                        if (imeVisible) Modifier.weight(1f)
-                        else Modifier
+                        if (imeVisible) {
+                            Modifier.weight(1f)
+                        } else {
+                            Modifier
+                        },
                     ),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 // Only the logo scales
                 androidx.compose.foundation.Image(
@@ -108,7 +112,7 @@ fun LoginScreen(
                             scaleX = logoScale
                             scaleY = logoScale
                         },
-                    colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onBackground)
+                    colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onBackground),
                 )
             }
 
@@ -119,26 +123,26 @@ fun LoginScreen(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(vertical = 16.dp)
+                modifier = Modifier.padding(vertical = 16.dp),
             )
 
             // Bottom: login form
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 TextField(
                     value = url,
                     onValueChange = { url = it },
                     label = { Text("Homeserver URL") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 TextField(
                     value = username,
                     onValueChange = { username = it },
                     label = { Text("Username") },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 TextField(
@@ -146,7 +150,7 @@ fun LoginScreen(
                     onValueChange = { password = it },
                     label = { Text("Password") },
                     modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = PasswordVisualTransformation()
+                    visualTransformation = PasswordVisualTransformation(),
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
@@ -169,11 +173,12 @@ fun LoginScreen(
                                 scope.launch {
                                     appViewModel.isLoading = false
                                 }
-                            }
+                            },
                         )
                     },
-                    enabled = url.isNotBlank() && username.isNotBlank() && password.isNotBlank() && !appViewModel.isLoading,
-                    modifier = Modifier.fillMaxWidth()
+                    enabled =
+                    url.isNotBlank() && username.isNotBlank() && password.isNotBlank() && !appViewModel.isLoading,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(text = if (appViewModel.isLoading) "Logging in..." else "Login")
                 }

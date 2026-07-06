@@ -1,16 +1,11 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.ui.theme.scaledStiffness
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import android.Manifest
 import android.net.Uri
 import android.util.Log
 import android.view.OrientationEventListener
 import android.view.Surface
-import java.io.File
-
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -98,6 +93,9 @@ import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import net.vrkknn.andromuks.ui.theme.scaledStiffness
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
+import java.io.File
 
 /**
  * Shared attachment menu + in-app camera/video capture overlays.
@@ -140,23 +138,22 @@ fun AttachmentMenuBar(
     val context = LocalContext.current
     val density = LocalDensity.current
 
-    fun hasCameraPermission() =
-        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
+    fun hasCameraPermission() = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
+        android.content.pm.PackageManager.PERMISSION_GRANTED
 
     // Permission launchers: on grant, open the corresponding in-app overlay.
     val photoPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
+        contract = ActivityResultContracts.RequestPermission(),
     ) { granted -> if (granted) onOpenPhotoCamera() }
     val videoPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
+        contract = ActivityResultContracts.RequestPermission(),
     ) { granted -> if (granted) onOpenVideoCamera() }
 
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
         enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
-        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))
+        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
     ) {
         val attachmentBarSlideOffsetPx = transition.animateFloat(
             transitionSpec = {
@@ -168,7 +165,7 @@ fun AttachmentMenuBar(
                     tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
                 }
             },
-            label = "attachmentBarSlideOffset"
+            label = "attachmentBarSlideOffset",
         ) { state ->
             if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
         }
@@ -182,7 +179,7 @@ fun AttachmentMenuBar(
                     tween(durationMillis = scaledTweenMs(500))
                 }
             },
-            label = "attachmentButtonsAlpha"
+            label = "attachmentButtonsAlpha",
         ) { state ->
             if (state == EnterExitState.Visible) 1f else 0f
         }
@@ -194,113 +191,119 @@ fun AttachmentMenuBar(
                 .navigationBarsPadding()
                 .imePadding()
                 .zIndex(5f),
-            contentAlignment = Alignment.BottomStart
+            contentAlignment = Alignment.BottomStart,
         ) {
-          Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer {
-                    // Position menu right above footer (footer height = buttonHeight + 24.dp padding)
-                    translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + attachmentBarSlideOffsetPx.value
-                }
-        ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp,
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        // Position menu right above footer (footer height = buttonHeight + 24.dp padding)
+                        translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + attachmentBarSlideOffsetPx.value
+                    },
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
+                    modifier = Modifier.fillMaxWidth(),
                 ) {
-                    AttachmentMenuChip(
-                        icon = Icons.Filled.Folder,
-                        label = "File",
-                        contentDescription = "Files",
-                        buttonsAlpha = attachmentButtonsAlpha.value
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        onDismiss()
-                        // SAF document picker — grants per-URI read access via the
-                        // result, so no storage permission is needed.
-                        onPickFile()
-                    }
+                        AttachmentMenuChip(
+                            icon = Icons.Filled.Folder,
+                            label = "File",
+                            contentDescription = "Files",
+                            buttonsAlpha = attachmentButtonsAlpha.value,
+                        ) {
+                            onDismiss()
+                            // SAF document picker — grants per-URI read access via the
+                            // result, so no storage permission is needed.
+                            onPickFile()
+                        }
 
-                    AttachmentMenuChip(
-                        icon = Icons.Filled.AudioFile,
-                        label = "Audio",
-                        contentDescription = "Audio",
-                        buttonsAlpha = attachmentButtonsAlpha.value
-                    ) {
-                        onDismiss()
-                        // SAF picker — per-URI read grant, no storage permission needed.
-                        onPickAudio()
-                    }
+                        AttachmentMenuChip(
+                            icon = Icons.Filled.AudioFile,
+                            label = "Audio",
+                            contentDescription = "Audio",
+                            buttonsAlpha = attachmentButtonsAlpha.value,
+                        ) {
+                            onDismiss()
+                            // SAF picker — per-URI read grant, no storage permission needed.
+                            onPickAudio()
+                        }
 
-                    AttachmentMenuChip(
-                        icon = Icons.Filled.Image,
-                        label = "Image/Video",
-                        contentDescription = "Images & Videos",
-                        buttonsAlpha = attachmentButtonsAlpha.value
-                    ) {
-                        onDismiss()
-                        // Android Photo Picker — no permission needed, consistent
-                        // Photo/Album sheet for both images and videos.
-                        onPickImageVideo()
-                    }
+                        AttachmentMenuChip(
+                            icon = Icons.Filled.Image,
+                            label = "Image/Video",
+                            contentDescription = "Images & Videos",
+                            buttonsAlpha = attachmentButtonsAlpha.value,
+                        ) {
+                            onDismiss()
+                            // Android Photo Picker — no permission needed, consistent
+                            // Photo/Album sheet for both images and videos.
+                            onPickImageVideo()
+                        }
 
-                    // Photo option (opens in-app snapping overlay) with expressive shape morph
-                    val photoInteractionSource = remember { MutableInteractionSource() }
-                    val photoPressed by photoInteractionSource.collectIsPressedAsState()
-                    val photoShapePercent by animateFloatAsState(
-                        targetValue = if (photoPressed) 50f else 29f, // 50 = circle on press, 29 ~ RoundedCornerShape(16.dp) on 56dp
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = scaledStiffness(Spring.StiffnessMedium)
-                        ),
-                        label = "photoShapeMorph"
-                    )
-                    AttachmentMenuChip(
-                        icon = Icons.Filled.CameraAlt,
-                        label = "Photo",
-                        contentDescription = "Photo",
-                        buttonsAlpha = attachmentButtonsAlpha.value,
-                        shape = RoundedCornerShape(percent = photoShapePercent.toInt()),
-                        interactionSource = photoInteractionSource
-                    ) {
-                        // Close attach menu and open in-app camera overlay, but only once
-                        // CAMERA permission is granted — otherwise the CameraX preview binds
-                        // without permission and shows a black frame while it retries for 10s.
-                        onDismiss()
-                        if (hasCameraPermission()) onOpenPhotoCamera()
-                        else photoPermissionLauncher.launch(Manifest.permission.CAMERA)
-                    }
+                        // Photo option (opens in-app snapping overlay) with expressive shape morph
+                        val photoInteractionSource = remember { MutableInteractionSource() }
+                        val photoPressed by photoInteractionSource.collectIsPressedAsState()
+                        val photoShapePercent by animateFloatAsState(
+                            targetValue = if (photoPressed) 50f else 29f, // 50 = circle on press, 29 ~ RoundedCornerShape(16.dp) on 56dp
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = scaledStiffness(Spring.StiffnessMedium),
+                            ),
+                            label = "photoShapeMorph",
+                        )
+                        AttachmentMenuChip(
+                            icon = Icons.Filled.CameraAlt,
+                            label = "Photo",
+                            contentDescription = "Photo",
+                            buttonsAlpha = attachmentButtonsAlpha.value,
+                            shape = RoundedCornerShape(percent = photoShapePercent.toInt()),
+                            interactionSource = photoInteractionSource,
+                        ) {
+                            // Close attach menu and open in-app camera overlay, but only once
+                            // CAMERA permission is granted — otherwise the CameraX preview binds
+                            // without permission and shows a black frame while it retries for 10s.
+                            onDismiss()
+                            if (hasCameraPermission()) {
+                                onOpenPhotoCamera()
+                            } else {
+                                photoPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        }
 
-                    AttachmentMenuChip(
-                        icon = Icons.Filled.Videocam,
-                        label = "Video",
-                        contentDescription = "Video",
-                        buttonsAlpha = attachmentButtonsAlpha.value
-                    ) {
-                        onDismiss()
-                        if (hasCameraPermission()) onOpenVideoCamera()
-                        else videoPermissionLauncher.launch(Manifest.permission.CAMERA)
-                    }
+                        AttachmentMenuChip(
+                            icon = Icons.Filled.Videocam,
+                            label = "Video",
+                            contentDescription = "Video",
+                            buttonsAlpha = attachmentButtonsAlpha.value,
+                        ) {
+                            onDismiss()
+                            if (hasCameraPermission()) {
+                                onOpenVideoCamera()
+                            } else {
+                                videoPermissionLauncher.launch(Manifest.permission.CAMERA)
+                            }
+                        }
 
-                    AttachmentMenuChip(
-                        icon = Icons.Filled.LocationOn,
-                        label = "Location",
-                        contentDescription = "Location",
-                        buttonsAlpha = attachmentButtonsAlpha.value
-                    ) {
-                        onDismiss()
-                        onPickLocation()
+                        AttachmentMenuChip(
+                            icon = Icons.Filled.LocationOn,
+                            label = "Location",
+                            contentDescription = "Location",
+                            buttonsAlpha = attachmentButtonsAlpha.value,
+                        ) {
+                            onDismiss()
+                            onPickLocation()
+                        }
                     }
                 }
             }
-          }
         }
     }
 }
@@ -318,25 +321,25 @@ private fun androidx.compose.foundation.layout.RowScope.AttachmentMenuChip(
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.weight(1f)
+        modifier = Modifier.weight(1f),
     ) {
         val fallbackInteractionSource = remember { MutableInteractionSource() }
         Surface(
             color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
             shape = shape,
             tonalElevation = 1.dp,
-            modifier = Modifier.size(56.dp)
+            modifier = Modifier.size(56.dp),
         ) {
             IconButton(
                 onClick = onClick,
                 interactionSource = interactionSource ?: fallbackInteractionSource,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = contentDescription,
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.alpha(buttonsAlpha)
+                    modifier = Modifier.alpha(buttonsAlpha),
                 )
             }
         }
@@ -345,7 +348,7 @@ private fun androidx.compose.foundation.layout.RowScope.AttachmentMenuChip(
             text = label,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
+            maxLines = 1,
         )
     }
 }
@@ -357,11 +360,7 @@ private fun androidx.compose.foundation.layout.RowScope.AttachmentMenuChip(
  *   this into its media-preview pipeline; [onDismiss] then closes the overlay.
  */
 @Composable
-fun InAppCameraOverlay(
-    visible: Boolean,
-    onDismiss: () -> Unit,
-    onCaptured: (uri: Uri, isVideo: Boolean) -> Unit,
-) {
+fun InAppCameraOverlay(visible: Boolean, onDismiss: () -> Unit, onCaptured: (uri: Uri, isVideo: Boolean) -> Unit) {
     val context = LocalContext.current
     var flashMode by rememberSaveable { mutableStateOf(CameraFlashMode.OFF) }
     var useFrontCamera by rememberSaveable { mutableStateOf(false) }
@@ -372,23 +371,23 @@ fun InAppCameraOverlay(
         enter = fadeIn(
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = scaledStiffness(Spring.StiffnessMedium)
-            )
+                stiffness = scaledStiffness(Spring.StiffnessMedium),
+            ),
         ) + scaleIn(
             initialScale = 0.88f,
             transformOrigin = TransformOrigin(0.5f, 1f),
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = scaledStiffness(Spring.StiffnessMedium)
-            )
+                stiffness = scaledStiffness(Spring.StiffnessMedium),
+            ),
         ),
         exit = fadeOut(
-            animationSpec = tween(scaledTweenMs(160), easing = FastOutSlowInEasing)
+            animationSpec = tween(scaledTweenMs(160), easing = FastOutSlowInEasing),
         ) + scaleOut(
             targetScale = 0.88f,
             transformOrigin = TransformOrigin(0.5f, 1f),
-            animationSpec = tween(scaledTweenMs(180), easing = FastOutSlowInEasing)
-        )
+            animationSpec = tween(scaledTweenMs(180), easing = FastOutSlowInEasing),
+        ),
     ) {
         // Track physical device orientation and rotate only camera controls (not preview container)
         val cameraOrientation = rememberCameraOrientation()
@@ -397,7 +396,7 @@ fun InAppCameraOverlay(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
-                .zIndex(12f)
+                .zIndex(12f),
         ) {
             // Letterboxed CameraX preview with fixed 3:4 portrait aspect.
             // We keep the preview itself unrotated to avoid stretching/compressing;
@@ -407,13 +406,13 @@ fun InAppCameraOverlay(
                     .align(Alignment.Center)
                     .offset(y = (-24).dp)
                     .fillMaxHeight()
-                    .aspectRatio(3f / 4f)
+                    .aspectRatio(3f / 4f),
             ) {
                 key(useFrontCamera) {
                     InAppCameraPreview(
                         modifier = Modifier.fillMaxSize(),
                         useFrontCamera = useFrontCamera,
-                        onImageCaptureReady = { imageCaptureState = it }
+                        onImageCaptureReady = { imageCaptureState = it },
                     )
                 }
             }
@@ -421,7 +420,7 @@ fun InAppCameraOverlay(
             val animatedRotation by animateFloatAsState(
                 targetValue = cameraOrientation.iconAngle,
                 animationSpec = tween(durationMillis = scaledTweenMs(250), easing = FastOutSlowInEasing),
-                label = "cameraControlsRotation"
+                label = "cameraControlsRotation",
             )
 
             // Top-left: close (cancel) button
@@ -431,13 +430,13 @@ fun InAppCameraOverlay(
                     .align(Alignment.TopStart)
                     .padding(start = 16.dp, top = 32.dp)
                     .size(44.dp)
-                    .graphicsLayer { rotationZ = animatedRotation }
+                    .graphicsLayer { rotationZ = animatedRotation },
             ) {
                 Icon(
                     imageVector = Icons.Filled.Close,
                     contentDescription = "Close camera",
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(28.dp),
                 )
             }
 
@@ -454,7 +453,7 @@ fun InAppCameraOverlay(
                     .align(Alignment.TopEnd)
                     .padding(end = 16.dp, top = 32.dp)
                     .size(44.dp)
-                    .graphicsLayer { rotationZ = animatedRotation }
+                    .graphicsLayer { rotationZ = animatedRotation },
             ) {
                 Icon(
                     imageVector = when (flashMode) {
@@ -468,7 +467,7 @@ fun InAppCameraOverlay(
                         CameraFlashMode.ON -> "Flash on"
                     },
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(28.dp),
                 )
             }
 
@@ -481,7 +480,7 @@ fun InAppCameraOverlay(
                     .padding(bottom = 80.dp)
                     .size(72.dp)
                     .graphicsLayer { rotationZ = animatedRotation },
-                tonalElevation = 4.dp
+                tonalElevation = 4.dp,
             ) {
                 IconButton(
                     onClick = {
@@ -501,7 +500,7 @@ fun InAppCameraOverlay(
 
                         val photoFile = File(
                             context.cacheDir,
-                            "andromuks_snap_${System.currentTimeMillis()}.jpg"
+                            "andromuks_snap_${System.currentTimeMillis()}.jpg",
                         )
                         val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
@@ -518,16 +517,16 @@ fun InAppCameraOverlay(
                                     onCaptured(savedUri, false)
                                     onDismiss()
                                 }
-                            }
+                            },
                         )
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.CameraAlt,
                         contentDescription = "Snap photo",
                         tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(32.dp),
                     )
                 }
             }
@@ -541,16 +540,16 @@ fun InAppCameraOverlay(
                     .padding(end = 24.dp, bottom = 90.dp)
                     .size(48.dp)
                     .graphicsLayer { rotationZ = animatedRotation },
-                tonalElevation = 4.dp
+                tonalElevation = 4.dp,
             ) {
                 IconButton(
                     onClick = { useFrontCamera = !useFrontCamera },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Cameraswitch,
                         contentDescription = "Switch camera",
-                        tint = MaterialTheme.colorScheme.onSurface
+                        tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -566,11 +565,7 @@ fun InAppCameraOverlay(
  *   closes the overlay.
  */
 @Composable
-fun InAppVideoOverlay(
-    visible: Boolean,
-    onDismiss: () -> Unit,
-    onCaptured: (uri: Uri, isVideo: Boolean) -> Unit,
-) {
+fun InAppVideoOverlay(visible: Boolean, onDismiss: () -> Unit, onCaptured: (uri: Uri, isVideo: Boolean) -> Unit) {
     val context = LocalContext.current
     var flashMode by rememberSaveable { mutableStateOf(CameraFlashMode.OFF) }
     var useFrontCamera by rememberSaveable { mutableStateOf(false) }
@@ -589,23 +584,23 @@ fun InAppVideoOverlay(
         enter = fadeIn(
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioNoBouncy,
-                stiffness = scaledStiffness(Spring.StiffnessMedium)
-            )
+                stiffness = scaledStiffness(Spring.StiffnessMedium),
+            ),
         ) + scaleIn(
             initialScale = 0.88f,
             transformOrigin = TransformOrigin(0.5f, 1f),
             animationSpec = spring(
                 dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = scaledStiffness(Spring.StiffnessMedium)
-            )
+                stiffness = scaledStiffness(Spring.StiffnessMedium),
+            ),
         ),
         exit = fadeOut(
-            animationSpec = tween(scaledTweenMs(160), easing = FastOutSlowInEasing)
+            animationSpec = tween(scaledTweenMs(160), easing = FastOutSlowInEasing),
         ) + scaleOut(
             targetScale = 0.88f,
             transformOrigin = TransformOrigin(0.5f, 1f),
-            animationSpec = tween(scaledTweenMs(180), easing = FastOutSlowInEasing)
-        )
+            animationSpec = tween(scaledTweenMs(180), easing = FastOutSlowInEasing),
+        ),
     ) {
         val cameraOrientation = rememberCameraOrientation()
 
@@ -613,20 +608,20 @@ fun InAppVideoOverlay(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
-                .zIndex(12f)
+                .zIndex(12f),
         ) {
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .offset(y = (-24).dp)
                     .fillMaxHeight()
-                    .aspectRatio(3f / 4f)
+                    .aspectRatio(3f / 4f),
             ) {
                 key(useFrontCamera) {
                     InAppVideoPreview(
                         modifier = Modifier.fillMaxSize(),
                         useFrontCamera = useFrontCamera,
-                        onVideoCaptureReady = { videoCaptureState = it }
+                        onVideoCaptureReady = { videoCaptureState = it },
                     )
                 }
             }
@@ -634,7 +629,7 @@ fun InAppVideoOverlay(
             val animatedRotation by animateFloatAsState(
                 targetValue = cameraOrientation.iconAngle,
                 animationSpec = tween(durationMillis = scaledTweenMs(250), easing = FastOutSlowInEasing),
-                label = "videoControlsRotation"
+                label = "videoControlsRotation",
             )
 
             // Update record elapsed time every second while recording
@@ -658,13 +653,13 @@ fun InAppVideoOverlay(
                     .align(Alignment.TopStart)
                     .padding(start = 16.dp, top = 32.dp)
                     .size(44.dp)
-                    .graphicsLayer { rotationZ = animatedRotation }
+                    .graphicsLayer { rotationZ = animatedRotation },
             ) {
                 Icon(
                     imageVector = Icons.Filled.Close,
                     contentDescription = "Close video camera",
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(28.dp),
                 )
             }
 
@@ -680,7 +675,7 @@ fun InAppVideoOverlay(
                     .align(Alignment.TopEnd)
                     .padding(end = 16.dp, top = 32.dp)
                     .size(44.dp)
-                    .graphicsLayer { rotationZ = animatedRotation }
+                    .graphicsLayer { rotationZ = animatedRotation },
             ) {
                 Icon(
                     imageVector = when (flashMode) {
@@ -694,33 +689,42 @@ fun InAppVideoOverlay(
                         CameraFlashMode.ON -> "Flash on"
                     },
                     tint = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(28.dp),
                 )
             }
 
             // Static record length (bottom-left) while recording
             if (activeRecording != null) {
                 Text(
-                    text = "${recordingElapsedSeconds / 60}:${(recordingElapsedSeconds % 60).toString().padStart(2, '0')}",
+                    text = "${recordingElapsedSeconds / 60}:${(recordingElapsedSeconds % 60).toString().padStart(
+                        2,
+                        '0',
+                    )}",
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
                         .align(Alignment.BottomStart)
                         .padding(start = 24.dp, bottom = 80.dp)
-                        .graphicsLayer { rotationZ = animatedRotation }
+                        .graphicsLayer { rotationZ = animatedRotation },
                 )
             }
 
             // Record button (bottom-center)
             Surface(
                 shape = CircleShape,
-                color = if (activeRecording != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                color = if (activeRecording !=
+                    null
+                ) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 80.dp)
                     .size(72.dp)
                     .graphicsLayer { rotationZ = animatedRotation },
-                tonalElevation = 4.dp
+                tonalElevation = 4.dp,
             ) {
                 IconButton(
                     onClick = {
@@ -739,12 +743,16 @@ fun InAppVideoOverlay(
                         vc.targetRotation = cameraOrientation.surfaceRotation
                         val videoFile = File(
                             context.cacheDir,
-                            "andromuks_video_${System.currentTimeMillis()}.mp4"
+                            "andromuks_video_${System.currentTimeMillis()}.mp4",
                         )
                         val fileOutputOptions = FileOutputOptions.Builder(videoFile).build()
                         val executor = ContextCompat.getMainExecutor(context)
                         val pendingRecording = vc.output.prepareRecording(context, fileOutputOptions)
-                        val rec = if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        val rec = if (ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.RECORD_AUDIO,
+                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) {
                             pendingRecording.withAudioEnabled()
                         } else {
                             pendingRecording
@@ -756,6 +764,7 @@ fun InAppVideoOverlay(
                                     onCaptured(videoFile.toUri(), true)
                                     onDismiss()
                                 }
+
                                 else -> {}
                             }
                         }
@@ -763,13 +772,13 @@ fun InAppVideoOverlay(
                         recordingStartTime = System.currentTimeMillis()
                         recordingElapsedSeconds = 0
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Videocam,
                         contentDescription = if (activeRecording != null) "Stop recording" else "Start recording",
                         tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(32.dp),
                     )
                 }
             }
@@ -783,16 +792,16 @@ fun InAppVideoOverlay(
                     .padding(end = 24.dp, bottom = 90.dp)
                     .size(48.dp)
                     .graphicsLayer { rotationZ = animatedRotation },
-                tonalElevation = 4.dp
+                tonalElevation = 4.dp,
             ) {
                 IconButton(
                     onClick = { useFrontCamera = !useFrontCamera },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Cameraswitch,
                         contentDescription = "Switch camera",
-                        tint = MaterialTheme.colorScheme.onSurface
+                        tint = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -804,7 +813,7 @@ fun InAppVideoOverlay(
 private fun InAppCameraPreview(
     modifier: Modifier = Modifier,
     useFrontCamera: Boolean,
-    onImageCaptureReady: (ImageCapture) -> Unit
+    onImageCaptureReady: (ImageCapture) -> Unit,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -824,7 +833,7 @@ private fun InAppCameraPreview(
                         .setResolutionSelector(
                             ResolutionSelector.Builder()
                                 .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
-                                .build()
+                                .build(),
                         )
                         .build()
                         .also { p -> p.setSurfaceProvider(previewView.surfaceProvider) }
@@ -832,12 +841,15 @@ private fun InAppCameraPreview(
                         .setResolutionSelector(
                             ResolutionSelector.Builder()
                                 .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
-                                .build()
+                                .build(),
                         )
                         .build()
                     val cameraSelector =
-                        if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA
-                        else CameraSelector.DEFAULT_BACK_CAMERA
+                        if (useFrontCamera) {
+                            CameraSelector.DEFAULT_FRONT_CAMERA
+                        } else {
+                            CameraSelector.DEFAULT_BACK_CAMERA
+                        }
 
                     try {
                         cameraProvider.unbindAll()
@@ -845,19 +857,19 @@ private fun InAppCameraPreview(
                             lifecycleOwner,
                             cameraSelector,
                             preview,
-                            imageCapture
+                            imageCapture,
                         )
                         onImageCaptureReady(imageCapture)
                     } catch (e: Exception) {
                         Log.e("Andromuks", "Failed to bind CameraX preview", e)
                     }
                 },
-                ContextCompat.getMainExecutor(ctx)
+                ContextCompat.getMainExecutor(ctx),
             )
 
             previewView
         },
-        modifier = modifier
+        modifier = modifier,
     )
 }
 
@@ -865,7 +877,7 @@ private fun InAppCameraPreview(
 private fun InAppVideoPreview(
     modifier: Modifier = Modifier,
     useFrontCamera: Boolean,
-    onVideoCaptureReady: (VideoCapture<Recorder>) -> Unit
+    onVideoCaptureReady: (VideoCapture<Recorder>) -> Unit,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
 
@@ -883,15 +895,18 @@ private fun InAppVideoPreview(
                         .setResolutionSelector(
                             ResolutionSelector.Builder()
                                 .setAspectRatioStrategy(AspectRatioStrategy.RATIO_4_3_FALLBACK_AUTO_STRATEGY)
-                                .build()
+                                .build(),
                         )
                         .build()
                         .also { p -> p.setSurfaceProvider(previewView.surfaceProvider) }
                     val recorder = Recorder.Builder().build()
                     val videoCapture = VideoCapture.Builder(recorder).build()
                     val cameraSelector =
-                        if (useFrontCamera) CameraSelector.DEFAULT_FRONT_CAMERA
-                        else CameraSelector.DEFAULT_BACK_CAMERA
+                        if (useFrontCamera) {
+                            CameraSelector.DEFAULT_FRONT_CAMERA
+                        } else {
+                            CameraSelector.DEFAULT_BACK_CAMERA
+                        }
 
                     try {
                         cameraProvider.unbindAll()
@@ -899,19 +914,19 @@ private fun InAppVideoPreview(
                             lifecycleOwner,
                             cameraSelector,
                             preview,
-                            videoCapture
+                            videoCapture,
                         )
                         onVideoCaptureReady(videoCapture)
                     } catch (e: Exception) {
                         Log.e("Andromuks", "Failed to bind CameraX video preview", e)
                     }
                 },
-                ContextCompat.getMainExecutor(ctx)
+                ContextCompat.getMainExecutor(ctx),
             )
 
             previewView
         },
-        modifier = modifier
+        modifier = modifier,
     )
 }
 
@@ -930,13 +945,21 @@ private fun rememberCameraOrientation(): CameraOrientation {
 
                 val (newSurfaceRotation, newIconAngle) = when {
                     orientation <= 45 || orientation > 315 ->
-                        Surface.ROTATION_0 to 0f              // Portrait
+                        Surface.ROTATION_0 to 0f
+
+                    // Portrait
                     orientation in 46..135 ->
-                        Surface.ROTATION_270 to -90f          // Landscape right (swap 90/270, icons rotate right)
+                        Surface.ROTATION_270 to -90f
+
+                    // Landscape right (swap 90/270, icons rotate right)
                     orientation in 136..225 ->
-                        Surface.ROTATION_180 to 180f          // Upside down
+                        Surface.ROTATION_180 to 180f
+
+                    // Upside down
                     orientation in 226..315 ->
-                        Surface.ROTATION_90 to 90f            // Landscape left (swap 90/270, icons rotate left)
+                        Surface.ROTATION_90 to 90f
+
+                    // Landscape left (swap 90/270, icons rotate left)
                     else -> return
                 }
 

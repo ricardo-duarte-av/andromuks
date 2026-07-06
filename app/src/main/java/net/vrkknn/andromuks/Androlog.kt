@@ -27,11 +27,7 @@ object Androlog {
     private const val PREFS_NAME = "AndromuksAndrologPrefs"
     private const val PREFS_KEY = "androlog"
 
-    data class Entry(
-        val timestamp: Long,
-        val category: String,
-        val text: String
-    ) {
+    data class Entry(val timestamp: Long, val category: String, val text: String) {
         fun toJson(): org.json.JSONObject {
             val json = org.json.JSONObject()
             json.put("timestamp", timestamp)
@@ -41,19 +37,19 @@ object Androlog {
         }
 
         companion object {
-            fun fromJson(json: org.json.JSONObject): Entry {
-                return Entry(
-                    timestamp = json.getLong("timestamp"),
-                    category = json.optString("category"),
-                    text = json.optString("text")
-                )
-            }
+            fun fromJson(json: org.json.JSONObject): Entry = Entry(
+                timestamp = json.getLong("timestamp"),
+                category = json.optString("category"),
+                text = json.optString("text"),
+            )
         }
     }
 
     private val lock = Any()
     private val entries = mutableListOf<Entry>()
+
     @Volatile private var appContext: Context? = null
+
     @Volatile private var loaded = false
 
     /**
@@ -77,7 +73,7 @@ object Androlog {
         val entry = Entry(
             timestamp = System.currentTimeMillis(),
             category = category,
-            text = text
+            text = text,
         )
         synchronized(lock) {
             entries.add(entry)
@@ -130,8 +126,11 @@ object Androlog {
             val prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val array = JSONArray()
             val toSave = synchronized(lock) {
-                if (entries.size > MAX_ENTRIES) entries.takeLast(MAX_ENTRIES).toList()
-                else entries.toList()
+                if (entries.size > MAX_ENTRIES) {
+                    entries.takeLast(MAX_ENTRIES).toList()
+                } else {
+                    entries.toList()
+                }
             }
             toSave.forEach { array.put(it.toJson()) }
             // apply() not commit(): best-effort, no need to block the caller on fsync.

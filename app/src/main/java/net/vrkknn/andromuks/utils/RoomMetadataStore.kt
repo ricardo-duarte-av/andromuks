@@ -40,10 +40,12 @@ object RoomMetadataStore {
     private const val COL_BRIDGE_AVATAR_MXC = "bridge_avatar_mxc"
     private const val COL_BRIDGE_DISPLAY_NAME = "bridge_display_name"
     private const val COL_UPDATED_AT = "updated_at"
+
     // v2: last-known sortingTimestamp (matches RoomItem.sortingTimestamp). Persisted so the
     // cached room list can be sorted descending on cold start, before sync_complete updates.
     // 0 = unknown; the room list sort treats unknown rooms as oldest.
     private const val COL_SORT_TS = "sort_ts"
+
     // v3: whether the conversation shortcut for this room was last published with a real avatar
     // icon (1) vs a lettermark fallback (0/unknown). Persisted so a freshly-constructed
     // ConversationsApi (e.g. in NotificationImageWorker) knows the shortcut already carries its
@@ -93,8 +95,20 @@ object RoomMetadataStore {
     private fun hydrateMirrorFromDisk(db: SQLiteDatabase) {
         db.query(
             TABLE,
-            arrayOf(COL_ROOM_ID, COL_NAME, COL_AVATAR_MXC, COL_BRIDGE_AVATAR_MXC, COL_BRIDGE_DISPLAY_NAME, COL_SORT_TS, COL_SHORTCUT_HAS_AVATAR),
-            null, null, null, null, null
+            arrayOf(
+                COL_ROOM_ID,
+                COL_NAME,
+                COL_AVATAR_MXC,
+                COL_BRIDGE_AVATAR_MXC,
+                COL_BRIDGE_DISPLAY_NAME,
+                COL_SORT_TS,
+                COL_SHORTCUT_HAS_AVATAR,
+            ),
+            null,
+            null,
+            null,
+            null,
+            null,
         ).use { c ->
             val iRoomId = c.getColumnIndexOrThrow(COL_ROOM_ID)
             val iName = c.getColumnIndexOrThrow(COL_NAME)
@@ -346,19 +360,17 @@ object RoomMetadataStore {
         bridgeDisplayName: String? = null,
         sortTs: Long? = null,
         shortcutHasAvatar: Boolean? = null,
-    ): Row {
-        return mirror.compute(roomId) { _, existing ->
-            Row(
-                roomId = roomId,
-                name = name ?: existing?.name,
-                avatarMxc = avatarMxc ?: existing?.avatarMxc,
-                bridgeAvatarMxc = bridgeAvatarMxc ?: existing?.bridgeAvatarMxc,
-                bridgeDisplayName = bridgeDisplayName ?: existing?.bridgeDisplayName,
-                sortTs = sortTs ?: existing?.sortTs ?: 0L,
-                shortcutHasAvatar = shortcutHasAvatar ?: existing?.shortcutHasAvatar ?: false,
-            )
-        }!!
-    }
+    ): Row = mirror.compute(roomId) { _, existing ->
+        Row(
+            roomId = roomId,
+            name = name ?: existing?.name,
+            avatarMxc = avatarMxc ?: existing?.avatarMxc,
+            bridgeAvatarMxc = bridgeAvatarMxc ?: existing?.bridgeAvatarMxc,
+            bridgeDisplayName = bridgeDisplayName ?: existing?.bridgeDisplayName,
+            sortTs = sortTs ?: existing?.sortTs ?: 0L,
+            shortcutHasAvatar = shortcutHasAvatar ?: existing?.shortcutHasAvatar ?: false,
+        )
+    }!!
 
     private fun writePartial(roomId: String, fill: (ContentValues) -> Unit) {
         val db = helper?.writableDatabase ?: return
@@ -394,7 +406,7 @@ object RoomMetadataStore {
                     $COL_SORT_TS INTEGER NOT NULL DEFAULT 0,
                     $COL_SHORTCUT_HAS_AVATAR INTEGER NOT NULL DEFAULT 0
                 )
-                """.trimIndent()
+                """.trimIndent(),
             )
         }
 

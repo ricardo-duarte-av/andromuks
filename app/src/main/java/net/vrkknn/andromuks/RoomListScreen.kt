@@ -1,48 +1,44 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.ui.theme.scaledStiffness
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
-import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
-import net.vrkknn.andromuks.ui.theme.scaledColumnExit
-import net.vrkknn.andromuks.ui.theme.scaledSpring
-import androidx.compose.ui.unit.IntOffset
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.util.Log
 import android.view.Surface
-import net.vrkknn.andromuks.ui.components.rememberRoomListUiState
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,150 +50,124 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
-import androidx.compose.animation.SharedTransitionScope
-import androidx.compose.runtime.key
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.AddToHomeScreen
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.collectAsState
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.debounce
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.Dp
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import kotlin.math.roundToInt
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.withResumed
-import androidx.navigation.NavController
-import androidx.activity.compose.BackHandler
-import androidx.activity.ComponentActivity
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Notifications
-import androidx.compose.material.icons.filled.Place
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.NotificationsOff
-import androidx.compose.material.icons.filled.Memory
-import androidx.compose.material.icons.filled.Tag
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.automirrored.filled.ExitToApp
-import androidx.compose.material.icons.filled.Done
-import androidx.compose.material.icons.automirrored.filled.AddToHomeScreen
-import androidx.compose.material.icons.filled.AddCircle
-import androidx.compose.material.icons.filled.CloudDone
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.CloudSync
-import androidx.compose.material.icons.filled.Sync
-import androidx.compose.material.icons.filled.SyncProblem
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.SmallFloatingActionButton
-import net.vrkknn.andromuks.ui.components.AvatarImage
-import net.vrkknn.andromuks.BuildConfig
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
-import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
-
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.DragInteraction
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import net.vrkknn.andromuks.utils.RoomJoinerScreen
-import net.vrkknn.andromuks.utils.RoomLink
-import net.vrkknn.andromuks.utils.navigateToUserInfo
-import kotlinx.coroutines.CancellationException
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.withResumed
+import androidx.navigation.NavController
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.FlowPreview
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
+import net.vrkknn.andromuks.ui.components.rememberRoomListUiState
+import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
+import net.vrkknn.andromuks.ui.theme.scaledColumnExit
+import net.vrkknn.andromuks.ui.theme.scaledSpring
+import net.vrkknn.andromuks.ui.theme.scaledStiffness
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.AvatarUtils
-import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
-import coil3.request.ImageRequest
-import coil3.request.CachePolicy
+import net.vrkknn.andromuks.utils.RoomJoinerScreen
+import net.vrkknn.andromuks.utils.RoomLink
+import net.vrkknn.andromuks.utils.navigateToUserInfo
+import kotlin.math.roundToInt
 
 private const val ROOM_LIST_VERBOSE_LOGGING = false
 private const val STARTUP_SHARED_AVATAR_KEY = "startup-current-user-avatar"
-private fun usernameFromMatrixId(userId: String): String =
-    userId.removePrefix("@").substringBefore(":")
+private fun usernameFromMatrixId(userId: String): String = userId.removePrefix("@").substringBefore(":")
 
 /**
  * Opens a room while [RoomListScreen] is already shown (notification, pending room, etc.).
@@ -236,7 +206,12 @@ internal suspend fun executeRoomNavigation(
     notificationTimestamp: Long?,
     clearNavigation: () -> Unit,
 ) {
-    Androlog("FCMOpen", "executeRoomNavigation OPEN room=$roomId cached=${appViewModel.getRoomById(roomId) != null} wsConn=${appViewModel.isWebSocketConnected()} → room_timeline")
+    Androlog(
+        "FCMOpen",
+        "executeRoomNavigation OPEN room=$roomId cached=${appViewModel.getRoomById(
+            roomId,
+        ) != null} wsConn=${appViewModel.isWebSocketConnected()} → room_timeline",
+    )
     appViewModel.flushSyncBatchForRoom(roomId)
     clearNavigation()
     if (notificationTimestamp != null) {
@@ -253,13 +228,17 @@ private fun ScrollToTopFab(visible: Boolean, onScrollToTop: () -> Unit, modifier
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
-        enter = fadeIn(animationSpec = tween(scaledTweenMs(150))) + scaleIn(initialScale = 0.6f, animationSpec = tween(scaledTweenMs(150))),
-        exit = fadeOut(animationSpec = tween(scaledTweenMs(150))) + scaleOut(targetScale = 0.6f, animationSpec = tween(scaledTweenMs(150)))
+        enter = fadeIn(
+            animationSpec = tween(scaledTweenMs(150)),
+        ) + scaleIn(initialScale = 0.6f, animationSpec = tween(scaledTweenMs(150))),
+        exit = fadeOut(
+            animationSpec = tween(scaledTweenMs(150)),
+        ) + scaleOut(targetScale = 0.6f, animationSpec = tween(scaledTweenMs(150))),
     ) {
         FloatingActionButton(
             onClick = onScrollToTop,
             containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
         ) {
             Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Scroll to top")
         }
@@ -273,12 +252,16 @@ fun RoomListScreen(
     modifier: Modifier = Modifier,
     appViewModel: AppViewModel = viewModel(),
     sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
 ) {
     val context = LocalContext.current
     val hapticFeedback = LocalHapticFeedback.current
-    val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
-    val authToken = remember(sharedPreferences) { net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPreferences) }
+    val sharedPreferences = remember(
+        context,
+    ) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
+    val authToken = remember(
+        sharedPreferences,
+    ) { net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPreferences) }
     val uiState by appViewModel.rememberRoomListUiState()
     val connectionState by SyncRepository.connectionState.collectAsState()
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
@@ -315,7 +298,12 @@ fun RoomListScreen(
                 appViewModel.forceRoomListSort()
             } ?: run {
                 // Timeout occurred - log warning but continue
-                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "RoomListScreen: Startup operations timed out after 3 seconds, continuing anyway")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w(
+                    "Andromuks",
+                    "RoomListScreen: Startup operations timed out after 3 seconds, continuing anyway",
+                )
+                }
             }
         } catch (e: Exception) {
             // Catch any exceptions to prevent getting stuck
@@ -326,21 +314,21 @@ fun RoomListScreen(
             coldStartRefreshing = false
         }
     }
-    
+
     // CRITICAL FIX #1: Profile loading is non-blocking - UI can show with fallback (userId)
     // The profile will load in the background and update when available
     val me = uiState.currentUserProfile
     // Profile is considered "loaded" if we have it OR if userId is blank (not logged in)
     // But we don't block UI if profile is missing - we show userId as fallback
     val profileLoaded = me != null || uiState.currentUserId.isBlank()
-    
+
     // Simplified gating: rely on actual states, no timeout fallbacks.
     // CRITICAL FIX: Don't block UI for profile - it can load in background
     val effectiveProfileLoaded = true // Always true - profile loading is non-blocking
     val shouldBlockForPending = uiState.isProcessingPendingItems
     val effectiveSpacesLoaded = uiState.spacesLoaded
     val effectiveInitialSyncComplete = uiState.initialSyncComplete
-    
+
     // Prepare room list data while the loading screen is visible so we avoid flicker
     val roomListUpdateCounter = uiState.roomListUpdateCounter
     // Seed from in-memory snapshot to avoid empty UI after clear_state/cold start
@@ -349,7 +337,7 @@ fun RoomListScreen(
     var stableSection by remember {
         mutableStateOf(appViewModel.getCurrentRoomSection())
     }
-    
+
     // SAFETY NET: After initial sync completes, ensure stableSection is populated at least once.
     // In rare race conditions, it's possible for RoomListScreen to compose while stableSection
     // is still empty even though AppViewModel has room data. If that happens, force a one-time
@@ -357,7 +345,7 @@ fun RoomListScreen(
     LaunchedEffect(
         uiState.initialSyncComplete,
         appViewModel.initialSyncProcessingComplete,
-        appViewModel.isStartupComplete
+        appViewModel.isStartupComplete,
     ) {
         if (uiState.initialSyncComplete &&
             appViewModel.initialSyncProcessingComplete &&
@@ -371,17 +359,26 @@ fun RoomListScreen(
                     android.util.Log.d(
                         "Andromuks",
                         "RoomListScreen: SAFETY NET - stableSection was empty after initial sync; " +
-                            "reloading from AppViewModel (rooms=${latestSection.rooms.size}, spaces=${latestSection.spaces.size})"
+                            "reloading from AppViewModel (rooms=${latestSection.rooms.size}, spaces=${latestSection.spaces.size})",
                     )
                 }
                 stableSection = latestSection
             }
         }
     }
-    
+
     // DEBUG: Log state changes to identify why "Refreshing rooms..." is stuck
-    LaunchedEffect(coldStartRefreshing, shouldBlockForPending, effectiveSpacesLoaded, effectiveInitialSyncComplete, stableSection.rooms.size) {
-        android.util.Log.d("Andromuks", "🔴 RoomListScreen: Loading state - coldStartRefreshing=$coldStartRefreshing, shouldBlockForPending=$shouldBlockForPending, effectiveSpacesLoaded=$effectiveSpacesLoaded, effectiveInitialSyncComplete=$effectiveInitialSyncComplete, hasRooms=${stableSection.rooms.isNotEmpty()}, roomCount=${stableSection.rooms.size}")
+    LaunchedEffect(
+        coldStartRefreshing,
+        shouldBlockForPending,
+        effectiveSpacesLoaded,
+        effectiveInitialSyncComplete,
+        stableSection.rooms.size,
+    ) {
+        android.util.Log.d(
+            "Andromuks",
+            "🔴 RoomListScreen: Loading state - coldStartRefreshing=$coldStartRefreshing, shouldBlockForPending=$shouldBlockForPending, effectiveSpacesLoaded=$effectiveSpacesLoaded, effectiveInitialSyncComplete=$effectiveInitialSyncComplete, hasRooms=${stableSection.rooms.isNotEmpty()}, roomCount=${stableSection.rooms.size}",
+        )
     }
     // CRASH FIX: Track animation state to prevent stableSection updates during tab animations.
     // animationGeneration increments on each type-change so the guard LaunchedEffect restarts,
@@ -404,7 +401,7 @@ fun RoomListScreen(
         uiState.roomSummaryUpdateCounter,
         uiState.currentSpaceId,
         appViewModel.currentBridgeId,
-        appViewModel.initialSyncProcessingComplete
+        appViewModel.initialSyncProcessingComplete,
     ) {
         // During initial sync processing, keep existing content to avoid the
         // "hundreds of rooms re-sort live" flicker. Hold stableSection at its cached
@@ -422,14 +419,24 @@ fun RoomListScreen(
             isAnimationInProgress = true
             animationGeneration++ // Restarts the guard LaunchedEffect below
             stableSection = newSection
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed to ${newSection.type}, animation started (gen=$animationGeneration)")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: Section type changed to ${newSection.type}, animation started (gen=$animationGeneration)",
+            )
+            }
             return@LaunchedEffect
         }
 
         // ── Mid-animation data update (same type) → queue ──────────────────
         if (isAnimationInProgress) {
             pendingSectionUpdate = newSection
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation in progress, queuing section update (rooms:${newSection.rooms.size})")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: Animation in progress, queuing section update (rooms:${newSection.rooms.size})",
+            )
+            }
             return@LaunchedEffect
         }
 
@@ -440,7 +447,12 @@ fun RoomListScreen(
         val roomsRemoved = oldRoomIds - newRoomIds
 
         if (roomsAdded.isNotEmpty() || roomsRemoved.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Rooms added/removed – added:${roomsAdded.size} removed:${roomsRemoved.size}")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: Rooms added/removed – added:${roomsAdded.size} removed:${roomsRemoved.size}",
+            )
+            }
             stableSection = newSection
             return@LaunchedEffect
         }
@@ -451,12 +463,16 @@ fun RoomListScreen(
         }
 
         // ── Fine-grained diff: unread counts, names, order, spaces, previews ──────────
-        val oldSig = stableSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}:${it.messagePreview}:${it.sortingTimestamp}" }
-        val newSig = newSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}:${it.messagePreview}:${it.sortingTimestamp}" }
+        val oldSig = stableSection.rooms.map {
+            "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}:${it.messagePreview}:${it.sortingTimestamp}"
+        }
+        val newSig = newSection.rooms.map {
+            "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}:${it.messagePreview}:${it.sortingTimestamp}"
+        }
         val roomsChanged = oldSig != newSig
         val orderChanged = stableSection.rooms.map { it.id } != newSection.rooms.map { it.id }
         val spacesChanged = stableSection.spaces.map { "${it.id}:${it.name}" } !=
-                           newSection.spaces.map { "${it.id}:${it.name}" }
+            newSection.spaces.map { "${it.id}:${it.name}" }
 
         if (roomsChanged || spacesChanged) {
             if (orderChanged && !roomsChanged) {
@@ -464,10 +480,20 @@ fun RoomListScreen(
                 val oldRoomsById = stableSection.rooms.associateBy { it.id }
                 val reorderedRooms = newSection.rooms.map { oldRoomsById[it.id] ?: it }
                 stableSection = newSection.copy(rooms = reorderedRooms)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Order changed only – preserved ${reorderedRooms.size} room instances")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "RoomListScreen: Order changed only – preserved ${reorderedRooms.size} room instances",
+                )
+                }
             } else {
                 stableSection = newSection
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed – rooms:$roomsChanged order:$orderChanged spaces:$spacesChanged")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "RoomListScreen: Section data changed – rooms:$roomsChanged order:$orderChanged spaces:$spacesChanged",
+                )
+                }
             }
         } else if (stableSection.rooms.isEmpty() && stableSection.spaces.isEmpty()) {
             // Both old and new are empty – safe to apply (e.g. initial population)
@@ -487,8 +513,16 @@ fun RoomListScreen(
     }
 
     // Track when initial load is complete for optimization purposes
-    LaunchedEffect(effectiveProfileLoaded, shouldBlockForPending, effectiveSpacesLoaded, effectiveInitialSyncComplete, coldStartRefreshing) {
-        if (effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded && effectiveInitialSyncComplete && !coldStartRefreshing) {
+    LaunchedEffect(
+        effectiveProfileLoaded,
+        shouldBlockForPending,
+        effectiveSpacesLoaded,
+        effectiveInitialSyncComplete,
+        coldStartRefreshing,
+    ) {
+        if (effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded && effectiveInitialSyncComplete &&
+            !coldStartRefreshing
+        ) {
             if (!initialLoadComplete) {
                 initialLoadComplete = true
             }
@@ -504,7 +538,7 @@ fun RoomListScreen(
             listStates[stableSection.type]?.scrollToItem(0)
         }
     }
-    
+
     // Use inline status row instead of full-screen loading overlay
     // Show inline status during initial load or ongoing sync operations
     // CRITICAL FIX: Profile loading is non-blocking - don't show "Loading profile..." message
@@ -520,10 +554,12 @@ fun RoomListScreen(
         shouldBlockForPending ||
         shouldShowSpacesLoading ||
         (!effectiveInitialSyncComplete && !hasRooms)
-    
+
     val inlineSyncMessage = when {
         shouldBlockForPending -> "Catching up on messages..."
+
         shouldShowSpacesLoading -> "Loading spaces..."
+
         !effectiveInitialSyncComplete -> {
             // Show sync progress counter if available
             if (uiState.pendingSyncCompleteCount > 0) {
@@ -532,11 +568,13 @@ fun RoomListScreen(
                 "Finalizing sync..."
             }
         }
+
         coldStartRefreshing -> "Refreshing rooms..."
+
         else -> "Refreshing rooms..."
     }
     val showNotificationActionIndicator = uiState.notificationActionInProgress
-    
+
     // PERFORMANCE: allRooms is already sorted by performRoomReorder() and filtered
     // subsets (DMs, Unread, Favourites) inherit that order — no re-sort needed.
     val displayedSection = stableSection
@@ -567,7 +605,10 @@ fun RoomListScreen(
             val roomsToPreload = displayedSection.rooms.take(100)
 
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Preloading ${roomsToPreload.size} avatars (size=${avatarPreloadPx}px)")
+                android.util.Log.d(
+                    "Andromuks",
+                    "RoomListScreen: Preloading ${roomsToPreload.size} avatars (size=${avatarPreloadPx}px)",
+                )
             }
 
             roomsToPreload.forEach { room ->
@@ -576,12 +617,14 @@ fun RoomListScreen(
                     // Use the SAME resolution AvatarImage uses (the http(s) MXC URL), so
                     // the URL + size + cache key match exactly = same memory-cache slot.
                     val url = AvatarUtils.getAvatarUrl(
-                        context, mxc, appViewModel.homeserverUrl
+                        context,
+                        mxc,
+                        appViewModel.homeserverUrl,
                     ) ?: return@forEach
                     // Use the same explicit cache key as AvatarImage so this preload
                     // populates the same memory/disk slot the row will later hit, and
                     // skips Coil's FileKeyer (which does File.lastModified() on Main).
-                    val cacheKey = "${mxc}@${avatarPreloadPx}"
+                    val cacheKey = "$mxc@$avatarPreloadPx"
                     val request = ImageRequest.Builder(context)
                         .data(url)
                         .size(avatarPreloadPx)
@@ -593,7 +636,10 @@ fun RoomListScreen(
                     imageLoader.enqueue(request)
                 } catch (e: Exception) {
                     if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "RoomListScreen: Failed to preload avatar for room ${room.id}: ${e.message}")
+                        android.util.Log.d(
+                            "Andromuks",
+                            "RoomListScreen: Failed to preload avatar for room ${room.id}: ${e.message}",
+                        )
                     }
                 }
             }
@@ -604,7 +650,7 @@ fun RoomListScreen(
             }
         }
     }
-    
+
     // Reset preload flag when section type changes (switching tabs)
     LaunchedEffect(displayedSection.type) {
         avatarsPreloaded = false
@@ -623,43 +669,58 @@ fun RoomListScreen(
             delay(450) // 420ms animation + 30ms buffer
             isAnimationInProgress = false
             pendingSectionUpdate?.let { pending ->
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Animation completed (gen=$animationGeneration), applying pending section update (${pending.rooms.size} rooms)")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "RoomListScreen: Animation completed (gen=$animationGeneration), applying pending section update (${pending.rooms.size} rooms)",
+                )
+                }
                 stableSection = pending
                 pendingSectionUpdate = null
             }
         }
     }
-    
+
     // Always show the interface, even if rooms/spaces are empty
     var searchQuery by remember { mutableStateOf("") }
     // Note: me is already declared above in the loading check
-    
+
     // Observe invites in RoomListScreen so we can display them in a separate section
     val roomListUpdateCounterForInvites = uiState.roomListUpdateCounter
     val pendingInvites = remember(roomListUpdateCounterForInvites) {
         appViewModel.getPendingInvites()
     }
-    
+
     // State for showing RoomJoinerScreen for invites
     var showRoomJoiner by remember { mutableStateOf(false) }
     var inviteToJoin by remember { mutableStateOf<RoomInvite?>(null) }
-    
+
     // Handle back button - suspend app and move to background
     // When user presses back from room list, app suspends and moves to background
     // A 15-second timer starts to close the websocket for resource management
     // CRITICAL FIX: If opened from external app (like Contacts), finish activity instead of moving to background
     BackHandler {
         if (appViewModel.openedFromExternalApp) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Back button pressed, opened from external app - finishing activity")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: Back button pressed, opened from external app - finishing activity",
+            )
+            }
             (context as? ComponentActivity)?.finish()
         } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Back button pressed, suspending app")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: Back button pressed, suspending app",
+            )
+            }
             appViewModel.suspendApp() // Start 15-second timer to close websocket
             // Move app to background instead of closing completely
             (context as? ComponentActivity)?.moveTaskToBack(true)
         }
     }
-    
+
     val roomListLifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(Unit) {
         // Pop auth_check from the back stack AFTER the shared-element entrance animation completes.
@@ -672,7 +733,7 @@ fun RoomListScreen(
         // clearCurrentRoomId() is no longer needed here — RoomTimelineScreen's DisposableEffect
         // already calls it on dispose whenever the room screen actually leaves composition.
         launch { roomListLifecycle.withResumed { navController.popBackStack("auth_check", inclusive = true) } }
-        
+
         // CRITICAL FIX: When RoomListScreen is created for the first time via back navigation from notification/shortcut,
         // roomMap might be empty or only have 1 room (because a new AppViewModel instance was created with empty roomMap).
         // Check if singleton cache has more rooms than roomMap, and if so, populate from cache.
@@ -680,28 +741,43 @@ fun RoomListScreen(
         val initialSnapshot = appViewModel.getCurrentRoomSection()
         val initialRoomCount = initialSnapshot.rooms.size
         val cacheRoomCount = net.vrkknn.andromuks.RoomListCache.getRoomCount()
-        
+
         if (initialRoomCount < cacheRoomCount && cacheRoomCount > 1) {
             // Suspicious - roomMap has fewer rooms than cache, likely from notification/shortcut navigation
             // Load rooms from singleton cache to populate roomMap
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RoomMap has $initialRoomCount rooms but cache has $cacheRoomCount rooms (likely from notification/shortcut navigation), loading from singleton cache")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: RoomMap has $initialRoomCount rooms but cache has $cacheRoomCount rooms (likely from notification/shortcut navigation), loading from singleton cache",
+            )
+            }
             appViewModel.populateRoomMapFromCache()
             appViewModel.populateSpacesFromCache()
             appViewModel.forceRoomListSort() // Update allRooms after cache load
             val loadedSnapshot = appViewModel.getCurrentRoomSection()
             stableSection = loadedSnapshot
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Loaded ${loadedSnapshot.rooms.size} rooms from singleton cache")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: Loaded ${loadedSnapshot.rooms.size} rooms from singleton cache",
+            )
+            }
         } else {
             // Normal case - use existing roomMap
             stableSection = initialSnapshot
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Using existing roomMap with ${initialRoomCount} rooms (cache has $cacheRoomCount rooms)")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: Using existing roomMap with $initialRoomCount rooms (cache has $cacheRoomCount rooms)",
+            )
+            }
         }
-        
+
         // Force timestamp update when returning to room list or starting app
         // This ensures timestamps are immediately up-to-date when user views the list
         smartTimestampUpdateCounter++
     }
-    
+
     // Channel consumer was moved to AppNavigation (MainActivity.kt) so notification/shortcut
     // navigation works regardless of which screen is composed (RoomInfo, UserInfo, etc.).
     // RT's LaunchedEffect(navTrigger) still owns same-room scroll-to-event and cross-room
@@ -713,23 +789,25 @@ fun RoomListScreen(
         val today = java.util.Date(now)
         val todayCalendar = java.util.Calendar.getInstance()
         todayCalendar.time = today
-        
+
         val newestTimestamp = displayedSection.rooms
             .mapNotNull { it.sortingTimestamp }
             .filter { it > 0 }
             .maxOrNull() ?: 0L
-        
+
         if (newestTimestamp == 0L) {
             86_400_000L // Default to daily if no timestamps
         } else {
             val eventDate = java.util.Date(newestTimestamp)
             val eventCalendar = java.util.Calendar.getInstance()
             eventCalendar.time = eventDate
-            
+
             // Check if newest message is from today
             val isToday = eventCalendar.get(java.util.Calendar.YEAR) == todayCalendar.get(java.util.Calendar.YEAR) &&
-                          eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
-            
+                eventCalendar.get(
+                    java.util.Calendar.DAY_OF_YEAR,
+                ) == todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
+
             if (isToday) {
                 60_000L // Update every minute for today's messages (hh:mm format)
             } else {
@@ -737,7 +815,7 @@ fun RoomListScreen(
             }
         }
     }
-    
+
     // Single shared timer that updates at the appropriate interval
     // When rooms change, the interval recalculates and timer restarts
     LaunchedEffect(displayedSection.rooms, updateInterval) {
@@ -746,17 +824,17 @@ fun RoomListScreen(
             smartTimestampUpdateCounter++
         }
     }
-    
+
     // Force timestamp update when section type changes (tab switch)
     // This ensures timestamps are immediately refreshed when switching between Home/Spaces/Direct/etc.
     LaunchedEffect(displayedSection.type) {
         smartTimestampUpdateCounter++
     }
-    
+
     // Pull-to-refresh state
     var refreshing by remember { mutableStateOf(false) }
     var showRefreshConfirmation by remember { mutableStateOf(false) }
-    
+
     // Track if we're at the top of the current section's list
     // This ensures pull-to-refresh only works when gesture starts at the top
     var isAtTopOfList by remember { mutableStateOf(true) }
@@ -765,36 +843,46 @@ fun RoomListScreen(
     val showScrollToTopFab by remember {
         derivedStateOf { (currentListStateForPullRefresh?.firstVisibleItemIndex ?: 0) > 0 }
     }
-    
+
     // Update isAtTopOfList when section or scroll position changes
     LaunchedEffect(displayedSection.type, listStates[displayedSection.type]) {
         val listState = listStates[displayedSection.type]
         currentListStateForPullRefresh = listState
-        
+
         // Check if we're at the top (first item visible and no scroll offset)
         snapshotFlow {
             Pair(
                 listState?.firstVisibleItemIndex ?: -1,
-                listState?.firstVisibleItemScrollOffset ?: -1
+                listState?.firstVisibleItemScrollOffset ?: -1,
             )
         }.collect { (firstIndex, scrollOffset) ->
             isAtTopOfList = firstIndex == 0 && scrollOffset == 0
         }
     }
-    
+
     // Function to perform the actual refresh
     fun performRefresh(isFull: Boolean = true) {
         refreshing = true
         if (isFull) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh confirmed - performing full refresh")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: Pull-to-refresh confirmed - performing full refresh",
+            )
+            }
             // Perform full refresh which clears all state and triggers reconnection
             appViewModel.performFullRefresh()
         } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh confirmed - performing quick refresh (resume)")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: Pull-to-refresh confirmed - performing quick refresh (resume)",
+            )
+            }
             // Perform quick refresh which keeps local caches and resumes session
             appViewModel.performQuickRefresh()
         }
-        
+
         // Navigate to auth_check which will handle WebSocket reconnection and show StartupLoadingScreen
         navController.navigate("auth_check") {
             // Clear back stack so user doesn't go back to stale room_list
@@ -803,58 +891,78 @@ fun RoomListScreen(
         // Reset refreshing state immediately since navigation will show loading screen
         refreshing = false
     }
-    
+
     val refreshState = rememberPullRefreshState(
         refreshing = refreshing,
         onRefresh = {
             // Double-check we're at the top before allowing refresh
             val listState = currentListStateForPullRefresh
-            val actuallyAtTop = listState?.firstVisibleItemIndex == 0 && 
-                               listState.firstVisibleItemScrollOffset == 0
-            
+            val actuallyAtTop = listState?.firstVisibleItemIndex == 0 &&
+                listState.firstVisibleItemScrollOffset == 0
+
             if (!actuallyAtTop) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Pull-to-refresh blocked - not at top of list")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "RoomListScreen: Pull-to-refresh blocked - not at top of list",
+                )
+                }
                 return@rememberPullRefreshState
             }
-            
+
             // Show confirmation dialog instead of immediately refreshing
             showRefreshConfirmation = true
             refreshing = false // Reset refreshing state since we're showing dialog
-        }
+        },
     )
-    
+
     // Listen for foreground refresh broadcast
     DisposableEffect(Unit) {
         val foregroundRefreshReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Received FOREGROUND_REFRESH broadcast, refreshing UI from cache")
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                        "Andromuks",
+                        "RoomListScreen: Received FOREGROUND_REFRESH broadcast, refreshing UI from cache",
+                    )
+                    }
                     // Lightweight refresh from cached sync data (no WebSocket restart needed)
                     appViewModel.refreshUIFromCache()
                 }
             }
         }
-        
+
         val filter = IntentFilter("net.vrkknn.andromuks.FOREGROUND_REFRESH")
         context.registerReceiver(foregroundRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver")
-        
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver",
+        )
+        }
+
         onDispose {
             try {
                 context.unregisterReceiver(foregroundRefreshReceiver)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Unregistered FOREGROUND_REFRESH broadcast receiver")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "RoomListScreen: Unregistered FOREGROUND_REFRESH broadcast receiver",
+                )
+                }
             } catch (e: Exception) {
                 android.util.Log.w("Andromuks", "RoomListScreen: Error unregistering foreground refresh receiver", e)
             }
         }
     }
-    
+
     // OPPORTUNISTIC PROFILE LOADING: Request missing profiles for message senders in visible rooms
     // This ensures proper display names and avatars are loaded for room list message previews
     // CRITICAL FIX: Only request profiles when initial sync is complete (WebSocket is connected and all initial data is loaded)
     // PERFORMANCE FIX: Track processed message senders to avoid duplicate requests and excessive logging
     val processedMessageSenders = remember { mutableStateMapOf<String, Boolean>() }
-    
+
     // Create a stable key based on actual message senders (not rooms list) to prevent excessive re-runs
     val messageSendersKey = remember(stableSection.rooms) {
         stableSection.rooms.take(50)
@@ -864,32 +972,37 @@ fun RoomListScreen(
             .sorted()
             .joinToString(",")
     }
-    
+
     LaunchedEffect(messageSendersKey, effectiveInitialSyncComplete) {
         // Wait for initial sync completion before requesting profiles
         if (!effectiveInitialSyncComplete) {
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Deferred until initial sync completes")
+                android.util.Log.d(
+                    "Andromuks",
+                    "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Deferred until initial sync completes",
+                )
             }
             return@LaunchedEffect
         }
-        
+
         // Parse message senders from stable key
         val messageSenders = if (messageSendersKey.isNotEmpty()) {
             messageSendersKey.split(",").filter { it.isNotEmpty() }
         } else {
             emptyList()
         }
-        
+
         // Only process if we have new message senders that haven't been processed yet
         val newSenders = messageSenders.filter { sender -> processedMessageSenders[sender] != true }
-        
+
         if (newSenders.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${newSenders.size} new message senders (${messageSenders.size} total, ${processedMessageSenders.size} already processed)"
+                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${newSenders.size} new message senders (${messageSenders.size} total, ${processedMessageSenders.size} already processed)",
             )
-            
+            }
+
             // Request profiles for each new message sender
             newSenders.forEach { sender ->
                 // Find the room where this sender appears (for room context)
@@ -898,16 +1011,16 @@ fun RoomListScreen(
                     appViewModel.requestUserProfileOnDemand(sender, roomWithSender.id)
                 }
             }
-            
+
             // Mark as processed
             newSenders.forEach { sender -> processedMessageSenders[sender] = true }
         }
-        
+
         // Clean up processed senders that are no longer in the current list
         val toRemove = processedMessageSenders.keys.filter { it !in messageSenders }
         toRemove.forEach { processedMessageSenders.remove(it) }
     }
-    
+
     // Only enable pull-to-refresh when at the top of the list
     // This prevents accidental triggers when scrolling up from the middle
     Box(
@@ -921,21 +1034,21 @@ fun RoomListScreen(
                     Modifier.pullRefresh(refreshState)
                 } else {
                     Modifier
-                }
-            )
+                },
+            ),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
-                .imePadding()
+                .imePadding(),
         ) {
             // Compact header with our avatar and name (no colored area)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Row(
                     modifier = Modifier
@@ -945,7 +1058,7 @@ fun RoomListScreen(
                             navController.navigateToUserInfo(appViewModel.currentUserId)
                         }
                         .padding(vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (sharedTransitionScope != null && animatedVisibilityScope != null) {
                         with(sharedTransitionScope) {
@@ -961,11 +1074,14 @@ fun RoomListScreen(
                                     rememberSharedContentState(key = STARTUP_SHARED_AVATAR_KEY),
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     boundsTransform = { _, _ ->
-                                        tween(durationMillis = scaledTweenMs(380), easing = androidx.compose.animation.core.LinearEasing)
+                                        tween(
+                                            durationMillis = scaledTweenMs(380),
+                                            easing = androidx.compose.animation.core.LinearEasing,
+                                        )
                                     },
                                     renderInOverlayDuringTransition = true,
-                                    zIndexInOverlay = 1f
-                                )
+                                    zIndexInOverlay = 1f,
+                                ),
                             )
                         }
                     } else {
@@ -976,24 +1092,24 @@ fun RoomListScreen(
                             fallbackText = me?.displayName ?: appViewModel.currentUserId,
                             size = 40.dp,
                             userId = appViewModel.currentUserId,
-                            displayName = me?.displayName
+                            displayName = me?.displayName,
                         )
                     }
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Text(
                                 text = me?.displayName ?: appViewModel.currentUserId.ifBlank { "Profile" },
                                 style = MaterialTheme.typography.titleMedium,
                                 color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
                             )
                             SyncBatchIndicator(
-                                appViewModel = appViewModel
+                                appViewModel = appViewModel,
                             )
                         }
                         if (!me?.displayName.isNullOrBlank() && appViewModel.currentUserId.isNotBlank()) {
@@ -1002,7 +1118,7 @@ fun RoomListScreen(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -1014,7 +1130,7 @@ fun RoomListScreen(
                 ConnectionStatusIndicator(
                     connectionState = connectionState,
                     roomListUpdateCounter = uiState.roomListUpdateCounter,
-                    onClick = { navController.navigate("reconnection_log") }
+                    onClick = { navController.navigate("reconnection_log") },
                 )
 
                 // gomuks↔homeserver sync health (distinct from the socket health above). Only mounts
@@ -1022,7 +1138,7 @@ fun RoomListScreen(
                 if (appViewModel.syncStatusType != "ok") {
                     SyncStatusIndicator(
                         syncStatusType = appViewModel.syncStatusType,
-                        onClick = { navController.navigate("reconnection_log") }
+                        onClick = { navController.navigate("reconnection_log") },
                     )
                 }
 
@@ -1038,12 +1154,12 @@ fun RoomListScreen(
                         Icon(
                             imageVector = Icons.Filled.MoreVert,
                             contentDescription = "More",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                     DropdownMenu(
                         expanded = moreExpanded,
-                        onDismissRequest = { moreExpanded = false }
+                        onDismissRequest = { moreExpanded = false },
                     ) {
                         DropdownMenuItem(
                             text = { Text("New room") },
@@ -1053,7 +1169,7 @@ fun RoomListScreen(
                             },
                             leadingIcon = {
                                 Icon(Icons.Filled.AddCircle, contentDescription = null)
-                            }
+                            },
                         )
                         DropdownMenuItem(
                             text = { Text("Mentions") },
@@ -1063,7 +1179,7 @@ fun RoomListScreen(
                             },
                             leadingIcon = {
                                 Icon(Icons.Filled.Notifications, contentDescription = null)
-                            }
+                            },
                         )
                         DropdownMenuItem(
                             text = { Text("Settings") },
@@ -1073,12 +1189,12 @@ fun RoomListScreen(
                             },
                             leadingIcon = {
                                 Icon(Icons.Filled.Settings, contentDescription = null)
-                            }
+                            },
                         )
                     }
                 }
             }
-            
+
             // Search box with rounded look and trailing search icon
             Surface(
                 color = MaterialTheme.colorScheme.surface,
@@ -1087,16 +1203,16 @@ fun RoomListScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp) // pick your pill height
-                    .padding(horizontal = 16.dp, vertical = 2.dp)
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
             ) {
                 TextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { 
+                    placeholder = {
                         Text(
                             "Search rooms…",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        ) 
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     },
                     colors = TextFieldDefaults.colors(
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
@@ -1106,28 +1222,28 @@ fun RoomListScreen(
                         unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                         focusedTextColor = MaterialTheme.colorScheme.onSurface,
                         unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     ),
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp)
+                        .padding(horizontal = 8.dp),
                 )
             }
-            
+
             // Extra spacing between the search bar and the room list/content for better visual separation
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             AnimatedVisibility(inlineSyncInProgress, enter = scaledColumnEnter(), exit = scaledColumnExit()) {
                 ExpressiveStatusRow(
                     text = inlineSyncMessage,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 8.dp),
-                    indicatorColor = MaterialTheme.colorScheme.primary
+                    indicatorColor = MaterialTheme.colorScheme.primary,
                 )
             }
-            
+
             AnimatedVisibility(showNotificationActionIndicator, enter = scaledColumnEnter(), exit = scaledColumnExit()) {
                 ExpressiveStatusRow(
                     text = "Completing notification action...",
@@ -1135,23 +1251,23 @@ fun RoomListScreen(
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     indicatorColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
                 )
             }
-            
+
             // Room invitations section - shown above room list for immediate visibility
             AnimatedVisibility(pendingInvites.isNotEmpty(), enter = scaledColumnEnter(), exit = scaledColumnExit()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     Text(
                         text = "Room Invitations",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(bottom = 8.dp)
+                        modifier = Modifier.padding(bottom = 8.dp),
                     )
                     pendingInvites.forEach { invite ->
                         InviteListItem(
@@ -1161,318 +1277,344 @@ fun RoomListScreen(
                                 showRoomJoiner = true
                             },
                             homeserverUrl = appViewModel.homeserverUrl,
-                            authToken = authToken
+                            authToken = authToken,
                         )
                     }
                 }
             }
-            
+
             // Room list in elevated frame
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
+                    .fillMaxWidth(),
             ) {
-            Surface(
-                color = MaterialTheme.colorScheme.surface,
-                shape = RoundedCornerShape(
-                    topStart = 24.dp,
-                    topEnd = 24.dp,
-                    bottomStart = 0.dp,
-                    bottomEnd = 0.dp
-                ),
-                tonalElevation = 2.dp,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-            ) {
-            AnimatedContent(
-                targetState = displayedSection,
-                // CRITICAL FIX: Use contentKey to only animate when section TYPE changes, not when data changes
-                // This prevents unnecessary transitions when returning from RoomTimelineScreen
-                // and ensures scrolling works immediately
-                contentKey = { it.type },
-                transitionSpec = {
-                    val oldType = initialState.type
-                    val newType = targetState.type
-                    val direction = newType.ordinal - oldType.ordinal
-                    val enter = when {
-                        direction > 0 -> slideInHorizontally(
-                            initialOffsetX = { it },
-                            animationSpec = tween(durationMillis = scaledTweenMs(420), easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(scaledTweenMs(360), easing = FastOutSlowInEasing))
-                        direction < 0 -> slideInHorizontally(
-                            initialOffsetX = { -it },
-                            animationSpec = tween(durationMillis = scaledTweenMs(420), easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(scaledTweenMs(360), easing = FastOutSlowInEasing))
-                        else -> EnterTransition.None
-                    }
-                    val exit = when {
-                        direction > 0 -> slideOutHorizontally(
-                            targetOffsetX = { -it / 2 },
-                            animationSpec = tween(durationMillis = scaledTweenMs(360), easing = FastOutSlowInEasing)
-                        ) + fadeOut(animationSpec = tween(scaledTweenMs(320), easing = FastOutSlowInEasing))
-                        direction < 0 -> slideOutHorizontally(
-                            targetOffsetX = { it / 2 },
-                            animationSpec = tween(durationMillis = scaledTweenMs(360), easing = FastOutSlowInEasing)
-                        ) + fadeOut(animationSpec = tween(scaledTweenMs(320), easing = FastOutSlowInEasing))
-                        else -> ExitTransition.None
-                    }
-                    enter togetherWith exit
-                },
-                label = "SectionTransition"
-            ) { targetSection ->
-                    val currentListState = listStates.getOrPut(targetSection.type) { LazyListState() }
-                    when (targetSection.type) {
-                        RoomSectionType.HOME -> {
-                            RoomListContent(
-                                rooms = targetSection.rooms,
-                                searchQuery = searchQuery,
-                                appViewModel = appViewModel,
-                                authToken = authToken,
-                                navController = navController,
-                                timestampUpdateTrigger = smartTimestampUpdateCounter,
-                                hapticFeedback = hapticFeedback,
-                                listState = currentListState,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                onInviteClick = { 
-                                    // Invites are now handled in RoomListScreen, not here
-                                }
-                            )
-                        }
-                        RoomSectionType.SPACES -> {
-                            val currentSpaceId = appViewModel.currentSpaceId
-                            val isInSpace = currentSpaceId != null
-                            
-                            // CRITICAL: Get spaces directly from viewmodel, not from targetSection
-                            // When entering a space, targetSection.spaces becomes empty, breaking the exit animation
-                            // Get spaces from viewmodel so animation always has content
-                            val spacesForAnimation = remember(appViewModel.allSpaces, isInSpace) {
-                                // Always use spaces from viewmodel - they're stable and available even when in a space
-                                appViewModel.allSpaces.map { space ->
-                                    SpaceItem(
-                                        id = space.id,
-                                        name = space.name,
-                                        avatarUrl = space.avatarUrl,
-                                        rooms = space.rooms
-                                    )
-                                }
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shape = RoundedCornerShape(
+                        topStart = 24.dp,
+                        topEnd = 24.dp,
+                        bottomStart = 0.dp,
+                        bottomEnd = 0.dp,
+                    ),
+                    tonalElevation = 2.dp,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp)
+                        .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp)),
+                ) {
+                    AnimatedContent(
+                        targetState = displayedSection,
+                        // CRITICAL FIX: Use contentKey to only animate when section TYPE changes, not when data changes
+                        // This prevents unnecessary transitions when returning from RoomTimelineScreen
+                        // and ensures scrolling works immediately
+                        contentKey = { it.type },
+                        transitionSpec = {
+                            val oldType = initialState.type
+                            val newType = targetState.type
+                            val direction = newType.ordinal - oldType.ordinal
+                            val enter = when {
+                                direction > 0 -> slideInHorizontally(
+                                    initialOffsetX = { it },
+                                    animationSpec = tween(durationMillis = scaledTweenMs(420), easing = FastOutSlowInEasing),
+                                ) + fadeIn(animationSpec = tween(scaledTweenMs(360), easing = FastOutSlowInEasing))
+
+                                direction < 0 -> slideInHorizontally(
+                                    initialOffsetX = { -it },
+                                    animationSpec = tween(durationMillis = scaledTweenMs(420), easing = FastOutSlowInEasing),
+                                ) + fadeIn(animationSpec = tween(scaledTweenMs(360), easing = FastOutSlowInEasing))
+
+                                else -> EnterTransition.None
                             }
-                            
-                            // Use Box with AnimatedVisibility for both pieces so both can animate simultaneously
-                            // This creates the "Zoom Through" / Container Transform effect
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                // Space list - visible when NOT in a space
-                                // Use spacesForAnimation which is always populated from viewmodel
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = !isInSpace,
-                                    exit = slideOutVertically(
-                                        targetOffsetY = { -it }, // Slide up (negative offset = upward) when entering space
-                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
-                                    ) + fadeOut(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
-                                    enter = slideInVertically(
-                                        initialOffsetY = { -it }, // Slide down from top (negative offset = from above) when exiting space
-                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
-                                    ) + fadeIn(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
-                                    label = "SpaceListTransition"
-                                ) {
-                                    SpacesListContent(
-                                        spaces = spacesForAnimation,
-                                        searchQuery = searchQuery,
-                                        appViewModel = appViewModel,
-                                        authToken = authToken,
-                                        navController = navController,
-                                        listState = currentListState
-                                    )
-                                }
-                                
-                                // Rooms - visible when IN a space
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = isInSpace,
-                                    exit = scaleOut(
-                                        targetScale = 0.0f, // Zoom out completely when exiting space
-                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
-                                    ) + fadeOut(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
-                                    enter = scaleIn(
-                                        initialScale = 0.0f, // Zoom in from nothing when entering space
-                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
-                                    ) + fadeIn(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
-                                    label = "RoomsTransition"
-                                ) {
-                                    RoomListContent(
-                                        rooms = targetSection.rooms,
-                                        searchQuery = searchQuery,
-                                        appViewModel = appViewModel,
-                                        authToken = authToken,
-                                        navController = navController,
-                                        timestampUpdateTrigger = smartTimestampUpdateCounter,
-                                        hapticFeedback = hapticFeedback,
-                                        listState = currentListState,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                        onInviteClick = { invite ->
-                                            inviteToJoin = invite
-                                            showRoomJoiner = true
-                                        }
-                                    )
-                                }
+                            val exit = when {
+                                direction > 0 -> slideOutHorizontally(
+                                    targetOffsetX = { -it / 2 },
+                                    animationSpec = tween(durationMillis = scaledTweenMs(360), easing = FastOutSlowInEasing),
+                                ) + fadeOut(animationSpec = tween(scaledTweenMs(320), easing = FastOutSlowInEasing))
+
+                                direction < 0 -> slideOutHorizontally(
+                                    targetOffsetX = { it / 2 },
+                                    animationSpec = tween(durationMillis = scaledTweenMs(360), easing = FastOutSlowInEasing),
+                                ) + fadeOut(animationSpec = tween(scaledTweenMs(320), easing = FastOutSlowInEasing))
+
+                                else -> ExitTransition.None
                             }
-                        }
-                        RoomSectionType.DIRECT_CHATS -> {
-                            RoomListContent(
-                                rooms = targetSection.rooms,
-                                searchQuery = searchQuery,
-                                appViewModel = appViewModel,
-                                authToken = authToken,
-                                navController = navController,
-                                timestampUpdateTrigger = smartTimestampUpdateCounter,
-                                hapticFeedback = hapticFeedback,
-                                listState = currentListState,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                onInviteClick = { 
-                                    // Invites are now handled in RoomListScreen, not here
-                                }
-                            )
-                        }
-                        RoomSectionType.UNREAD -> {
-                            RoomListContent(
-                                rooms = targetSection.rooms,
-                                searchQuery = searchQuery,
-                                appViewModel = appViewModel,
-                                authToken = authToken,
-                                navController = navController,
-                                timestampUpdateTrigger = smartTimestampUpdateCounter,
-                                hapticFeedback = hapticFeedback,
-                                listState = currentListState,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                onInviteClick = { 
-                                    // Invites are now handled in RoomListScreen, not here
-                                }
-                            )
-                        }
-                        RoomSectionType.FAVOURITES -> {
-                            RoomListContent(
-                                rooms = targetSection.rooms,
-                                searchQuery = searchQuery,
-                                appViewModel = appViewModel,
-                                authToken = authToken,
-                                navController = navController,
-                                timestampUpdateTrigger = smartTimestampUpdateCounter,
-                                hapticFeedback = hapticFeedback,
-                                listState = currentListState,
-                                sharedTransitionScope = sharedTransitionScope,
-                                animatedVisibilityScope = animatedVisibilityScope,
-                                onInviteClick = { 
-                                    // Invites are now handled in RoomListScreen, not here
-                                }
-                            )
-                        }
-                        RoomSectionType.BRIDGES -> {
-                            val currentBridgeId = appViewModel.currentBridgeId
-                            val isInBridge = currentBridgeId != null
-                            
-                            // CRITICAL: Get bridges directly from viewmodel, not from targetSection
-                            // When entering a bridge, targetSection.spaces becomes empty, breaking the exit animation
-                            // Get bridges from viewmodel so animation always has content
-                            val bridgesForAnimation = remember(targetSection.spaces, isInBridge) {
-                                // Use bridges from targetSection - they're the pseudo-spaces we created
-                                targetSection.spaces.map { bridge ->
-                                    SpaceItem(
-                                        id = bridge.id,
-                                        name = bridge.name,
-                                        avatarUrl = bridge.avatarUrl,
-                                        rooms = bridge.rooms
-                                    )
-                                }
-                            }
-                            
-                            // Use Box with AnimatedVisibility for both pieces so both can animate simultaneously
-                            // This creates the "Zoom Through" / Container Transform effect (same as Spaces)
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                // Bridge list - visible when NOT in a bridge
-                                // Use bridgesForAnimation which is always populated from targetSection
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = !isInBridge,
-                                    exit = slideOutVertically(
-                                        targetOffsetY = { -it }, // Slide up (negative offset = upward) when entering bridge
-                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
-                                    ) + fadeOut(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
-                                    enter = slideInVertically(
-                                        initialOffsetY = { -it }, // Slide down from top (negative offset = from above) when exiting bridge
-                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
-                                    ) + fadeIn(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
-                                    label = "BridgeListTransition"
-                                ) {
-                                    BridgesListContent(
-                                        bridges = bridgesForAnimation,
-                                        searchQuery = searchQuery,
-                                        appViewModel = appViewModel,
-                                        authToken = authToken,
-                                        navController = navController,
-                                        listState = currentListState
-                                    )
-                                }
-                                
-                                // Rooms - visible when IN a bridge
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = isInBridge,
-                                    exit = scaleOut(
-                                        targetScale = 0.0f, // Zoom out completely when exiting bridge
-                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
-                                    ) + fadeOut(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
-                                    enter = scaleIn(
-                                        initialScale = 0.0f, // Zoom in from nothing when entering bridge
-                                        animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)
-                                    ) + fadeIn(animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing)),
-                                    label = "BridgeRoomsTransition"
-                                ) {
-                                    RoomListContent(
-                                        rooms = targetSection.rooms,
-                                        searchQuery = searchQuery,
-                                        appViewModel = appViewModel,
-                                        authToken = authToken,
-                                        navController = navController,
-                                        timestampUpdateTrigger = smartTimestampUpdateCounter,
-                                        hapticFeedback = hapticFeedback,
-                                        listState = currentListState,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                        onInviteClick = { invite ->
-                                            inviteToJoin = invite
-                                            showRoomJoiner = true
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                        RoomSectionType.MENTIONS -> {
-                            // Mentions are accessed via the header button, not through tabs
-                            // Show empty state (should not normally be reached)
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "Use the bell icon in the header to view mentions",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                            enter togetherWith exit
+                        },
+                        label = "SectionTransition",
+                    ) { targetSection ->
+                        val currentListState = listStates.getOrPut(targetSection.type) { LazyListState() }
+                        when (targetSection.type) {
+                            RoomSectionType.HOME -> {
+                                RoomListContent(
+                                    rooms = targetSection.rooms,
+                                    searchQuery = searchQuery,
+                                    appViewModel = appViewModel,
+                                    authToken = authToken,
+                                    navController = navController,
+                                    timestampUpdateTrigger = smartTimestampUpdateCounter,
+                                    hapticFeedback = hapticFeedback,
+                                    listState = currentListState,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    onInviteClick = {
+                                        // Invites are now handled in RoomListScreen, not here
+                                    },
                                 )
+                            }
+
+                            RoomSectionType.SPACES -> {
+                                val currentSpaceId = appViewModel.currentSpaceId
+                                val isInSpace = currentSpaceId != null
+
+                                // CRITICAL: Get spaces directly from viewmodel, not from targetSection
+                                // When entering a space, targetSection.spaces becomes empty, breaking the exit animation
+                                // Get spaces from viewmodel so animation always has content
+                                val spacesForAnimation = remember(appViewModel.allSpaces, isInSpace) {
+                                    // Always use spaces from viewmodel - they're stable and available even when in a space
+                                    appViewModel.allSpaces.map { space ->
+                                        SpaceItem(
+                                            id = space.id,
+                                            name = space.name,
+                                            avatarUrl = space.avatarUrl,
+                                            rooms = space.rooms,
+                                        )
+                                    }
+                                }
+
+                                // Use Box with AnimatedVisibility for both pieces so both can animate simultaneously
+                                // This creates the "Zoom Through" / Container Transform effect
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    // Space list - visible when NOT in a space
+                                    // Use spacesForAnimation which is always populated from viewmodel
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        visible = !isInSpace,
+                                        exit = slideOutVertically(
+                                            targetOffsetY = { -it }, // Slide up (negative offset = upward) when entering space
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ) + fadeOut(
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ),
+                                        enter = slideInVertically(
+                                            initialOffsetY = { -it }, // Slide down from top (negative offset = from above) when exiting space
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ) + fadeIn(
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ),
+                                        label = "SpaceListTransition",
+                                    ) {
+                                        SpacesListContent(
+                                            spaces = spacesForAnimation,
+                                            searchQuery = searchQuery,
+                                            appViewModel = appViewModel,
+                                            authToken = authToken,
+                                            navController = navController,
+                                            listState = currentListState,
+                                        )
+                                    }
+
+                                    // Rooms - visible when IN a space
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        visible = isInSpace,
+                                        exit = scaleOut(
+                                            targetScale = 0.0f, // Zoom out completely when exiting space
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ) + fadeOut(
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ),
+                                        enter = scaleIn(
+                                            initialScale = 0.0f, // Zoom in from nothing when entering space
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ) + fadeIn(
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ),
+                                        label = "RoomsTransition",
+                                    ) {
+                                        RoomListContent(
+                                            rooms = targetSection.rooms,
+                                            searchQuery = searchQuery,
+                                            appViewModel = appViewModel,
+                                            authToken = authToken,
+                                            navController = navController,
+                                            timestampUpdateTrigger = smartTimestampUpdateCounter,
+                                            hapticFeedback = hapticFeedback,
+                                            listState = currentListState,
+                                            sharedTransitionScope = sharedTransitionScope,
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                            onInviteClick = { invite ->
+                                                inviteToJoin = invite
+                                                showRoomJoiner = true
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+
+                            RoomSectionType.DIRECT_CHATS -> {
+                                RoomListContent(
+                                    rooms = targetSection.rooms,
+                                    searchQuery = searchQuery,
+                                    appViewModel = appViewModel,
+                                    authToken = authToken,
+                                    navController = navController,
+                                    timestampUpdateTrigger = smartTimestampUpdateCounter,
+                                    hapticFeedback = hapticFeedback,
+                                    listState = currentListState,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    onInviteClick = {
+                                        // Invites are now handled in RoomListScreen, not here
+                                    },
+                                )
+                            }
+
+                            RoomSectionType.UNREAD -> {
+                                RoomListContent(
+                                    rooms = targetSection.rooms,
+                                    searchQuery = searchQuery,
+                                    appViewModel = appViewModel,
+                                    authToken = authToken,
+                                    navController = navController,
+                                    timestampUpdateTrigger = smartTimestampUpdateCounter,
+                                    hapticFeedback = hapticFeedback,
+                                    listState = currentListState,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    onInviteClick = {
+                                        // Invites are now handled in RoomListScreen, not here
+                                    },
+                                )
+                            }
+
+                            RoomSectionType.FAVOURITES -> {
+                                RoomListContent(
+                                    rooms = targetSection.rooms,
+                                    searchQuery = searchQuery,
+                                    appViewModel = appViewModel,
+                                    authToken = authToken,
+                                    navController = navController,
+                                    timestampUpdateTrigger = smartTimestampUpdateCounter,
+                                    hapticFeedback = hapticFeedback,
+                                    listState = currentListState,
+                                    sharedTransitionScope = sharedTransitionScope,
+                                    animatedVisibilityScope = animatedVisibilityScope,
+                                    onInviteClick = {
+                                        // Invites are now handled in RoomListScreen, not here
+                                    },
+                                )
+                            }
+
+                            RoomSectionType.BRIDGES -> {
+                                val currentBridgeId = appViewModel.currentBridgeId
+                                val isInBridge = currentBridgeId != null
+
+                                // CRITICAL: Get bridges directly from viewmodel, not from targetSection
+                                // When entering a bridge, targetSection.spaces becomes empty, breaking the exit animation
+                                // Get bridges from viewmodel so animation always has content
+                                val bridgesForAnimation = remember(targetSection.spaces, isInBridge) {
+                                    // Use bridges from targetSection - they're the pseudo-spaces we created
+                                    targetSection.spaces.map { bridge ->
+                                        SpaceItem(
+                                            id = bridge.id,
+                                            name = bridge.name,
+                                            avatarUrl = bridge.avatarUrl,
+                                            rooms = bridge.rooms,
+                                        )
+                                    }
+                                }
+
+                                // Use Box with AnimatedVisibility for both pieces so both can animate simultaneously
+                                // This creates the "Zoom Through" / Container Transform effect (same as Spaces)
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    // Bridge list - visible when NOT in a bridge
+                                    // Use bridgesForAnimation which is always populated from targetSection
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        visible = !isInBridge,
+                                        exit = slideOutVertically(
+                                            targetOffsetY = { -it }, // Slide up (negative offset = upward) when entering bridge
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ) + fadeOut(
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ),
+                                        enter = slideInVertically(
+                                            initialOffsetY = { -it }, // Slide down from top (negative offset = from above) when exiting bridge
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ) + fadeIn(
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ),
+                                        label = "BridgeListTransition",
+                                    ) {
+                                        BridgesListContent(
+                                            bridges = bridgesForAnimation,
+                                            searchQuery = searchQuery,
+                                            appViewModel = appViewModel,
+                                            authToken = authToken,
+                                            navController = navController,
+                                            listState = currentListState,
+                                        )
+                                    }
+
+                                    // Rooms - visible when IN a bridge
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        visible = isInBridge,
+                                        exit = scaleOut(
+                                            targetScale = 0.0f, // Zoom out completely when exiting bridge
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ) + fadeOut(
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ),
+                                        enter = scaleIn(
+                                            initialScale = 0.0f, // Zoom in from nothing when entering bridge
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ) + fadeIn(
+                                            animationSpec = tween(scaledTweenMs(1000), easing = FastOutSlowInEasing),
+                                        ),
+                                        label = "BridgeRoomsTransition",
+                                    ) {
+                                        RoomListContent(
+                                            rooms = targetSection.rooms,
+                                            searchQuery = searchQuery,
+                                            appViewModel = appViewModel,
+                                            authToken = authToken,
+                                            navController = navController,
+                                            timestampUpdateTrigger = smartTimestampUpdateCounter,
+                                            hapticFeedback = hapticFeedback,
+                                            listState = currentListState,
+                                            sharedTransitionScope = sharedTransitionScope,
+                                            animatedVisibilityScope = animatedVisibilityScope,
+                                            onInviteClick = { invite ->
+                                                inviteToJoin = invite
+                                                showRoomJoiner = true
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+
+                            RoomSectionType.MENTIONS -> {
+                                // Mentions are accessed via the header button, not through tabs
+                                // Show empty state (should not normally be reached)
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = "Use the bell icon in the header to view mentions",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
-            ScrollToTopFab(
-                visible = showScrollToTopFab,
-                onScrollToTop = { fabScope.launch { currentListStateForPullRefresh?.scrollToItem(0) } },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 8.dp, end = 24.dp)
-            )
+                ScrollToTopFab(
+                    visible = showScrollToTopFab,
+                    onScrollToTop = { fabScope.launch { currentListStateForPullRefresh?.scrollToItem(0) } },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 8.dp, end = 24.dp),
+                )
             } // closes Room list Box
 
             // Tab bar at the bottom (outside the Surface)
@@ -1487,10 +1629,10 @@ fun RoomListScreen(
                     // This ensures timestamps are immediately up-to-date when user switches sections
                     smartTimestampUpdateCounter++
                 },
-                appViewModel = appViewModel
+                appViewModel = appViewModel,
             )
         }
-        
+
         // Pull-to-refresh indicator
         val pullProgress = refreshState.progress
         if (refreshing || pullProgress > 0f) {
@@ -1504,50 +1646,50 @@ fun RoomListScreen(
                         val scale = 0.7f + 0.3f * progressForAlpha
                         scaleX = scale
                         scaleY = scale
-                    }
+                    },
             )
         }
-        
+
         // Pull-to-refresh confirmation dialog
         if (showRefreshConfirmation) {
             Dialog(
-                onDismissRequest = { 
+                onDismissRequest = {
                     showRefreshConfirmation = false
                 },
                 properties = DialogProperties(
                     dismissOnBackPress = true,
-                    dismissOnClickOutside = true
-                )
+                    dismissOnClickOutside = true,
+                ),
             ) {
                 Card(
                     modifier = Modifier.fillMaxWidth(0.85f),
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface
-                    )
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
                 ) {
                     Column(
-                        modifier = Modifier.padding(24.dp)
+                        modifier = Modifier.padding(24.dp),
                     ) {
                         // Title
                         Text(
                             text = "Reconnect?",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 16.dp)
+                            modifier = Modifier.padding(bottom = 16.dp),
                         )
-                        
+
                         // Message
                         Text(
                             text = "Choose reconnection type:\n• Full: Resets all data and syncs everything from scratch.\n• Quick: Resumes current session and only fetches missing events.",
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.padding(bottom = 24.dp)
+                            modifier = Modifier.padding(bottom = 24.dp),
                         )
-                        
+
                         // Buttons: Full, Quick, Cancel
                         Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Button(
                                 onClick = {
@@ -1555,11 +1697,11 @@ fun RoomListScreen(
                                     performRefresh(isFull = true)
                                 },
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
+                                shape = RoundedCornerShape(12.dp),
                             ) {
                                 Text("Full")
                             }
-                            
+
                             Button(
                                 onClick = {
                                     showRefreshConfirmation = false
@@ -1568,17 +1710,17 @@ fun RoomListScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.secondary
-                                )
+                                    containerColor = MaterialTheme.colorScheme.secondary,
+                                ),
                             ) {
                                 Text("Quick")
                             }
-                            
+
                             TextButton(
-                                onClick = { 
+                                onClick = {
                                     showRefreshConfirmation = false
                                 },
-                                modifier = Modifier.fillMaxWidth()
+                                modifier = Modifier.fillMaxWidth(),
                             ) {
                                 Text("Cancel", color = MaterialTheme.colorScheme.primary)
                             }
@@ -1587,7 +1729,7 @@ fun RoomListScreen(
                 }
             }
         }
-        
+
         // RoomJoinerScreen for invites
         if (showRoomJoiner && inviteToJoin != null) {
             val invite = inviteToJoin!!
@@ -1595,9 +1737,9 @@ fun RoomListScreen(
             val roomLink = RoomLink(
                 roomIdOrAlias = invite.roomId,
                 viaServers = emptyList(), // Invites don't need via servers
-                displayText = invite.roomName ?: invite.inviterDisplayName ?: invite.roomId
+                displayText = invite.roomName ?: invite.inviterDisplayName ?: invite.roomId,
             )
-            
+
             RoomJoinerScreen(
                 roomLink = roomLink,
                 homeserverUrl = appViewModel.homeserverUrl,
@@ -1613,7 +1755,7 @@ fun RoomListScreen(
                     // Don't navigate - let the room appear at the top of the list
                     // The room will appear in sync_complete and be sorted to the top
                 },
-                inviteId = invite.roomId // Pass invite ID so RoomJoinerScreen uses acceptRoomInvite/refuseRoomInvite
+                inviteId = invite.roomId, // Pass invite ID so RoomJoinerScreen uses acceptRoomInvite/refuseRoomInvite
             )
         }
     }
@@ -1621,15 +1763,15 @@ fun RoomListScreen(
 
 @Composable
 fun SpaceListItem(
-    space: SpaceItem, 
-    isSelected: Boolean, 
+    space: SpaceItem,
+    isSelected: Boolean,
     onClick: () -> Unit,
     homeserverUrl: String,
-    authToken: String
+    authToken: String,
 ) {
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceListItem: Called for space: ${space.name}")
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceListItem: Using homeserver URL: $homeserverUrl")
-    
+
     // PERF: Memoize aggregations — space.rooms can be large and these iterate it 4 times per recompose.
     val (totalRooms, unreadRooms, highlightRooms, totalUnreadMessages, totalHighlights) = remember(space.rooms) {
         val unread = space.rooms.count { it.unreadCount != null && it.unreadCount > 0 }
@@ -1638,13 +1780,13 @@ fun SpaceListItem(
         val totalHighlight = space.rooms.sumOf { it.highlightCount ?: 0 }
         listOf(space.rooms.size, unread, highlight, totalUnread, totalHighlight)
     }
-    
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
             .padding(vertical = 12.dp, horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         // Avatar
         AvatarImage(
@@ -1654,26 +1796,33 @@ fun SpaceListItem(
             fallbackText = space.name,
             size = 48.dp,
             userId = space.id,
-            displayName = space.name
+            displayName = space.name,
         )
-        
+
         Spacer(modifier = Modifier.width(12.dp))
-        
+
         Column(
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         ) {
             Text(
                 text = space.name,
                 style = when {
                     isSelected -> MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.primary)
-                    highlightRooms > 0 -> MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    unreadRooms > 0 -> MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+
+                    highlightRooms > 0 -> MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    )
+
+                    unreadRooms > 0 -> MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    )
+
                     else -> MaterialTheme.typography.titleMedium
                 },
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                overflow = TextOverflow.Ellipsis,
             )
-            
+
             if (totalRooms > 0) {
                 Text(
                     text = "$totalRooms rooms",
@@ -1681,11 +1830,11 @@ fun SpaceListItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp)
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
         }
-        
+
         // Unread/highlight badge - shows number of rooms with highlights or unreads
         if (highlightRooms > 0) {
             // Highlight badge - more prominent color (error/attention)
@@ -1693,14 +1842,14 @@ fun SpaceListItem(
                 modifier = Modifier
                     .background(
                         MaterialTheme.colorScheme.error,
-                        CircleShape
+                        CircleShape,
                     )
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
             ) {
                 Text(
                     text = if (highlightRooms > 99) "99+" else "$highlightRooms",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onError
+                    color = MaterialTheme.colorScheme.onError,
                 )
             }
         } else if (unreadRooms > 0) {
@@ -1709,14 +1858,14 @@ fun SpaceListItem(
                 modifier = Modifier
                     .background(
                         MaterialTheme.colorScheme.primary,
-                        CircleShape
+                        CircleShape,
                     )
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
             ) {
                 Text(
                     text = if (unreadRooms > 99) "99+" else "$unreadRooms",
                     style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    color = MaterialTheme.colorScheme.onPrimary,
                 )
             }
         }
@@ -1738,21 +1887,21 @@ fun RoomListItem(
     isScrollingFast: Boolean = false, // PERFORMANCE: Suspend avatar loading during fast scroll
     shouldLoadAvatar: Boolean = true, // PERFORMANCE: Load avatars for items below viewport
     sharedTransitionScope: SharedTransitionScope? = null, // SHARED TRANSITION: Scope for shared element animation
-    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null // SHARED TRANSITION: Scope for shared element animation
+    animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null, // SHARED TRANSITION: Scope for shared element animation
 ) {
     val context = LocalContext.current
     var showContextMenu by remember { mutableStateOf(false) }
     var showLeaveDialog by remember { mutableStateOf(false) }
     var menuIsFavourite by remember(room.isFavourite) { mutableStateOf(room.isFavourite) }
     var menuIsLowPriority by remember(room.isLowPriority) { mutableStateOf(room.isLowPriority) }
-    
+
     // PERFORMANCE: Remember computed timestamp to avoid recalculation unless it actually changes
     // The timestampUpdateTrigger now updates at smart intervals (1s for recent, 1m for older, etc.)
     // This prevents expensive recompositions every second for all rooms
     val timeAgo = remember(room.sortingTimestamp, timestampUpdateTrigger) {
         formatTimeAgo(room.sortingTimestamp)
     }
-    
+
     // PERFORMANCE: Read the sender display name straight off the RoomItem (cached by
     // SpaceRoomParser at sync-parse time, refreshed per-row by
     // AppViewModel.refreshSenderDisplayNameForRooms on profile updates). This removes:
@@ -1774,11 +1923,11 @@ fun RoomListItem(
     val isTimelineCached = remember(cacheStateCounter, room.id) {
         RoomTimelineCache.isRoomOpened(room.id) || RoomTimelineCache.isRoomActivelyCached(room.id)
     }
-    
+
     // Wrapping box for the entire item
     Box(
         modifier = modifier
-            .fillMaxWidth()
+            .fillMaxWidth(),
     ) {
         Row(
             modifier = Modifier
@@ -1786,15 +1935,16 @@ fun RoomListItem(
                 .combinedClickable(
                     enabled = isEnabled,
                     onClick = { onRoomClick(room) },
-                    onLongClick = { 
+                    onLongClick = {
                         showContextMenu = true
-                    }
+                    },
                 )
                 .padding(vertical = 12.dp, horizontal = 16.dp),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.Top,
         ) {
             // Room avatar with optional bridge protocol badge
-            key(room.id) { // CRITICAL: Prevent "wrong avatar" flicker on shared transitions
+            key(room.id) {
+                // CRITICAL: Prevent "wrong avatar" flicker on shared transitions
                 Box {
                     // Shared-element tagged avatar when transition scopes are available
                     if (sharedTransitionScope != null && animatedVisibilityScope != null) {
@@ -1821,13 +1971,15 @@ fun RoomListItem(
                                         boundsTransform = { _, _ ->
                                             androidx.compose.animation.core.spring(
                                                 dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                                                stiffness = scaledStiffness(androidx.compose.animation.core.Spring.StiffnessMedium)
+                                                stiffness = scaledStiffness(
+                                                    androidx.compose.animation.core.Spring.StiffnessMedium,
+                                                ),
                                             )
                                         },
                                         renderInOverlayDuringTransition = true,
-                                        zIndexInOverlay = 1f
+                                        zIndexInOverlay = 1f,
                                     )
-                                    .clip(CircleShape)
+                                    .clip(CircleShape),
                             )
                         }
                     } else {
@@ -1843,10 +1995,10 @@ fun RoomListItem(
                             isVisible = shouldLoadAvatar,
                             capAvatarSize = true,
                             isScrollingFast = isScrollingFast,
-                            modifier = Modifier.clip(CircleShape)
+                            modifier = Modifier.clip(CircleShape),
                         )
                     }
-                
+
                     // Bridge protocol avatar badge (bottom-right corner)
                     // PERFORMANCE: Use lightweight AsyncImage directly instead of full AvatarImage.
                     // Protocol icons are small static images — they don't need BlurHash, fallback
@@ -1860,7 +2012,9 @@ fun RoomListItem(
                         if (badgeUrl != null) {
                             // Build sharedBounds modifier outside the Box so we don't mix
                             // BoxScope and SharedTransitionScope implicit receivers.
-                            val sharedBoundsModifier: Modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null) {
+                            val sharedBoundsModifier: Modifier = if (sharedTransitionScope != null &&
+                                animatedVisibilityScope != null
+                            ) {
                                 with(sharedTransitionScope) {
                                     Modifier.sharedBounds(
                                         rememberSharedContentState(key = "bridge-badge-${room.id}"),
@@ -1868,14 +2022,16 @@ fun RoomListItem(
                                         boundsTransform = { _, _ ->
                                             spring(
                                                 dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                stiffness = scaledStiffness(Spring.StiffnessMedium)
+                                                stiffness = scaledStiffness(Spring.StiffnessMedium),
                                             )
                                         },
                                         renderInOverlayDuringTransition = true,
-                                        zIndexInOverlay = 2f
+                                        zIndexInOverlay = 2f,
                                     )
                                 }
-                            } else Modifier
+                            } else {
+                                Modifier
+                            }
                             Box(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
@@ -1883,14 +2039,14 @@ fun RoomListItem(
                                     .size(16.dp)
                                     .background(
                                         MaterialTheme.colorScheme.surface,
-                                        CircleShape
+                                        CircleShape,
                                     )
                                     .border(
                                         width = 2.dp,
                                         color = MaterialTheme.colorScheme.primary,
-                                        shape = CircleShape
+                                        shape = CircleShape,
                                     ),
-                                contentAlignment = Alignment.Center
+                                contentAlignment = Alignment.Center,
                             ) {
                                 coil3.compose.AsyncImage(
                                     model = coil3.request.ImageRequest.Builder(context)
@@ -1901,218 +2057,229 @@ fun RoomListItem(
                                         .memoryCachePolicy(coil3.request.CachePolicy.ENABLED)
                                         .diskCachePolicy(coil3.request.CachePolicy.ENABLED)
                                         .build(),
-                                    imageLoader = remember { net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context) },
+                                    imageLoader = remember {
+                                        net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(
+                                            context,
+                                        )
+                                    },
                                     contentDescription = "Bridge protocol",
                                     modifier = Modifier
                                         .size(14.dp)
                                         .clip(CircleShape),
-                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                 )
                             }
                         }
                     }
                 }
             }
-        
-        Spacer(modifier = Modifier.width(12.dp))
-        
-        // Room info with time and unread badge
-        Box(
-            modifier = Modifier.weight(1f)
-        ) {
-            Column {
-                // Room name and unread badge row
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = room.name,
-                        style = if (room.highlightCount != null && room.highlightCount > 0) {
-                            // Highlights have highest priority - bold styling
-                            MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                        } else if (room.unreadCount != null && room.unreadCount > 0) {
-                            // Regular unreads - bold styling
-                            MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                        } else {
-                            // No unreads - normal styling
-                            MaterialTheme.typography.titleMedium
-                        },
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
 
-                    // Right side: (optionally) silenced icon and unread/highlight pill
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Room info with time and unread badge
+            Box(
+                modifier = Modifier.weight(1f),
+            ) {
+                Column {
+                    // Room name and unread badge row
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        // Silenced icon placed to the left of the unread badge when room is low priority
-                        if (room.isLowPriority) {
-                            Icon(
-                                imageVector = Icons.Filled.NotificationsOff,
-                                contentDescription = "Low Priority - Notifications Disabled",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-
-                    // Show timeline cache indicator when this room is actively cached.
-                    if (isTimelineCached) {
-                        Icon(
-                            imageVector = Icons.Filled.Memory,
-                            contentDescription = "Room timeline cached",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-
-                        // Always show a Box to reserve space, but make it invisible when no unreads
-                        Box(
-                            modifier = Modifier
-                                .background(
-                                    if (room.highlightCount != null && room.highlightCount > 0) {
-                                        MaterialTheme.colorScheme.error
-                                    } else if (room.unreadCount != null && room.unreadCount > 0) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        // Transparent to reserve space but remain invisible
-                                        androidx.compose.ui.graphics.Color.Transparent
-                                    },
-                                    CircleShape
-                                )
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            // PHASE 1: Animated badge count changes
-                            // PERFORMANCE: replaced AnimatedContent (allocates a Transition per slot
-                            // and runs slide/fade specs on every count change) with a plain Text.
-                            // In practice the badge tick is invisible 9 times out of 10 because
-                            // a new message also reorders the room to the top, which the
-                            // `animateItem()` reorder animation already covers visually.
-                            if (room.highlightCount != null && room.highlightCount > 0) {
-                                Text(
-                                    text = room.highlightCount.toString(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onError
+                        Text(
+                            text = room.name,
+                            style = if (room.highlightCount != null && room.highlightCount > 0) {
+                                // Highlights have highest priority - bold styling
+                                MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                                 )
                             } else if (room.unreadCount != null && room.unreadCount > 0) {
-                                Text(
-                                    text = room.unreadCount.toString(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onPrimary
+                                // Regular unreads - bold styling
+                                MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                                 )
                             } else {
-                                // Invisible placeholder to maintain consistent height
+                                // No unreads - normal styling
+                                MaterialTheme.typography.titleMedium
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+
+                        // Right side: (optionally) silenced icon and unread/highlight pill
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            // Silenced icon placed to the left of the unread badge when room is low priority
+                            if (room.isLowPriority) {
+                                Icon(
+                                    imageVector = Icons.Filled.NotificationsOff,
+                                    contentDescription = "Low Priority - Notifications Disabled",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+
+                            // Show timeline cache indicator when this room is actively cached.
+                            if (isTimelineCached) {
+                                Icon(
+                                    imageVector = Icons.Filled.Memory,
+                                    contentDescription = "Room timeline cached",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+
+                            // Always show a Box to reserve space, but make it invisible when no unreads
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        if (room.highlightCount != null && room.highlightCount > 0) {
+                                            MaterialTheme.colorScheme.error
+                                        } else if (room.unreadCount != null && room.unreadCount > 0) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            // Transparent to reserve space but remain invisible
+                                            androidx.compose.ui.graphics.Color.Transparent
+                                        },
+                                        CircleShape,
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                // PHASE 1: Animated badge count changes
+                                // PERFORMANCE: replaced AnimatedContent (allocates a Transition per slot
+                                // and runs slide/fade specs on every count change) with a plain Text.
+                                // In practice the badge tick is invisible 9 times out of 10 because
+                                // a new message also reorders the room to the top, which the
+                                // `animateItem()` reorder animation already covers visually.
+                                if (room.highlightCount != null && room.highlightCount > 0) {
+                                    Text(
+                                        text = room.highlightCount.toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onError,
+                                    )
+                                } else if (room.unreadCount != null && room.unreadCount > 0) {
+                                    Text(
+                                        text = room.unreadCount.toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                } else {
+                                    // Invisible placeholder to maintain consistent height
+                                    Text(
+                                        text = "0",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = androidx.compose.ui.graphics.Color.Transparent,
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Enhanced message preview with sender avatar and display name
+                    if (room.messagePreview != null && room.messageSender != null) {
+                        // PERFORMANCE: Use cached senderDisplayName instead of expensive profile lookup on every recomposition
+                        val rawDisplayName = senderDisplayName ?: room.messageSender
+                        val displayNameToUse = if (appViewModel.trimLongDisplayNames && rawDisplayName.length > 40) {
+                            rawDisplayName.take(40) + "..."
+                        } else {
+                            rawDisplayName
+                        }
+
+                        Row(
+                            modifier = Modifier.padding(top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // Sender name and message
+                            Text(
+                                text = "$displayNameToUse: ${room.messagePreview}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+
+                            // Use pre-computed timestamp on the same line as the summary, to the right
+                            if (timeAgo.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(
-                                    text = "0",
+                                    text = timeAgo,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = androidx.compose.ui.graphics.Color.Transparent
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    } else if (room.messagePreview != null) {
+                        // Fallback for when messageSender is null
+                        android.util.Log.w("Andromuks", "RoomListScreen: WARNING - No messageSender for room ${room.name}")
+                        android.util.Log.w(
+                            "Andromuks",
+                            "RoomListScreen: Room details - ID: ${room.id}, Preview: '${room.messagePreview}', Sender: '${room.messageSender}'",
+                        )
+                        Row(
+                            modifier = Modifier.padding(top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = room.messagePreview,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+
+                            // Use pre-computed timestamp on the same line as the summary, to the right
+                            if (timeAgo.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = timeAgo,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    } else if (room.messageSender != null) {
+                        // Fallback: Sender available but no message preview (shouldn't happen normally since backend decrypts)
+                        // This is a safety fallback in case of edge cases
+                        val rawDisplayName = senderDisplayName ?: room.messageSender
+                        val displayNameToUse = if (appViewModel.trimLongDisplayNames && rawDisplayName.length > 40) {
+                            rawDisplayName.take(40) + "..."
+                        } else {
+                            rawDisplayName
+                        }
+                        Row(
+                            modifier = Modifier.padding(top = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "$displayNameToUse: (message preview unavailable)",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+
+                            // Use pre-computed timestamp on the same line as the summary, to the right
+                            if (timeAgo.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = timeAgo,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                         }
                     }
                 }
-                
-                // Enhanced message preview with sender avatar and display name
-                if (room.messagePreview != null && room.messageSender != null) {
-                    // PERFORMANCE: Use cached senderDisplayName instead of expensive profile lookup on every recomposition
-                    val rawDisplayName = senderDisplayName ?: room.messageSender
-                    val displayNameToUse = if (appViewModel.trimLongDisplayNames && rawDisplayName.length > 40) {
-                        rawDisplayName.take(40) + "..."
-                    } else {
-                        rawDisplayName
-                    }
-                    
-                    Row(
-                        modifier = Modifier.padding(top = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Sender name and message
-                        Text(
-                            text = "$displayNameToUse: ${room.messagePreview}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        // Use pre-computed timestamp on the same line as the summary, to the right
-                        if (timeAgo.isNotEmpty()) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = timeAgo,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                } else if (room.messagePreview != null) {
-                    // Fallback for when messageSender is null
-                    android.util.Log.w("Andromuks", "RoomListScreen: WARNING - No messageSender for room ${room.name}")
-                    android.util.Log.w("Andromuks", "RoomListScreen: Room details - ID: ${room.id}, Preview: '${room.messagePreview}', Sender: '${room.messageSender}'")
-                    Row(
-                        modifier = Modifier.padding(top = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = room.messagePreview,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        // Use pre-computed timestamp on the same line as the summary, to the right
-                        if (timeAgo.isNotEmpty()) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = timeAgo,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                } else if (room.messageSender != null) {
-                    // Fallback: Sender available but no message preview (shouldn't happen normally since backend decrypts)
-                    // This is a safety fallback in case of edge cases
-                    val rawDisplayName = senderDisplayName ?: room.messageSender
-                    val displayNameToUse = if (appViewModel.trimLongDisplayNames && rawDisplayName.length > 40) {
-                        rawDisplayName.take(40) + "..."
-                    } else {
-                        rawDisplayName
-                    }
-                    Row(
-                        modifier = Modifier.padding(top = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "$displayNameToUse: (message preview unavailable)",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
-                        )
-
-                        // Use pre-computed timestamp on the same line as the summary, to the right
-                        if (timeAgo.isNotEmpty()) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = timeAgo,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
             }
         }
-        }
-        
+
         // Context menu dialog with blur effect
         if (showContextMenu) {
             val coroutineScope = rememberCoroutineScope()
@@ -2142,23 +2309,39 @@ fun RoomListItem(
                 properties = DialogProperties(
                     dismissOnBackPress = true,
                     dismissOnClickOutside = true,
-                    usePlatformDefaultWidth = false
-                )
+                    usePlatformDefaultWidth = false,
+                ),
             ) {
                 AnimatedVisibility(
                     visible = menuVisible,
-                    enter = fadeIn(animationSpec = tween(durationMillis = scaledTweenMs(enterDuration), easing = FastOutSlowInEasing)) +
+                    enter = fadeIn(
+                        animationSpec = tween(
+                            durationMillis = scaledTweenMs(enterDuration),
+                            easing = FastOutSlowInEasing,
+                        ),
+                    ) +
                         scaleIn(
                             initialScale = 0.85f,
-                            animationSpec = tween(durationMillis = scaledTweenMs(enterDuration), easing = FastOutSlowInEasing),
-                            transformOrigin = TransformOrigin.Center
+                            animationSpec = tween(
+                                durationMillis = scaledTweenMs(enterDuration),
+                                easing = FastOutSlowInEasing,
+                            ),
+                            transformOrigin = TransformOrigin.Center,
                         ),
-                    exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(exitDuration), easing = FastOutSlowInEasing)) +
+                    exit = fadeOut(
+                        animationSpec = tween(
+                            durationMillis = scaledTweenMs(exitDuration),
+                            easing = FastOutSlowInEasing,
+                        ),
+                    ) +
                         scaleOut(
                             targetScale = 0.85f,
-                            animationSpec = tween(durationMillis = scaledTweenMs(exitDuration), easing = FastOutSlowInEasing),
-                            transformOrigin = TransformOrigin.Center
-                        )
+                            animationSpec = tween(
+                                durationMillis = scaledTweenMs(exitDuration),
+                                easing = FastOutSlowInEasing,
+                            ),
+                            transformOrigin = TransformOrigin.Center,
+                        ),
                 ) {
                     // Darkened scrim overlay that simulates blur by dimming background
                     Box(
@@ -2166,10 +2349,12 @@ fun RoomListItem(
                             .fillMaxSize()
                             .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f))
                             .clickable(
-                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                                indication = null
+                                interactionSource = remember {
+                                    androidx.compose.foundation.interaction.MutableInteractionSource()
+                                },
+                                indication = null,
                             ) { dismissMenu() },
-                        contentAlignment = Alignment.Center
+                        contentAlignment = Alignment.Center,
                     ) {
                         // Menu card with strong elevation and Material Design styling
                         Card(
@@ -2177,16 +2362,16 @@ fun RoomListItem(
                                 .fillMaxWidth(0.75f),
                             shape = RoundedCornerShape(24.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                             ),
                             elevation = CardDefaults.cardElevation(
-                                defaultElevation = 16.dp
-                            )
+                                defaultElevation = 16.dp,
+                            ),
                         ) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(16.dp)
+                                    .padding(16.dp),
                             ) {
                                 // Menu header with room name
                                 Text(
@@ -2196,99 +2381,109 @@ fun RoomListItem(
                                     color = MaterialTheme.colorScheme.onSurface,
                                     maxLines = 2,
                                     overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.padding(bottom = 8.dp)
+                                    modifier = Modifier.padding(bottom = 8.dp),
                                 )
-                                
+
                                 HorizontalDivider(
                                     color = MaterialTheme.colorScheme.outlineVariant,
-                                    modifier = Modifier.padding(vertical = 8.dp)
+                                    modifier = Modifier.padding(vertical = 8.dp),
                                 )
-                                
+
                                 // Favourite switch
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 14.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.SpaceBetween,
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f),
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Filled.Favorite,
                                                 contentDescription = "Favourite",
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(24.dp),
                                             )
                                             Spacer(modifier = Modifier.width(16.dp))
                                             Text(
                                                 text = "Favourite",
                                                 style = MaterialTheme.typography.bodyLarge,
                                                 fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                color = MaterialTheme.colorScheme.onSurface,
                                             )
                                         }
                                         Switch(
                                             checked = menuIsFavourite,
                                             onCheckedChange = { enabled ->
                                                 menuIsFavourite = enabled
-                                                appViewModel.setRoomTag(room.id, "m.favourite", enabled, triggerSort = false)
-                                            }
+                                                appViewModel.setRoomTag(
+                                                    room.id,
+                                                    "m.favourite",
+                                                    enabled,
+                                                    triggerSort = false,
+                                                )
+                                            },
                                         )
                                     }
                                 }
-                                
+
                                 // Low Priority switch
                                 Surface(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 14.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.SpaceBetween,
                                     ) {
                                         Row(
                                             verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier.weight(1f)
+                                            modifier = Modifier.weight(1f),
                                         ) {
                                             Icon(
                                                 imageVector = Icons.Filled.NotificationsOff,
                                                 contentDescription = "Low Priority",
                                                 tint = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.size(24.dp)
+                                                modifier = Modifier.size(24.dp),
                                             )
                                             Spacer(modifier = Modifier.width(16.dp))
                                             Text(
                                                 text = "Low Priority",
                                                 style = MaterialTheme.typography.bodyLarge,
                                                 fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onSurface
+                                                color = MaterialTheme.colorScheme.onSurface,
                                             )
                                         }
                                         Switch(
                                             checked = menuIsLowPriority,
                                             onCheckedChange = { enabled ->
                                                 menuIsLowPriority = enabled
-                                                appViewModel.setRoomTag(room.id, "m.lowpriority", enabled, triggerSort = false)
-                                            }
+                                                appViewModel.setRoomTag(
+                                                    room.id,
+                                                    "m.lowpriority",
+                                                    enabled,
+                                                    triggerSort = false,
+                                                )
+                                            },
                                         )
                                     }
                                 }
-                                
+
                                 HorizontalDivider(
                                     color = MaterialTheme.colorScheme.outlineVariant,
-                                    modifier = Modifier.padding(vertical = 8.dp)
+                                    modifier = Modifier.padding(vertical = 8.dp),
                                 )
 
                                 // Add room shortcut
@@ -2299,34 +2494,33 @@ fun RoomListItem(
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.AddToHomeScreen,
                                             contentDescription = "Add room shortcut",
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(24.dp),
                                         )
                                         Spacer(modifier = Modifier.width(16.dp))
                                         Text(
                                             text = "Add room shortcut",
                                             style = MaterialTheme.typography.bodyLarge,
                                             fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface
+                                            color = MaterialTheme.colorScheme.onSurface,
                                         )
                                     }
                                 }
 
-
                                 HorizontalDivider(
                                     color = MaterialTheme.colorScheme.outlineVariant,
-                                    modifier = Modifier.padding(vertical = 8.dp)
+                                    modifier = Modifier.padding(vertical = 8.dp),
                                 )
 
                                 // Room Info menu item with ripple effect
@@ -2338,30 +2532,30 @@ fun RoomListItem(
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Icon(
                                             imageVector = Icons.Filled.Info,
                                             contentDescription = "Room Info",
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(24.dp),
                                         )
                                         Spacer(modifier = Modifier.width(16.dp))
                                         Text(
                                             text = "Room Info",
                                             style = MaterialTheme.typography.bodyLarge,
                                             fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface
+                                            color = MaterialTheme.colorScheme.onSurface,
                                         )
                                     }
                                 }
-                                
+
                                 // Mark Read button
                                 Surface(
                                     onClick = {
@@ -2371,36 +2565,41 @@ fun RoomListItem(
                                             if (latestEventId != null) {
                                                 appViewModel.markRoomAsRead(room.id, latestEventId)
                                             } else {
-                                                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "RoomListScreen: Cannot mark room as read - no latest event_id for room ${room.id}")
+                                                if (BuildConfig.DEBUG) {
+                                                    android.util.Log.w(
+                                                    "Andromuks",
+                                                    "RoomListScreen: Cannot mark room as read - no latest event_id for room ${room.id}",
+                                                )
+                                                }
                                             }
                                         }
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Icon(
                                             imageVector = Icons.Filled.Done,
                                             contentDescription = "Mark Read",
                                             tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(24.dp),
                                         )
                                         Spacer(modifier = Modifier.width(16.dp))
                                         Text(
                                             text = "Mark Read",
                                             style = MaterialTheme.typography.bodyLarge,
                                             fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onSurface
+                                            color = MaterialTheme.colorScheme.onSurface,
                                         )
                                     }
                                 }
-                                
+
                                 // Leave button
                                 Surface(
                                     onClick = {
@@ -2410,26 +2609,26 @@ fun RoomListItem(
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
                                 ) {
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(horizontal = 16.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                        verticalAlignment = Alignment.CenterVertically,
                                     ) {
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.ExitToApp,
                                             contentDescription = "Leave",
                                             tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(24.dp)
+                                            modifier = Modifier.size(24.dp),
                                         )
                                         Spacer(modifier = Modifier.width(16.dp))
                                         Text(
                                             text = "Leave",
                                             style = MaterialTheme.typography.bodyLarge,
                                             fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.error
+                                            color = MaterialTheme.colorScheme.error,
                                         )
                                     }
                                 }
@@ -2439,7 +2638,7 @@ fun RoomListItem(
                 }
             }
         }
-        
+
         // Leave Room confirmation dialog
         if (showLeaveDialog) {
             LeaveRoomDialog(
@@ -2448,7 +2647,7 @@ fun RoomListItem(
                 onConfirm = { reason ->
                     showLeaveDialog = false
                     appViewModel.leaveRoom(room.id, reason)
-                }
+                },
             )
         }
     }
@@ -2456,42 +2655,46 @@ fun RoomListItem(
 
 fun formatTimeAgo(timestamp: Long?): String {
     if (timestamp == null || timestamp <= 0L) return ""
-    
+
     val now = System.currentTimeMillis()
     val eventDate = java.util.Date(timestamp)
     val today = java.util.Date(now)
-    
+
     val eventCalendar = java.util.Calendar.getInstance()
     val todayCalendar = java.util.Calendar.getInstance()
     val yesterdayCalendar = java.util.Calendar.getInstance()
-    
+
     eventCalendar.time = eventDate
     todayCalendar.time = today
     yesterdayCalendar.time = today
     yesterdayCalendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
-    
+
     // Check if it's today
     val isToday = eventCalendar.get(java.util.Calendar.YEAR) == todayCalendar.get(java.util.Calendar.YEAR) &&
-                  eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
-    
+        eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
+
     // Check if it's yesterday
     val isYesterday = eventCalendar.get(java.util.Calendar.YEAR) == yesterdayCalendar.get(java.util.Calendar.YEAR) &&
-                      eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == yesterdayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
-    
+        eventCalendar.get(
+            java.util.Calendar.DAY_OF_YEAR,
+        ) == yesterdayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
+
     return when {
         isToday -> {
             // Show time in hh:mm format for today
             val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
             timeFormatter.format(eventDate)
         }
+
         isYesterday -> "Yesterday"
+
         else -> {
             // Calculate days, weeks, or years ago
             val diff = now - timestamp
             val daysAgo = (diff / 86_400_000).toInt()
             val weeksAgo = daysAgo / 7
             val yearsAgo = daysAgo / 365
-            
+
             when {
                 yearsAgo > 0 -> "${yearsAgo}y ago"
                 weeksAgo > 0 -> "${weeksAgo}w ago"
@@ -2518,7 +2721,7 @@ fun formatTimeAgo(timestamp: Long?): String {
 private fun ConnectionStatusIndicator(
     connectionState: ConnectionState,
     roomListUpdateCounter: Int,
-    onClick: () -> Unit
+    onClick: () -> Unit,
 ) {
     val isConnecting = connectionState.isDialOrSyncing() ||
         connectionState is ConnectionState.QuickReconnecting ||
@@ -2531,13 +2734,13 @@ private fun ConnectionStatusIndicator(
             .size(40.dp)
             .clip(CircleShape)
             .clickable { onClick() },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         // Connected indicator - ready, with a scale heartbeat per applied sync_complete.
         AnimatedVisibility(
             visible = connectionState.isReady(),
             enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
         ) {
             val syncPulse = remember { Animatable(1f) }
             LaunchedEffect(roomListUpdateCounter) {
@@ -2557,7 +2760,7 @@ private fun ConnectionStatusIndicator(
                     .graphicsLayer {
                         scaleX = syncPulse.value
                         scaleY = syncPulse.value
-                    }
+                    },
             )
         }
 
@@ -2565,7 +2768,7 @@ private fun ConnectionStatusIndicator(
         AnimatedVisibility(
             visible = isConnecting,
             enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
         ) {
             val connectingPulse = rememberInfiniteTransition(label = "connecting_pulse")
             val connectingAlpha by connectingPulse.animateFloat(
@@ -2573,15 +2776,15 @@ private fun ConnectionStatusIndicator(
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
                     animation = tween(1000, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
+                    repeatMode = RepeatMode.Reverse,
                 ),
-                label = "connecting_alpha"
+                label = "connecting_alpha",
             )
             Icon(
                 imageVector = Icons.Filled.CloudSync,
                 contentDescription = "Connecting to server",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = connectingAlpha),
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
 
@@ -2589,7 +2792,7 @@ private fun ConnectionStatusIndicator(
         AnimatedVisibility(
             visible = isOffline,
             enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
         ) {
             val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
             val offlineAlpha by offlinePulse.animateFloat(
@@ -2597,15 +2800,15 @@ private fun ConnectionStatusIndicator(
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
                     animation = tween(800, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
+                    repeatMode = RepeatMode.Reverse,
                 ),
-                label = "offline_alpha"
+                label = "offline_alpha",
             )
             Icon(
                 imageVector = Icons.Filled.CloudOff,
                 contentDescription = "No server connection",
                 tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
     }
@@ -2621,10 +2824,7 @@ private fun ConnectionStatusIndicator(
  * inner AnimatedVisibility resolves to the generic (non-RowScope) overload.
  */
 @Composable
-private fun SyncStatusIndicator(
-    syncStatusType: String,
-    onClick: () -> Unit
-) {
+private fun SyncStatusIndicator(syncStatusType: String, onClick: () -> Unit) {
     val isDegraded = syncStatusType == "waiting" || syncStatusType == "erroring"
     val isFailed = syncStatusType == "permanently-failed"
     Box(
@@ -2632,13 +2832,13 @@ private fun SyncStatusIndicator(
             .size(40.dp)
             .clip(CircleShape)
             .clickable { onClick() },
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         // Degraded / retrying — backend is waiting on or erroring against the homeserver.
         AnimatedVisibility(
             visible = isDegraded,
             enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
         ) {
             val syncPulse = rememberInfiniteTransition(label = "sync_status_pulse")
             val syncAlpha by syncPulse.animateFloat(
@@ -2646,15 +2846,15 @@ private fun SyncStatusIndicator(
                 targetValue = 1f,
                 animationSpec = infiniteRepeatable(
                     animation = tween(1000, easing = FastOutSlowInEasing),
-                    repeatMode = RepeatMode.Reverse
+                    repeatMode = RepeatMode.Reverse,
                 ),
-                label = "sync_status_alpha"
+                label = "sync_status_alpha",
             )
             Icon(
                 imageVector = Icons.Filled.Sync,
                 contentDescription = "Server sync degraded",
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = syncAlpha),
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
 
@@ -2662,22 +2862,20 @@ private fun SyncStatusIndicator(
         AnimatedVisibility(
             visible = isFailed,
             enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-            exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+            exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
         ) {
             Icon(
                 imageVector = Icons.Filled.SyncProblem,
                 contentDescription = "Server sync failed",
                 tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp),
             )
         }
     }
 }
 
 @Composable
-private fun SyncBatchIndicator(
-    appViewModel: AppViewModel
-) {
+private fun SyncBatchIndicator(appViewModel: AppViewModel) {
     // The sync_complete "pulse" now lives on the header's CloudDone connection icon (it gives a
     // scale heartbeat per applied sync). This indicator only surfaces the battery-saver RUSH
     // batch-size readout.
@@ -2688,24 +2886,20 @@ private fun SyncBatchIndicator(
             text = if (processingBatchSize > 0) "$processingBatchSize RUSH" else "RUSH",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(start = 6.dp)
+            modifier = Modifier.padding(start = 6.dp),
         )
     }
 }
 
 @Composable
-fun TabBar(
-    currentSection: RoomSection,
-    onSectionSelected: (RoomSectionType) -> Unit,
-    appViewModel: AppViewModel
-) {
+fun TabBar(currentSection: RoomSection, onSectionSelected: (RoomSectionType) -> Unit, appViewModel: AppViewModel) {
     val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
     val showAllRoomListTabs = appViewModel.showAllRoomListTabs
 
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
+        tonalElevation = 8.dp, // Use tonalElevation for dark mode visibility
     ) {
         Row(
             modifier = Modifier
@@ -2713,7 +2907,7 @@ fun TabBar(
                 .padding(vertical = 12.dp, horizontal = 8.dp)
                 .navigationBarsPadding()
                 .padding(bottom = 8.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
+            horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             TabButton(
                 icon = Icons.Filled.Home,
@@ -2722,9 +2916,9 @@ fun TabBar(
                 onClick = {
                     onSectionSelected(RoomSectionType.HOME)
                 },
-                enabled = !isProcessingBatch
+                enabled = !isProcessingBatch,
             )
-            
+
             TabButton(
                 icon = Icons.Filled.Place,
                 label = "Spaces",
@@ -2732,9 +2926,9 @@ fun TabBar(
                 onClick = {
                     onSectionSelected(RoomSectionType.SPACES)
                 },
-                enabled = !isProcessingBatch
+                enabled = !isProcessingBatch,
             )
-            
+
             TabButton(
                 icon = Icons.Filled.Person,
                 label = "Direct",
@@ -2744,9 +2938,9 @@ fun TabBar(
                 },
                 badgeCount = appViewModel.getDirectChatsUnreadCount(),
                 hasHighlights = appViewModel.hasDirectChatsHighlights(),
-                enabled = !isProcessingBatch
+                enabled = !isProcessingBatch,
             )
-            
+
             TabButton(
                 icon = Icons.Filled.Notifications,
                 label = "Unread",
@@ -2755,7 +2949,7 @@ fun TabBar(
                     onSectionSelected(RoomSectionType.UNREAD)
                 },
                 badgeCount = appViewModel.getUnreadCount(),
-                enabled = !isProcessingBatch
+                enabled = !isProcessingBatch,
             )
 
             if (showAllRoomListTabs) {
@@ -2768,7 +2962,7 @@ fun TabBar(
                     },
                     badgeCount = appViewModel.getFavouritesUnreadCount(),
                     hasHighlights = appViewModel.hasFavouritesHighlights(),
-                    enabled = !isProcessingBatch
+                    enabled = !isProcessingBatch,
                 )
 
                 TabButton(
@@ -2778,10 +2972,9 @@ fun TabBar(
                     onClick = {
                         onSectionSelected(RoomSectionType.BRIDGES)
                     },
-                    enabled = !isProcessingBatch
+                    enabled = !isProcessingBatch,
                 )
             }
-            
         }
     }
 }
@@ -2794,53 +2987,53 @@ fun TabButton(
     onClick: () -> Unit,
     badgeCount: Int = 0,
     hasHighlights: Boolean = false,
-    enabled: Boolean = true
+    enabled: Boolean = true,
 ) {
     val content = @Composable {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
         ) {
             Icon(
                 imageVector = icon,
                 contentDescription = label,
                 tint = when {
                     !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                    isSelected -> MaterialTheme.colorScheme.primary 
+                    isSelected -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
+                },
             )
             Text(
                 text = label,
                 style = MaterialTheme.typography.labelSmall,
                 color = when {
                     !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                    isSelected -> MaterialTheme.colorScheme.primary 
+                    isSelected -> MaterialTheme.colorScheme.primary
                     else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
+                },
             )
         }
     }
-    
+
     if (badgeCount > 0) {
         BadgedBox(
-            badge = { 
+            badge = {
                 Badge(
                     containerColor = if (hasHighlights) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                    contentColor = if (hasHighlights) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
-                ) { 
-                    Text("$badgeCount") 
-                } 
-            }
+                    contentColor = if (hasHighlights) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Text("$badgeCount")
+                }
+            },
         ) {
             Button(
                 onClick = onClick,
                 enabled = enabled,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent
+                    disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
                 ),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
             ) {
                 content()
             }
@@ -2851,9 +3044,9 @@ fun TabButton(
             enabled = enabled,
             colors = ButtonDefaults.buttonColors(
                 containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent
+                disabledContainerColor = androidx.compose.ui.graphics.Color.Transparent,
             ),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
         ) {
             content()
         }
@@ -2866,7 +3059,12 @@ fun TabButton(
  */
 private const val ATTACH_ANIMATE_THRESHOLD = 8
 
-@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class, ExperimentalFoundationApi::class, ExperimentalSharedTransitionApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    FlowPreview::class,
+    ExperimentalFoundationApi::class,
+    ExperimentalSharedTransitionApi::class,
+)
 @Composable
 fun RoomListContent(
     rooms: List<RoomItem>,
@@ -2879,48 +3077,50 @@ fun RoomListContent(
     listState: LazyListState,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null,
-    onInviteClick: (RoomInvite) -> Unit
+    onInviteClick: (RoomInvite) -> Unit,
 ) {
     val context = LocalContext.current
-    
+
     // PERFORMANCE: Detect fast scrolling to suspend avatar loading
     // During fast scrolling, images would be out of view before loading anyway
     // This prevents wasted decoding work and crashes from too many simultaneous loads
     var isScrollingFast by remember { mutableStateOf(false) }
     var lastScrollIndex by remember { mutableStateOf(0) }
     var lastScrollTime by remember { mutableStateOf(0L) }
-    
+
     LaunchedEffect(listState.isScrollInProgress, listState.firstVisibleItemIndex) {
         val currentIndex = listState.firstVisibleItemIndex
         val currentTime = System.currentTimeMillis()
         val timeDelta = currentTime - lastScrollTime
         val indexDelta = kotlin.math.abs(currentIndex - lastScrollIndex)
-        
+
         // Detect fast scrolling: >10tems in <100ms OR actively scrolling with >20tems/second
         val isCurrentlyScrolling = listState.isScrollInProgress
         val scrollSpeed = if (timeDelta > 0) indexDelta * 1000 / timeDelta else 0
-        
+
         isScrollingFast = isCurrentlyScrolling && (scrollSpeed > 20) || (timeDelta < 100 && indexDelta > 10)
-        
+
         lastScrollIndex = currentIndex
         lastScrollTime = currentTime
-        
+
         // Reset fast scrolling flag after scrolling stops (with small delay to allow images to load)
         if (!isCurrentlyScrolling && isScrollingFast) {
             kotlinx.coroutines.delay(25) // Small delay to ensure scroll has stopped
             isScrollingFast = false
         }
     }
-    
+
     // Handle Android back key when inside a space or bridge
-    androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null || appViewModel.currentBridgeId != null) {
+    androidx.activity.compose.BackHandler(
+        enabled = appViewModel.currentSpaceId != null || appViewModel.currentBridgeId != null,
+    ) {
         if (appViewModel.currentSpaceId != null) {
             appViewModel.exitSpace()
         } else if (appViewModel.currentBridgeId != null) {
             appViewModel.exitBridge()
         }
     }
-    
+
     // PERFORMANCE: Cache filtered rooms to avoid recalculation on every recomposition
     val filteredRooms = remember(rooms, searchQuery) {
         if (searchQuery.isBlank()) {
@@ -2931,7 +3131,7 @@ fun RoomListContent(
             }
         }
     }
-    
+
     // Snapshot of filteredRooms that drives the LazyColumn.  Updated whenever filteredRooms
     // changes so that room reordering and preview updates are visible immediately.
     // NOTE: derivedStateOf cannot be used here because its lambda closes over filteredRooms
@@ -2941,7 +3141,7 @@ fun RoomListContent(
     LaunchedEffect(filteredRooms) {
         debouncedRooms = filteredRooms
     }
-    
+
     // ATTACH TO TOP: Track whether the list should stay pinned to the actual top room.
     //
     // The room list re-sorts when sync updates arrive (newest message floats to the top).
@@ -2961,7 +3161,7 @@ fun RoomListContent(
 
     var attachedToTop by remember {
         mutableStateOf(
-            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0
+            listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset == 0,
         )
     }
 
@@ -2999,11 +3199,10 @@ fun RoomListContent(
             }
         }
     }
-    
-    
+
     val coroutineScope = rememberCoroutineScope()
     var roomOpenInProgress by remember { mutableStateOf<String?>(null) }
-    
+
     // PERFORMANCE: Hoist layoutInfo read outside items{} so it's computed once per frame,
     // not once per item during scroll.  derivedStateOf avoids redundant recompositions when
     // the value hasn't actually changed.
@@ -3013,40 +3212,43 @@ fun RoomListContent(
             last + 25
         }
     }
-    
+
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Top,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             top = 8.dp,
-            bottom = 8.dp
-        )
+            bottom = 8.dp,
+        ),
     ) {
         // Use the cached filteredRooms from the remember block above
         items(
             count = debouncedRooms.size,
             key = { index -> debouncedRooms[index].id }, // Stable key - room ID stays constant
-            contentType = { "room" } // PERFORMANCE: Shared type enables composition recycling across items
+            contentType = { "room" }, // PERFORMANCE: Shared type enables composition recycling across items
         ) { index ->
             val room = debouncedRooms[index]
             // PERFORMANCE FIX: Removed AnimatedVisibility wrapper that caused animation overhead
             // The items() already handles insertions/deletions efficiently
             // CRITICAL FIX: Capture room.id OUTSIDE the lambda to prevent wrong room navigation
             val roomIdForNavigation = room.id
-            
+
             // PERFORMANCE: Use hoisted cutoff instead of per-item layoutInfo read
             val shouldLoadAvatar = index <= avatarLoadCutoff
-            
+
             Column(
                 // Re-sort/insert/remove animation. placementSpec drives the slide to the new
                 // position when rooms reorder; all three default to spring(StiffnessMediumLow),
                 // re-expressed via scaledSpring so the stiffness slider reaches them.
                 modifier = Modifier.animateItem(
                     fadeInSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow),
-                    placementSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset(1, 1)),
-                    fadeOutSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)
-                )
+                    placementSpec = scaledSpring(
+                        stiffness = Spring.StiffnessMediumLow,
+                        visibilityThreshold = IntOffset(1, 1),
+                    ),
+                    fadeOutSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow),
+                ),
             ) {
                 RoomListItem(
                     room = room,
@@ -3056,22 +3258,34 @@ fun RoomListContent(
                     shouldLoadAvatar = shouldLoadAvatar, // PERFORMANCE: Load avatars for items below viewport
                     sharedTransitionScope = sharedTransitionScope, // SHARED TRANSITION: Pass scope for shared element animation
                     animatedVisibilityScope = animatedVisibilityScope, // SHARED TRANSITION: Pass scope for shared element animation
-                    onRoomClick = { 
+                    onRoomClick = {
                         if (roomOpenInProgress != null) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Room open already in progress, ignoring tap on ${room.id}")
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                "Andromuks",
+                                "RoomListScreen: Room open already in progress, ignoring tap on ${room.id}",
+                            )
+                            }
                             return@RoomListItem
                         }
                         roomOpenInProgress = roomIdForNavigation
-                        hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        hapticFeedback.performHapticFeedback(
+                            androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress,
+                        )
                         coroutineScope.launch {
                             try {
                                 // CRITICAL FIX: Set currentRoomId immediately when navigating from room list
                                 // This ensures state is consistent across all navigation paths
                                 appViewModel.setCurrentRoomIdForTimeline(roomIdForNavigation)
-                                
+
                                 // Navigate immediately; prefetch runs best-effort.
                                 // NOTE: markRoomAsRead is handled by navigateToRoomWithCache, so we don't need to call it here
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: opening room $roomIdForNavigation with sharedKey = avatar-$roomIdForNavigation")
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d(
+                                    "Andromuks",
+                                    "RoomListScreen: opening room $roomIdForNavigation with sharedKey = avatar-$roomIdForNavigation",
+                                )
+                                }
                                 appViewModel.navigateToRoomWithCache(roomIdForNavigation)
                                 // Room opened from room_list — room_list IS in the back stack,
                                 // so Back should pop back to it, not finish the Activity.
@@ -3083,7 +3297,7 @@ fun RoomListContent(
                                     if (!prefetchSuccess) {
                                         android.util.Log.w(
                                             "Andromuks",
-                                            "RoomListScreen: Prefetch snapshot failed or timed out for $roomIdForNavigation, falling back to existing cache"
+                                            "RoomListScreen: Prefetch snapshot failed or timed out for $roomIdForNavigation, falling back to existing cache",
                                         )
                                     }
                                 }
@@ -3099,14 +3313,14 @@ fun RoomListContent(
                     },
                     timestampUpdateTrigger = timestampUpdateTrigger,
                     appViewModel = appViewModel,
-                    isEnabled = roomOpenInProgress == null || roomOpenInProgress == roomIdForNavigation
+                    isEnabled = roomOpenInProgress == null || roomOpenInProgress == roomIdForNavigation,
                 )
-                
+
                 // Material 3 divider between rooms (except after the last item)
                 if (index < filteredRooms.size - 1) {
                     HorizontalDivider(
                         modifier = Modifier.padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
                     )
                 }
             }
@@ -3121,7 +3335,7 @@ fun SpacesListContent(
     appViewModel: AppViewModel,
     authToken: String,
     navController: NavController,
-    listState: LazyListState
+    listState: LazyListState,
 ) {
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpacesListContent: Displaying ${spaces.size} spaces")
     LazyColumn(
@@ -3130,8 +3344,8 @@ fun SpacesListContent(
         verticalArrangement = Arrangement.Top,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             top = 8.dp,
-            bottom = 8.dp
-        )
+            bottom = 8.dp,
+        ),
     ) {
         val filteredSpaces = if (searchQuery.isBlank()) {
             spaces
@@ -3140,7 +3354,7 @@ fun SpacesListContent(
                 space.name.contains(searchQuery, ignoreCase = true)
             }
         }
-        
+
         items(filteredSpaces.size, key = { filteredSpaces[it].id }) { idx ->
             val space = filteredSpaces[idx]
             SpaceListItem(
@@ -3150,7 +3364,7 @@ fun SpacesListContent(
                     appViewModel.enterSpace(space.id)
                 },
                 homeserverUrl = appViewModel.homeserverUrl,
-                authToken = authToken
+                authToken = authToken,
             )
         }
     }
@@ -3163,7 +3377,7 @@ fun BridgesListContent(
     appViewModel: AppViewModel,
     authToken: String,
     navController: NavController,
-    listState: LazyListState
+    listState: LazyListState,
 ) {
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BridgesListContent: Displaying ${bridges.size} bridges")
     LazyColumn(
@@ -3172,8 +3386,8 @@ fun BridgesListContent(
         verticalArrangement = Arrangement.Top,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(
             top = 8.dp,
-            bottom = 8.dp
-        )
+            bottom = 8.dp,
+        ),
     ) {
         val filteredBridges = if (searchQuery.isBlank()) {
             bridges
@@ -3182,7 +3396,7 @@ fun BridgesListContent(
                 bridge.name.contains(searchQuery, ignoreCase = true)
             }
         }
-        
+
         items(filteredBridges.size, key = { filteredBridges[it].id }) { idx ->
             val bridge = filteredBridges[idx]
             SpaceListItem(
@@ -3192,48 +3406,44 @@ fun BridgesListContent(
                     appViewModel.enterBridge(bridge.id)
                 },
                 homeserverUrl = appViewModel.homeserverUrl,
-                authToken = authToken
+                authToken = authToken,
             )
         }
     }
 }
 
 @Composable
-fun InviteListItem(
-    invite: RoomInvite,
-    onClick: () -> Unit,
-    homeserverUrl: String,
-    authToken: String
-) {
+fun InviteListItem(invite: RoomInvite, onClick: () -> Unit, homeserverUrl: String, authToken: String) {
     // For DMs, use inviter display name instead of room name
     val displayName = if (invite.isDirectMessage && invite.roomName.isNullOrBlank()) {
         invite.inviterDisplayName ?: invite.inviterUserId
     } else {
-        invite.roomName ?: (if (invite.isDirectMessage) invite.inviterDisplayName ?: invite.inviterUserId else "Unknown Room")
+        invite.roomName
+            ?: (if (invite.isDirectMessage) invite.inviterDisplayName ?: invite.inviterUserId else "Unknown Room")
     }
-    
+
     // Use inviter avatar for DMs if room avatar is not available
     val avatarUrl = if (invite.isDirectMessage && invite.roomAvatar.isNullOrBlank()) {
         null // Will use fallback with display name
     } else {
         invite.roomAvatar
     }
-    
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Room/inviter avatar
             AvatarImage(
@@ -3242,16 +3452,22 @@ fun InviteListItem(
                 authToken = authToken,
                 fallbackText = displayName.take(1),
                 size = 48.dp,
-                userId = if (invite.isDirectMessage && invite.roomAvatar.isNullOrBlank()) invite.inviterUserId else invite.roomId,
-                displayName = displayName
+                userId = if (invite.isDirectMessage &&
+                    invite.roomAvatar.isNullOrBlank()
+                ) {
+                        invite.inviterUserId
+                    } else {
+                        invite.roomId
+                    },
+                displayName = displayName,
             )
-            
+
             Spacer(modifier = Modifier.width(12.dp))
-            
+
             // Room info
             Column(modifier = Modifier.weight(1f)) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = displayName,
@@ -3259,28 +3475,28 @@ fun InviteListItem(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    
+
                     Spacer(modifier = Modifier.width(8.dp))
-                    
+
                     // INVITE badge
                     Surface(
                         color = MaterialTheme.colorScheme.primary,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.padding(horizontal = 4.dp)
+                        modifier = Modifier.padding(horizontal = 4.dp),
                     ) {
                         Text(
                             text = "INVITE",
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                         )
                     }
                 }
-                
+
                 Spacer(modifier = Modifier.height(4.dp))
-                
+
                 // Inviter info (only show if not a DM or if room name exists)
                 if (!invite.isDirectMessage || invite.roomName != null) {
                     Text(
@@ -3288,10 +3504,10 @@ fun InviteListItem(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                
+
                 // Room topic if available
                 invite.roomTopic?.let { topic ->
                     Spacer(modifier = Modifier.height(2.dp))
@@ -3300,7 +3516,7 @@ fun InviteListItem(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -3312,34 +3528,30 @@ fun InviteListItem(
  * Leave room confirmation dialog with reason input
  */
 @Composable
-fun LeaveRoomDialog(
-    roomName: String,
-    onDismiss: () -> Unit,
-    onConfirm: (String) -> Unit
-) {
+fun LeaveRoomDialog(roomName: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
     var reason by remember { mutableStateOf("") }
-    
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
                 text = "Leave room",
-                style = MaterialTheme.typography.titleMedium
+                style = MaterialTheme.typography.titleMedium,
             )
         },
         text = {
             Column(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
                     text = "Are you sure you want to leave \"$roomName\"?",
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier.padding(bottom = 16.dp),
                 )
                 Text(
                     text = "Reason (optional):",
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(bottom = 8.dp)
+                    modifier = Modifier.padding(bottom = 8.dp),
                 )
                 OutlinedTextField(
                     value = reason,
@@ -3349,7 +3561,7 @@ fun LeaveRoomDialog(
                         .height(120.dp),
                     placeholder = { Text("Enter reason for leaving...") },
                     maxLines = 4,
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(8.dp),
                 )
             }
         },
@@ -3359,8 +3571,8 @@ fun LeaveRoomDialog(
                     onConfirm(reason)
                 },
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error
-                )
+                    containerColor = MaterialTheme.colorScheme.error,
+                ),
             ) {
                 Text("Leave")
             }
@@ -3369,6 +3581,6 @@ fun LeaveRoomDialog(
             TextButton(onClick = onDismiss) {
                 Text("Cancel")
             }
-        }
+        },
     )
 }

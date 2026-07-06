@@ -3,13 +3,12 @@ package net.vrkknn.andromuks
 import android.Manifest
 import android.content.pm.PackageManager
 import android.webkit.ConsoleMessage
+import android.webkit.CookieManager
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.webkit.CookieManager
-import androidx.webkit.WebViewAssetLoader
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,6 +29,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -49,7 +49,7 @@ fun CallOverlay(appViewModel: AppViewModel) {
     // Must be declared before any early return (Compose composition rules).
     val pendingWebPermissionRequest = remember { mutableStateOf<PermissionRequest?>(null) }
     val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
+        ActivityResultContracts.RequestMultiplePermissions(),
     ) { result ->
         val granted = result.values.all { it }
         pendingWebPermissionRequest.value?.let { request ->
@@ -86,7 +86,7 @@ fun CallOverlay(appViewModel: AppViewModel) {
     }
     val homeserverBaseUrl = deriveHomeserverBaseUrl(
         appViewModel.realMatrixHomeserverUrl,
-        appViewModel.currentUserId
+        appViewModel.currentUserId,
     )
     val theme = if (isSystemInDarkTheme()) "dark" else "light"
     val hostOrigin = "https://appassets.androidplatform.net"
@@ -104,7 +104,7 @@ fun CallOverlay(appViewModel: AppViewModel) {
         perParticipantE2EE = isEncrypted,
         theme = theme,
         widgetId = "app.andromuks.call",
-        parentOrigin = hostOrigin
+        parentOrigin = hostOrigin,
     )
     val hostUrl = "https://appassets.androidplatform.net/assets/element_call_host.html" +
         "?url=${URLEncoder.encode(callUrl, StandardCharsets.UTF_8.toString())}" +
@@ -121,7 +121,10 @@ fun CallOverlay(appViewModel: AppViewModel) {
         "&appPrompt=false" +
         "&lang=en" +
         "&fontScale=1" +
-        "&rageshakeSubmitUrl=${URLEncoder.encode("https://element.io/bugreports/submit", StandardCharsets.UTF_8.toString())}" +
+        "&rageshakeSubmitUrl=${URLEncoder.encode(
+            "https://element.io/bugreports/submit",
+            StandardCharsets.UTF_8.toString(),
+        )}" +
         "&preload=false"
 
     DisposableEffect(Unit) {
@@ -130,7 +133,8 @@ fun CallOverlay(appViewModel: AppViewModel) {
             val jsPayload = JSONObject.quote(JSONObject.wrap(payload)?.toString() ?: "null")
             webView.post {
                 webView.evaluateJavascript(
-                    "window.__andromuksWidgetHost.onNativeToDevice($jsPayload);", null
+                    "window.__andromuksWidgetHost.onNativeToDevice($jsPayload);",
+                    null,
                 )
             }
         }
@@ -152,7 +156,7 @@ fun CallOverlay(appViewModel: AppViewModel) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .zIndex(if (!isMiniPip) 10f else -1f)
+            .zIndex(if (!isMiniPip) 10f else -1f),
     ) {
         AndroidView(
             factory = { ctx ->
@@ -175,7 +179,7 @@ fun CallOverlay(appViewModel: AppViewModel) {
                     webViewClient = object : WebViewClient() {
                         override fun shouldInterceptRequest(
                             view: WebView?,
-                            request: android.webkit.WebResourceRequest?
+                            request: android.webkit.WebResourceRequest?,
                         ): android.webkit.WebResourceResponse? {
                             val uri = request?.url ?: return null
                             return assetLoader.shouldInterceptRequest(uri)
@@ -188,10 +192,15 @@ fun CallOverlay(appViewModel: AppViewModel) {
                         override fun onReceivedError(
                             view: WebView?,
                             request: android.webkit.WebResourceRequest?,
-                            error: android.webkit.WebResourceError?
+                            error: android.webkit.WebResourceError?,
                         ) {
                             super.onReceivedError(view, request, error)
-                            if (BuildConfig.DEBUG) android.util.Log.e("Andromuks", "CallOverlay: WebView error ${error?.description}")
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.e(
+                                "Andromuks",
+                                "CallOverlay: WebView error ${error?.description}",
+                            )
+                            }
                             if (request?.isForMainFrame == true) {
                                 loadError.value = error?.description?.toString() ?: "WebView load error"
                                 isLoading.value = false
@@ -200,7 +209,7 @@ fun CallOverlay(appViewModel: AppViewModel) {
                         override fun onReceivedHttpError(
                             view: WebView?,
                             request: android.webkit.WebResourceRequest?,
-                            errorResponse: android.webkit.WebResourceResponse?
+                            errorResponse: android.webkit.WebResourceResponse?,
                         ) {
                             super.onReceivedHttpError(view, request, errorResponse)
                             if (request?.isForMainFrame == true) {
@@ -211,17 +220,28 @@ fun CallOverlay(appViewModel: AppViewModel) {
                     }
                     webChromeClient = object : WebChromeClient() {
                         override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
-                            android.util.Log.d("Andromuks", "CallOverlay: console ${consoleMessage.message()} @${consoleMessage.lineNumber()}")
+                            android.util.Log.d(
+                                "Andromuks",
+                                "CallOverlay: console ${consoleMessage.message()} @${consoleMessage.lineNumber()}",
+                            )
                             return super.onConsoleMessage(consoleMessage)
                         }
                         override fun onPermissionRequest(request: PermissionRequest) {
-                            val audioGranted = ContextCompat.checkSelfPermission(ctx, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                            val cameraGranted = ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+                            val audioGranted = ContextCompat.checkSelfPermission(
+                                ctx,
+                                Manifest.permission.RECORD_AUDIO,
+                            ) == PackageManager.PERMISSION_GRANTED
+                            val cameraGranted = ContextCompat.checkSelfPermission(
+                                ctx,
+                                Manifest.permission.CAMERA,
+                            ) == PackageManager.PERMISSION_GRANTED
                             if (audioGranted && cameraGranted) {
                                 request.grant(request.resources)
                             } else {
                                 pendingWebPermissionRequest.value = request
-                                permissionLauncher.launch(arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA))
+                                permissionLauncher.launch(
+                                    arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.CAMERA),
+                                )
                             }
                         }
                     }
@@ -235,9 +255,9 @@ fun CallOverlay(appViewModel: AppViewModel) {
                             roomId = roomId,
                             appViewModel = appViewModel,
                             onCallEnded = { appViewModel.endCall() },
-                            onAlwaysOnScreen = { /* no system PiP */ }
+                            onAlwaysOnScreen = { /* no system PiP */ },
                         ),
-                        "AndroidWidgetBridge"
+                        "AndroidWidgetBridge",
                     )
 
                     if (BuildConfig.DEBUG) {
@@ -255,7 +275,7 @@ fun CallOverlay(appViewModel: AppViewModel) {
                     lastLoadedUrl.value = hostUrl
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
         )
 
         // Loading / error overlays only shown in foreground.
@@ -263,7 +283,7 @@ fun CallOverlay(appViewModel: AppViewModel) {
             if (isLoading.value && loadError.value == null) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f)
+                    color = MaterialTheme.colorScheme.background.copy(alpha = 0.85f),
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text("Loading call…")

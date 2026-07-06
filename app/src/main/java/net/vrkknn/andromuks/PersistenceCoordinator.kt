@@ -2,18 +2,23 @@ package net.vrkknn.andromuks
 
 import android.content.Context
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.ConcurrentModificationException
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 /**
  * SharedPreferences state, pending WebSocket op queue, and retry — for [AppViewModel].
  */
 internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
-    fun addPendingOperation(operation: AppViewModel.PendingWebSocketOperation, saveToStorage: Boolean = false): Boolean = with(vm) {
+    fun addPendingOperation(
+        operation: AppViewModel.PendingWebSocketOperation,
+        saveToStorage: Boolean = false,
+    ): Boolean = with(
+        vm,
+    ) {
         synchronized(pendingOperationsLock) {
             if (pendingWebSocketOperations.size >= AppViewModel.MAX_QUEUE_SIZE) {
                 val oldest = pendingWebSocketOperations.minByOrNull { it.timestamp }
@@ -21,7 +26,7 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                     pendingWebSocketOperations.remove(oldest)
                     android.util.Log.w(
                         "Andromuks",
-                        "AppViewModel: Queue full (${AppViewModel.MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}"
+                        "AppViewModel: Queue full (${AppViewModel.MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}",
                     )
                 }
             }
@@ -52,9 +57,12 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                 prefs.edit()
                     .putString("pending_websocket_operations", operationsArray.toString())
                     .apply()
-
             } catch (e: ConcurrentModificationException) {
-                android.util.Log.w("Andromuks", "AppViewModel: ConcurrentModificationException in savePendingOperationsToStorage, retrying", e)
+                android.util.Log.w(
+                    "Andromuks",
+                    "AppViewModel: ConcurrentModificationException in savePendingOperationsToStorage, retrying",
+                    e,
+                )
                 try {
                     val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
                     val operationsArray = JSONArray()
@@ -69,10 +77,18 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                         .putString("pending_websocket_operations", operationsArray.toString())
                         .apply()
                 } catch (e2: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Failed to save pending WebSocket operations to storage (retry also failed)", e2)
+                    android.util.Log.e(
+                        "Andromuks",
+                        "AppViewModel: Failed to save pending WebSocket operations to storage (retry also failed)",
+                        e2,
+                    )
                 }
             } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to save pending WebSocket operations to storage", e)
+                android.util.Log.e(
+                    "Andromuks",
+                    "AppViewModel: Failed to save pending WebSocket operations to storage",
+                    e,
+                )
             }
         }
     }
@@ -84,7 +100,12 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                 val operationsJson = prefs.getString("pending_websocket_operations", null)
 
                 if (operationsJson == null || operationsJson.isEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending WebSocket operations found in storage")
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: No pending WebSocket operations found in storage",
+                    )
+                    }
                     return@with
                 }
 
@@ -108,7 +129,12 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                         if (age <= AppViewModel.MAX_MESSAGE_AGE_MS) {
                             loadedOperations.add(operation)
                         } else {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed old pending operation (age: ${age / 1000 / 60} minutes): ${operation.type}")
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                "Andromuks",
+                                "AppViewModel: Removed old pending operation (age: ${age / 1000 / 60} minutes): ${operation.type}",
+                            )
+                            }
                         }
                     }
                 }
@@ -125,12 +151,24 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                 }
 
                 if (operationsToLoad.isNotEmpty()) {
-                    android.util.Log.i("Andromuks", "AppViewModel: Loaded ${operationsToLoad.size} pending WebSocket operations from storage (removed ${loadedOperations.size - operationsToLoad.size} old/over-limit)")
+                    android.util.Log.i(
+                        "Andromuks",
+                        "AppViewModel: Loaded ${operationsToLoad.size} pending WebSocket operations from storage (removed ${loadedOperations.size - operationsToLoad.size} old/over-limit)",
+                    )
                 } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No valid pending WebSocket operations to load")
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: No valid pending WebSocket operations to load",
+                    )
+                    }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to load pending WebSocket operations from storage", e)
+                android.util.Log.e(
+                    "Andromuks",
+                    "AppViewModel: Failed to load pending WebSocket operations from storage",
+                    e,
+                )
             }
         }
     }
@@ -138,7 +176,12 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
     internal fun flushPendingQueueAfterReconnection() = with(vm) {
         val pendingSize = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
         if (pendingSize == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending operations to retry after reconnection")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: No pending operations to retry after reconnection",
+            )
+            }
             return@with
         }
 
@@ -146,17 +189,28 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
             pendingWebSocketOperations.count { !it.acknowledged }
         }
         if (unacknowledgedCount == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: All pending operations already acknowledged, no retry needed")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: All pending operations already acknowledged, no retry needed",
+            )
+            }
             return@with
         }
 
-        android.util.Log.i("Andromuks", "AppViewModel: Scheduling retry of $unacknowledgedCount unacknowledged operations after stabilization delay")
+        android.util.Log.i(
+            "Andromuks",
+            "AppViewModel: Scheduling retry of $unacknowledgedCount unacknowledged operations after stabilization delay",
+        )
         lastReconnectionTime = System.currentTimeMillis()
 
         vm.viewModelScope.launch {
             delay(300L)
 
-            android.util.Log.i("Andromuks", "AppViewModel: Starting retry of pending operations (new commands can be sent immediately)")
+            android.util.Log.i(
+                "Andromuks",
+                "AppViewModel: Starting retry of pending operations (new commands can be sent immediately)",
+            )
             retryPendingWebSocketOperations(bypassTimeout = true)
 
             delay(500L)
@@ -171,13 +225,23 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         // pendingCommandsQueue and return NOT_CONNECTED, which would re-add the op here too —
         // double-queuing the same message. Wait until flushPendingQueue() signals readiness.
         if (!canSendCommandsToBackend) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Deferring offline ops retry — canSendCommandsToBackend=false, will retry from flushPendingQueue()")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Deferring offline ops retry — canSendCommandsToBackend=false, will retry from flushPendingQueue()",
+            )
+            }
             return@with
         }
 
         val pendingSize = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
         if (pendingSize == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending WebSocket operations to retry")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: No pending WebSocket operations to retry",
+            )
+            }
             return@with
         }
 
@@ -209,14 +273,19 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                 val waiting = pendingWebSocketOperations.count { currentTime < it.acknowledgmentTimeout }
                 Triple(ack, waiting, pendingWebSocketOperations.size)
             }
-            if (BuildConfig.DEBUG) android.util.Log.d(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: No operations ready to retry (acknowledged: $acknowledgedCount, waiting for timeout: $waitingCount, total: $total)"
+                "AppViewModel: No operations ready to retry (acknowledged: $acknowledgedCount, waiting for timeout: $waitingCount, total: $total)",
             )
+            }
             return@with
         }
 
-        android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Retrying ${operationsToRetry.size} pending WebSocket operations (oldest first, batch limited to 10)")
+        android.util.Log.i(
+            "Andromuks",
+            "AppViewModel: PHASE 5.4 - Retrying ${operationsToRetry.size} pending WebSocket operations (oldest first, batch limited to 10)",
+        )
         savePendingOperationsToStorage()
 
         vm.viewModelScope.launch {
@@ -232,7 +301,10 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                         // op persisted before offline-buffering was removed — this is the reconnect
                         // drain path that produced the "fails red, then sends anyway" duplicate. The op
                         // was already removed from the queue by the selection block above; just drop it.
-                        android.util.Log.w("Andromuks", "AppViewModel: Dropping send_message op from retry/drain loop (non-idempotent, would duplicate) messageId=${operation.messageId}")
+                        android.util.Log.w(
+                            "Andromuks",
+                            "AppViewModel: Dropping send_message op from retry/drain loop (non-idempotent, would duplicate) messageId=${operation.messageId}",
+                        )
                         return@forEachIndexed
                     }
 
@@ -242,37 +314,61 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                             // handled by offline_send_message (WebSocket down) or pendingCommandsQueue
                             // (!canSendCommandsToBackend). Retrying via sendMessageInternal here would
                             // create a new echo with a new transaction_id, duplicating the message.
-                            android.util.Log.w("Andromuks", "AppViewModel: Dropping legacy sendMessage op (type retired, message already in offline queue)")
+                            android.util.Log.w(
+                                "Andromuks",
+                                "AppViewModel: Dropping legacy sendMessage op (type retired, message already in offline queue)",
+                            )
                         }
+
                         "sendReply" -> {
-                            android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply operation (complex to serialize)")
+                            android.util.Log.w(
+                                "Andromuks",
+                                "AppViewModel: Skipping retry of sendReply operation (complex to serialize)",
+                            )
                         }
+
                         "markRoomAsRead" -> {
                             val roomId = operation.data["roomId"] as String?
                             val eventId = operation.data["eventId"] as String?
                             if (roomId != null && eventId != null) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying markRoomAsRead for room $roomId (attempt ${operation.retryCount + 1})")
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: Retrying markRoomAsRead for room $roomId (attempt ${operation.retryCount + 1})",
+                                )
+                                }
                                 readReceiptsTypingCoordinator.markRoomAsReadInternal(roomId, eventId)
                             }
                         }
+
                         else -> {
                             if (operation.type.startsWith("offline_")) {
                                 val command = operation.data["command"] as String?
                                 val requestId = operation.data["requestId"] as Int?
+
                                 @Suppress("UNCHECKED_CAST")
                                 val data = operation.data["data"] as? Map<String, Any>
 
                                 if (command != null && requestId != null && data != null) {
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command (attempt ${operation.retryCount + 1})")
+                                    if (BuildConfig.DEBUG) {
+                                        android.util.Log.d(
+                                        "Andromuks",
+                                        "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command (attempt ${operation.retryCount + 1})",
+                                    )
+                                    }
                                     val newRequestId = WebSocketService.allocateRequestId()
                                     val result = sendWebSocketCommand(command, newRequestId, data)
                                     if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
-                                        this@PersistenceCoordinator.addPendingOperation(operation.copy(retryCount = operation.retryCount + 1), saveToStorage = true)
+                                        this@PersistenceCoordinator.addPendingOperation(
+                                            operation.copy(retryCount = operation.retryCount + 1),
+                                            saveToStorage = true,
+                                        )
                                     }
                                 }
                             } else if (operation.type.startsWith("command_")) {
                                 val command = operation.type.removePrefix("command_")
                                 val requestId = operation.data["requestId"] as? Int
+
                                 @Suppress("UNCHECKED_CAST")
                                 val data = operation.data["data"] as? Map<String, Any>
 
@@ -285,7 +381,7 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                             if (lastSent == eventId) {
                                                 android.util.Log.w(
                                                     "Andromuks",
-                                                    "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId"
+                                                    "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId",
                                                 )
                                                 return@forEachIndexed
                                             }
@@ -293,25 +389,42 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                         }
                                     }
                                     val newRequestId = WebSocketService.allocateRequestId()
-                                    android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId, attempt ${operation.retryCount + 1})")
+                                    android.util.Log.w(
+                                        "Andromuks",
+                                        "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId, attempt ${operation.retryCount + 1})",
+                                    )
                                     sendWebSocketCommand(command, newRequestId, data)
                                 }
                             } else {
-                                android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
+                                android.util.Log.w(
+                                    "Andromuks",
+                                    "AppViewModel: Unknown operation type for retry: ${operation.type}",
+                                )
                             }
                         }
                     }
                 } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error retrying operation ${operation.type}: ${e.message}")
+                    android.util.Log.e(
+                        "Andromuks",
+                        "AppViewModel: Error retrying operation ${operation.type}: ${e.message}",
+                    )
                     if (operation.retryCount < maxRetryAttempts) {
-                        this@PersistenceCoordinator.addPendingOperation(operation.copy(retryCount = operation.retryCount + 1), saveToStorage = true)
+                        this@PersistenceCoordinator.addPendingOperation(
+                            operation.copy(retryCount = operation.retryCount + 1),
+                            saveToStorage = true,
+                        )
                     }
                 }
             }
 
             savePendingOperationsToStorage()
 
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.4 - Finished retrying ${operationsToRetry.size} operations, ${pendingWebSocketOperations.size} remain queued")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: PHASE 5.4 - Finished retrying ${operationsToRetry.size} operations, ${pendingWebSocketOperations.size} remain queued",
+            )
+            }
         }
     }
 
@@ -336,29 +449,43 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                     // stale offline_* op persisted before send_message offline-buffering was removed).
                     // Drop the op; the message is still delivered/redelivered via sync_complete, and
                     // the pending echo is marked failed by its own send-confirmation timeout.
-                    android.util.Log.w("Andromuks", "AppViewModel: send_message ack timed out — NOT retrying (non-idempotent), dropping op messageId=${operation.messageId}")
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: send_message ack timed out — NOT retrying (non-idempotent), dropping op messageId=${operation.messageId}",
+                    )
                     operationsToRemove.add(operation)
                     return@forEach
                 }
                 if (isInStabilizationPeriod && operation.retryCount == 0) {
                     val newTimeout = currentTime + 10000L
-                    android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Extending timeout for ${operation.type} (stabilization period, ${timeSinceReconnection}ms since reconnection)")
+                    android.util.Log.i(
+                        "Andromuks",
+                        "AppViewModel: QUEUE FLUSHING - Extending timeout for ${operation.type} (stabilization period, ${timeSinceReconnection}ms since reconnection)",
+                    )
                     val updatedOperation = operation.copy(acknowledgmentTimeout = newTimeout)
                     operationsToRemove.add(operation)
                     operationsToRetry.add(updatedOperation)
                 } else if (operation.retryCount < maxRetryAttempts) {
                     val newRetryCount = operation.retryCount + 1
                     val newTimeout = currentTime + 30000L
-                    android.util.Log.w("Andromuks", "AppViewModel: Message acknowledgment timeout - retrying (attempt $newRetryCount/${maxRetryAttempts}): ${operation.type}, messageId: ${operation.messageId}")
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: Message acknowledgment timeout - retrying (attempt $newRetryCount/$maxRetryAttempts): ${operation.type}, messageId: ${operation.messageId}",
+                    )
 
-                    operationsToRetry.add(operation.copy(
+                    operationsToRetry.add(
+                        operation.copy(
                         retryCount = newRetryCount,
-                        acknowledgmentTimeout = newTimeout
-                    ))
+                        acknowledgmentTimeout = newTimeout,
+                    )
+                    )
                     operationsToRemove.add(operation)
                 } else {
-                    android.util.Log.e("Andromuks", "AppViewModel: Message failed after ${maxRetryAttempts} retries: ${operation.type}, messageId: ${operation.messageId}")
-                    logActivity("Message Failed - ${operation.type} (${maxRetryAttempts} retries)", null)
+                    android.util.Log.e(
+                        "Andromuks",
+                        "AppViewModel: Message failed after $maxRetryAttempts retries: ${operation.type}, messageId: ${operation.messageId}",
+                    )
+                    logActivity("Message Failed - ${operation.type} ($maxRetryAttempts retries)", null)
                     operationsToRemove.add(operation)
                 }
             }
@@ -381,11 +508,19 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                 when {
                     operation.type == "sendMessage" -> {
                         // Legacy op type — dropped to avoid duplicate sends (see MessageSendCoordinator).
-                        android.util.Log.w("Andromuks", "AppViewModel: Dropping legacy sendMessage op from timeout check")
+                        android.util.Log.w(
+                            "Andromuks",
+                            "AppViewModel: Dropping legacy sendMessage op from timeout check",
+                        )
                     }
+
                     operation.type == "sendReply" -> {
-                        android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply (originalEvent not stored)")
+                        android.util.Log.w(
+                            "Andromuks",
+                            "AppViewModel: Skipping retry of sendReply (originalEvent not stored)",
+                        )
                     }
+
                     operation.type == "markRoomAsRead" -> {
                         val roomId = operation.data["roomId"] as? String
                         val eventId = operation.data["eventId"] as? String
@@ -393,26 +528,38 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                             readReceiptsTypingCoordinator.markRoomAsReadInternal(roomId, eventId)
                         }
                     }
+
                     operation.type.startsWith("offline_") -> {
                         val command = operation.data["command"] as? String
                         val requestId = operation.data["requestId"] as? Int
+
                         @Suppress("UNCHECKED_CAST")
                         val data = operation.data["data"] as? Map<String, Any>
 
                         if (command != null && requestId != null && data != null) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying offline command: $command (attempt ${operation.retryCount + 1})")
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                "Andromuks",
+                                "AppViewModel: Retrying offline command: $command (attempt ${operation.retryCount + 1})",
+                            )
+                            }
                             val newRequestId = WebSocketService.allocateRequestId()
                             val result = sendWebSocketCommand(command, newRequestId, data)
                             if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
                                 this@PersistenceCoordinator.addPendingOperation(operation, saveToStorage = true)
                             }
                         } else {
-                            android.util.Log.w("Andromuks", "AppViewModel: Invalid offline operation data - command: $command, requestId: $requestId, data: ${data != null}")
+                            android.util.Log.w(
+                                "Andromuks",
+                                "AppViewModel: Invalid offline operation data - command: $command, requestId: $requestId, data: ${data != null}",
+                            )
                         }
                     }
+
                     operation.type.startsWith("command_") -> {
                         val command = operation.type.removePrefix("command_")
                         val requestId = operation.data["requestId"] as? Int
+
                         @Suppress("UNCHECKED_CAST")
                         val data = operation.data["data"] as? Map<String, Any>
                         if (requestId != null && data != null) {
@@ -424,7 +571,7 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                     if (lastSent == eventId) {
                                         android.util.Log.w(
                                             "Andromuks",
-                                            "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId"
+                                            "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId",
                                         )
                                         return@forEach
                                     }
@@ -432,12 +579,19 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                 }
                             }
                             val newRequestId = WebSocketService.allocateRequestId()
-                            android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId)")
+                            android.util.Log.w(
+                                "Andromuks",
+                                "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId)",
+                            )
                             sendWebSocketCommand(command, newRequestId, data)
                         }
                     }
+
                     else -> {
-                        android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
+                        android.util.Log.w(
+                            "Andromuks",
+                            "AppViewModel: Unknown operation type for retry: ${operation.type}",
+                        )
                     }
                 }
             }
@@ -459,9 +613,17 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                 operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
             }
             savePendingOperationsToStorage()
-            android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Cleaned up ${operationsToRemove.size} acknowledged messages older than 1 hour")
+            android.util.Log.i(
+                "Andromuks",
+                "AppViewModel: PHASE 5.4 - Cleaned up ${operationsToRemove.size} acknowledged messages older than 1 hour",
+            )
         } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.4 - No acknowledged messages to clean up")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: PHASE 5.4 - No acknowledged messages to clean up",
+            )
+            }
         }
     }
 
@@ -483,7 +645,12 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
             }
             savePendingOperationsToStorage()
         } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - No pending operation found for requestId: $requestId (may have been already acknowledged, not tracked, or request_id=0)")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: PHASE 5.3 - No pending operation found for requestId: $requestId (may have been already acknowledged, not tracked, or request_id=0)",
+            )
+            }
         }
     }
 }

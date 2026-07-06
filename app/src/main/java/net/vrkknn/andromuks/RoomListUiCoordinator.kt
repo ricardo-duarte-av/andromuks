@@ -18,17 +18,17 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
     private fun currentSpaceIds(): Set<String> {
         with(vm) {
             val ids = mutableSetOf<String>()
-            if (allSpaces.isNotEmpty()) ids.addAll(allSpaces.map { it.id })
-            else if (spaceList.isNotEmpty()) ids.addAll(spaceList.map { it.id })
+            if (allSpaces.isNotEmpty()) {
+                ids.addAll(allSpaces.map { it.id })
+            } else if (spaceList.isNotEmpty()) {
+                ids.addAll(spaceList.map { it.id })
+            }
             ids.addAll(knownSpaceIds)
             return ids
         }
     }
 
-    private fun filterOutSpaces(
-        rooms: List<RoomItem>,
-        spaceIds: Set<String> = currentSpaceIds(),
-    ): List<RoomItem> {
+    private fun filterOutSpaces(rooms: List<RoomItem>, spaceIds: Set<String> = currentSpaceIds()): List<RoomItem> {
         if (spaceIds.isEmpty()) return rooms
         return rooms.filter { it.id !in spaceIds }
     }
@@ -58,11 +58,12 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                 }
             cachedFavouriteRooms = roomsWithoutSpaces.filter { it.isFavourite }
 
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Updated cached sections - allRooms(raw): ${roomsToUse.size}, spaces filtered: ${roomsWithoutSpaces.size}, DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}",
                 )
+            }
         }
     }
 
@@ -109,11 +110,12 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
             cachedFavouritesUnreadCount = favouritesUnread
             cachedFavouritesHasHighlights = favouritesHighlights
 
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Badge counts - DMs: $directChatsUnread, Unread: $unreadCount, Favs: $favouritesUnread",
                 )
+            }
         }
     }
 
@@ -288,19 +290,21 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
         with(vm) {
             if (!loadedSections.contains(selectedSection)) {
                 loadedSections.add(selectedSection)
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Lazy loading section: $selectedSection",
                     )
+                }
 
                 if (loadedSections.size == 1 && selectedSection != RoomSectionType.HOME) {
                     loadedSections.add(RoomSectionType.HOME)
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Auto-loading HOME section for badge counts",
                         )
+                    }
                 }
 
                 invalidateRoomSectionCache()
@@ -320,12 +324,14 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
             return when (selectedSection) {
                 RoomSectionType.HOME ->
                     RoomSection(type = RoomSectionType.HOME, rooms = roomsWithoutSpaces)
+
                 RoomSectionType.SPACES -> {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: SPACES section - currentSpaceId = $currentSpaceId, allSpaces.size = ${allSpaces.size}",
                         )
+                    }
                     if (currentSpaceId != null) {
                         val selectedSpace = allSpaces.find { it.id == currentSpaceId }
                         val spaceRooms = selectedSpace?.rooms ?: emptyList()
@@ -333,22 +339,24 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                             spaceRooms.mapNotNull { room ->
                                 roomMap[room.id] ?: allRooms.firstOrNull { it.id == room.id } ?: room
                             }.sortedByDescending { it.sortingTimestamp ?: 0L }
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Selected space = $selectedSpace, rooms.size = ${spaceRooms.size}, enriched.size=${enrichedSpaceRooms.size}",
                             )
+                        }
                         RoomSection(
                             type = RoomSectionType.SPACES,
                             rooms = enrichedSpaceRooms,
                             spaces = emptyList(),
                         )
                     } else {
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Showing space list with ${allSpaces.size} spaces",
                             )
+                        }
                         RoomSection(
                             type = RoomSectionType.SPACES,
                             rooms = emptyList(),
@@ -356,6 +364,7 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                         )
                     }
                 }
+
                 RoomSectionType.DIRECT_CHATS -> {
                     val unreadDmCount =
                         cachedDirectChatRooms.count {
@@ -368,14 +377,17 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                         unreadCount = unreadDmCount,
                     )
                 }
+
                 RoomSectionType.UNREAD ->
                     RoomSection(
                         type = RoomSectionType.UNREAD,
                         rooms = cachedUnreadRooms,
                         unreadCount = cachedUnreadRooms.size,
                     )
+
                 RoomSectionType.MENTIONS ->
                     RoomSection(RoomSectionType.MENTIONS, rooms = emptyList())
+
                 RoomSectionType.FAVOURITES -> {
                     val unreadFavouriteCount =
                         cachedFavouriteRooms.count {
@@ -388,12 +400,14 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                         unreadCount = unreadFavouriteCount,
                     )
                 }
+
                 RoomSectionType.BRIDGES -> {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: BRIDGES section - currentBridgeId = $currentBridgeId",
                         )
+                    }
 
                     val bridgedRooms =
                         roomsWithoutSpaces.filter { it.bridgeProtocolAvatarUrl != null }
@@ -409,11 +423,12 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                                             net.vrkknn.andromuks.utils.BridgeInfoCache
                                                 .getBridgeDisplayName(context, room.id)
                                         if (cachedDisplayName != null) {
-                                            if (BuildConfig.DEBUG)
+                                            if (BuildConfig.DEBUG) {
                                                 android.util.Log.d(
                                                     "Andromuks",
                                                     "AppViewModel: BRIDGES - Found cached display name for room ${room.id}: $cachedDisplayName",
                                                 )
+                                            }
                                             return@let cachedDisplayName
                                         }
                                     }
@@ -443,22 +458,24 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                             bridgeRooms.mapNotNull { room ->
                                 roomMap[room.id] ?: allRooms.firstOrNull { it.id == room.id } ?: room
                             }
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Selected bridge = $selectedBridge, rooms.size = ${bridgeRooms.size}, enriched.size=${enrichedBridgeRooms.size}",
                             )
+                        }
                         RoomSection(
                             type = RoomSectionType.BRIDGES,
                             rooms = enrichedBridgeRooms,
                             spaces = emptyList(),
                         )
                     } else {
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Showing bridge list with ${bridgeSpaces.size} bridges",
                             )
+                        }
                         RoomSection(
                             type = RoomSectionType.BRIDGES,
                             rooms = emptyList(),
@@ -504,11 +521,12 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
             val sortedRooms = sortedNewlyJoinedRooms + sortedExistingRooms
 
             if (newlyJoinedRoomIds.isNotEmpty()) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Sorting ${newlyJoinedRoomIds.size} newly joined rooms to the top",
                     )
+                }
                 newlyJoinedRoomIds.clear()
             }
 

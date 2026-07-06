@@ -11,7 +11,7 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
         context: Context,
         homeserverUrl: String = "",
         authToken: String = "",
-        skipCacheClear: Boolean = false
+        skipCacheClear: Boolean = false,
     ) {
         with(vm) {
             if (!WebSocketService.isViewModelRegistered(viewModelId)) {
@@ -45,7 +45,7 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                     context = context,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
-                    realMatrixHomeserverUrl = realMatrixHomeserverUrl
+                    realMatrixHomeserverUrl = realMatrixHomeserverUrl,
                 )
             fcmNotificationManager = components.fcmNotificationManager
             conversationsApi = components.conversationsApi
@@ -59,39 +59,45 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
 
     fun registerFCMNotifications() {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: registerFCMNotifications called")
-            if (BuildConfig.DEBUG)
+            }
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: fcmNotificationManager=${fcmNotificationManager != null}, homeserverUrl=$homeserverUrl, authToken=${authToken.take(20)}..., currentUserId=$currentUserId"
+                    "AppViewModel: fcmNotificationManager=${fcmNotificationManager != null}, homeserverUrl=$homeserverUrl, authToken=${authToken.take(
+                        20,
+                    )}..., currentUserId=$currentUserId",
                 )
+            }
 
             fcmNotificationManager?.let { manager ->
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Calling FCMNotificationManager.registerNotifications"
+                        "AppViewModel: Calling FCMNotificationManager.registerNotifications",
                     )
+                }
                 FCMNotificationManager.registerNotifications(
                     fcmNotificationManager = manager,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     currentUserId = currentUserId,
                     onTokenReady = {
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
-                                "AppViewModel: FCM token ready callback triggered, registering with Gomuks Backend"
+                                "AppViewModel: FCM token ready callback triggered, registering with Gomuks Backend",
                             )
+                        }
                         this@FcmPushCoordinator.registerFCMWithGomuksBackend()
-                    }
+                    },
                 )
             }
                 ?: run {
                     android.util.Log.w(
                         "Andromuks",
-                        "AppViewModel: fcmNotificationManager is null, cannot register FCM notifications"
+                        "AppViewModel: fcmNotificationManager is null, cannot register FCM notifications",
                     )
                 }
         }
@@ -103,16 +109,14 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun registerFCMWithGomuksBackend(
-        forceRegistrationOnConnect: Boolean = false,
-        forceNow: Boolean = false
-    ) {
+    fun registerFCMWithGomuksBackend(forceRegistrationOnConnect: Boolean = false, forceNow: Boolean = false) {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: registerFCMWithGomuksBackend called (forceRegistrationOnConnect=$forceRegistrationOnConnect, forceNow=$forceNow)"
+                    "AppViewModel: registerFCMWithGomuksBackend called (forceRegistrationOnConnect=$forceRegistrationOnConnect, forceNow=$forceNow)",
                 )
+            }
 
             // forceRegistrationOnConnect guarantees re-registration on every (re)connection;
             // bypass the debounce so a quick reconnect doesn't silently skip registration.
@@ -120,19 +124,21 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                 val now = System.currentTimeMillis()
                 val timeSinceLastRegistration = now - lastFCMRegistrationTime
                 if (timeSinceLastRegistration < AppViewModel.FCM_REGISTRATION_DEBOUNCE_MS) {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: Skipping FCM registration - only ${timeSinceLastRegistration}ms since last registration (debounce: ${AppViewModel.FCM_REGISTRATION_DEBOUNCE_MS}ms)"
+                            "AppViewModel: Skipping FCM registration - only ${timeSinceLastRegistration}ms since last registration (debounce: ${AppViewModel.FCM_REGISTRATION_DEBOUNCE_MS}ms)",
                         )
+                    }
                     return
                 }
             }
 
             if (!forceRegistrationOnConnect && !forceNow) {
                 val shouldRegister = shouldRegisterPush()
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d("Andromuks", "AppViewModel: shouldRegisterPush() returned $shouldRegister")
+                }
                 val hasRegisteredViaWebSocket =
                     appContext?.let { context ->
                         context
@@ -142,11 +148,12 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                         ?: false
                 val forceRegistration = !hasRegisteredViaWebSocket
                 if (!shouldRegister && !forceRegistration) {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: Skipping FCM registration - not due yet and already registered via WebSocket"
+                            "AppViewModel: Skipping FCM registration - not due yet and already registered via WebSocket",
                         )
+                    }
                     return
                 }
             }
@@ -155,21 +162,25 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
             val deviceId = webClientPushIntegration?.getLocalDeviceID()
             val encryptionKey = webClientPushIntegration?.getPushEncryptionKey()
 
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: registerFCMWithGomuksBackend - token=${token?.take(20)}..., deviceId=$deviceId, encryptionKey=${encryptionKey?.take(20)}..."
+                    "AppViewModel: registerFCMWithGomuksBackend - token=${token?.take(
+                        20,
+                    )}..., deviceId=$deviceId, encryptionKey=${encryptionKey?.take(20)}...",
                 )
+            }
 
             if (token != null && deviceId != null && encryptionKey != null) {
                 val registrationRequestId = WebSocketService.allocateRequestId()
                 fcmRegistrationRequests[registrationRequestId] = "fcm_registration"
 
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Registering FCM with request_id=$registrationRequestId"
+                        "AppViewModel: Registering FCM with request_id=$registrationRequestId",
                     )
+                }
 
                 val expirationSeconds = System.currentTimeMillis() / 1000 + 86400
                 val registrationData =
@@ -180,30 +191,33 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                         "encryption" to
                             mapOf(
                                 "key" to encryptionKey,
-                                "expiration" to expirationSeconds
-                            )
+                                "expiration" to expirationSeconds,
+                            ),
                     )
 
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Sending WebSocket command: register_push with data: $registrationData"
+                        "AppViewModel: Sending WebSocket command: register_push with data: $registrationData",
                     )
+                }
                 val result = sendWebSocketCommand("register_push", registrationRequestId, registrationData)
 
                 if (result == WebSocketResult.SUCCESS) {
                     lastFCMRegistrationTime = System.currentTimeMillis()
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: Sent FCM registration to Gomuks Backend with device_id=$deviceId (request_id=$registrationRequestId)"
+                            "AppViewModel: Sent FCM registration to Gomuks Backend with device_id=$deviceId (request_id=$registrationRequestId)",
                         )
+                    }
                 } else {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: register_push queued or not sent (result=$result) - will be sent after init_complete or when connected"
+                            "AppViewModel: register_push queued or not sent (result=$result) - will be sent after init_complete or when connected",
                         )
+                    }
                 }
 
                 appContext?.let { context ->
@@ -216,7 +230,7 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
             } else {
                 android.util.Log.w(
                     "Andromuks",
-                    "AppViewModel: Missing required data for FCM registration - token=${token != null}, deviceId=${deviceId != null}, encryptionKey=${encryptionKey != null}"
+                    "AppViewModel: Missing required data for FCM registration - token=${token != null}, deviceId=${deviceId != null}, encryptionKey=${encryptionKey != null}",
                 )
             }
         }
@@ -224,13 +238,15 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
 
     fun handleFCMRegistrationResponse(requestId: Int, data: Any) {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: handleFCMRegistrationResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}"
+                    "AppViewModel: handleFCMRegistrationResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}",
                 )
-            if (BuildConfig.DEBUG)
+            }
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: FCM registration response data: $data")
+            }
 
             fcmRegistrationRequests.remove(requestId)
 
@@ -246,12 +262,14 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                                 .putBoolean("fcm_registered_via_websocket", true)
                                 .apply()
                         }
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d("Andromuks", "AppViewModel: Marked FCM as registered via WebSocket")
+                        }
                     } else {
                         android.util.Log.e("Andromuks", "AppViewModel: FCM registration failed (boolean false)")
                     }
                 }
+
                 is String -> {
                     android.util.Log.i("Andromuks", "AppViewModel: FCM registration response (string): $data")
                     webClientPushIntegration?.markPushRegistrationCompleted()
@@ -262,14 +280,19 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                             .putBoolean("fcm_registered_via_websocket", true)
                             .apply()
                     }
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: Marked FCM as registered via WebSocket (string response)"
+                            "AppViewModel: Marked FCM as registered via WebSocket (string response)",
                         )
+                    }
                 }
+
                 is org.json.JSONObject -> {
-                    android.util.Log.i("Andromuks", "AppViewModel: FCM registration response (JSON): ${data.toString()}")
+                    android.util.Log.i(
+                        "Andromuks",
+                        "AppViewModel: FCM registration response (JSON): $data",
+                    )
                     val success = data.optBoolean("success", true)
                     if (success) {
                         android.util.Log.i("Andromuks", "AppViewModel: FCM registration successful (JSON)")
@@ -281,15 +304,17 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                                 .putBoolean("fcm_registered_via_websocket", true)
                                 .apply()
                         }
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
-                                "AppViewModel: Marked FCM as registered via WebSocket (JSON response)"
+                                "AppViewModel: Marked FCM as registered via WebSocket (JSON response)",
                             )
+                        }
                     } else {
                         android.util.Log.e("Andromuks", "AppViewModel: FCM registration failed (JSON)")
                     }
                 }
+
                 else -> {
                     // gomuks replies to register_push with an empty body on success: the WebSocket
                     // layer surfaces a null "data" as org.json.JSONObject.NULL (toString() == "null"),
@@ -302,7 +327,7 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                     } else {
                         android.util.Log.i(
                             "Andromuks",
-                            "AppViewModel: FCM registration response (unexpected type ${data::class.java.simpleName}): $data — treating as success"
+                            "AppViewModel: FCM registration response (unexpected type ${data::class.java.simpleName}): $data — treating as success",
                         )
                     }
                     webClientPushIntegration?.markPushRegistrationCompleted()
@@ -313,11 +338,12 @@ internal class FcmPushCoordinator(private val vm: AppViewModel) {
                             .putBoolean("fcm_registered_via_websocket", true)
                             .apply()
                     }
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: Marked FCM as registered via WebSocket (unknown response type)"
+                            "AppViewModel: Marked FCM as registered via WebSocket (unknown response type)",
                         )
+                    }
                 }
             }
         }

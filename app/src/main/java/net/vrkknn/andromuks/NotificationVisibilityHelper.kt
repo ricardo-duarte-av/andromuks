@@ -20,4 +20,3 @@ object NotificationVisibilityHelper {
     fun listenerSettingsIntent(): Intent =
         Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 }
-

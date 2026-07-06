@@ -51,12 +51,16 @@ object ExecApi {
      */
     sealed class ExecResult {
         data class Success(val data: Any) : ExecResult()
+
         /** Command ran but returned an error (HTTP 418). */
         data class CommandError(val message: String) : ExecResult()
+
         /** Auth cookie missing or rejected (HTTP 401). */
         object AuthMissing : ExecResult()
+
         /** Any other non-2xx HTTP status. */
         data class HttpError(val code: Int, val message: String) : ExecResult()
+
         /** Network/IO failure — host unreachable, timeout, TLS, etc. */
         data class NetworkError(val message: String) : ExecResult()
     }
@@ -66,7 +70,7 @@ object ExecApi {
         val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
         return Credentials(
             homeserverUrl = prefs.getString("homeserver_url", "") ?: "",
-            authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
+            authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs),
         )
     }
 
@@ -98,14 +102,17 @@ object ExecApi {
                         val data: Any = if (payload.isBlank()) JSONObject() else JSONTokener(payload).nextValue()
                         ExecResult.Success(data)
                     }
+
                     resp.code == 418 -> {
                         Log.w(TAG, "exec $command returned a command error: $payload")
                         ExecResult.CommandError(payload.ifBlank { "command error" })
                     }
+
                     resp.code == 401 -> {
                         Log.w(TAG, "exec $command: auth cookie missing/rejected")
                         ExecResult.AuthMissing
                     }
+
                     else -> {
                         Log.w(TAG, "exec $command failed: HTTP ${resp.code} ${resp.message}")
                         ExecResult.HttpError(resp.code, resp.message)
@@ -126,10 +133,13 @@ object ExecApi {
         val body = JSONObject().apply {
             put("room_id", roomId)
             put("text", text)
-            put("mentions", JSONObject().apply {
+            put(
+                "mentions",
+                JSONObject().apply {
                 put("user_ids", org.json.JSONArray())
                 put("room", false)
-            })
+            }
+            )
         }
         return execRaw(creds, "send_message", body) is ExecResult.Success
     }

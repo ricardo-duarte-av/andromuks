@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -11,8 +10,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import net.vrkknn.andromuks.BuildConfig
 import org.json.JSONObject
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -30,25 +29,26 @@ class SyncBatchProcessor(
     private val scope: CoroutineScope,
     private val processSyncImmediately: suspend (JSONObject, Int, String, Boolean) -> SyncUpdateResult?,
     private val onBatchRoomListApply: (suspend (SyncUpdateResult) -> Unit)? = null,
-    private val onBatchComplete: (suspend () -> Unit)? = null
+    private val onBatchComplete: (suspend () -> Unit)? = null,
 ) {
     // CRASH FIX: Track batch processing state to prevent animations during flush
     private var _isProcessingBatch = MutableStateFlow(false)
     val isProcessingBatch = _isProcessingBatch.asStateFlow()
-    
+
     // CRITICAL FIX: Flag to bypass timeline rebuilds during batch processing
     // When true, buildTimelineFromChain() should skip execution
     private var _shouldSkipTimelineRebuild = MutableStateFlow(false)
     val shouldSkipTimelineRebuild = _shouldSkipTimelineRebuild.asStateFlow()
-    
+
     // Track the size of the batch being processed
     private var _processingBatchSize = MutableStateFlow(0)
     val processingBatchSize = _processingBatchSize.asStateFlow()
     private var _processedInBatch = MutableStateFlow(0)
-val processedInBatch = _processedInBatch.asStateFlow()
-    
+    val processedInBatch = _processedInBatch.asStateFlow()
+
     // ── Configurable knobs (updated from AppViewModel.loadSettings) ──────────
     @Volatile var batchIntervalMs: Long = DEFAULT_BATCH_INTERVAL_MS
+
     @Volatile var maxBatchSize: Int = DEFAULT_MAX_BATCH_SIZE
 
     // In battery-saver mode the WebSocket is torn down ~15s after backgrounding, so there is no
@@ -56,19 +56,14 @@ val processedInBatch = _processedInBatch.asStateFlow()
     // against a dead socket. When true, [processSyncComplete] always processes immediately
     // (even while backgrounded) and never schedules a batchJob.
     @Volatile var batterySaverModeEnabled: Boolean = false
-    
 
     companion object {
-        private data class SyncMessage(
-            val syncJson: JSONObject,
-            val requestId: Int,
-            val runId: String
-        )
+        private data class SyncMessage(val syncJson: JSONObject, val requestId: Int, val runId: String)
 
         private data class RoomListAccumulator(
             val updatedRooms: MutableMap<String, RoomItem> = mutableMapOf(),
             val newRooms: MutableMap<String, RoomItem> = mutableMapOf(),
-            val removedRoomIds: MutableSet<String> = mutableSetOf()
+            val removedRoomIds: MutableSet<String> = mutableSetOf(),
         )
 
         private fun shouldReplaceRoomItem(existing: RoomItem, candidate: RoomItem): Boolean {
@@ -82,7 +77,7 @@ val processedInBatch = _processedInBatch.asStateFlow()
         private val batchQueue = mutableListOf<SyncMessage>()
         private val batchLock = Mutex()
         private var batchJob: Job? = null
-        
+
         /**
          * Must be thread-safe: [onAppVisibilityChanged] runs on the main thread while
          * [processSyncComplete] runs on dispatcher threads (e.g. after SyncRepository fan-out).
@@ -100,9 +95,9 @@ val processedInBatch = _processedInBatch.asStateFlow()
         private const val TAG = "SyncBatchProcessor"
 
         // Defaults – also used as fallbacks in SharedPreferences
-        const val DEFAULT_BATCH_INTERVAL_MS = 5L * 60_000L   // 5 minutes
+        const val DEFAULT_BATCH_INTERVAL_MS = 5L * 60_000L // 5 minutes
         const val DEFAULT_MAX_BATCH_SIZE = 500
-        
+
         // CRASH FIX: Timeout guard for batch processing.
         // This is a safety valve against deadlocks/stalls, NOT a performance budget.
         // When batches contain hundreds/thousands of messages, processing can legitimately take > 5s.
@@ -110,8 +105,7 @@ val processedInBatch = _processedInBatch.asStateFlow()
         private const val BATCH_PROCESSING_TIMEOUT_MAX_MS = 10L * 60_000L // 10 minutes cap
         private const val BATCH_PROCESSING_TIMEOUT_PER_MESSAGE_MS = 2_000L // heuristic upper bound
     }
-    
-    
+
     /**
      * Process a sync_complete message.
      * - If (app is visible OR battery-saver mode is on) AND no batch is processing: process immediately
@@ -125,7 +119,7 @@ val processedInBatch = _processedInBatch.asStateFlow()
             // CRITICAL FIX: If a batch is currently being processed, defer this sync_complete
             // even if app is visible. This prevents messages from appearing one-by-one during batch flush.
             val isCurrentlyProcessingBatch = _isProcessingBatch.value
-            
+
             // Battery-saver bypass: with battery-saver mode on, the WS dies 15s after backgrounding, so
             // there is no point batching during that window — process immediately and skip
             // the batchJob entirely. Anything the user misses while disconnected is fetched
@@ -143,16 +137,19 @@ val processedInBatch = _processedInBatch.asStateFlow()
             } else {
                 // BACKGROUND OR BATCH PROCESSING: Add to batch queue
                 if (isCurrentlyProcessingBatch && BuildConfig.DEBUG) {
-                    Log.d(TAG, "Batch processing in progress - deferring sync_complete (requestId=$requestId) until batch completes")
+                    Log.d(
+                        TAG,
+                        "Batch processing in progress - deferring sync_complete (requestId=$requestId) until batch completes",
+                    )
                 }
                 batchQueue.add(SyncMessage(syncJson, requestId, runId))
-                
+
                 // Start batch timer if not running (only if app is backgrounded)
                 if (!appVisible.get()) {
                     if (batchJob == null || !batchJob!!.isActive) {
                         scheduleBatchProcessing()
                     }
-                    
+
                     // Safety: Force flush if batch gets too large
                     if (batchQueue.size >= maxBatchSize) {
                         Log.w(TAG, "Batch size limit reached (${batchQueue.size}/$maxBatchSize) - forcing flush")
@@ -162,7 +159,7 @@ val processedInBatch = _processedInBatch.asStateFlow()
             }
         }
     }
-    
+
     /**
      * Schedule batch processing after [batchIntervalMs] delay.
      */
@@ -177,50 +174,59 @@ val processedInBatch = _processedInBatch.asStateFlow()
             }
         }
     }
-    
+
     /**
      * Flush all batched messages (must be called with batchLock held)
      * @param recursionDepth Internal parameter to prevent infinite recursion (default 0)
      */
     private suspend fun flushBatchLocked(recursionDepth: Int = 0) {
         if (batchQueue.isEmpty()) return
-        
+
         // PERFORMANCE: Apply dynamic thread priority (niceness) based on app/screen state
         android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
-        
+
         // Safety guard: prevent infinite recursion if messages keep arriving
         if (recursionDepth > 10) {
-            Log.w(TAG, "Batch flush recursion depth limit reached ($recursionDepth) - stopping to prevent infinite loop")
+            Log.w(
+                TAG,
+                "Batch flush recursion depth limit reached ($recursionDepth) - stopping to prevent infinite loop",
+            )
             return
         }
-        
+
         val startTime = System.currentTimeMillis()
         val batchSize = batchQueue.size
         val accumulator = RoomListAccumulator()
-        
+
         Log.i(TAG, "Processing batch of $batchSize sync_complete messages (recursionDepth=$recursionDepth)")
-        
+
         // CRITICAL FIX: Set batch processing flag BEFORE processing starts to ensure
         // appendEventsToCachedRoom() sees it as true. StateFlow is thread-safe, so we can
         // set it from any thread, but we need to ensure it's set before processSyncImmediately() runs.
-        
-        // Sync these to stateflow even in background to ensure AppViewModel.onEventsForCachedRoom 
+
+        // Sync these to stateflow even in background to ensure AppViewModel.onEventsForCachedRoom
         // knows to defer rebuilds until the batch is complete (saves CPU/battery)
         _processingBatchSize.value = batchSize
         _isProcessingBatch.value = true
         _shouldSkipTimelineRebuild.value = true // CRITICAL: Skip timeline rebuilds during batch processing
-        _processedInBatch.value = 0 
-        
+        _processedInBatch.value = 0
+
         if (appVisible.get()) {
-            Log.i(TAG, "Batch processing STARTED ($batchSize messages) - isProcessingBatch set to true, shouldSkipTimelineRebuild set to true (foreground)")
+            Log.i(
+                TAG,
+                "Batch processing STARTED ($batchSize messages) - isProcessingBatch set to true, shouldSkipTimelineRebuild set to true (foreground)",
+            )
         } else {
-            Log.i(TAG, "Batch processing STARTED ($batchSize messages) (background - but still setting flags to defer rebuilds)")
+            Log.i(
+                TAG,
+                "Batch processing STARTED ($batchSize messages) (background - but still setting flags to defer rebuilds)",
+            )
         }
-        
+
         try {
             val batch = batchQueue.toList()
             batchQueue.clear()
-            
+
             // CRASH FIX: Add timeout to prevent getting stuck in RUSH state
             // If processing hangs or takes too long, timeout and reset state
             var processedCount = 0
@@ -246,12 +252,25 @@ val processedInBatch = _processedInBatch.asStateFlow()
                                         isFavourite = room.isFavourite || existing.isFavourite,
                                         isLowPriority = room.isLowPriority || existing.isLowPriority,
                                         isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
-                                        bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
+                                        bridgeProtocolAvatarUrl =
+                                        room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
                                         messagePreview = room.messagePreview ?: existing.messagePreview,
-                                        messageSender = if (room.messagePreview != null) room.messageSender else existing.messageSender,
+                                        messageSender = if (room.messagePreview !=
+                                            null
+                                        ) {
+                                                room.messageSender
+                                            } else {
+                                                existing.messageSender
+                                            },
                                         // Carry the resolved display name with the sender it belongs to.
-                                        senderDisplayName = if (room.messagePreview != null) room.senderDisplayName else existing.senderDisplayName,
-                                        latestEventId = room.latestEventId ?: existing.latestEventId
+                                        senderDisplayName = if (room.messagePreview !=
+                                            null
+                                        ) {
+                                                room.senderDisplayName
+                                            } else {
+                                                existing.senderDisplayName
+                                            },
+                                        latestEventId = room.latestEventId ?: existing.latestEventId,
                                     )
                                 }
                             }
@@ -264,11 +283,24 @@ val processedInBatch = _processedInBatch.asStateFlow()
                                         isFavourite = room.isFavourite || existing.isFavourite,
                                         isLowPriority = room.isLowPriority || existing.isLowPriority,
                                         isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
-                                        bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
+                                        bridgeProtocolAvatarUrl =
+                                        room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
                                         messagePreview = room.messagePreview ?: existing.messagePreview,
-                                        messageSender = if (room.messagePreview != null) room.messageSender else existing.messageSender,
-                                        senderDisplayName = if (room.messagePreview != null) room.senderDisplayName else existing.senderDisplayName,
-                                        latestEventId = room.latestEventId ?: existing.latestEventId
+                                        messageSender = if (room.messagePreview !=
+                                            null
+                                        ) {
+                                                room.messageSender
+                                            } else {
+                                                existing.messageSender
+                                            },
+                                        senderDisplayName = if (room.messagePreview !=
+                                            null
+                                        ) {
+                                                room.senderDisplayName
+                                            } else {
+                                                existing.senderDisplayName
+                                            },
+                                        latestEventId = room.latestEventId ?: existing.latestEventId,
                                     )
                                 }
                             }
@@ -282,17 +314,23 @@ val processedInBatch = _processedInBatch.asStateFlow()
                     _processedInBatch.value = processedCount
                 }
             } == null
-            
+
             val elapsed = System.currentTimeMillis() - startTime
-            
+
             if (timeoutOccurred) {
                 // Timeout occurred - batch processing took too long
-                Log.w(TAG, "Batch processing TIMEOUT after ${elapsed}ms - processed $processedCount/$batchSize messages before timeout")
+                Log.w(
+                    TAG,
+                    "Batch processing TIMEOUT after ${elapsed}ms - processed $processedCount/$batchSize messages before timeout",
+                )
                 Log.w(TAG, "This may indicate a performance issue or deadlock in processSyncImmediately")
             } else {
-                Log.i(TAG, "Batch processed: $processedCount/$batchSize messages in ${elapsed}ms (${if (processedCount > 0) elapsed / processedCount else 0}ms/msg)")
+                Log.i(
+                    TAG,
+                    "Batch processed: $processedCount/$batchSize messages in ${elapsed}ms (${if (processedCount > 0) elapsed / processedCount else 0}ms/msg)",
+                )
             }
-            
+
             // CRASH FIX: Ensure minimum visible duration so UI can observe state change
             if (appVisible.get()) {
                 val minVisibleDuration = 200L
@@ -309,7 +347,7 @@ val processedInBatch = _processedInBatch.asStateFlow()
                 val mergedResult = SyncUpdateResult(
                     updatedRooms = accumulator.updatedRooms.values.toList(),
                     newRooms = accumulator.newRooms.values.toList(),
-                    removedRoomIds = accumulator.removedRoomIds.toList()
+                    removedRoomIds = accumulator.removedRoomIds.toList(),
                 )
                 onBatchRoomListApply?.invoke(mergedResult)
             }
@@ -325,26 +363,32 @@ val processedInBatch = _processedInBatch.asStateFlow()
             _isProcessingBatch.value = false
             _processingBatchSize.value = 0
             _shouldSkipTimelineRebuild.value = false // CRITICAL: Re-enable timeline rebuilds after batch completes
-            _processedInBatch.value = 0 
-            
+            _processedInBatch.value = 0
+
             if (appVisible.get()) {
-                Log.i(TAG, "Batch processing COMPLETED - isProcessingBatch set to false, processingBatchSize reset, shouldSkipTimelineRebuild set to false (foreground)")
+                Log.i(
+                    TAG,
+                    "Batch processing COMPLETED - isProcessingBatch set to false, processingBatchSize reset, shouldSkipTimelineRebuild set to false (foreground)",
+                )
             } else {
                 Log.i(TAG, "Batch processing COMPLETED (background)")
             }
         }
-        
+
         // CRITICAL FIX: If new messages arrived during batch processing and app is visible,
         // process them immediately in a new batch to prevent them from being processed one-by-one
         if (batchQueue.isNotEmpty() && appVisible.get()) {
-            Log.i(TAG, "New messages arrived during batch processing - processing ${batchQueue.size} messages in new batch")
+            Log.i(
+                TAG,
+                "New messages arrived during batch processing - processing ${batchQueue.size} messages in new batch",
+            )
             flushBatchLocked(recursionDepth + 1)
         } else if (batchQueue.isNotEmpty() && !appVisible.get()) {
             // Background: reschedule periodic processing
             scheduleBatchProcessing()
         }
     }
-    
+
     /**
      * Called when app visibility changes.
      *
@@ -400,7 +444,7 @@ val processedInBatch = _processedInBatch.asStateFlow()
 
         return Pair(pendingCount, job)
     }
-    
+
     /**
      * Called when a Chat Bubble's visibility changes (visible/invisible).
      *
@@ -414,7 +458,12 @@ val processedInBatch = _processedInBatch.asStateFlow()
     fun notifyBubbleVisibilityChanged() {
         val nowEffectivelyVisible = mainAppVisible.get() || BubbleTracker.getVisibleBubbles().isNotEmpty()
         appVisible.set(nowEffectivelyVisible)
-        if (BuildConfig.DEBUG) Log.d(TAG, "Bubble visibility changed — appVisible now: $nowEffectivelyVisible (mainApp=${mainAppVisible.get()}, visibleBubbles=${BubbleTracker.getVisibleBubbles().size})")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "Bubble visibility changed — appVisible now: $nowEffectivelyVisible (mainApp=${mainAppVisible.get()}, visibleBubbles=${BubbleTracker.getVisibleBubbles().size})",
+        )
+        }
     }
 
     /**
@@ -430,13 +479,13 @@ val processedInBatch = _processedInBatch.asStateFlow()
                     appVisible.set(true)
                     return@launch
                 }
-                
+
                 val batchSize = batchQueue.size
                 Log.i(TAG, "Force flushing $batchSize batched messages (notification navigation)")
-                
+
                 appVisible.set(true)
             }
-            
+
             batchLock.withLock {
                 flushBatchLocked()
             }
@@ -466,11 +515,9 @@ val processedInBatch = _processedInBatch.asStateFlow()
             }
         }
     }
-    
+
     /**
      * Get current batch queue size (for debugging/metrics)
      */
-    fun getBatchQueueSize(): Int {
-        return batchQueue.size
-    }
+    fun getBatchQueueSize(): Int = batchQueue.size
 }

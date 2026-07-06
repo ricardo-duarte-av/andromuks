@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks
 
-import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,15 +17,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import coil3.compose.AsyncImage
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
-import java.io.File
 import java.net.URLDecoder
 
 /**
@@ -42,14 +37,14 @@ typealias CachedMediaEntry = net.vrkknn.andromuks.AppViewModel.CachedMediaEntry
 fun CachedMediaScreen(
     cacheType: String, // "memory" or "disk"
     appViewModel: AppViewModel,
-    navController: NavController
+    navController: NavController,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var mediaEntries by remember { mutableStateOf<List<CachedMediaEntry>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var isRefreshing by remember { mutableStateOf(false) }
-    
+
     fun loadMedia() {
         coroutineScope.launch {
             if (mediaEntries.isNotEmpty()) {
@@ -57,37 +52,37 @@ fun CachedMediaScreen(
             } else {
                 isLoading = true
             }
-            
+
             val entries = if (cacheType == "memory") {
                 appViewModel.getAllMemoryCachedMedia(context)
             } else {
                 appViewModel.getAllDiskCachedMedia(context)
             }
-            
+
             mediaEntries = entries
             isLoading = false
             isRefreshing = false
         }
     }
-    
+
     LaunchedEffect(cacheType) {
         loadMedia()
     }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Column {
                         Text(
-                            text = if (cacheType == "memory") "Memory Cached Media" else "Disk Cached Media"
+                            text = if (cacheType == "memory") "Memory Cached Media" else "Disk Cached Media",
                         )
                         if (cacheType == "memory") {
                             Text(
                                 text = "Note: Coil's RAM cache cannot be enumerated. Showing disk cache (loaded into RAM when accessed).",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 2.dp)
+                                modifier = Modifier.padding(top = 2.dp),
                             )
                         }
                     }
@@ -95,23 +90,23 @@ fun CachedMediaScreen(
                 actions = {
                     IconButton(
                         onClick = { loadMedia() },
-                        enabled = !isRefreshing && !isLoading
+                        enabled = !isRefreshing && !isLoading,
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
-                            contentDescription = "Refresh media cache"
+                            contentDescription = "Refresh media cache",
                         )
                     }
-                }
+                },
             )
-        }
+        },
     ) { paddingValues ->
         if (isLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 ExpressiveLoadingIndicator()
             }
@@ -120,21 +115,21 @@ fun CachedMediaScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
                         text = "No cached media found",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         text = "Media will appear here once cached",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
@@ -142,55 +137,55 @@ fun CachedMediaScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues)
+                    .padding(paddingValues),
             ) {
                 // Statistics header
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(16.dp),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                 ) {
                     Column(
                         modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
                             text = "${mediaEntries.size} media item${if (mediaEntries.size != 1) "s" else ""}",
                             style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
+                            fontWeight = FontWeight.Medium,
                         )
                         val totalSize = mediaEntries.sumOf { it.fileSize }
                         Text(
                             text = "Total size: ${appViewModel.formatBytes(totalSize)}",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (cacheType == "memory") {
                             Text(
                                 text = "Coil's RAM cache (bitmaps) cannot be enumerated. This shows Coil's disk cache, which represents images that could be in RAM when accessed.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier.padding(top = 4.dp)
+                                modifier = Modifier.padding(top = 4.dp),
                             )
                         }
                     }
                 }
-                
+
                 // Media list with larger captions and preview area
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(
                         items = mediaEntries,
-                        key = { it.filePath } // Use file path as key for better recomposition
+                        key = { it.filePath }, // Use file path as key for better recomposition
                     ) { entry ->
                         // Only load image when visible (lazy loading)
                         CachedMediaItem(
                             entry = entry,
-                            appViewModel = appViewModel
+                            appViewModel = appViewModel,
                         )
                     }
                 }
@@ -203,22 +198,19 @@ fun CachedMediaScreen(
  * Individual media item in the gallery
  */
 @Composable
-fun CachedMediaItem(
-    entry: CachedMediaEntry,
-    appViewModel: AppViewModel
-) {
+fun CachedMediaItem(entry: CachedMediaEntry, appViewModel: AppViewModel) {
     val context = LocalContext.current
     val imageLoader = remember { net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context) }
     var showFullUrl by remember { mutableStateOf(false) }
     val resolvedMxcUrl = remember(entry.mxcUrl, entry.file.name) {
         entry.mxcUrl ?: deriveMxcFromCacheKey(entry.file.name)
     }
-    
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { showFullUrl = !showFullUrl },
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column {
             // Image thumbnail
@@ -226,7 +218,7 @@ fun CachedMediaItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(180.dp),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 if (entry.file.exists() && entry.file.canRead()) {
                     AsyncImage(
@@ -240,7 +232,7 @@ fun CachedMediaItem(
                         contentDescription = resolvedMxcUrl ?: "Cached media",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize(),
-                        imageLoader = imageLoader
+                        imageLoader = imageLoader,
                     )
                 } else {
                     // File doesn't exist or can't be read
@@ -248,17 +240,17 @@ fun CachedMediaItem(
                         imageVector = Icons.Filled.Error,
                         contentDescription = "Broken image",
                         modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            
+
             // MXC URL or file info
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(8.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 if (resolvedMxcUrl != null) {
                     Text(
@@ -266,32 +258,32 @@ fun CachedMediaItem(
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = if (showFullUrl) Int.MAX_VALUE else 4,
                         overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
                     )
                 } else {
                     Text(
                         text = "Unknown MXC URL",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         text = "Cache key/hash: ${entry.file.name}",
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = if (showFullUrl) Int.MAX_VALUE else 3,
                         overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                
+
                 Text(
                     text = "${appViewModel.formatBytes(entry.fileSize)} • ${entry.cacheType}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
     }
-    
+
     // Show full URL dialog if clicked
     if (showFullUrl && resolvedMxcUrl != null) {
         AlertDialog(
@@ -301,18 +293,18 @@ fun CachedMediaItem(
                 Column {
                     Text(
                         text = resolvedMxcUrl,
-                        style = MaterialTheme.typography.bodyMedium
+                        style = MaterialTheme.typography.bodyMedium,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Cache key/hash: ${entry.file.name}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Text(
                         text = "Size: ${appViewModel.formatBytes(entry.fileSize)}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             },
@@ -320,7 +312,7 @@ fun CachedMediaItem(
                 TextButton(onClick = { showFullUrl = false }) {
                     Text("Close")
                 }
-            }
+            },
         )
     }
 }
@@ -352,5 +344,3 @@ private fun deriveMxcFromCacheKey(cacheKey: String): String? {
     }
     return null
 }
-
-

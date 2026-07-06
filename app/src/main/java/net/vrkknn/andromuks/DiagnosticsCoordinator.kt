@@ -28,7 +28,7 @@ internal class DiagnosticsCoordinator(private val vm: AppViewModel) {
             val entry = AppViewModel.ActivityLogEntry(
                 timestamp = System.currentTimeMillis(),
                 event = event,
-                networkType = networkType
+                networkType = networkType,
             )
             synchronized(activityLogLock) {
                 activityLog.add(entry)
@@ -67,10 +67,18 @@ internal class DiagnosticsCoordinator(private val vm: AppViewModel) {
                             activityLog.addAll(entriesToKeep)
                         }
 
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${activityLog.size} activity log entries from storage")
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: Loaded ${activityLog.size} activity log entries from storage",
+                        )
+                        }
                     }
                 } else {
-                    val legacyPrefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                    val legacyPrefs = ctx.getSharedPreferences(
+                        "AndromuksAppPrefs",
+                        android.content.Context.MODE_PRIVATE,
+                    )
                     val legacyLogJson = legacyPrefs.getString(ACTIVITY_LOG_PREFS_KEY, null)
                     if (legacyLogJson != null) {
                         val logArray = JSONArray(legacyLogJson)
@@ -119,7 +127,6 @@ internal class DiagnosticsCoordinator(private val vm: AppViewModel) {
                 prefs.edit()
                     .putString(ACTIVITY_LOG_PREFS_KEY, logArray.toString())
                     .apply()
-
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to save activity log to storage", e)
             }
@@ -142,7 +149,14 @@ internal class DiagnosticsCoordinator(private val vm: AppViewModel) {
         stats["app_ram_total"] = formatBytes(totalMemory)
         stats["app_ram_usage_percent"] = "$memoryUsagePercent%"
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "Memory Stats: Used=${formatBytes(usedMemory)}, Free=${formatBytes(freeMemory)}, Max=${formatBytes(maxMemory)}, Usage=$memoryUsagePercent%")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "Memory Stats: Used=${formatBytes(
+                usedMemory,
+            )}, Free=${formatBytes(freeMemory)}, Max=${formatBytes(maxMemory)}, Usage=$memoryUsagePercent%",
+        )
+        }
 
         val timelineCacheStats = RoomTimelineCache.getCacheStats()
         val totalTimelineEvents = timelineCacheStats["total_events_cached"] as? Int ?: 0

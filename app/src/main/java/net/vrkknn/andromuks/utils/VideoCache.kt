@@ -12,14 +12,12 @@ object VideoCache {
     @Volatile
     private var cache: SimpleCache? = null
 
-    fun get(context: Context): SimpleCache {
-        return cache ?: synchronized(this) {
-            cache ?: SimpleCache(
-                File(context.applicationContext.cacheDir, "exo_video_cache"),
-                LeastRecentlyUsedCacheEvictor(MAX_BYTES),
-                StandaloneDatabaseProvider(context.applicationContext)
-            ).also { cache = it }
-        }
+    fun get(context: Context): SimpleCache = cache ?: synchronized(this) {
+        cache ?: SimpleCache(
+            File(context.applicationContext.cacheDir, "exo_video_cache"),
+            LeastRecentlyUsedCacheEvictor(MAX_BYTES),
+            StandaloneDatabaseProvider(context.applicationContext),
+        ).also { cache = it }
     }
 
     fun release() {

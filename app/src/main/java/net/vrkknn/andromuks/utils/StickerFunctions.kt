@@ -1,70 +1,57 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil3.ImageLoader
 import coil3.compose.AsyncImage
-import coil3.gif.GifDecoder
-import coil3.gif.AnimatedImageDecoder
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
 import kotlinx.coroutines.launch
-import net.vrkknn.andromuks.TimelineEvent
-import net.vrkknn.andromuks.MediaMessage
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.MediaInfo
+import net.vrkknn.andromuks.MediaMessage
+import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.BubblePalette
-import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.ImageViewerDialog
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import java.io.File
-
-
-import android.os.Build
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 
 /**
  * Data class to hold sticker information extracted from a timeline event.
@@ -82,7 +69,7 @@ data class StickerMessage(
     val height: Int,
     val hasEncryptedFile: Boolean = false,
     val mimeType: String? = null,
-    val size: Long = 0L
+    val size: Long = 0L,
 )
 
 /**
@@ -98,7 +85,9 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
     // Also handle m.room.message events with msgtype: "m.sticker" (sent via send_message with base_content)
     val stickerContent = when {
         event.type == "m.sticker" -> event.content
+
         event.type == "m.room.encrypted" && event.decryptedType == "m.sticker" -> event.decrypted
+
         event.type == "m.room.message" -> {
             // Check if this is a sticker message (msgtype: "m.sticker")
             val msgType = event.content?.optString("msgtype", "")
@@ -108,9 +97,10 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
                 null
             }
         }
+
         else -> null
     } ?: return null
-    
+
     // Check if sticker uses encrypted media (file object) or plain URL
     val hasEncryptedFile = stickerContent.has("file")
     val url = if (hasEncryptedFile) {
@@ -121,29 +111,34 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
         // Plain media: use direct url field
         stickerContent.optString("url", "")
     }
-    
+
     val body = stickerContent.optString("body", "")
     val info = stickerContent.optJSONObject("info")
-    
+
     if (url.isBlank() || info == null) {
         Log.w("Andromuks", "StickerFunctions: Invalid sticker data - url='$url', info=${info != null}")
         return null
     }
-    
+
     val width = info.optInt("w", 0)
     val height = info.optInt("h", 0)
     val mimeType = info.optString("mimetype", "").takeIf { it.isNotBlank() }
     val size = info.optLong("size", 0L)
-    
+
     // Use default dimensions if missing (similar to how images handle missing dimensions)
     val finalWidth = if (width <= 0) 256 else width
     val finalHeight = if (height <= 0) 256 else height
-    
+
     if (width <= 0 || height <= 0) {
-        if (BuildConfig.DEBUG) Log.w("Andromuks", "StickerFunctions: Missing sticker dimensions, using defaults - width=$finalWidth, height=$finalHeight")
+        if (BuildConfig.DEBUG) {
+            Log.w(
+            "Andromuks",
+            "StickerFunctions: Missing sticker dimensions, using defaults - width=$finalWidth, height=$finalHeight",
+        )
+        }
     }
-    
-    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x${finalHeight}, mimeType=$mimeType, size=$size, hasEncryptedFile=$hasEncryptedFile")
+
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x$finalHeight, mimeType=$mimeType, size=$size, hasEncryptedFile=$hasEncryptedFile")
     return StickerMessage(url, body, finalWidth, finalHeight, hasEncryptedFile, mimeType, size)
 }
 
@@ -189,11 +184,11 @@ fun StickerMessage(
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
     onBubbleClick: (() -> Unit)? = null,
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
-    onShowReactions: (() -> Unit)? = null
+    onShowReactions: (() -> Unit)? = null,
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
     var imageViewerSourceBounds by remember { mutableStateOf<Rect?>(null) }
-    
+
     // Convert StickerMessage to MediaMessage format for ImageViewerDialog
     val mediaMessage = remember(stickerMessage) {
         MediaMessage(
@@ -212,12 +207,12 @@ fun StickerMessage(
                 thumbnailHeight = null,
                 duration = null,
                 thumbnailIsEncrypted = false,
-                isAnimated = null
+                isAnimated = null,
             ),
-            msgType = "m.sticker"
+            msgType = "m.sticker",
         )
     }
-    
+
     // Show image viewer dialog when sticker is tapped (using new ImageViewerDialog)
     if (showImageViewer) {
         ImageViewerDialog(
@@ -229,10 +224,10 @@ fun StickerMessage(
             onDismiss = {
                 showImageViewer = false
                 imageViewerSourceBounds = null
-            }
+            },
         )
     }
-    
+
     // Check if this is a thread message to apply thread colors
     val isThreadMessage = event?.isThreadMessage() ?: false
     val colorScheme = MaterialTheme.colorScheme
@@ -240,17 +235,17 @@ fun StickerMessage(
         BubblePalette.colors(
             colorScheme = colorScheme,
             isMine = isMine,
-            isThreadMessage = isThreadMessage
+            isThreadMessage = isThreadMessage,
         )
     }
     val stickerBubbleColor = stickerBubbleColors.container
-    
+
     // Stickers are displayed without a caption bubble, just the image
     // Match image rendering pattern exactly
     if (event != null) {
         // Track menu trigger counter (similar to MediaContent for images)
         var triggerMenuFromSticker by remember { mutableStateOf(0) }
-        
+
         MessageBubbleWithMenu(
             event = event,
             bubbleColor = stickerBubbleColor,
@@ -258,7 +253,7 @@ fun StickerMessage(
                 topStart = if (isMine) 12.dp else 4.dp,
                 topEnd = if (isMine) 4.dp else 12.dp,
                 bottomStart = 12.dp,
-                bottomEnd = 12.dp
+                bottomEnd = 12.dp,
             ),
             modifier = modifier
                 .wrapContentWidth()
@@ -276,7 +271,7 @@ fun StickerMessage(
             mentionBorder = stickerBubbleColors.mentionBorder,
             threadBorder = stickerBubbleColors.threadBorder,
             onShowMenu = onShowMenu,
-            onShowReactions = onShowReactions
+            onShowReactions = onShowReactions,
         ) {
             Column {
                 // Sticker content (similar to MediaContent for images)
@@ -292,9 +287,9 @@ fun StickerMessage(
                     onStickerLongPress = {
                         // Trigger menu from sticker long press
                         triggerMenuFromSticker++
-                    }
+                    },
                 )
-                
+
                 // Timestamp is rendered outside the bubble (in the avatar column) for both consecutive and non-consecutive messages
                 // No need to show it inside the bubble
             }
@@ -302,17 +297,12 @@ fun StickerMessage(
     }
 }
 
-fun stickerBubbleColorFor(
-    colorScheme: ColorScheme,
-    isMine: Boolean,
-    isThreadMessage: Boolean
-): Color {
-    return BubblePalette.colors(
+fun stickerBubbleColorFor(colorScheme: ColorScheme, isMine: Boolean, isThreadMessage: Boolean): Color =
+    BubblePalette.colors(
         colorScheme = colorScheme,
         isMine = isMine,
-        isThreadMessage = isThreadMessage
+        isThreadMessage = isThreadMessage,
     ).container
-}
 
 /**
  * Renders the actual sticker content with proper dimensions and caching.
@@ -332,21 +322,21 @@ private fun StickerContent(
     authToken: String,
     isEncrypted: Boolean,
     onStickerClick: (Rect?) -> Unit = {},
-    onStickerLongPress: (() -> Unit)? = null
+    onStickerLongPress: (() -> Unit)? = null,
 ) {
     // Use actual pixel dimensions from the sticker metadata
     // Display stickers at 100% zoom (1 pixel = 1 dp) for crisp rendering
     // Only scale down if the sticker is too large (max 256dp to allow for reasonable sticker sizes)
     val maxStickerDimension = 256.dp
-    
+
     val actualWidth = stickerMessage.width.dp
     val actualHeight = stickerMessage.height.dp
-    
+
     BoxWithConstraints {
         // Calculate final dimensions - use actual size but cap at max dimension
         val stickerWidth: androidx.compose.ui.unit.Dp
         val stickerHeight: androidx.compose.ui.unit.Dp
-        
+
         if (actualWidth > maxStickerDimension || actualHeight > maxStickerDimension) {
             // Sticker is too large, scale it down proportionally
             val aspectRatio = stickerMessage.width.toFloat() / stickerMessage.height.toFloat()
@@ -364,33 +354,38 @@ private fun StickerContent(
             stickerWidth = actualWidth
             stickerHeight = actualHeight
         }
-        
+
         Box(
             modifier = Modifier
                 .width(stickerWidth)
-                .height(stickerHeight)
+                .height(stickerHeight),
         ) {
             var stickerBounds by remember(stickerMessage.url, stickerWidth, stickerHeight) {
                 mutableStateOf<Rect?>(null)
             }
             val context = LocalContext.current
             val coroutineScope = rememberCoroutineScope()
-            
+
             // Use shared ImageLoader singleton with custom User-Agent
             val imageLoader = remember { ImageLoaderSingleton.get(context) }
-            
+
             // Check if we have a cached version first
             var cachedFile by remember { mutableStateOf<File?>(null) }
             LaunchedEffect(stickerMessage.url) {
                 cachedFile = IntelligentMediaCache.getCachedFile(context, stickerMessage.url)
             }
-            
+
             val imageUrl = remember(stickerMessage.url, isEncrypted, cachedFile) {
                 val file = cachedFile
                 if (file != null && file.exists()) {
                     // Use raw cached file path (like AvatarImage does)
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Using cached file: ${file.absolutePath}")
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}, isEncrypted: $isEncrypted")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "StickerMessage: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}, isEncrypted: $isEncrypted",
+                    )
+                    }
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {
                         val header = file.inputStream().use { it.readNBytes(4) }
@@ -402,33 +397,44 @@ private fun StickerContent(
                     file.absolutePath
                 } else {
                     // PERFORMANCE: Use thumbnail URL for stickers in the timeline
-                    val httpUrl = MediaUtils.mxcToThumbnailUrl(stickerMessage.url, homeserverUrl, width = 400, height = 400)
+                    val httpUrl = MediaUtils.mxcToThumbnailUrl(
+                        stickerMessage.url,
+                        homeserverUrl,
+                        width = 400,
+                        height = 400,
+                    )
                     if (isEncrypted && httpUrl != null) {
                         val separator = if (httpUrl.contains("?")) "&" else "?"
                         val encryptedUrl = "$httpUrl$separator" + "encrypted=true"
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Added encrypted=true to URL: $encryptedUrl")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "StickerMessage: Added encrypted=true to URL: $encryptedUrl",
+                        )
+                        }
                         encryptedUrl
                     } else {
                         httpUrl ?: ""
                     }
                 }
             }
-            
+
             // NOTE: Coil handles caching automatically with memoryCachePolicy and diskCachePolicy
             // No need to manually download - would cause duplicate requests (Coil + okhttp)
-            
+
             // Simple gray placeholder for stickers (no BlurHash typically)
             val placeholderPainter = remember {
                 BitmapPainter(
                     BlurHashUtils.createPlaceholderBitmap(
-                        32, 32,
-                        androidx.compose.ui.graphics.Color.Gray
-                    )
+                        32,
+                        32,
+                        androidx.compose.ui.graphics.Color.Gray,
+                    ),
                 )
             }
-            
+
             if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Loading sticker from $imageUrl")
-            
+
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageUrl)
@@ -452,7 +458,7 @@ private fun StickerContent(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
                         onClick = { onStickerClick(stickerBounds) },
-                        onLongClick = { onStickerLongPress?.invoke() }
+                        onLongClick = { onStickerLongPress?.invoke() },
                     ),
                 placeholder = placeholderPainter,
                 error = placeholderPainter,
@@ -467,7 +473,7 @@ private fun StickerContent(
                 },
                 onLoading = { state ->
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Sticker loading: $imageUrl, state: $state")
-                }
+                },
             )
         }
     }
@@ -494,25 +500,25 @@ private fun StickerViewerDialog(
     homeserverUrl: String,
     authToken: String,
     isEncrypted: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
-    
+
     val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
         scale = (scale * zoomChange).coerceIn(0.5f, 5f)
         offsetX = (offsetX + offsetChange.x).coerceIn(-1000f, 1000f)
         offsetY = (offsetY + offsetChange.y).coerceIn(-1000f, 1000f)
     }
-    
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false
-        )
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         Box(
             modifier = Modifier
@@ -525,17 +531,17 @@ private fun StickerViewerDialog(
                             scale = 1f
                             offsetX = 0f
                             offsetY = 0f
-                        }
+                        },
                     )
-                }
+                },
         ) {
             // Sticker with zoom and pan
             val context = LocalContext.current
             val coroutineScope = rememberCoroutineScope()
-            
+
             // Use shared ImageLoader singleton with custom User-Agent
             val imageLoader = remember { ImageLoaderSingleton.get(context) }
-            
+
             // Check if we have a cached version first
             var cachedFile by remember { mutableStateOf<File?>(null) }
             // If cached decoding fails, retry once with Coil caches disabled (forces backend fetch).
@@ -543,13 +549,18 @@ private fun StickerViewerDialog(
             LaunchedEffect(stickerMessage.url) {
                 cachedFile = IntelligentMediaCache.getCachedFile(context, stickerMessage.url)
             }
-            
+
             val imageUrl = remember(stickerMessage.url, isEncrypted, cachedFile) {
                 val file = cachedFile
                 if (file != null && file.exists()) {
                     // Use raw cached file path (like AvatarImage does)
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: Using cached file: ${file.absolutePath}")
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "StickerViewer: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}",
+                    )
+                    }
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {
                         val header = file.inputStream().use { it.readNBytes(4) }
@@ -569,7 +580,7 @@ private fun StickerViewerDialog(
                     }
                 }
             }
-            
+
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageUrl)
@@ -589,7 +600,7 @@ private fun StickerViewerDialog(
                         scaleX = scale,
                         scaleY = scale,
                         translationX = offsetX,
-                        translationY = offsetY
+                        translationY = offsetY,
                     )
                     .transformable(state = transformableState)
                     .clip(RoundedCornerShape(8.dp)),
@@ -607,9 +618,8 @@ private fun StickerViewerDialog(
                         }
                     }
                     bypassCoilCache = true
-                }
+                },
             )
         }
     }
 }
-

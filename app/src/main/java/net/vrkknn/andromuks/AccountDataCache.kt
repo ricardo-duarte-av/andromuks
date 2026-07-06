@@ -14,20 +14,18 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object AccountDataCache {
     private const val TAG = "AccountDataCache"
-    
+
     // Thread-safe cache for account data
     private val accountDataCache = ConcurrentHashMap<String, JSONObject>() // Key: account data type (e.g., "m.direct")
     private val cacheLock = Any()
-    
+
     /**
      * Get account data for a specific type
      */
-    fun getAccountData(type: String): JSONObject? {
-        return synchronized(cacheLock) {
-            accountDataCache[type]
-        }
+    fun getAccountData(type: String): JSONObject? = synchronized(cacheLock) {
+        accountDataCache[type]
     }
-    
+
     /**
      * Set account data for a specific type
      */
@@ -39,16 +37,14 @@ object AccountDataCache {
             }
         }
     }
-    
+
     /**
      * Get all account data
      */
-    fun getAllAccountData(): Map<String, JSONObject> {
-        return synchronized(cacheLock) {
-            accountDataCache.toMap()
-        }
+    fun getAllAccountData(): Map<String, JSONObject> = synchronized(cacheLock) {
+        accountDataCache.toMap()
     }
-    
+
     /**
      * Merge account data from a sync_complete `account_data` object.
      *
@@ -64,6 +60,7 @@ object AccountDataCache {
                 val key = keys.next()
                 when {
                     accountData.isNull(key) -> accountDataCache.remove(key)
+
                     else -> {
                         val data = accountData.optJSONObject(key)
                         if (data != null) {
@@ -77,7 +74,7 @@ object AccountDataCache {
             }
         }
     }
-    
+
     /**
      * Clear all account data
      */
@@ -89,14 +86,11 @@ object AccountDataCache {
             }
         }
     }
-    
+
     /**
      * Check if account data exists for a type
      */
-    fun hasAccountData(type: String): Boolean {
-        return synchronized(cacheLock) {
-            accountDataCache.containsKey(type)
-        }
+    fun hasAccountData(type: String): Boolean = synchronized(cacheLock) {
+        accountDataCache.containsKey(type)
     }
 }
-

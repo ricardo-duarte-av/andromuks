@@ -24,18 +24,18 @@ import net.vrkknn.andromuks.BuildConfig
 class ContactsIntegrationExample(
     private val context: Context,
     private val appViewModel: AppViewModel,
-    private val homeserverUrl: String
+    private val homeserverUrl: String,
 ) {
     companion object {
         private const val TAG = "ContactsIntegration"
     }
-    
+
     private val contactsSyncService = ContactsSyncService(
         context = context,
         accountName = appViewModel.currentUserId ?: "matrix_user",
-        accountType = "net.vrkknn.andromuks.matrix"
+        accountType = "net.vrkknn.andromuks.matrix",
     )
-    
+
     /**
      * Sync contacts from direct messages only
      * This is the most common use case - sync users you have DMs with
@@ -45,7 +45,7 @@ class ContactsIntegrationExample(
             try {
                 val directMessageRooms = appViewModel.allRooms.filter { it.isDirectMessage }
                 val users = mutableSetOf<MatrixUser>()
-                
+
                 for (room in directMessageRooms) {
                     // Get the other user in the DM (not the current user)
                     val members = appViewModel.getMemberMap(room.id)
@@ -54,7 +54,7 @@ class ContactsIntegrationExample(
                         if (userId == appViewModel.currentUserId) {
                             continue
                         }
-                        
+
                         // Only add users with valid Matrix IDs
                         if (userId.startsWith("@") && userId.contains(":")) {
                             // TODO: If you have access to phone/email from Matrix account data or 3PIDs,
@@ -67,24 +67,24 @@ class ContactsIntegrationExample(
                                     displayName = profile.displayName,
                                     avatarUrl = profile.avatarUrl,
                                     phoneNumber = null, // TODO: Extract from Matrix account data if available
-                                    email = null        // TODO: Extract from Matrix account data if available
-                                )
+                                    email = null, // TODO: Extract from Matrix account data if available
+                                ),
                             )
                         }
                     }
                 }
-                
+
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "Syncing ${users.size} contacts from direct messages")
                 }
-                
+
                 contactsSyncService.syncContacts(users.toList(), syncAvatars = true)
             } catch (e: Exception) {
                 Log.e(TAG, "Error syncing direct message contacts", e)
             }
         }
     }
-    
+
     /**
      * Sync contacts from a specific room's members
      * Useful for syncing users from important rooms
@@ -94,36 +94,36 @@ class ContactsIntegrationExample(
             try {
                 val members = appViewModel.getMemberMap(roomId)
                 val users = mutableListOf<MatrixUser>()
-                
+
                 for ((userId, profile) in members) {
                     // Skip current user
                     if (userId == appViewModel.currentUserId) {
                         continue
                     }
-                    
+
                     // Only add users with valid Matrix IDs
                     if (userId.startsWith("@") && userId.contains(":")) {
                         users.add(
                             MatrixUser(
                                 userId = userId,
                                 displayName = profile.displayName,
-                                avatarUrl = profile.avatarUrl
-                            )
+                                avatarUrl = profile.avatarUrl,
+                            ),
                         )
                     }
                 }
-                
+
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "Syncing ${users.size} contacts from room: $roomId")
                 }
-                
+
                 contactsSyncService.syncContacts(users, syncAvatars = true)
             } catch (e: Exception) {
                 Log.e(TAG, "Error syncing room member contacts", e)
             }
         }
     }
-    
+
     /**
      * Sync all known users from profile cache
      * This syncs all users the app has profile data for
@@ -133,36 +133,36 @@ class ContactsIntegrationExample(
             try {
                 val allProfiles = ProfileCache.getAllGlobalProfiles()
                 val users = mutableListOf<MatrixUser>()
-                
+
                 for ((userId, entry) in allProfiles) {
                     // Skip current user
                     if (userId == appViewModel.currentUserId) {
                         continue
                     }
-                    
+
                     // Only add users with valid Matrix IDs
                     if (userId.startsWith("@") && userId.contains(":")) {
                         users.add(
                             MatrixUser(
                                 userId = userId,
                                 displayName = entry.profile.displayName,
-                                avatarUrl = entry.profile.avatarUrl
-                            )
+                                avatarUrl = entry.profile.avatarUrl,
+                            ),
                         )
                     }
                 }
-                
+
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "Syncing ${users.size} contacts from all known users")
                 }
-                
+
                 contactsSyncService.syncContacts(users, syncAvatars = true)
             } catch (e: Exception) {
                 Log.e(TAG, "Error syncing all known users", e)
             }
         }
     }
-    
+
     /**
      * Remove a contact when user is removed from rooms
      */
@@ -175,7 +175,7 @@ class ContactsIntegrationExample(
             }
         }
     }
-    
+
     /**
      * Clear all Matrix contacts (useful when logging out)
      */
@@ -189,4 +189,3 @@ class ContactsIntegrationExample(
         }
     }
 }
-

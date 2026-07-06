@@ -3,8 +3,6 @@ package net.vrkknn.andromuks
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.utils.CredentialStore
 import net.vrkknn.andromuks.utils.performHttpLogin
 import okhttp3.OkHttpClient
@@ -29,6 +27,7 @@ object ReauthCoordinator {
     private const val COOLDOWN_MS = 5_000L
 
     private val inProgress = AtomicBoolean(false)
+
     @Volatile private var lastFailureMs = 0L
 
     private val client by lazy { OkHttpClient.Builder().build() }
@@ -88,10 +87,7 @@ object ReauthCoordinator {
         inProgress.set(false)
     }
 
-    private fun startReauth(
-        appViewModel: AppViewModel,
-        prefs: android.content.SharedPreferences
-    ) {
+    private fun startReauth(appViewModel: AppViewModel, prefs: android.content.SharedPreferences) {
         val creds = CredentialStore.loadCredentials(prefs)
         if (creds == null) {
             Log.e(TAG, "Stored credentials present but decrypt failed; falling back to login")
@@ -133,7 +129,7 @@ object ReauthCoordinator {
                 Log.w(TAG, "Silent re-auth failed; clearing credentials and navigating to login")
                 appViewModel.logActivity("Silent re-auth failed - clearing credentials", null)
                 appViewModel.clearCredentialsAndNavigateToLogin()
-            }
+            },
         )
     }
 }

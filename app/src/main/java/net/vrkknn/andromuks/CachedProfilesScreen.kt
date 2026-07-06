@@ -25,7 +25,7 @@ data class CachedProfileEntry(
     val userId: String,
     val displayName: String?,
     val avatarUrl: String?,
-    val roomId: String? = null // Room ID if this is a room-specific profile
+    val roomId: String? = null, // Room ID if this is a room-specific profile
 )
 
 /**
@@ -36,12 +36,12 @@ data class CachedProfileEntry(
 fun CachedProfilesScreen(
     cacheType: String, // "memory" | "per_room" | "global" | "disk"(legacy)
     appViewModel: AppViewModel,
-    navController: NavController
+    navController: NavController,
 ) {
     val context = LocalContext.current
     var profiles by remember { mutableStateOf<List<CachedProfileEntry>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    
+
     LaunchedEffect(cacheType) {
         isLoading = true
         if (cacheType == "memory" || cacheType == "per_room" || cacheType == "global") {
@@ -56,7 +56,7 @@ fun CachedProfilesScreen(
                     userId = roomProfile.userId,
                     displayName = roomProfile.profile.displayName,
                     avatarUrl = roomProfile.profile.avatarUrl,
-                    roomId = roomProfile.roomId
+                    roomId = roomProfile.roomId,
                 )
             }
         } else {
@@ -66,34 +66,34 @@ fun CachedProfilesScreen(
         }
         isLoading = false
     }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { 
+                title = {
                     Text(
                         text = when (cacheType) {
                             "per_room" -> "Profile Gallery (Per-Room)"
                             "global" -> "Profile Gallery (Global)"
                             "memory" -> "Profile Gallery (Memory)"
                             else -> "Profile Gallery"
-                        }
+                        },
                     )
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
-                }
+                },
             )
-        }
+        },
     ) { paddingValues ->
         if (isLoading) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 ExpressiveLoadingIndicator()
             }
@@ -102,12 +102,12 @@ fun CachedProfilesScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(paddingValues),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = "No cached profiles found",
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
@@ -116,14 +116,14 @@ fun CachedProfilesScreen(
                     .fillMaxSize()
                     .padding(paddingValues),
                 contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 item {
                     Column(modifier = Modifier.padding(bottom = 8.dp)) {
                         Text(
                             text = "${profiles.size} profile${if (profiles.size != 1) "s" else ""}",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         if (cacheType == "memory") {
                             val uniqueUsers = profiles.map { it.userId }.distinct().size
@@ -133,39 +133,39 @@ fun CachedProfilesScreen(
                                 Text(
                                     text = "$uniqueUsers unique user${if (uniqueUsers != 1) "s" else ""} (some appear in multiple rooms)",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             Text(
                                 text = "Per-room: $perRoomCount  •  Global: $globalCount",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         if (cacheType == "per_room") {
                             Text(
                                 text = "Showing room-specific profile variants only",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         if (cacheType == "global") {
                             Text(
                                 text = "Showing global profile entries only",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
                 }
-                
+
                 items(profiles) { profile ->
                     CachedProfileItem(
                         profile = profile,
                         appViewModel = appViewModel,
                         onClick = {
                             navController.navigate("user_info/${profile.userId}")
-                        }
+                        },
                     )
                 }
             }
@@ -177,23 +177,19 @@ fun CachedProfilesScreen(
  * Individual profile item in the list
  */
 @Composable
-fun CachedProfileItem(
-    profile: CachedProfileEntry,
-    appViewModel: AppViewModel,
-    onClick: () -> Unit
-) {
+fun CachedProfileItem(profile: CachedProfileEntry, appViewModel: AppViewModel, onClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Avatar
             AvatarImage(
@@ -203,26 +199,26 @@ fun CachedProfileItem(
                 fallbackText = profile.displayName?.takeIf { it.isNotBlank() } ?: profile.userId,
                 size = 48.dp,
                 userId = profile.userId,
-                displayName = profile.displayName
+                displayName = profile.displayName,
             )
-            
+
             // Display Name, User ID, and Room ID (if room-specific)
             Column(
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             ) {
                 Text(
                     text = profile.displayName?.takeIf { it.isNotBlank() } ?: profile.userId,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     text = profile.userId,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 // Show room ID if this is a room-specific profile
                 if (profile.roomId != null) {
@@ -232,11 +228,10 @@ fun CachedProfileItem(
                         color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp)
+                        modifier = Modifier.padding(top = 2.dp),
                     )
                 }
             }
         }
     }
 }
-

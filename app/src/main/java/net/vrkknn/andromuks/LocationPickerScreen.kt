@@ -72,44 +72,45 @@ private fun List<Address>.toSearchResults(): List<SearchResult> = mapNotNull { a
     val featureName = addr.featureName?.takeIf { it.isNotBlank() && !line0.startsWith(it) }
     SearchResult(
         displayName = if (featureName != null) "$featureName – $line0" else line0,
-        latLng = LatLng(addr.latitude, addr.longitude)
+        latLng = LatLng(addr.latitude, addr.longitude),
     )
 }
 
-private suspend fun geocodeQuery(
-    query: String,
-    geocoder: Geocoder,
-    biasCenter: LatLng
-): List<SearchResult> = withContext(Dispatchers.IO) {
-    try {
-        // Try biased search first (±1.5° ≈ 150 km around current map center).
-        // The bounds-biased overload has no async variant, so we call it on IO regardless
-        // of API level — the deprecation only forbids calling it on the main thread.
-        val delta = 1.5
-        @Suppress("DEPRECATION")
-        val biased = geocoder.getFromLocationName(
-            query, 8,
-            biasCenter.latitude - delta, biasCenter.longitude - delta,
-            biasCenter.latitude + delta, biasCenter.longitude + delta
-        ) ?: emptyList()
+private suspend fun geocodeQuery(query: String, geocoder: Geocoder, biasCenter: LatLng): List<SearchResult> =
+    withContext(Dispatchers.IO) {
+        try {
+            // Try biased search first (±1.5° ≈ 150 km around current map center).
+            // The bounds-biased overload has no async variant, so we call it on IO regardless
+            // of API level — the deprecation only forbids calling it on the main thread.
+            val delta = 1.5
 
-        if (biased.isNotEmpty()) return@withContext biased.toSearchResults()
-
-        // Nothing nearby — fall back to unbiased global search
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            suspendCancellableCoroutine { cont ->
-                geocoder.getFromLocationName(query, 8) { addresses ->
-                    cont.resume(addresses.toSearchResults())
-                }
-            }
-        } else {
             @Suppress("DEPRECATION")
-            (geocoder.getFromLocationName(query, 8) ?: emptyList()).toSearchResults()
+            val biased = geocoder.getFromLocationName(
+                query,
+                8,
+                biasCenter.latitude - delta,
+                biasCenter.longitude - delta,
+                biasCenter.latitude + delta,
+                biasCenter.longitude + delta,
+            ) ?: emptyList()
+
+            if (biased.isNotEmpty()) return@withContext biased.toSearchResults()
+
+            // Nothing nearby — fall back to unbiased global search
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                suspendCancellableCoroutine { cont ->
+                    geocoder.getFromLocationName(query, 8) { addresses ->
+                        cont.resume(addresses.toSearchResults())
+                    }
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                (geocoder.getFromLocationName(query, 8) ?: emptyList()).toSearchResults()
+            }
+        } catch (_: Exception) {
+            emptyList()
         }
-    } catch (_: Exception) {
-        emptyList()
     }
-}
 
 /**
  * Full-screen overlay for picking and captioning a location (MSC3488).
@@ -123,7 +124,7 @@ private suspend fun geocodeQuery(
 @Composable
 fun LocationPickerOverlay(
     onDismiss: () -> Unit,
-    onSendLocation: (latitude: Double, longitude: Double, caption: String) -> Unit
+    onSendLocation: (latitude: Double, longitude: Double, caption: String) -> Unit,
 ) {
     val context = LocalContext.current
     val mapsApiKey = remember { context.getString(R.string.google_maps_api_key) }
@@ -170,14 +171,14 @@ fun LocationPickerOverlay(
         if (searchResults.isEmpty()) return@LaunchedEffect
         if (searchResults.size == 1) {
             cameraPositionState.animate(
-                CameraUpdateFactory.newLatLngZoom(searchResults[0].latLng, 15f)
+                CameraUpdateFactory.newLatLngZoom(searchResults[0].latLng, 15f),
             )
             centerLatLng = searchResults[0].latLng
         } else {
             val builder = LatLngBounds.Builder()
             searchResults.forEach { builder.include(it.latLng) }
             cameraPositionState.animate(
-                CameraUpdateFactory.newLatLngBounds(builder.build(), 120)
+                CameraUpdateFactory.newLatLngBounds(builder.build(), 120),
             )
         }
     }
@@ -205,51 +206,66 @@ fun LocationPickerOverlay(
     }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
+        ActivityResultContracts.RequestMultiplePermissions(),
     ) { permissions ->
         val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (granted) goToCurrentLocation()
-        else Toast.makeText(context, "Location permission denied", Toast.LENGTH_SHORT).show()
+            permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (granted) {
+            goToCurrentLocation()
+        } else {
+            Toast.makeText(context, "Location permission denied", Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun requestLocationAndGo() {
         val granted = ContextCompat.checkSelfPermission(
-            context, Manifest.permission.ACCESS_FINE_LOCATION
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.ACCESS_COARSE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
-        if (granted) goToCurrentLocation()
-        else locationPermissionLauncher.launch(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            goToCurrentLocation()
+        } else {
+            locationPermissionLauncher.launch(
+            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
         )
+        }
     }
 
     LaunchedEffect(Unit) {
         val hasPermission = ContextCompat.checkSelfPermission(
-            context, Manifest.permission.ACCESS_FINE_LOCATION
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION,
         ) == PackageManager.PERMISSION_GRANTED ||
-                ContextCompat.checkSelfPermission(
-                    context, Manifest.permission.ACCESS_COARSE_LOCATION
-                ) == PackageManager.PERMISSION_GRANTED
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION,
+            ) == PackageManager.PERMISSION_GRANTED
         if (hasPermission) goToCurrentLocation()
     }
 
     BackHandler {
         when {
-            showDropdown -> { focusManager.clearFocus(); searchResults = emptyList() }
+            showDropdown -> {
+                focusManager.clearFocus();
+                searchResults = emptyList()
+            }
             phase == LocationPickerPhase.PREVIEW -> phase = LocationPickerPhase.PICKING
             else -> onDismiss()
         }
     }
 
     val hasLocationPermission = ContextCompat.checkSelfPermission(
-        context, Manifest.permission.ACCESS_FINE_LOCATION
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION,
     ) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(
-                context, Manifest.permission.ACCESS_COARSE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
+        ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+        ) == PackageManager.PERMISSION_GRANTED
 
     fun selectResult(result: SearchResult) {
         centerLatLng = result.latLng
@@ -269,17 +285,17 @@ fun LocationPickerOverlay(
                             IconButton(onClick = onDismiss) {
                                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                             }
-                        }
+                        },
                     )
                 },
                 floatingActionButton = {
                     Column(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalAlignment = Alignment.End
+                        horizontalAlignment = Alignment.End,
                     ) {
                         SmallFloatingActionButton(
                             onClick = { requestLocationAndGo() },
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         ) {
                             if (isLocating) {
                                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
@@ -293,15 +309,15 @@ fun LocationPickerOverlay(
                                 phase = LocationPickerPhase.PREVIEW
                             },
                             icon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
-                            text = { Text("Use this location") }
+                            text = { Text("Use this location") },
                         )
                     }
-                }
+                },
             ) { paddingValues ->
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(paddingValues)
+                        .padding(paddingValues),
                 ) {
                     // POI click via MapEffect (onPoiClick removed from GoogleMap params in maps-compose 4+)
                     var pendingPoi by remember {
@@ -323,14 +339,14 @@ fun LocationPickerOverlay(
                         uiSettings = MapUiSettings(
                             zoomControlsEnabled = true,
                             myLocationButtonEnabled = false,
-                            compassEnabled = true
+                            compassEnabled = true,
                         ),
                         properties = MapProperties(isMyLocationEnabled = hasLocationPermission),
                         onMapClick = {
                             focusManager.clearFocus()
                             searchResults = emptyList()
                             searchQuery = ""
-                        }
+                        },
                     ) {
                         MapEffect { map ->
                             map.setOnPoiClickListener { poi -> pendingPoi = poi }
@@ -342,7 +358,10 @@ fun LocationPickerOverlay(
                                 state = MarkerState(position = result.latLng),
                                 title = result.displayName.substringBefore(" – "),
                                 snippet = result.displayName.substringAfter(" – ", ""),
-                                onClick = { selectResult(result); true }
+                                onClick = {
+                                    selectResult(result);
+                                    true
+                                },
                             )
                         }
                     }
@@ -357,7 +376,7 @@ fun LocationPickerOverlay(
                             modifier = Modifier
                                 .align(Alignment.Center)
                                 .size(40.dp)
-                                .offset(y = (-20).dp) // pin tip at center
+                                .offset(y = (-20).dp), // pin tip at center
                         )
                     }
 
@@ -366,33 +385,33 @@ fun LocationPickerOverlay(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 8.dp)
-                            .zIndex(1f)
+                            .zIndex(1f),
                     ) {
                         Card(
                             shape = RoundedCornerShape(28.dp),
                             elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                            )
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            ),
                         ) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 16.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 if (isSearching) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(20.dp),
-                                        strokeWidth = 2.dp
+                                        strokeWidth = 2.dp,
                                     )
                                 } else {
                                     Icon(
                                         Icons.Filled.Search,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
+                                        modifier = Modifier.size(20.dp),
                                     )
                                 }
                                 TextField(
@@ -407,12 +426,12 @@ fun LocationPickerOverlay(
                                         focusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
                                         unfocusedContainerColor = androidx.compose.ui.graphics.Color.Transparent,
                                         focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                                     ),
                                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                                     keyboardActions = KeyboardActions(
-                                        onSearch = { focusManager.clearFocus() }
-                                    )
+                                        onSearch = { focusManager.clearFocus() },
+                                    ),
                                 )
                                 if (searchQuery.isNotEmpty()) {
                                     IconButton(
@@ -420,12 +439,12 @@ fun LocationPickerOverlay(
                                             searchQuery = ""
                                             searchResults = emptyList()
                                         },
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(24.dp),
                                     ) {
                                         Icon(
                                             Icons.Filled.Clear,
                                             contentDescription = "Clear",
-                                            modifier = Modifier.size(18.dp)
+                                            modifier = Modifier.size(18.dp),
                                         )
                                     }
                                 }
@@ -441,8 +460,8 @@ fun LocationPickerOverlay(
                                 shape = RoundedCornerShape(16.dp),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
-                                )
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                ),
                             ) {
                                 LazyColumn {
                                     itemsIndexed(searchResults) { index, result ->
@@ -455,11 +474,15 @@ fun LocationPickerOverlay(
                                                         Text(
                                                             parts[1],
                                                             style = MaterialTheme.typography.bodySmall,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                         )
                                                     }
                                                 } else {
-                                                    Text(result.displayName, style = MaterialTheme.typography.bodyMedium, maxLines = 2)
+                                                    Text(
+                                                        result.displayName,
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        maxLines = 2,
+                                                    )
                                                 }
                                             },
                                             leadingContent = {
@@ -467,10 +490,10 @@ fun LocationPickerOverlay(
                                                     Icons.Filled.LocationOn,
                                                     contentDescription = null,
                                                     tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.size(20.dp)
+                                                    modifier = Modifier.size(20.dp),
                                                 )
                                             },
-                                            modifier = Modifier.clickable { selectResult(result) }
+                                            modifier = Modifier.clickable { selectResult(result) },
                                         )
                                         if (index < searchResults.lastIndex) {
                                             HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
@@ -489,13 +512,13 @@ fun LocationPickerOverlay(
                                 .padding(bottom = 88.dp),
                             color = MaterialTheme.colorScheme.surfaceContainerHigh,
                             shape = MaterialTheme.shapes.medium,
-                            tonalElevation = 4.dp
+                            tonalElevation = 4.dp,
                         ) {
                             Text(
                                 text = "%.6f, %.6f".format(centerLatLng.latitude, centerLatLng.longitude),
                                 style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurface,
                             )
                         }
                     }
@@ -530,22 +553,22 @@ fun LocationPickerOverlay(
                                     onSendLocation(
                                         centerLatLng.latitude,
                                         centerLatLng.longitude,
-                                        caption.trim()
+                                        caption.trim(),
                                     )
-                                }
+                                },
                             ) {
                                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
                             }
-                        }
+                        },
                     )
-                }
+                },
             ) { paddingValues ->
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(paddingValues)
                         .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     AsyncImage(
                         model = imageRequest,
@@ -554,14 +577,17 @@ fun LocationPickerOverlay(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(220.dp)
-                            .clip(RoundedCornerShape(16.dp))
+                            .clip(RoundedCornerShape(16.dp)),
                     )
 
                     Text(
-                        text = if (searchQuery.isNotBlank()) searchQuery
-                        else "%.6f, %.6f".format(centerLatLng.latitude, centerLatLng.longitude),
+                        text = if (searchQuery.isNotBlank()) {
+                            searchQuery
+                        } else {
+                            "%.6f, %.6f".format(centerLatLng.latitude, centerLatLng.longitude)
+                        },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
                     OutlinedTextField(
@@ -577,10 +603,10 @@ fun LocationPickerOverlay(
                                 onSendLocation(
                                     centerLatLng.latitude,
                                     centerLatLng.longitude,
-                                    caption.trim()
+                                    caption.trim(),
                                 )
-                            }
-                        )
+                            },
+                        ),
                     )
                 }
             }

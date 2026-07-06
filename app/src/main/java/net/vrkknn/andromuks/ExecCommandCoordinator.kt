@@ -41,11 +41,7 @@ internal class ExecCommandCoordinator(private val vm: AppViewModel) {
      *   WebSocket path uses for [command], so [AppViewModel.handleResponse] can route the payload
      *   to the correct handler. Called synchronously, before the network request is issued.
      */
-    fun execute(
-        command: String,
-        data: JSONObject,
-        register: (requestId: Int) -> Unit,
-    ) {
+    fun execute(command: String, data: JSONObject, register: (requestId: Int) -> Unit) {
         val context = vm.appContext
         if (context == null) {
             Log.w(tag, "execute($command): no app context")
@@ -66,12 +62,16 @@ internal class ExecCommandCoordinator(private val vm: AppViewModel) {
             when (val result = ExecApi.execRaw(creds, command, data)) {
                 is ExecApi.ExecResult.Success ->
                     vm.handleResponse(requestId, result.data)
+
                 is ExecApi.ExecResult.CommandError ->
                     vm.handleError(requestId, result.message)
+
                 is ExecApi.ExecResult.AuthMissing ->
                     vm.handleError(requestId, "exec $command: auth cookie missing")
+
                 is ExecApi.ExecResult.HttpError ->
                     vm.handleError(requestId, "exec $command: HTTP ${result.code} ${result.message}")
+
                 is ExecApi.ExecResult.NetworkError ->
                     vm.handleError(requestId, "exec $command: ${result.message}")
             }

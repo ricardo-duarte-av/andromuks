@@ -1,14 +1,24 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,24 +38,23 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -59,98 +68,70 @@ import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.filled.Mood
-import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.ContextCompat
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import kotlin.math.min
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.flow.filterNotNull
-import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import net.vrkknn.andromuks.utils.MediaPreviewDialog
-import net.vrkknn.andromuks.utils.UploadingDialog
-import net.vrkknn.andromuks.utils.MediaUploadUtils
-import net.vrkknn.andromuks.utils.VideoUploadUtils
-import net.vrkknn.andromuks.utils.MediaMessage
+import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
-import net.vrkknn.andromuks.utils.DeleteMessageDialog
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
+import net.vrkknn.andromuks.utils.CodeViewer
+import net.vrkknn.andromuks.utils.CommandSuggestionList
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
-import net.vrkknn.andromuks.utils.EditPreviewInput
+import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.EmojiShortcodes
 import net.vrkknn.andromuks.utils.EmojiSuggestionList
-import net.vrkknn.andromuks.utils.CommandSuggestionList
-import net.vrkknn.andromuks.utils.CommandDefinition
-import net.vrkknn.andromuks.utils.StickerSelectionDialog
+import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
+import net.vrkknn.andromuks.utils.MediaPreviewDialog
+import net.vrkknn.andromuks.utils.MediaUploadUtils
+import net.vrkknn.andromuks.utils.MessageMenuBar
+import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
-import net.vrkknn.andromuks.utils.navigateToUserInfo
-import net.vrkknn.andromuks.utils.RoomLink
+import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
-import net.vrkknn.andromuks.utils.CodeViewer
-import net.vrkknn.andromuks.utils.MessageMenuBar
-import net.vrkknn.andromuks.utils.MessageMenuConfig
-import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
-import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
-import net.vrkknn.andromuks.BuildConfig
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
+import net.vrkknn.andromuks.utils.VideoUploadUtils
+import net.vrkknn.andromuks.utils.navigateToUserInfo
+import kotlin.math.min
 
 /** Floating room list for room mentions */
 @Composable
@@ -160,13 +141,13 @@ private fun ThreadRoomSuggestionList(
     onRoomSelect: (String, String) -> Unit, // (roomId, canonicalAlias)
     homeserverUrl: String,
     authToken: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val filteredRooms = remember(rooms, query) {
         rooms.filter { (room, alias) ->
-            query.isBlank() || 
-            room.name.contains(query, ignoreCase = true) ||
-            alias.contains(query, ignoreCase = true)
+            query.isBlank() ||
+                room.name.contains(query, ignoreCase = true) ||
+                alias.contains(query, ignoreCase = true)
         }.sortedBy { it.first.name }
     }
 
@@ -176,13 +157,13 @@ private fun ThreadRoomSuggestionList(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
+        tonalElevation = 8.dp,
     ) {
         LazyColumn(
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .height(200.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
         ) {
             items(filteredRooms.size) { index ->
                 val (room, alias) = filteredRooms[index]
@@ -191,7 +172,7 @@ private fun ThreadRoomSuggestionList(
                         .fillMaxWidth()
                         .clickable { onRoomSelect(room.id, alias) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AvatarImage(
                         mxcUrl = room.avatarUrl,
@@ -200,19 +181,19 @@ private fun ThreadRoomSuggestionList(
                         fallbackText = room.name.take(1),
                         size = 32.dp,
                         userId = room.id,
-                        displayName = room.name
+                        displayName = room.name,
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = room.name,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
                             text = alias,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -229,16 +210,16 @@ private fun ThreadMentionMemberList(
     onMemberSelect: (String, String?) -> Unit,
     homeserverUrl: String,
     authToken: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val filteredMembers = remember(members, query) {
         members.filter { (userId, profile) ->
             val displayName = profile.displayName
             val username = userId.removePrefix("@").substringBefore(":")
-            query.isBlank() || 
-            displayName?.contains(query, ignoreCase = true) == true ||
-            username.contains(query, ignoreCase = true) ||
-            userId.contains(query, ignoreCase = true)
+            query.isBlank() ||
+                displayName?.contains(query, ignoreCase = true) == true ||
+                username.contains(query, ignoreCase = true) ||
+                userId.contains(query, ignoreCase = true)
         }.entries.sortedBy { (userId, profile) ->
             profile.displayName?.takeIf { it.isNotBlank() } ?: userId
         }
@@ -250,13 +231,13 @@ private fun ThreadMentionMemberList(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
+        tonalElevation = 8.dp, // Use tonalElevation for dark mode visibility
     ) {
         LazyColumn(
             modifier = Modifier
                 .widthIn(max = 250.dp)
                 .height(200.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
         ) {
             items(filteredMembers.size) { index ->
                 val (userId, profile) = filteredMembers[index]
@@ -265,7 +246,7 @@ private fun ThreadMentionMemberList(
                         .fillMaxWidth()
                         .clickable { onMemberSelect(userId, profile.displayName) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AvatarImage(
                         mxcUrl = profile.avatarUrl,
@@ -274,20 +255,20 @@ private fun ThreadMentionMemberList(
                         fallbackText = (profile.displayName ?: userId).take(1),
                         size = 32.dp,
                         userId = userId,
-                        displayName = profile.displayName
+                        displayName = profile.displayName,
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = profile.displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@"),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         if (!profile.displayName.isNullOrBlank()) {
                             Text(
                                 text = userId,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -304,7 +285,7 @@ fun ThreadViewerScreen(
     threadRootEventId: String,
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel()
+    appViewModel: AppViewModel = viewModel(),
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -318,7 +299,7 @@ fun ThreadViewerScreen(
     val myUserId = appViewModel.currentUserId
     val homeserverUrlFromPrefs = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", "") ?: "" }
     val homeserverUrl = appViewModel.homeserverUrl.ifEmpty { homeserverUrlFromPrefs }
-    
+
     // Derive thread messages directly from timelineEvents using derivedStateOf.
     // This is the safest pattern: there is no intermediate "loading" window where threadMessages
     // can be empty while timelineEvents already has the data.  Compose tracks the read of
@@ -352,7 +333,7 @@ fun ThreadViewerScreen(
             threadRootEventId = threadRootEventId,
             since = "",
             direction = "b",
-            limit = 50
+            limit = 50,
         ) { events, _ ->
             // If the root is already in the loaded timeline, the live merge surfaces it — just
             // take the replies. Otherwise fetch the root explicitly so it renders at the top.
@@ -414,21 +395,25 @@ fun ThreadViewerScreen(
     var selectedMediaIsVideo by remember { mutableStateOf(false) }
     var showMediaPreview by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
-    
+
     // Avatar command state (for commands that need image picker) - must be declared before launcher
-    var pendingAvatarCommand by remember { mutableStateOf<String?>(null) } // "myroomavatar", "globalavatar", or "roomavatar"
+    var pendingAvatarCommand by remember {
+        mutableStateOf<String?>(null)
+    } // "myroomavatar", "globalavatar", or "roomavatar"
 
     // Media pickers
     // Avatar image picker launcher (for avatar commands). Android Photo Picker — no permission needed.
     val avatarImagePickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri: android.net.Uri? ->
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.PickVisualMedia(),
+        ) { uri: android.net.Uri? ->
             uri?.let {
                 val mimeType = context.contentResolver.getType(it)
                 if (mimeType?.startsWith("image/") == true) {
                     // Handle avatar upload
                     val command = pendingAvatarCommand
                     pendingAvatarCommand = null
-                    
+
                     if (command != null) {
                         coroutineScope.launch {
                             try {
@@ -439,9 +424,9 @@ fun ThreadViewerScreen(
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     isEncrypted = false,
-                                    compressOriginal = false
+                                    compressOriginal = false,
                                 )
-                                
+
                                 if (uploadResult != null) {
                                     // Set the avatar based on command type
                                     when (command) {
@@ -450,23 +435,25 @@ fun ThreadViewerScreen(
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "Room avatar updated",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
+
                                         "globalavatar" -> {
                                             appViewModel.setGlobalAvatar(uploadResult.mxcUrl)
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "Global avatar updated",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
+
                                         "roomavatar" -> {
                                             appViewModel.setRoomAvatar(roomId, uploadResult.mxcUrl)
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "Room avatar updated",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
                                     }
@@ -474,7 +461,7 @@ fun ThreadViewerScreen(
                                     android.widget.Toast.makeText(
                                         context,
                                         "Failed to upload avatar",
-                                        android.widget.Toast.LENGTH_SHORT
+                                        android.widget.Toast.LENGTH_SHORT,
                                     ).show()
                                 }
                             } catch (e: Exception) {
@@ -482,7 +469,7 @@ fun ThreadViewerScreen(
                                 android.widget.Toast.makeText(
                                     context,
                                     "Error uploading avatar: ${e.message}",
-                                    android.widget.Toast.LENGTH_SHORT
+                                    android.widget.Toast.LENGTH_SHORT,
                                 ).show()
                             }
                         }
@@ -491,16 +478,18 @@ fun ThreadViewerScreen(
                     android.widget.Toast.makeText(
                         context,
                         "Please select an image file",
-                        android.widget.Toast.LENGTH_SHORT
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     pendingAvatarCommand = null
                 }
             }
         }
-    
+
     // Image/video attach via the Android Photo Picker — no permission, consistent Photo/Album sheet.
     val mediaPickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri: android.net.Uri? ->
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.PickVisualMedia(),
+        ) { uri: android.net.Uri? ->
             uri?.let {
                 val mime = context.contentResolver.getType(it) ?: ""
                 selectedMediaIsVideo = mime.startsWith("video/")
@@ -536,15 +525,17 @@ fun ThreadViewerScreen(
 
     // Get the thread root event
     val threadRootEvent = threadMessages.firstOrNull { it.eventId == threadRootEventId }
-    
+
     // Get room name for header
     val roomItem = appViewModel.getRoomById(roomId)
     val roomName = roomItem?.name ?: "Thread"
-    
-    if (BuildConfig.DEBUG) Log.d(
+
+    if (BuildConfig.DEBUG) {
+        Log.d(
         "Andromuks",
-        "ThreadViewerScreen: Thread root: $threadRootEventId, messages count: ${threadMessages.size}"
+        "ThreadViewerScreen: Thread root: $threadRootEventId, messages count: ${threadMessages.size}",
     )
+    }
 
     // Delete state
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -563,17 +554,17 @@ fun ThreadViewerScreen(
     var mentionStartIndex by remember { mutableStateOf(-1) }
     var isWaitingForFullMemberList by remember { mutableStateOf(false) }
     var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }
-    
+
     // Emoji shortcode ( :shortname: ) state
     var showEmojiSuggestionList by remember { mutableStateOf(false) }
     var emojiQuery by remember { mutableStateOf("") }
     var emojiStartIndex by remember { mutableStateOf(-1) }
-    
+
     // Room mention ( #roomalias ) state
     var showRoomSuggestionList by remember { mutableStateOf(false) }
     var roomQuery by remember { mutableStateOf("") }
     var roomStartIndex by remember { mutableStateOf(-1) }
-    
+
     // Command ( /command ) state
     var showCommandSuggestionList by remember { mutableStateOf(false) }
     var commandQuery by remember { mutableStateOf("") }
@@ -584,11 +575,11 @@ fun ThreadViewerScreen(
 
     var showEmojiPickerForText by remember { mutableStateOf(false) }
     var showStickerPickerForText by remember { mutableStateOf(false) }
-    
+
     // Code viewer state
     var showCodeViewer by remember { mutableStateOf(false) }
     var codeViewerContent by remember { mutableStateOf("") }
-    
+
     // Message menu state (for bottom menu bar)
     var messageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
     var retainedMessageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
@@ -601,29 +592,31 @@ fun ThreadViewerScreen(
             retainedMessageMenuConfig = messageMenuConfig
         }
     }
-    
+
     // Messages typed while the WebSocket is down are buffered and sent on reconnect.
     val isInputEnabled = true
-    
+
     // Text input state (moved here to be accessible by mention handler)
     val urlPreviewController = remember { UrlPreviewController() }
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
-    
+
     // Focus requester for text field (to focus when replying)
     val textFieldFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    
+
     // Track text field height to size the send button
     var textFieldHeight by remember { mutableStateOf(0) }
     val density = LocalDensity.current
     val buttonHeight = remember(textFieldHeight, density) {
         if (textFieldHeight > 0) {
             with(density) { textFieldHeight.toDp() }
-        } else 40.dp
+        } else {
+            40.dp
+        }
     }
-    
+
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
         if (textFieldValue.text != draft) {
@@ -639,7 +632,7 @@ fun ThreadViewerScreen(
             showMentionList = false
         }
     }
-    
+
     // Focus text field and show keyboard when replying starts
     LaunchedEffect(replyingToEvent) {
         if (replyingToEvent != null) {
@@ -661,7 +654,7 @@ fun ThreadViewerScreen(
             "m.room.avatar",
             "m.room.pinned_events",
             "m.reaction",
-            "m.sticker"
+            "m.sticker",
         )
 
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations
@@ -675,7 +668,7 @@ fun ThreadViewerScreen(
             allowedEventTypes = allowedEventTypes,
             showHiddenEvents = showHiddenEvents,
             // paginate_manual events (root + older replies) all carry timeline_rowid = -1
-            renderContextEvents = true
+            renderContextEvents = true,
         )
     }
 
@@ -684,14 +677,14 @@ fun ThreadViewerScreen(
         appViewModel.getMemberMap(roomId).filter { (userId, profile) ->
             // Exclude current user
             userId != myUserId &&
-            // Ensure userId is a valid Matrix user ID format (@user:domain)
-            userId.startsWith("@") && 
-            userId.contains(":") &&
-            // Ensure userId is not empty or malformed
-            userId.length > 3
+                // Ensure userId is a valid Matrix user ID format (@user:domain)
+                userId.startsWith("@") &&
+                userId.contains(":") &&
+                // Ensure userId is not empty or malformed
+                userId.length > 3
         }
     }
-    
+
     // Get rooms with canonical aliases for room mentions
     val roomsWithAliases = remember(appViewModel.allRooms) {
         appViewModel.getRoomsWithCanonicalAliases()
@@ -701,28 +694,30 @@ fun ThreadViewerScreen(
     val baseMemberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
         appViewModel.getMemberMapWithFallback(roomId, sortedEvents)
     }
-    
+
     // CRITICAL FIX: Ensure current user profile is included in memberMap
     // The current user's profile might not be in the room's member map if there's no m.room.member event for them
     // This fixes the issue where own messages show username instead of display name/avatar
     val memberMap = remember(baseMemberMap, appViewModel.currentUserProfile, myUserId) {
         val enhancedMap = baseMemberMap.toMutableMap()
-        
+
         // If current user is not in member map but we have currentUserProfile, add it
         if (myUserId.isNotBlank() && !enhancedMap.containsKey(myUserId)) {
             val currentProfile = appViewModel.currentUserProfile
             if (currentProfile != null) {
                 enhancedMap[myUserId] = MemberProfile(
                     displayName = currentProfile.displayName,
-                    avatarUrl = currentProfile.avatarUrl
+                    avatarUrl = currentProfile.avatarUrl,
                 )
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "ThreadViewerScreen: Added current user profile to memberMap - userId: $myUserId, displayName: ${currentProfile.displayName}"
+                    "ThreadViewerScreen: Added current user profile to memberMap - userId: $myUserId, displayName: ${currentProfile.displayName}",
                 )
+                }
             }
         }
-        
+
         enhancedMap
     }
 
@@ -740,7 +735,7 @@ fun ThreadViewerScreen(
     // Mention detection and handling functions
     fun detectMention(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for @ at or before cursor position
         var atIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -753,23 +748,25 @@ fun ThreadViewerScreen(
                 break
             }
         }
-        
+
         // Also check if cursor is right after @ at the beginning or after space
         if (atIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '@') {
                 // Check if @ is at beginning or preceded by space/newline
-                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                if (cursorPosition == 1 ||
+                    (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))
+                ) {
                     atIndex = cursorPosition - 1
                 }
             }
         }
-        
+
         if (atIndex == -1) return null
-        
+
         // Extract the query after @
         val queryStart = atIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Look for space after cursor position to find end of mention
         if (cursorPosition < text.length) {
             for (i in cursorPosition until text.length) {
@@ -780,7 +777,7 @@ fun ThreadViewerScreen(
                 queryEnd = i + 1
             }
         }
-        
+
         // Allow showing mention list even if we just typed @ (empty query)
         if (queryStart <= cursorPosition) {
             val query = if (queryStart < min(queryEnd, text.length)) {
@@ -790,13 +787,23 @@ fun ThreadViewerScreen(
             }
             return Pair(query, atIndex)
         }
-        
+
         return null
     }
 
-    fun handleMentionSelection(userId: String, displayName: String?, originalText: String, startIndex: Int, endIndex: Int): String {
+    fun handleMentionSelection(
+        userId: String,
+        displayName: String?,
+        originalText: String,
+        startIndex: Int,
+        endIndex: Int,
+    ): String {
         // Escape square brackets in display name to prevent regex issues
-        val escapedDisplayName = (displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":"))
+        val escapedDisplayName = (
+            displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix(
+            "@",
+        ).substringBefore(":")
+        )
             .replace("[", "\\[")
             .replace("]", "\\]")
         val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
@@ -858,7 +865,7 @@ fun ThreadViewerScreen(
     // Room mention detection function (for '#' based autocomplete)
     fun detectRoomMention(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for '#' at or before cursor position
         var hashIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -871,23 +878,25 @@ fun ThreadViewerScreen(
                 break
             }
         }
-        
+
         // Also check if cursor is right after # at the beginning or after space
         if (hashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '#') {
                 // Check if # is at beginning or preceded by space/newline
-                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                if (cursorPosition == 1 ||
+                    (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))
+                ) {
                     hashIndex = cursorPosition - 1
                 }
             }
         }
-        
+
         if (hashIndex == -1) return null
-        
+
         // Extract the query after #
         val queryStart = hashIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Look for space after cursor position to find end of mention
         if (cursorPosition < text.length) {
             for (i in cursorPosition until text.length) {
@@ -898,7 +907,7 @@ fun ThreadViewerScreen(
                 queryEnd = i + 1
             }
         }
-        
+
         // Allow showing room list even if we just typed # (empty query)
         if (queryStart <= cursorPosition) {
             val query = if (queryStart < min(queryEnd, text.length)) {
@@ -908,14 +917,14 @@ fun ThreadViewerScreen(
             }
             return Pair(query, hashIndex)
         }
-        
+
         return null
     }
 
     // Command detection function (for '/' based autocomplete)
     fun detectCommand(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for '/' at or before cursor position
         var slashIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -928,23 +937,25 @@ fun ThreadViewerScreen(
                 break
             }
         }
-        
+
         // Also check if cursor is right after / (similar to mention detection)
         if (slashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '/') {
                 // Check if / is at beginning or preceded by space/newline
-                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                if (cursorPosition == 1 ||
+                    (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))
+                ) {
                     slashIndex = cursorPosition - 1
                 }
             }
         }
-        
+
         if (slashIndex == -1) return null
-        
+
         // Extract the query after / (only the command name, up to first space/newline or cursor)
         val queryStart = slashIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Find the first space or newline after / and before/at cursor position
         for (i in queryStart until min(cursorPosition, text.length)) {
             if (text[i] == ' ' || text[i] == '\n') {
@@ -952,7 +963,7 @@ fun ThreadViewerScreen(
                 break
             }
         }
-        
+
         // Allow showing command list even if we just typed / (empty query)
         if (queryStart <= cursorPosition) {
             val query = if (queryStart < min(queryEnd, text.length)) {
@@ -962,15 +973,12 @@ fun ThreadViewerScreen(
             }
             return Pair(query, slashIndex)
         }
-        
+
         return null
     }
 
     // Handle backspace deletion of custom emoji markdown
-    fun handleCustomEmojiDeletion(
-        oldValue: TextFieldValue,
-        newValue: TextFieldValue
-    ): TextFieldValue {
+    fun handleCustomEmojiDeletion(oldValue: TextFieldValue, newValue: TextFieldValue): TextFieldValue {
         // Check if text was deleted (backspace was pressed)
         if (newValue.text.length >= oldValue.text.length) return newValue
 
@@ -999,7 +1007,7 @@ fun ThreadViewerScreen(
 
                 return TextFieldValue(
                     text = finalText,
-                    selection = TextRange(finalCursor)
+                    selection = TextRange(finalCursor),
                 )
             }
         }
@@ -1008,9 +1016,7 @@ fun ThreadViewerScreen(
     }
 
     // Replace completed :shortcode: with emoji or custom emoji markdown
-    fun applyCompletedEmojiShortcode(
-        value: TextFieldValue
-    ): TextFieldValue {
+    fun applyCompletedEmojiShortcode(value: TextFieldValue): TextFieldValue {
         val text = value.text
         val cursor = value.selection.start
         if (cursor <= 0 || cursor > text.length) return value
@@ -1053,7 +1059,7 @@ fun ThreadViewerScreen(
 
         return TextFieldValue(
             text = newText,
-            selection = TextRange(newCursorPos)
+            selection = TextRange(newCursorPos),
         )
     }
 
@@ -1077,7 +1083,13 @@ fun ThreadViewerScreen(
                     event.content?.has("com.beeper.per_message_profile") == true ||
                         event.decrypted?.has("com.beeper.per_message_profile") == true
 
-                val timeDifference = if (previousEvent != null) kotlin.math.abs(event.timestamp - previousEvent.timestamp) else 0L
+                val timeDifference = if (previousEvent != null) {
+                    kotlin.math.abs(
+                    event.timestamp - previousEvent.timestamp,
+                )
+                } else {
+                    0L
+                }
                 val isConsecutive =
                     !hasPerMessageProfile && previousEvent?.sender == event.sender && timeDifference <= 5 * 60 * 1000
 
@@ -1086,8 +1098,8 @@ fun ThreadViewerScreen(
                     TimelineItem.Event(
                         event = event,
                         isConsecutive = isConsecutive,
-                        hasPerMessageProfile = hasPerMessageProfile
-                    )
+                        hasPerMessageProfile = hasPerMessageProfile,
+                    ),
                 )
                 previousEvent = event
             }
@@ -1123,11 +1135,13 @@ fun ThreadViewerScreen(
     // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
     // This prevents loading 15,000+ profiles upfront for large rooms
     LaunchedEffect(threadMessages, roomId) {
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "ThreadViewerScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
+            "ThreadViewerScreen: Using opportunistic profile loading for $roomId (no bulk loading)",
         )
-        
+        }
+
         // Only request profiles for users that are actually visible in the thread
         // This dramatically reduces memory usage for large rooms
         if (threadMessages.isNotEmpty()) {
@@ -1135,12 +1149,14 @@ fun ThreadViewerScreen(
                 .map { it.sender }
                 .distinct()
                 .filter { it != appViewModel.currentUserId }
-            
-            if (BuildConfig.DEBUG) Log.d(
+
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "ThreadViewerScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${threadMessages.size} events)"
+                "ThreadViewerScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${threadMessages.size} events)",
             )
-            
+            }
+
             // Request profiles one by one as needed
             visibleUsers.forEach { userId ->
                 appViewModel.requestUserProfileOnDemand(userId, roomId)
@@ -1169,1692 +1185,1916 @@ fun ThreadViewerScreen(
     val bottomInset = if (imeBottom > 0.dp) imeBottom else navBarBottom
 
     CompositionLocalProvider(
-        LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId
+        LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId,
     ) {
         AndromuksTheme {
             Surface {
                 Box(modifier = modifier.fillMaxSize()) {
-                Column(
-                    modifier =
+                    Column(
+                        modifier =
                         Modifier.fillMaxSize()
                             .then(
                                 if (showDeleteDialog) {
                                     Modifier.blur(10.dp)
                                 } else {
                                     Modifier
-                                }
-                            )
-                ) {
-                    // 1. Thread Header (simple inline header)
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
-                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(10.dp),
-                        shadowElevation = 12.dp
+                                },
+                            ),
                     ) {
-                        Row(
+                        // 1. Thread Header (simple inline header)
+                        Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(10.dp),
+                            shadowElevation = 12.dp,
                         ) {
-                            // Back button
-                            IconButton(onClick = { navController.popBackStack() }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back"
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Thread in $roomName",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                // Encryption indicator + thread root preview
-                                val isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
-                                val iconSize = with(LocalDensity.current) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        imageVector = if (isRoomEncrypted) Icons.Filled.Lock else Icons.Filled.LockOpen,
-                                        contentDescription = if (isRoomEncrypted) "Encrypted room" else "Unencrypted room",
-                                        modifier = Modifier.size(iconSize),
-                                        tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                                    )
-                                    if (threadRootEvent != null) {
-                                        val senderProfile = appViewModel.getMemberMap(roomId)[threadRootEvent.sender]
-                                        val senderName = senderProfile?.displayName ?: threadRootEvent.sender
-                                        val body = when {
-                                            threadRootEvent.type == "m.room.message" ->
-                                                threadRootEvent.content?.optString("body", "")
-                                            threadRootEvent.type == "m.room.encrypted" &&
-                                                threadRootEvent.decryptedType == "m.room.message" ->
-                                                threadRootEvent.decrypted?.optString("body", "")
-                                            else -> ""
-                                        } ?: ""
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text(
-                                            text = "$senderName: ${body.take(50)}${if (body.length > 50) "..." else ""}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                            // Offline indicator - shows when websocket is not connected
-                            val connectionState by SyncRepository.connectionState.collectAsState()
-                            AnimatedVisibility(
-                                visible = !connectionState.isReady(),
-                                enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-                                exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
-                                val offlineAlpha by offlinePulse.animateFloat(
-                                    initialValue = 0.4f,
-                                    targetValue = 1f,
-                                    animationSpec = infiniteRepeatable(
-                                        animation = tween(800, easing = FastOutSlowInEasing),
-                                        repeatMode = RepeatMode.Reverse
-                                    ),
-                                    label = "offline_alpha"
-                                )
-                                Icon(
-                                    imageVector = Icons.Filled.CloudOff,
-                                    contentDescription = "No server connection",
-                                    tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    // Show upload status when uploads are in progress
-                    if (appViewModel.hasUploadInProgress(roomId)) {
-                        val uploadType = appViewModel.getUploadType(roomId)
-                        val retryCount = appViewModel.getUploadRetryCount(roomId)
-                        val retrySuffix = if (retryCount > 0) " (Retrying $retryCount/3)" else ""
-                        val statusText = when (uploadType) {
-                            "video" -> "Uploading video$retrySuffix..."
-                            "audio" -> "Uploading audio$retrySuffix..."
-                            "file" -> "Uploading file$retrySuffix..."
-                            "image" -> "Uploading image$retrySuffix..."
-                            else -> "Uploading media$retrySuffix..."
-                        }
-                        val uploadProgress = appViewModel.getUploadProgress(roomId)
-                        ExpressiveStatusRow(
-                            text = statusText,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            indicatorColor = MaterialTheme.colorScheme.primary,
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
-                            progress = uploadProgress
-                        )
-                    }
-
-                    // 2. Thread Timeline
-                    // clipToBounds ensures the date pill slides from behind the header rather than over it
-                    Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-                    // Standard layout (oldest first, no reverseLayout) — first visible index is oldest
-                    val oldestVisibleDateThread by remember(timelineItems) {
-                        derivedStateOf {
-                            val idx = listState.firstVisibleItemIndex
-                            when (val item = timelineItems.getOrNull(idx)) {
-                                is TimelineItem.Event -> formatDate(item.event.timestamp)
-                                is TimelineItem.DateDivider -> item.date
-                                else -> null
-                            }
-                        }
-                    }
-                    val scrollKeyThread by remember { derivedStateOf { listState.firstVisibleItemIndex } }
-
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        state = listState,
-                        contentPadding =
-                            androidx.compose.foundation.layout.PaddingValues(
-                                start = 16.dp,
-                                end = 16.dp,
-                                top = 8.dp,
-                                bottom = 8.dp
-                            )
-                    ) {
-                        itemsIndexed(timelineItems) { index, item ->
-                            when (item) {
-                                is TimelineItem.DateDivider -> {
-                                    DateDivider(item.date)
+                                // Back button
+                                IconButton(onClick = { navController.popBackStack() }) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back",
+                                    )
                                 }
-                                // Threads never carry a read marker, but TimelineItem is shared.
-                                is TimelineItem.ReadMarker -> {}
-                                is TimelineItem.Event -> {
-                                    val event = item.event
-                                    val isMine = event.sender == myUserId
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Thread in $roomName",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    // Encryption indicator + thread root preview
+                                    val isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
+                                    val iconSize = with(
+                                        LocalDensity.current,
+                                    ) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            imageVector = if (isRoomEncrypted) Icons.Filled.Lock else Icons.Filled.LockOpen,
+                                            contentDescription = if (isRoomEncrypted) "Encrypted room" else "Unencrypted room",
+                                            modifier = Modifier.size(iconSize),
+                                            tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                        )
+                                        if (threadRootEvent != null) {
+                                            val senderProfile = appViewModel.getMemberMap(roomId)[threadRootEvent.sender]
+                                            val senderName = senderProfile?.displayName ?: threadRootEvent.sender
+                                            val body = when {
+                                                threadRootEvent.type == "m.room.message" ->
+                                                    threadRootEvent.content?.optString("body", "")
 
-                                    // Check if this is a consecutive message from the same sender
-                                    var previousEvent: TimelineEvent? = null
-                                    var prevIndex = index - 1
-                                    while (prevIndex >= 0 && previousEvent == null) {
-                                        when (val prevItem = timelineItems[prevIndex]) {
-                                            is TimelineItem.Event ->
-                                                previousEvent = prevItem.event
-                                            is TimelineItem.DateDivider ->
-                                                break
-                                            is TimelineItem.ReadMarker ->
-                                                break
+                                                threadRootEvent.type == "m.room.encrypted" &&
+                                                    threadRootEvent.decryptedType == "m.room.message" ->
+                                                    threadRootEvent.decrypted?.optString("body", "")
+
+                                                else -> ""
+                                            } ?: ""
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "$senderName: ${body.take(
+                                                    50,
+                                                )}${if (body.length > 50) "..." else ""}",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                            )
                                         }
-                                        prevIndex--
                                     }
+                                }
+                                // Offline indicator - shows when websocket is not connected
+                                val connectionState by SyncRepository.connectionState.collectAsState()
+                                AnimatedVisibility(
+                                    visible = !connectionState.isReady(),
+                                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
+                                ) {
+                                    val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
+                                    val offlineAlpha by offlinePulse.animateFloat(
+                                        initialValue = 0.4f,
+                                        targetValue = 1f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(800, easing = FastOutSlowInEasing),
+                                            repeatMode = RepeatMode.Reverse,
+                                        ),
+                                        label = "offline_alpha",
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Filled.CloudOff,
+                                        contentDescription = "No server connection",
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
+                        }
 
-                                    val hasPerMessageProfile =
-                                        event.content?.has("com.beeper.per_message_profile") ==
-                                            true ||
-                                            event.decrypted?.has(
-                                                "com.beeper.per_message_profile"
-                                            ) == true
+                        // Show upload status when uploads are in progress
+                        if (appViewModel.hasUploadInProgress(roomId)) {
+                            val uploadType = appViewModel.getUploadType(roomId)
+                            val retryCount = appViewModel.getUploadRetryCount(roomId)
+                            val retrySuffix = if (retryCount > 0) " (Retrying $retryCount/3)" else ""
+                            val statusText = when (uploadType) {
+                                "video" -> "Uploading video$retrySuffix..."
+                                "audio" -> "Uploading audio$retrySuffix..."
+                                "file" -> "Uploading file$retrySuffix..."
+                                "image" -> "Uploading image$retrySuffix..."
+                                else -> "Uploading media$retrySuffix..."
+                            }
+                            val uploadProgress = appViewModel.getUploadProgress(roomId)
+                            ExpressiveStatusRow(
+                                text = statusText,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                                progress = uploadProgress,
+                            )
+                        }
 
-                                    val timeDifference = if (previousEvent != null) kotlin.math.abs(event.timestamp - previousEvent.timestamp) else 0L
-                                    val isConsecutive =
-                                        !hasPerMessageProfile &&
-                                            previousEvent?.sender == event.sender &&
-                                            timeDifference <= 5 * 60 * 1000
+                        // 2. Thread Timeline
+                        // clipToBounds ensures the date pill slides from behind the header rather than over it
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                            // Standard layout (oldest first, no reverseLayout) — first visible index is oldest
+                            val oldestVisibleDateThread by remember(timelineItems) {
+                                derivedStateOf {
+                                    val idx = listState.firstVisibleItemIndex
+                                    when (val item = timelineItems.getOrNull(idx)) {
+                                        is TimelineItem.Event -> formatDate(item.event.timestamp)
+                                        is TimelineItem.DateDivider -> item.date
+                                        else -> null
+                                    }
+                                }
+                            }
+                            val scrollKeyThread by remember { derivedStateOf { listState.firstVisibleItemIndex } }
 
-                                    // Add a little extra spacing before non-consecutive messages
-                                    // (only when there was a previous event).
-                                    val addTopSpacing =
-                                        previousEvent != null && !isConsecutive
-
-                                    Column {
-                                        if (addTopSpacing) {
-                                            Spacer(modifier = Modifier.height(6.dp))
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                state = listState,
+                                contentPadding =
+                                androidx.compose.foundation.layout.PaddingValues(
+                                    start = 16.dp,
+                                    end = 16.dp,
+                                    top = 8.dp,
+                                    bottom = 8.dp,
+                                ),
+                            ) {
+                                itemsIndexed(timelineItems) { index, item ->
+                                    when (item) {
+                                        is TimelineItem.DateDivider -> {
+                                            DateDivider(item.date)
                                         }
 
-                                        TimelineEventItem(
-                                            event = event,
-                                            timelineEvents = threadMessages,
-                                            editsByTargetId = editEventsByTargetId,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            userProfileCache = memberMap,
-                                            isMine = isMine,
-                                            myUserId = myUserId,
-                                            isConsecutive = isConsecutive,
-                                            appViewModel = appViewModel,
-                                            onScrollToMessage = { eventId ->
-                                                val index = timelineItems.indexOfFirst { item ->
-                                                    (item as? TimelineItem.Event)?.event?.eventId == eventId
+                                        // Threads never carry a read marker, but TimelineItem is shared.
+                                        is TimelineItem.ReadMarker -> {}
+
+                                        is TimelineItem.Event -> {
+                                            val event = item.event
+                                            val isMine = event.sender == myUserId
+
+                                            // Check if this is a consecutive message from the same sender
+                                            var previousEvent: TimelineEvent? = null
+                                            var prevIndex = index - 1
+                                            while (prevIndex >= 0 && previousEvent == null) {
+                                                when (val prevItem = timelineItems[prevIndex]) {
+                                                    is TimelineItem.Event ->
+                                                        previousEvent = prevItem.event
+
+                                                    is TimelineItem.DateDivider ->
+                                                        break
+
+                                                    is TimelineItem.ReadMarker ->
+                                                        break
                                                 }
-                                                if (index >= 0) {
-                                                    coroutineScope.launch {
-                                                        listState.scrollToItem(index)
-                                                    }
-                                                } else {
-                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                                    val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
-                                                    pendingEventContextScrollRestore = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-                                                    navController.navigate("event_context/$encodedRoomId/$encodedEventId")
+                                                prevIndex--
+                                            }
+
+                                            val hasPerMessageProfile =
+                                                event.content?.has("com.beeper.per_message_profile") ==
+                                                    true ||
+                                                    event.decrypted?.has(
+                                                        "com.beeper.per_message_profile",
+                                                    ) == true
+
+                                            val timeDifference = if (previousEvent != null) {
+                                                kotlin.math.abs(
+                                                event.timestamp - previousEvent.timestamp,
+                                            )
+                                            } else {
+                                                0L
+                                            }
+                                            val isConsecutive =
+                                                !hasPerMessageProfile &&
+                                                    previousEvent?.sender == event.sender &&
+                                                    timeDifference <= 5 * 60 * 1000
+
+                                            // Add a little extra spacing before non-consecutive messages
+                                            // (only when there was a previous event).
+                                            val addTopSpacing =
+                                                previousEvent != null && !isConsecutive
+
+                                            Column {
+                                                if (addTopSpacing) {
+                                                    Spacer(modifier = Modifier.height(6.dp))
                                                 }
-                                            },
-                                            onReply = { event ->
-                                                replyingToEvent = event
-                                                // Scroll near the bottom to keep context like main timeline
-                                                coroutineScope.launch {
-                                                    val lastIndex = timelineItems.lastIndex
-                                                    if (lastIndex >= 0) {
-                                                        listState.scrollToItem(maxOf(lastIndex - 2, 0))
-                                                    }
-                                                }
-                                            },
-                                            onReact = { event ->
-                                                reactingToEvent = event
-                                                showEmojiSelection = true
-                                            },
-                                            onEdit = { event ->
-                                                editingEvent = event
-                                            },
-                                            onDelete = { event ->
-                                                deletingEvent = event
-                                                showDeleteDialog = true
-                                            },
-                                            onUserClick = { userId ->
-                                                navController.navigateToUserInfo(userId, roomId)
-                                            },
-                                            onRoomLinkClick = { roomLink ->
-                                                // Handle room links same as main timeline
-                                                val existingRoom = if (roomLink.roomIdOrAlias.startsWith("!")) {
-                                                    appViewModel.getRoomById(roomLink.roomIdOrAlias)
-                                                } else {
-                                                    null
-                                                }
-                                                
-                                                if (existingRoom != null) {
-                                                    // If this is an event permalink, stash the jump so the opened room lands on it.
-                                                    roomLink.eventId?.let { appViewModel.setPendingInterRoomJump(roomLink.roomIdOrAlias, it) }
-                                                    val encodedRoomId = java.net.URLEncoder.encode(roomLink.roomIdOrAlias, "UTF-8")
-                                                    navController.navigate("room_timeline/$encodedRoomId")
-                                                }
-                                            },
-                                            onThreadClick = { }, // No nested threads
-                                            onCodeBlockClick = { code ->
-                                                codeViewerContent = code
-                                                showCodeViewer = true
-                                            },
-                                            onShowMenu = { menuConfig ->
-                                                // Close attach menu if open
-                                                showAttachmentMenu = false
-                                                messageMenuConfig = menuConfig.copy(
-                                                    onViewSource = { code ->
+
+                                                TimelineEventItem(
+                                                    event = event,
+                                                    timelineEvents = threadMessages,
+                                                    editsByTargetId = editEventsByTargetId,
+                                                    homeserverUrl = homeserverUrl,
+                                                    authToken = authToken,
+                                                    userProfileCache = memberMap,
+                                                    isMine = isMine,
+                                                    myUserId = myUserId,
+                                                    isConsecutive = isConsecutive,
+                                                    appViewModel = appViewModel,
+                                                    onScrollToMessage = { eventId ->
+                                                        val index = timelineItems.indexOfFirst { item ->
+                                                            (item as? TimelineItem.Event)?.event?.eventId == eventId
+                                                        }
+                                                        if (index >= 0) {
+                                                            coroutineScope.launch {
+                                                                listState.scrollToItem(index)
+                                                            }
+                                                        } else {
+                                                            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                                            val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
+                                                            pendingEventContextScrollRestore =
+                                                                listState.firstVisibleItemIndex to
+                                                                listState.firstVisibleItemScrollOffset
+                                                            navController.navigate(
+                                                                "event_context/$encodedRoomId/$encodedEventId",
+                                                            )
+                                                        }
+                                                    },
+                                                    onReply = { event ->
+                                                        replyingToEvent = event
+                                                        // Scroll near the bottom to keep context like main timeline
+                                                        coroutineScope.launch {
+                                                            val lastIndex = timelineItems.lastIndex
+                                                            if (lastIndex >= 0) {
+                                                                listState.scrollToItem(maxOf(lastIndex - 2, 0))
+                                                            }
+                                                        }
+                                                    },
+                                                    onReact = { event ->
+                                                        reactingToEvent = event
+                                                        showEmojiSelection = true
+                                                    },
+                                                    onEdit = { event ->
+                                                        editingEvent = event
+                                                    },
+                                                    onDelete = { event ->
+                                                        deletingEvent = event
+                                                        showDeleteDialog = true
+                                                    },
+                                                    onUserClick = { userId ->
+                                                        navController.navigateToUserInfo(userId, roomId)
+                                                    },
+                                                    onRoomLinkClick = { roomLink ->
+                                                        // Handle room links same as main timeline
+                                                        val existingRoom = if (roomLink.roomIdOrAlias.startsWith("!")) {
+                                                            appViewModel.getRoomById(roomLink.roomIdOrAlias)
+                                                        } else {
+                                                            null
+                                                        }
+
+                                                        if (existingRoom != null) {
+                                                            // If this is an event permalink, stash the jump so the opened room lands on it.
+                                                            roomLink.eventId?.let {
+                                                                appViewModel.setPendingInterRoomJump(
+                                                                    roomLink.roomIdOrAlias,
+                                                                    it,
+                                                                )
+                                                            }
+                                                            val encodedRoomId = java.net.URLEncoder.encode(
+                                                                roomLink.roomIdOrAlias,
+                                                                "UTF-8",
+                                                            )
+                                                            navController.navigate("room_timeline/$encodedRoomId")
+                                                        }
+                                                    },
+                                                    onThreadClick = { }, // No nested threads
+                                                    onCodeBlockClick = { code ->
                                                         codeViewerContent = code
                                                         showCodeViewer = true
                                                     },
-                                                    onViewRenderedText = { text ->
-                                                        codeViewerContent = text
-                                                        showCodeViewer = true
+                                                    onShowMenu = { menuConfig ->
+                                                        // Close attach menu if open
+                                                        showAttachmentMenu = false
+                                                        messageMenuConfig = menuConfig.copy(
+                                                            onViewSource = { code ->
+                                                                codeViewerContent = code
+                                                                showCodeViewer = true
+                                                            },
+                                                            onViewRenderedText = { text ->
+                                                                codeViewerContent = text
+                                                                showCodeViewer = true
+                                                            },
+                                                            onShowReactions = {
+                                                                reactionsEventId = menuConfig.event.eventId
+                                                                showReactionsDialog = true
+                                                            },
+                                                            onShowBridgeDeliveryInfo = if (appViewModel.messageBridgeSendStatus.containsKey(
+                                                                    menuConfig.event.eventId,
+                                                                )
+                                                            ) {
+                                                                {
+                                                                    bridgeDeliveryEventId = menuConfig.event.eventId
+                                                                    showBridgeDeliveryDialog = true
+                                                                }
+                                                            } else {
+                                                                null
+                                                            },
+                                                        )
                                                     },
                                                     onShowReactions = {
-                                                        reactionsEventId = menuConfig.event.eventId
+                                                        reactionsEventId = event.eventId
                                                         showReactionsDialog = true
                                                     },
-                                                    onShowBridgeDeliveryInfo = if (appViewModel.messageBridgeSendStatus.containsKey(menuConfig.event.eventId)) {
-                                                        {
-                                                            bridgeDeliveryEventId = menuConfig.event.eventId
-                                                            showBridgeDeliveryDialog = true
-                                                        }
-                                                    } else null
                                                 )
-                                            },
-                                            onShowReactions = {
-                                                reactionsEventId = event.eventId
-                                                showReactionsDialog = true
                                             }
-                                        )
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }
 
-                    // Sticky date pill — shows date of oldest visible event while scrolling up
-                    net.vrkknn.andromuks.utils.StickyDateIndicator(
-                        oldestVisibleDate = oldestVisibleDateThread,
-                        scrollPositionKey = scrollKeyThread,
-                        reverseScrollLayout = false,
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 8.dp)
-                            .zIndex(1f)
-                    )
-                    } // end Box (Thread Timeline)
+                            // Sticky date pill — shows date of oldest visible event while scrolling up
+                            net.vrkknn.andromuks.utils.StickyDateIndicator(
+                                oldestVisibleDate = oldestVisibleDateThread,
+                                scrollPositionKey = scrollKeyThread,
+                                reverseScrollLayout = false,
+                                modifier = Modifier
+                                    .align(Alignment.TopCenter)
+                                    .padding(top = 8.dp)
+                                    .zIndex(1f),
+                            )
+                        } // end Box (Thread Timeline)
 
-                    // 4. Typing notification area
-                    TypingNotificationArea(
-                        typingUsers = appViewModel.typingUsers,
-                        roomId = roomId,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        userProfileCache = appViewModel.getMemberMap(roomId)
-                    )
+                        // 4. Typing notification area
+                        TypingNotificationArea(
+                            typingUsers = appViewModel.typingUsers,
+                            roomId = roomId,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            userProfileCache = appViewModel.getMemberMap(roomId),
+                        )
 
-                    // 5. Text box (always sends thread replies)
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp,
-                        modifier =
+                        // 5. Text box (always sends thread replies)
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 0.dp,
+                            modifier =
                             Modifier.fillMaxWidth()
                                 .navigationBarsPadding()
-                                .imePadding()
-                    ) {
-
-                        // PERFORMANCE: Typing detection with debouncing - UI level rate limiting removed 
-                        // since AppViewModel.sendTyping() now handles rate limiting internally (3 seconds)
-                        LaunchedEffect(draft) {
-                            if (draft.isNotBlank()) {
-                                val currentTime = System.currentTimeMillis()
-                                if (currentTime - lastTypingTime > 3000) { // Reduced frequency: every 3 seconds
-                                    appViewModel.sendTyping(roomId)
-                                    lastTypingTime = currentTime
-                                }
-                            }
-                        }
-
-                        Row(
-                            modifier =
-                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .imePadding(),
                         ) {
-                            // Main attach button (outside the text field)
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                tonalElevation = 1.dp,
-                                modifier = Modifier.width(48.dp).height(buttonHeight)
-                            ) {
-                                IconButton(
-                                    enabled = isInputEnabled,
-                                    onClick = { 
-                                        if (isInputEnabled) {
-                                            // Close message menu if open
-                                            messageMenuConfig = null
-                                            showAttachmentMenu = !showAttachmentMenu
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.AttachFile,
-                                        contentDescription = "Attach",
-                                        tint = if (isInputEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                    )
+                            // PERFORMANCE: Typing detection with debouncing - UI level rate limiting removed
+                            // since AppViewModel.sendTyping() now handles rate limiting internally (3 seconds)
+                            LaunchedEffect(draft) {
+                                if (draft.isNotBlank()) {
+                                    val currentTime = System.currentTimeMillis()
+                                    if (currentTime - lastTypingTime > 3000) { // Reduced frequency: every 3 seconds
+                                        appViewModel.sendTyping(roomId)
+                                        lastTypingTime = currentTime
+                                    }
                                 }
                             }
 
-                            Spacer(modifier = Modifier.width(8.dp))
-
-                            // Pill-shaped text input
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                tonalElevation = 1.dp,
-                                modifier = Modifier.weight(1f)
+                            Row(
+                                modifier =
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Column {
-                                    // Reply preview (thread reply target)
-                                    if (replyingToEvent != null) {
-                                        ReplyPreviewInput(
-                                            event = replyingToEvent!!,
-                                            userProfileCache =
+                                // Main attach button (outside the text field)
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.width(48.dp).height(buttonHeight),
+                                ) {
+                                    IconButton(
+                                        enabled = isInputEnabled,
+                                        onClick = {
+                                            if (isInputEnabled) {
+                                                // Close message menu if open
+                                                messageMenuConfig = null
+                                                showAttachmentMenu = !showAttachmentMenu
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxSize(),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.AttachFile,
+                                            contentDescription = "Attach",
+                                            tint = if (isInputEnabled) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                alpha = 0.38f,
+                                            )
+                                            },
+                                        )
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Pill-shaped text input
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Column {
+                                        // Reply preview (thread reply target)
+                                        if (replyingToEvent != null) {
+                                            ReplyPreviewInput(
+                                                event = replyingToEvent!!,
+                                                userProfileCache =
                                                 memberMap.mapValues { (_, profile) ->
                                                     MemberProfile(profile.displayName, profile.avatarUrl)
                                                 },
-                                            onCancel = { replyingToEvent = null },
-                                            appViewModel = appViewModel,
-                                            roomId = roomId
-                                        )
-                                    }
-
-                                    // URL preview composition bar
-                                    if (appViewModel.resolveSendBundledUrlPreviews(roomId)) {
-                                        UrlPreviewCompositionBar(
-                                            text = draft,
-                                            controller = urlPreviewController,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
-                                        )
-                                    }
-
-                                    // Create mention transformation for TextField with proper caching
-                                    val colorScheme = MaterialTheme.colorScheme
-                                    val mentionTransformation = remember(colorScheme) {
-                                        VisualTransformation { text ->
-                                            val mentionRegex = Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
-                                            val annotatedString = buildAnnotatedString {
-                                                var lastIndex = 0
-                                                
-                                                for (match in mentionRegex.findAll(text.text)) {
-                                                    // Add text before mention
-                                                    if (match.range.first > lastIndex) {
-                                                        append(text.text.substring(lastIndex, match.range.first))
-                                                    }
-                                                    
-                                                    // Add mention as styled text (pill-like appearance)
-                                                    // Unescape the display name for display (remove backslashes before brackets)
-                                                    val escapedDisplayName = match.groupValues[1]
-                                                    val displayName = escapedDisplayName
-                                                        .replace("\\[", "[")
-                                                        .replace("\\]", "]")
-                                                    withStyle(
-                                                        style = SpanStyle(
-                                                            color = colorScheme.onPrimaryContainer,
-                                                            background = colorScheme.primaryContainer
-                                                        )
-                                                    ) {
-                                                        append(" $displayName ")
-                                                    }
-                                                    
-                                                    lastIndex = match.range.last + 1
-                                                }
-                                                
-                                                // Add remaining text
-                                                if (lastIndex < text.text.length) {
-                                                    append(text.text.substring(lastIndex))
-                                                }
-                                            }
-                                            
-                                            // Create proper offset mapping to handle the text length changes
-                                            val offsetMapping = object : OffsetMapping {
-                                                override fun originalToTransformed(offset: Int): Int {
-                                                    // Clamp offset to valid range
-                                                    val clampedOffset = offset.coerceIn(0, text.text.length)
-                                                    var transformedOffset = 0
-                                                    var originalOffset = 0
-                                                    
-                                                    for (match in mentionRegex.findAll(text.text)) {
-                                                        // Add text before mention
-                                                        val beforeLength = match.range.first - originalOffset
-                                                        if (clampedOffset <= match.range.first) {
-                                                            val result = transformedOffset + (clampedOffset - originalOffset)
-                                                            return result.coerceIn(0, annotatedString.length)
-                                                        }
-                                                        transformedOffset += beforeLength
-                                                        originalOffset = match.range.first
-                                                        
-                                                        // Handle mention transformation
-                                                        val escapedDisplayName = match.groupValues[1]
-                                                        val displayName = escapedDisplayName
-                                                            .replace("\\[", "[")
-                                                            .replace("\\]", "]")
-                                                        val transformedMentionLength = " $displayName ".length
-                                                        
-                                                        if (clampedOffset <= match.range.last + 1) {
-                                                            val result = transformedOffset + transformedMentionLength
-                                                            return result.coerceIn(0, annotatedString.length)
-                                                        }
-                                                        
-                                                        transformedOffset += transformedMentionLength
-                                                        originalOffset = match.range.last + 1
-                                                    }
-                                                    
-                                                    // Handle remaining text
-                                                    val result = transformedOffset + (clampedOffset - originalOffset)
-                                                    return result.coerceIn(0, annotatedString.length)
-                                                }
-                                                
-                                                override fun transformedToOriginal(offset: Int): Int {
-                                                    // Clamp offset to valid range
-                                                    val clampedOffset = offset.coerceIn(0, annotatedString.length)
-                                                    var transformedOffset = 0
-                                                    var originalOffset = 0
-                                                    
-                                                    for (match in mentionRegex.findAll(text.text)) {
-                                                        val beforeLength = match.range.first - originalOffset
-                                                        if (clampedOffset <= transformedOffset + beforeLength) {
-                                                            val result = originalOffset + (clampedOffset - transformedOffset)
-                                                            return result.coerceIn(0, text.text.length)
-                                                        }
-                                                        transformedOffset += beforeLength
-                                                        originalOffset = match.range.first
-                                                        
-                                                        val escapedDisplayName = match.groupValues[1]
-                                                        val displayName = escapedDisplayName
-                                                            .replace("\\[", "[")
-                                                            .replace("\\]", "]")
-                                                        val transformedMentionLength = " $displayName ".length
-                                                        
-                                                        if (clampedOffset <= transformedOffset + transformedMentionLength) {
-                                                            return match.range.last + 1
-                                                        }
-                                                        
-                                                        transformedOffset += transformedMentionLength
-                                                        originalOffset = match.range.last + 1
-                                                    }
-                                                    
-                                                    val result = originalOffset + (clampedOffset - transformedOffset)
-                                                    return result.coerceIn(0, text.text.length)
-                                                }
-                                            }
-                                            
-                                            TransformedText(
-                                                annotatedString,
-                                                offsetMapping
+                                                onCancel = { replyingToEvent = null },
+                                                appViewModel = appViewModel,
+                                                roomId = roomId,
                                             )
                                         }
-                                    }
 
-                                    // Text input field with mention + emoji shortcode support
-                                    val mentionAndEmojiTransformation = remember(colorScheme, appViewModel.customEmojiPacks) {
-                                        VisualTransformation { text ->
-                                            val mentionRegex = Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
-                                            val customEmojiRegex = Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+                                        // URL preview composition bar
+                                        if (appViewModel.resolveSendBundledUrlPreviews(roomId)) {
+                                            UrlPreviewCompositionBar(
+                                                text = draft,
+                                                controller = urlPreviewController,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false,
+                                            )
+                                        }
 
-                                            val annotatedString = buildAnnotatedString {
-                                                var lastIndex = 0
+                                        // Create mention transformation for TextField with proper caching
+                                        val colorScheme = MaterialTheme.colorScheme
+                                        val mentionTransformation = remember(colorScheme) {
+                                            VisualTransformation { text ->
+                                                val mentionRegex = Regex(
+                                                    """\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""",
+                                                )
+                                                val annotatedString = buildAnnotatedString {
+                                                    var lastIndex = 0
 
-                                                val allMatches = mutableListOf<Pair<Int, MatchResult>>()
-                                                mentionRegex.findAll(text.text).forEach { allMatches.add(Pair(0, it)) }
-                                                customEmojiRegex.findAll(text.text).forEach { allMatches.add(Pair(1, it)) }
-                                                allMatches.sortBy { it.second.range.first }
+                                                    for (match in mentionRegex.findAll(text.text)) {
+                                                        // Add text before mention
+                                                        if (match.range.first > lastIndex) {
+                                                            append(text.text.substring(lastIndex, match.range.first))
+                                                        }
 
-                                                for ((type, match) in allMatches) {
-                                                    if (match.range.first > lastIndex) {
-                                                        append(text.text.substring(lastIndex, match.range.first))
-                                                    }
-                                                    if (type == 0) {
+                                                        // Add mention as styled text (pill-like appearance)
+                                                        // Unescape the display name for display (remove backslashes before brackets)
                                                         val escapedDisplayName = match.groupValues[1]
-                                                        val displayName = escapedDisplayName.replace("\\[", "[").replace("\\]", "]")
+                                                        val displayName = escapedDisplayName
+                                                            .replace("\\[", "[")
+                                                            .replace("\\]", "]")
                                                         withStyle(
                                                             style = SpanStyle(
                                                                 color = colorScheme.onPrimaryContainer,
-                                                                background = colorScheme.primaryContainer
-                                                            )
-                                                        ) { append(" $displayName ") }
-                                                    } else {
-                                                        val emojiName = match.groupValues[1]
-                                                        append(":$emojiName:")
-                                                    }
-                                                    lastIndex = match.range.last + 1
-                                                }
-                                                if (lastIndex < text.text.length) {
-                                                    append(text.text.substring(lastIndex))
-                                                }
-                                            }
-
-                                            val offsetMapping = object : OffsetMapping {
-                                                override fun originalToTransformed(offset: Int): Int {
-                                                    val clampedOffset = offset.coerceIn(0, text.text.length)
-                                                    var transformedOffset = 0
-                                                    var originalOffset = 0
-                                                    val allMatches = mutableListOf<Pair<Int, MatchResult>>()
-                                                    mentionRegex.findAll(text.text).forEach { allMatches.add(Pair(0, it)) }
-                                                    customEmojiRegex.findAll(text.text).forEach { allMatches.add(Pair(1, it)) }
-                                                    allMatches.sortBy { it.second.range.first }
-
-                                                    for ((type, match) in allMatches) {
-                                                        val beforeLength = match.range.first - originalOffset
-                                                        if (clampedOffset <= match.range.first) {
-                                                            val result = transformedOffset + (clampedOffset - originalOffset)
-                                                            return result.coerceIn(0, annotatedString.length)
+                                                                background = colorScheme.primaryContainer,
+                                                            ),
+                                                        ) {
+                                                            append(" $displayName ")
                                                         }
-                                                        transformedOffset += beforeLength
-                                                        originalOffset = match.range.first
 
-                                                        val transformedLength = if (type == 0) {
+                                                        lastIndex = match.range.last + 1
+                                                    }
+
+                                                    // Add remaining text
+                                                    if (lastIndex < text.text.length) {
+                                                        append(text.text.substring(lastIndex))
+                                                    }
+                                                }
+
+                                                // Create proper offset mapping to handle the text length changes
+                                                val offsetMapping = object : OffsetMapping {
+                                                    override fun originalToTransformed(offset: Int): Int {
+                                                        // Clamp offset to valid range
+                                                        val clampedOffset = offset.coerceIn(0, text.text.length)
+                                                        var transformedOffset = 0
+                                                        var originalOffset = 0
+
+                                                        for (match in mentionRegex.findAll(text.text)) {
+                                                            // Add text before mention
+                                                            val beforeLength = match.range.first - originalOffset
+                                                            if (clampedOffset <= match.range.first) {
+                                                                val result =
+                                                                    transformedOffset + (clampedOffset - originalOffset)
+                                                                return result.coerceIn(0, annotatedString.length)
+                                                            }
+                                                            transformedOffset += beforeLength
+                                                            originalOffset = match.range.first
+
+                                                            // Handle mention transformation
                                                             val escapedDisplayName = match.groupValues[1]
-                                                            val displayName = escapedDisplayName.replace("\\[", "[").replace("\\]", "]")
-                                                            " $displayName ".length
-                                                        } else {
-                                                            val emojiName = match.groupValues[1]
-                                                            ":$emojiName:".length
+                                                            val displayName = escapedDisplayName
+                                                                .replace("\\[", "[")
+                                                                .replace("\\]", "]")
+                                                            val transformedMentionLength = " $displayName ".length
+
+                                                            if (clampedOffset <= match.range.last + 1) {
+                                                                val result = transformedOffset + transformedMentionLength
+                                                                return result.coerceIn(0, annotatedString.length)
+                                                            }
+
+                                                            transformedOffset += transformedMentionLength
+                                                            originalOffset = match.range.last + 1
                                                         }
 
-                                                        if (clampedOffset <= match.range.last + 1) {
-                                                            val result = transformedOffset + transformedLength
-                                                            return result.coerceIn(0, annotatedString.length)
-                                                        }
-
-                                                        transformedOffset += transformedLength
-                                                        originalOffset = match.range.last + 1
+                                                        // Handle remaining text
+                                                        val result = transformedOffset + (clampedOffset - originalOffset)
+                                                        return result.coerceIn(0, annotatedString.length)
                                                     }
 
-                                                    val result = transformedOffset + (clampedOffset - originalOffset)
-                                                    return result.coerceIn(0, annotatedString.length)
-                                                }
+                                                    override fun transformedToOriginal(offset: Int): Int {
+                                                        // Clamp offset to valid range
+                                                        val clampedOffset = offset.coerceIn(0, annotatedString.length)
+                                                        var transformedOffset = 0
+                                                        var originalOffset = 0
 
-                                                override fun transformedToOriginal(offset: Int): Int {
-                                                    val clampedOffset = offset.coerceIn(0, annotatedString.length)
-                                                    var transformedOffset = 0
-                                                    var originalOffset = 0
-                                                    val allMatches = mutableListOf<Pair<Int, MatchResult>>()
-                                                    mentionRegex.findAll(text.text).forEach { allMatches.add(Pair(0, it)) }
-                                                    customEmojiRegex.findAll(text.text).forEach { allMatches.add(Pair(1, it)) }
-                                                    allMatches.sortBy { it.second.range.first }
+                                                        for (match in mentionRegex.findAll(text.text)) {
+                                                            val beforeLength = match.range.first - originalOffset
+                                                            if (clampedOffset <= transformedOffset + beforeLength) {
+                                                                val result =
+                                                                    originalOffset + (clampedOffset - transformedOffset)
+                                                                return result.coerceIn(0, text.text.length)
+                                                            }
+                                                            transformedOffset += beforeLength
+                                                            originalOffset = match.range.first
 
-                                                    for ((type, match) in allMatches) {
-                                                        val beforeLength = match.range.first - originalOffset
-                                                        if (clampedOffset <= transformedOffset + beforeLength) {
-                                                            val result = originalOffset + (clampedOffset - transformedOffset)
-                                                            return result.coerceIn(0, text.text.length)
-                                                        }
-                                                        transformedOffset += beforeLength
-                                                        originalOffset = match.range.first
-
-                                                        val transformedLength = if (type == 0) {
                                                             val escapedDisplayName = match.groupValues[1]
-                                                            val displayName = escapedDisplayName.replace("\\[", "[").replace("\\]", "]")
-                                                            " $displayName ".length
-                                                        } else {
-                                                            val emojiName = match.groupValues[1]
-                                                            ":$emojiName:".length
+                                                            val displayName = escapedDisplayName
+                                                                .replace("\\[", "[")
+                                                                .replace("\\]", "]")
+                                                            val transformedMentionLength = " $displayName ".length
+
+                                                            if (clampedOffset <= transformedOffset + transformedMentionLength) {
+                                                                return match.range.last + 1
+                                                            }
+
+                                                            transformedOffset += transformedMentionLength
+                                                            originalOffset = match.range.last + 1
                                                         }
 
-                                                        if (clampedOffset <= transformedOffset + transformedLength) {
-                                                            return match.range.last + 1
-                                                        }
-
-                                                        transformedOffset += transformedLength
-                                                        originalOffset = match.range.last + 1
+                                                        val result = originalOffset + (clampedOffset - transformedOffset)
+                                                        return result.coerceIn(0, text.text.length)
                                                     }
-
-                                                    val result = originalOffset + (clampedOffset - transformedOffset)
-                                                    return result.coerceIn(0, text.text.length)
-                                                }
-                                            }
-
-                                            TransformedText(annotatedString, offsetMapping)
-                                        }
-                                    }
-
-                                    CustomBubbleTextField(
-                                        value = textFieldValue,
-                                        enabled = isInputEnabled,
-                                        onValueChange = { newValue ->
-                                            // Custom emoji backspace handling
-                                            val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
-                                            val replacedValue = applyCompletedEmojiShortcode(afterDeletion)
-                                            textFieldValue = replacedValue
-                                            draft = replacedValue.text
-                                            
-                                            // Detect commands first ( /command ) - check before everything else
-                                            val commandResult = detectCommand(
-                                                replacedValue.text,
-                                                replacedValue.selection.start
-                                            )
-                                            val trimmedForPmp = replacedValue.text.trimEnd()
-                                            showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
-                                                trimmedForPmp.equals("/profile", ignoreCase = true) ||
-                                                (trimmedForPmp.startsWith("/pmp ", ignoreCase = true) && trimmedForPmp.drop(5).isBlank()) ||
-                                                (trimmedForPmp.startsWith("/profile ", ignoreCase = true) && trimmedForPmp.drop(9).isBlank())
-
-                                            if (commandResult != null) {
-                                                val (query, startIndex) = commandResult
-                                                commandQuery = query
-                                                commandStartIndex = startIndex
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "ThreadViewerScreen: / detected, query='$query'")
-                                                showCommandSuggestionList = !showPmpProfilePicker
-                                                // Hide other suggestion lists when command is active
-                                                showMentionList = false
-                                                showEmojiSuggestionList = false
-                                                showRoomSuggestionList = false
-                                            } else {
-                                                showCommandSuggestionList = false
-                                                
-                                                // Detect mentions
-                                                val mentionResult = detectMention(replacedValue.text, replacedValue.selection.start)
-                                                if (mentionResult != null) {
-                                                    val (query, startIndex) = mentionResult
-                                                    mentionQuery = query
-                                                    mentionStartIndex = startIndex
-
-                                                    if (!isWaitingForFullMemberList && !showMentionList) {
-                                                        val memberMapCurrent = appViewModel.getMemberMap(roomId)
-                                                        if (memberMapCurrent.isEmpty() || memberMapCurrent.size < 10) {
-                                                            // Profiles are loaded opportunistically when rendering events
-                                                            // Request full member list to populate cache
-                                                            isWaitingForFullMemberList = true
-                                                            lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
-                                                            appViewModel.requestFullMemberList(roomId)
-                                                        } else {
-                                                            showMentionList = true
-                                                        }
-                                                    }
-                                                } else {
-                                                    showMentionList = false
-                                                    isWaitingForFullMemberList = false
                                                 }
 
-                                                // Detect emoji shortcodes
-                                                val emojiResult = detectEmojiShortcode(replacedValue.text, replacedValue.selection.start)
-                                                if (emojiResult != null) {
-                                                    val (query, startIndex) = emojiResult
-                                                    emojiQuery = query
-                                                    emojiStartIndex = startIndex
-                                                    showEmojiSuggestionList = true
-                                                } else {
-                                                    showEmojiSuggestionList = false
-                                                }
-
-                                                // Detect room mentions ( #roomalias )
-                                                val roomResult = detectRoomMention(
-                                                    replacedValue.text,
-                                                    replacedValue.selection.start
+                                                TransformedText(
+                                                    annotatedString,
+                                                    offsetMapping,
                                                 )
-                                                if (roomResult != null) {
-                                                    val (query, startIndex) = roomResult
-                                                    roomQuery = query
-                                                    roomStartIndex = startIndex
-                                                    showRoomSuggestionList = true
-                                                } else {
-                                                    showRoomSuggestionList = false
-                                                }
                                             }
-                                        },
-                                        placeholder = {
-                                            Text(
-                                                text = run {
-                                                    val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
-                                                    if (networkName != null && networkName.isNotBlank()) {
-                                                        "Reply in $networkName thread..."
+                                        }
+
+                                        // Text input field with mention + emoji shortcode support
+                                        val mentionAndEmojiTransformation = remember(
+                                            colorScheme,
+                                            appViewModel.customEmojiPacks,
+                                        ) {
+                                            VisualTransformation { text ->
+                                                val mentionRegex = Regex(
+                                                    """\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""",
+                                                )
+                                                val customEmojiRegex = Regex(
+                                                    """!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""",
+                                                )
+
+                                                val annotatedString = buildAnnotatedString {
+                                                    var lastIndex = 0
+
+                                                    val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                    mentionRegex.findAll(text.text).forEach { allMatches.add(Pair(0, it)) }
+                                                    customEmojiRegex.findAll(
+                                                        text.text,
+                                                    ).forEach { allMatches.add(Pair(1, it)) }
+                                                    allMatches.sortBy { it.second.range.first }
+
+                                                    for ((type, match) in allMatches) {
+                                                        if (match.range.first > lastIndex) {
+                                                            append(text.text.substring(lastIndex, match.range.first))
+                                                        }
+                                                        if (type == 0) {
+                                                            val escapedDisplayName = match.groupValues[1]
+                                                            val displayName = escapedDisplayName.replace(
+                                                                "\\[",
+                                                                "[",
+                                                            ).replace("\\]", "]")
+                                                            withStyle(
+                                                                style = SpanStyle(
+                                                                    color = colorScheme.onPrimaryContainer,
+                                                                    background = colorScheme.primaryContainer,
+                                                                ),
+                                                            ) { append(" $displayName ") }
+                                                        } else {
+                                                            val emojiName = match.groupValues[1]
+                                                            append(":$emojiName:")
+                                                        }
+                                                        lastIndex = match.range.last + 1
+                                                    }
+                                                    if (lastIndex < text.text.length) {
+                                                        append(text.text.substring(lastIndex))
+                                                    }
+                                                }
+
+                                                val offsetMapping = object : OffsetMapping {
+                                                    override fun originalToTransformed(offset: Int): Int {
+                                                        val clampedOffset = offset.coerceIn(0, text.text.length)
+                                                        var transformedOffset = 0
+                                                        var originalOffset = 0
+                                                        val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                        mentionRegex.findAll(
+                                                            text.text,
+                                                        ).forEach { allMatches.add(Pair(0, it)) }
+                                                        customEmojiRegex.findAll(
+                                                            text.text,
+                                                        ).forEach { allMatches.add(Pair(1, it)) }
+                                                        allMatches.sortBy { it.second.range.first }
+
+                                                        for ((type, match) in allMatches) {
+                                                            val beforeLength = match.range.first - originalOffset
+                                                            if (clampedOffset <= match.range.first) {
+                                                                val result =
+                                                                    transformedOffset + (clampedOffset - originalOffset)
+                                                                return result.coerceIn(0, annotatedString.length)
+                                                            }
+                                                            transformedOffset += beforeLength
+                                                            originalOffset = match.range.first
+
+                                                            val transformedLength = if (type == 0) {
+                                                                val escapedDisplayName = match.groupValues[1]
+                                                                val displayName = escapedDisplayName.replace(
+                                                                    "\\[",
+                                                                    "[",
+                                                                ).replace("\\]", "]")
+                                                                " $displayName ".length
+                                                            } else {
+                                                                val emojiName = match.groupValues[1]
+                                                                ":$emojiName:".length
+                                                            }
+
+                                                            if (clampedOffset <= match.range.last + 1) {
+                                                                val result = transformedOffset + transformedLength
+                                                                return result.coerceIn(0, annotatedString.length)
+                                                            }
+
+                                                            transformedOffset += transformedLength
+                                                            originalOffset = match.range.last + 1
+                                                        }
+
+                                                        val result = transformedOffset + (clampedOffset - originalOffset)
+                                                        return result.coerceIn(0, annotatedString.length)
+                                                    }
+
+                                                    override fun transformedToOriginal(offset: Int): Int {
+                                                        val clampedOffset = offset.coerceIn(0, annotatedString.length)
+                                                        var transformedOffset = 0
+                                                        var originalOffset = 0
+                                                        val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                        mentionRegex.findAll(
+                                                            text.text,
+                                                        ).forEach { allMatches.add(Pair(0, it)) }
+                                                        customEmojiRegex.findAll(
+                                                            text.text,
+                                                        ).forEach { allMatches.add(Pair(1, it)) }
+                                                        allMatches.sortBy { it.second.range.first }
+
+                                                        for ((type, match) in allMatches) {
+                                                            val beforeLength = match.range.first - originalOffset
+                                                            if (clampedOffset <= transformedOffset + beforeLength) {
+                                                                val result =
+                                                                    originalOffset + (clampedOffset - transformedOffset)
+                                                                return result.coerceIn(0, text.text.length)
+                                                            }
+                                                            transformedOffset += beforeLength
+                                                            originalOffset = match.range.first
+
+                                                            val transformedLength = if (type == 0) {
+                                                                val escapedDisplayName = match.groupValues[1]
+                                                                val displayName = escapedDisplayName.replace(
+                                                                    "\\[",
+                                                                    "[",
+                                                                ).replace("\\]", "]")
+                                                                " $displayName ".length
+                                                            } else {
+                                                                val emojiName = match.groupValues[1]
+                                                                ":$emojiName:".length
+                                                            }
+
+                                                            if (clampedOffset <= transformedOffset + transformedLength) {
+                                                                return match.range.last + 1
+                                                            }
+
+                                                            transformedOffset += transformedLength
+                                                            originalOffset = match.range.last + 1
+                                                        }
+
+                                                        val result = originalOffset + (clampedOffset - transformedOffset)
+                                                        return result.coerceIn(0, text.text.length)
+                                                    }
+                                                }
+
+                                                TransformedText(annotatedString, offsetMapping)
+                                            }
+                                        }
+
+                                        CustomBubbleTextField(
+                                            value = textFieldValue,
+                                            enabled = isInputEnabled,
+                                            onValueChange = { newValue ->
+                                                // Custom emoji backspace handling
+                                                val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
+                                                val replacedValue = applyCompletedEmojiShortcode(afterDeletion)
+                                                textFieldValue = replacedValue
+                                                draft = replacedValue.text
+
+                                                // Detect commands first ( /command ) - check before everything else
+                                                val commandResult = detectCommand(
+                                                    replacedValue.text,
+                                                    replacedValue.selection.start,
+                                                )
+                                                val trimmedForPmp = replacedValue.text.trimEnd()
+                                                showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
+                                                    trimmedForPmp.equals("/profile", ignoreCase = true) ||
+                                                    (
+                                                        trimmedForPmp.startsWith(
+                                                        "/pmp ",
+                                                        ignoreCase = true,
+                                                    ) && trimmedForPmp.drop(5).isBlank()
+                                                    ) ||
+                                                    (
+                                                        trimmedForPmp.startsWith(
+                                                        "/profile ",
+                                                        ignoreCase = true,
+                                                    ) && trimmedForPmp.drop(9).isBlank()
+                                                    )
+
+                                                if (commandResult != null) {
+                                                    val (query, startIndex) = commandResult
+                                                    commandQuery = query
+                                                    commandStartIndex = startIndex
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "ThreadViewerScreen: / detected, query='$query'",
+                                                    )
+                                                    }
+                                                    showCommandSuggestionList = !showPmpProfilePicker
+                                                    // Hide other suggestion lists when command is active
+                                                    showMentionList = false
+                                                    showEmojiSuggestionList = false
+                                                    showRoomSuggestionList = false
+                                                } else {
+                                                    showCommandSuggestionList = false
+
+                                                    // Detect mentions
+                                                    val mentionResult = detectMention(
+                                                        replacedValue.text,
+                                                        replacedValue.selection.start,
+                                                    )
+                                                    if (mentionResult != null) {
+                                                        val (query, startIndex) = mentionResult
+                                                        mentionQuery = query
+                                                        mentionStartIndex = startIndex
+
+                                                        if (!isWaitingForFullMemberList && !showMentionList) {
+                                                            val memberMapCurrent = appViewModel.getMemberMap(roomId)
+                                                            if (memberMapCurrent.isEmpty() || memberMapCurrent.size < 10) {
+                                                                // Profiles are loaded opportunistically when rendering events
+                                                                // Request full member list to populate cache
+                                                                isWaitingForFullMemberList = true
+                                                                lastMemberUpdateCounterBeforeMention =
+                                                                    appViewModel.memberUpdateCounter
+                                                                appViewModel.requestFullMemberList(roomId)
+                                                            } else {
+                                                                showMentionList = true
+                                                            }
+                                                        }
                                                     } else {
-                                                        "Reply in thread..."
+                                                        showMentionList = false
+                                                        isWaitingForFullMemberList = false
+                                                    }
+
+                                                    // Detect emoji shortcodes
+                                                    val emojiResult = detectEmojiShortcode(
+                                                        replacedValue.text,
+                                                        replacedValue.selection.start,
+                                                    )
+                                                    if (emojiResult != null) {
+                                                        val (query, startIndex) = emojiResult
+                                                        emojiQuery = query
+                                                        emojiStartIndex = startIndex
+                                                        showEmojiSuggestionList = true
+                                                    } else {
+                                                        showEmojiSuggestionList = false
+                                                    }
+
+                                                    // Detect room mentions ( #roomalias )
+                                                    val roomResult = detectRoomMention(
+                                                        replacedValue.text,
+                                                        replacedValue.selection.start,
+                                                    )
+                                                    if (roomResult != null) {
+                                                        val (query, startIndex) = roomResult
+                                                        roomQuery = query
+                                                        roomStartIndex = startIndex
+                                                        showRoomSuggestionList = true
+                                                    } else {
+                                                        showRoomSuggestionList = false
+                                                    }
+                                                }
+                                            },
+                                            placeholder = {
+                                                Text(
+                                                    text = run {
+                                                        val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
+                                                        if (networkName != null && networkName.isNotBlank()) {
+                                                            "Reply in $networkName thread..."
+                                                        } else {
+                                                            "Reply in thread..."
+                                                        }
+                                                    },
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontStyle = FontStyle.Italic,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .focusRequester(textFieldFocusRequester),
+                                            minLines = 1,
+                                            maxLines = 5,
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+                                            onHeightChanged = { height ->
+                                                val lineCount = draft.lines().size.coerceAtLeast(1)
+                                                if (lineCount == 1 && (textFieldHeight == 0 || height < textFieldHeight)) {
+                                                    textFieldHeight = height
+                                                }
+                                            },
+                                            trailingIcon = {
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                ) {
+                                                    IconButton(
+                                                        enabled = isInputEnabled,
+                                                        onClick = { if (isInputEnabled) showStickerPickerForText = true },
+                                                        modifier = Modifier.size(32.dp),
+                                                    ) {
+                                                        @Suppress("DEPRECATION")
+                                                        Icon(
+                                                            imageVector = Icons.Outlined.StickyNote2,
+                                                            contentDescription = "Stickers",
+                                                            tint = if (isInputEnabled) {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                            } else {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                                alpha = 0.38f,
+                                                            )
+                                                            },
+                                                        )
+                                                    }
+                                                    IconButton(
+                                                        enabled = isInputEnabled,
+                                                        onClick = { if (isInputEnabled) showEmojiPickerForText = true },
+                                                        modifier = Modifier.size(32.dp),
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.Mood,
+                                                            contentDescription = "Emoji",
+                                                            tint = if (isInputEnabled) {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                            } else {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                                alpha = 0.38f,
+                                                            )
+                                                            },
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                            keyboardOptions = KeyboardOptions(
+                                                capitalization = KeyboardCapitalization.Sentences,
+                                                keyboardType = KeyboardType.Text,
+                                                autoCorrectEnabled = true,
+                                                imeAction = ImeAction.Send,
+                                            ),
+                                            keyboardActions = KeyboardActions(
+                                                onSend = {
+                                                    if (draft.isNotBlank()) {
+                                                        // Check if this is a command first
+                                                        val isCommand = appViewModel.executeCommand(
+                                                            roomId,
+                                                            draft,
+                                                            context,
+                                                            navController,
+                                                        )
+                                                        if (isCommand) {
+                                                            // Command was executed, clear draft
+                                                            draft = ""
+                                                            textFieldValue = TextFieldValue("")
+                                                            return@KeyboardActions
+                                                        } else if (draft.trim().startsWith("/")) {
+                                                            // Check if it's an avatar command that needs image picker
+                                                            val command = draft.trim().lowercase()
+                                                            when {
+                                                                command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                                    pendingAvatarCommand = "myroomavatar"
+                                                                    avatarImagePickerLauncher.launch(
+                                                                        PickVisualMediaRequest(
+                                                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                                        ),
+                                                                    )
+                                                                    draft = ""
+                                                                    textFieldValue = TextFieldValue("")
+                                                                    return@KeyboardActions
+                                                                }
+
+                                                                command == "/globalavatar" || command == "/globalavatar " -> {
+                                                                    pendingAvatarCommand = "globalavatar"
+                                                                    avatarImagePickerLauncher.launch(
+                                                                        PickVisualMediaRequest(
+                                                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                                        ),
+                                                                    )
+                                                                    draft = ""
+                                                                    textFieldValue = TextFieldValue("")
+                                                                    return@KeyboardActions
+                                                                }
+
+                                                                command == "/roomavatar" || command == "/roomavatar " -> {
+                                                                    pendingAvatarCommand = "roomavatar"
+                                                                    avatarImagePickerLauncher.launch(
+                                                                        PickVisualMediaRequest(
+                                                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                                        ),
+                                                                    )
+                                                                    draft = ""
+                                                                    textFieldValue = TextFieldValue("")
+                                                                    return@KeyboardActions
+                                                                }
+                                                            }
+                                                        }
+
+                                                        when {
+                                                            editingEvent != null -> {
+                                                                appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                                                editingEvent = null
+                                                            }
+
+                                                            replyingToEvent != null -> {
+                                                                appViewModel.sendThreadReply(
+                                                                    roomId = roomId,
+                                                                    text = draft,
+                                                                    threadRootEventId = threadRootEventId,
+                                                                    fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                                    urlPreviews = urlPreviewController.getReadyPreviews(),
+                                                                )
+                                                                replyingToEvent = null
+                                                            }
+
+                                                            else -> {
+                                                                val lastMessage = sortedEvents.lastOrNull()
+                                                                appViewModel.sendThreadReply(
+                                                                    roomId = roomId,
+                                                                    text = draft,
+                                                                    threadRootEventId = threadRootEventId,
+                                                                    fallbackReplyToEventId = null,
+                                                                    urlPreviews = urlPreviewController.getReadyPreviews(),
+                                                                )
+                                                            }
+                                                        }
+                                                        urlPreviewController.clearAll()
+                                                        draft = ""
                                                     }
                                                 },
-                                                style = MaterialTheme.typography.bodySmall,
-                                                fontStyle = FontStyle.Italic,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            visualTransformation = mentionAndEmojiTransformation,
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Send button
+
+                                Button(
+                                    onClick = {
+                                        if (draft.isNotBlank()) {
+                                            // Check if this is a command first
+                                            val isCommand = appViewModel.executeCommand(
+                                                roomId,
+                                                draft,
+                                                context,
+                                                navController,
                                             )
-                                        },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .focusRequester(textFieldFocusRequester),
-                                        minLines = 1,
-                                        maxLines = 5,
-                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
-                                        onHeightChanged = { height ->
-                                            val lineCount = draft.lines().size.coerceAtLeast(1)
-                                            if (lineCount == 1 && (textFieldHeight == 0 || height < textFieldHeight)) {
-                                                textFieldHeight = height
-                                            }
-                                        },
-                                        trailingIcon = {
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                IconButton(
-                                                    enabled = isInputEnabled,
-                                                    onClick = { if (isInputEnabled) showStickerPickerForText = true },
-                                                    modifier = Modifier.size(32.dp)
-                                                ) {
-                                                    @Suppress("DEPRECATION")
-                                                    Icon(
-                                                        imageVector = Icons.Outlined.StickyNote2,
-                                                        contentDescription = "Stickers",
-                                                        tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                                    )
-                                                }
-                                                IconButton(
-                                                    enabled = isInputEnabled,
-                                                    onClick = { if (isInputEnabled) showEmojiPickerForText = true },
-                                                    modifier = Modifier.size(32.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Filled.Mood,
-                                                        contentDescription = "Emoji",
-                                                        tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                                    )
-                                                }
-                                            }
-                                        },
-                                        keyboardOptions = KeyboardOptions(
-                                            capitalization = KeyboardCapitalization.Sentences,
-                                            keyboardType = KeyboardType.Text,
-                                            autoCorrectEnabled = true,
-                                            imeAction = ImeAction.Send
-                                        ),
-                                        keyboardActions = KeyboardActions(
-                                            onSend = {
-                                                if (draft.isNotBlank()) {
-                                                    // Check if this is a command first
-                                                    val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
-                                                    if (isCommand) {
-                                                        // Command was executed, clear draft
+                                            if (isCommand) {
+                                                // Command was executed, clear draft
+                                                draft = ""
+                                                textFieldValue = TextFieldValue("")
+                                                return@Button
+                                            } else if (draft.trim().startsWith("/")) {
+                                                // Check if it's an avatar command that needs image picker
+                                                val command = draft.trim().lowercase()
+                                                when {
+                                                    command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                        pendingAvatarCommand = "myroomavatar"
+                                                        avatarImagePickerLauncher.launch(
+                                                            PickVisualMediaRequest(
+                                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                            ),
+                                                        )
                                                         draft = ""
                                                         textFieldValue = TextFieldValue("")
-                                                        return@KeyboardActions
-                                                    } else if (draft.trim().startsWith("/")) {
-                                                        // Check if it's an avatar command that needs image picker
-                                                        val command = draft.trim().lowercase()
-                                                        when {
-                                                            command == "/myroomavatar" || command == "/myroomavatar " -> {
-                                                                pendingAvatarCommand = "myroomavatar"
-                                                                avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                                                draft = ""
-                                                                textFieldValue = TextFieldValue("")
-                                                                return@KeyboardActions
-                                                            }
-                                                            command == "/globalavatar" || command == "/globalavatar " -> {
-                                                                pendingAvatarCommand = "globalavatar"
-                                                                avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                                                draft = ""
-                                                                textFieldValue = TextFieldValue("")
-                                                                return@KeyboardActions
-                                                            }
-                                                            command == "/roomavatar" || command == "/roomavatar " -> {
-                                                                pendingAvatarCommand = "roomavatar"
-                                                                avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                                                draft = ""
-                                                                textFieldValue = TextFieldValue("")
-                                                                return@KeyboardActions
-                                                            }
-                                                        }
+                                                        return@Button
                                                     }
-                                                    
-                                                    when {
-                                                        editingEvent != null -> {
-                                                            appViewModel.sendEdit(roomId, draft, editingEvent!!)
-                                                            editingEvent = null
-                                                        }
-                                                        replyingToEvent != null -> {
+
+                                                    command == "/globalavatar" || command == "/globalavatar " -> {
+                                                        pendingAvatarCommand = "globalavatar"
+                                                        avatarImagePickerLauncher.launch(
+                                                            PickVisualMediaRequest(
+                                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                            ),
+                                                        )
+                                                        draft = ""
+                                                        textFieldValue = TextFieldValue("")
+                                                        return@Button
+                                                    }
+
+                                                    command == "/roomavatar" || command == "/roomavatar " -> {
+                                                        pendingAvatarCommand = "roomavatar"
+                                                        avatarImagePickerLauncher.launch(
+                                                            PickVisualMediaRequest(
+                                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                            ),
+                                                        )
+                                                        draft = ""
+                                                        textFieldValue = TextFieldValue("")
+                                                        return@Button
+                                                    }
+                                                }
+                                            }
+
+                                            when {
+                                                editingEvent != null -> {
+                                                    appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                                    editingEvent = null
+                                                }
+
+                                                replyingToEvent != null -> {
                                                     appViewModel.sendThreadReply(
                                                         roomId = roomId,
                                                         text = draft,
                                                         threadRootEventId = threadRootEventId,
-                                                                fallbackReplyToEventId = replyingToEvent!!.eventId,
-                                                                urlPreviews = urlPreviewController.getReadyPreviews()
-                                                            )
-                                                            replyingToEvent = null
-                                                        }
-                                                        else -> {
-                                                            val lastMessage = sortedEvents.lastOrNull()
-                                                            appViewModel.sendThreadReply(
-                                                                roomId = roomId,
-                                                                text = draft,
-                                                                threadRootEventId = threadRootEventId,
-                                                    fallbackReplyToEventId = null,
-                                                                urlPreviews = urlPreviewController.getReadyPreviews()
-                                                            )
-                                                        }
-                                                    }
-                                                    urlPreviewController.clearAll()
-                                                    draft = ""
+                                                        fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                        urlPreviews = urlPreviewController.getReadyPreviews(),
+                                                    )
+                                                    replyingToEvent = null
+                                                }
+
+                                                else -> {
+                                                    val lastMessageForSend = sortedEvents.lastOrNull()
+                                                    appViewModel.sendThreadReply(
+                                                        roomId = roomId,
+                                                        text = draft,
+                                                        threadRootEventId = threadRootEventId,
+                                                        fallbackReplyToEventId = null,
+                                                        urlPreviews = urlPreviewController.getReadyPreviews(),
+                                                    )
                                                 }
                                             }
-                                        ),
-                                        visualTransformation = mentionAndEmojiTransformation
+                                            urlPreviewController.clearAll()
+                                            draft = ""
+                                        }
+                                    },
+                                    enabled = draft.isNotBlank() && isInputEnabled,
+                                    shape = CircleShape,
+                                    colors =
+                                    ButtonDefaults.buttonColors(
+                                        containerColor =
+                                        if (draft.isNotBlank()) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                        },
+                                    ),
+                                    modifier = Modifier.size(buttonHeight),
+                                    contentPadding = PaddingValues(0.dp),
+                                ) {
+                                    @Suppress("DEPRECATION")
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "Send",
+                                        tint =
+                                        if (draft.isNotBlank()) {
+                                            MaterialTheme.colorScheme.onPrimary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                        modifier = Modifier,
                                     )
                                 }
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            
-                            // Send button
-                            
-                            Button(
-                                onClick = {
-                                    if (draft.isNotBlank()) {
-                                        // Check if this is a command first
-                                        val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
-                                        if (isCommand) {
-                                            // Command was executed, clear draft
-                                            draft = ""
-                                            textFieldValue = TextFieldValue("")
-                                            return@Button
-                                        } else if (draft.trim().startsWith("/")) {
-                                            // Check if it's an avatar command that needs image picker
-                                            val command = draft.trim().lowercase()
-                                            when {
-                                                command == "/myroomavatar" || command == "/myroomavatar " -> {
-                                                    pendingAvatarCommand = "myroomavatar"
-                                                    avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                                    draft = ""
-                                                    textFieldValue = TextFieldValue("")
-                                                    return@Button
-                                                }
-                                                command == "/globalavatar" || command == "/globalavatar " -> {
-                                                    pendingAvatarCommand = "globalavatar"
-                                                    avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                                    draft = ""
-                                                    textFieldValue = TextFieldValue("")
-                                                    return@Button
-                                                }
-                                                command == "/roomavatar" || command == "/roomavatar " -> {
-                                                    pendingAvatarCommand = "roomavatar"
-                                                    avatarImagePickerLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                                                    draft = ""
-                                                    textFieldValue = TextFieldValue("")
-                                                    return@Button
-                                                }
-                                            }
-                                        }
-                                        
-                                        when {
-                                            editingEvent != null -> {
-                                                appViewModel.sendEdit(roomId, draft, editingEvent!!)
-                                                editingEvent = null
-                                            }
-                                            replyingToEvent != null -> {
-                                        appViewModel.sendThreadReply(
-                                            roomId = roomId,
-                                            text = draft,
-                                            threadRootEventId = threadRootEventId,
-                                                    fallbackReplyToEventId = replyingToEvent!!.eventId,
-                                                    urlPreviews = urlPreviewController.getReadyPreviews()
-                                                )
-                                                replyingToEvent = null
-                                            }
-                                            else -> {
-                                                val lastMessageForSend = sortedEvents.lastOrNull()
-                                                appViewModel.sendThreadReply(
-                                                    roomId = roomId,
-                                                    text = draft,
-                                                    threadRootEventId = threadRootEventId,
-                                                fallbackReplyToEventId = null,
-                                                    urlPreviews = urlPreviewController.getReadyPreviews()
-                                                )
-                                            }
-                                        }
-                                        urlPreviewController.clearAll()
-                                        draft = ""
-                                    }
-                                },
-                                enabled = draft.isNotBlank() && isInputEnabled,
-                                shape = CircleShape,
-                                colors =
-                                    ButtonDefaults.buttonColors(
-                                        containerColor =
-                                            if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.surfaceVariant
-                                    ),
-                                modifier = Modifier.size(buttonHeight),
-                                contentPadding = PaddingValues(0.dp)
-                            ) {
-                                @Suppress("DEPRECATION")
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = "Send",
-                                    tint =
-                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier
-                                )
-                            }
                         }
                     }
 
-                }
-                
-                // Message menu bar (slides from bottom, same position as attach menu)
-                AnimatedVisibility(
-                    visible = messageMenuConfig != null,
-                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
-                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))
-                ) {
-                    val messageBarSlideOffsetPx = transition.animateFloat(
-                        transitionSpec = {
-                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                // ENTER: slide in first
-                                tween(durationMillis = scaledTweenMs(120))
-                            } else {
-                                // EXIT: wait for buttons to fade out, then slide down
-                                tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
-                            }
-                        },
-                        label = "messageBarSlideOffset"
-                    ) { state ->
-                        if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
-                    }
-                    val messageButtonsAlpha = transition.animateFloat(
-                        transitionSpec = {
-                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                // ENTER: buttons fade in after bar has slid in
-                                tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
-                            } else {
-                                // EXIT: buttons fade out immediately
-                                tween(durationMillis = scaledTweenMs(500))
-                            }
-                        },
-                        label = "messageButtonsAlpha"
-                    ) { state ->
-                        if (state == EnterExitState.Visible) 1f else 0f
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(5f),
-                        contentAlignment = Alignment.BottomStart
+                    // Message menu bar (slides from bottom, same position as attach menu)
+                    AnimatedVisibility(
+                        visible = messageMenuConfig != null,
+                        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
+                        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
                     ) {
+                        val messageBarSlideOffsetPx = transition.animateFloat(
+                            transitionSpec = {
+                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                    // ENTER: slide in first
+                                    tween(durationMillis = scaledTweenMs(120))
+                                } else {
+                                    // EXIT: wait for buttons to fade out, then slide down
+                                    tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
+                                }
+                            },
+                            label = "messageBarSlideOffset",
+                        ) { state ->
+                            if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
+                        }
+                        val messageButtonsAlpha = transition.animateFloat(
+                            transitionSpec = {
+                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                    // ENTER: buttons fade in after bar has slid in
+                                    tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
+                                } else {
+                                    // EXIT: buttons fade out immediately
+                                    tween(durationMillis = scaledTweenMs(500))
+                                }
+                            },
+                            label = "messageButtonsAlpha",
+                        ) { state ->
+                            if (state == EnterExitState.Visible) 1f else 0f
+                        }
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .graphicsLayer {
-                                    // Position menu right above footer (same as attach menu)
-                                    // Footer height = buttonHeight + 24.dp padding
-                                    translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
-                                }
+                                .fillMaxSize()
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(5f),
+                            contentAlignment = Alignment.BottomStart,
                         ) {
-                            net.vrkknn.andromuks.utils.MessageMenuBar(
-                                menuConfig = messageMenuConfig ?: retainedMessageMenuConfig,
-                                onDismiss = { messageMenuConfig = null },
-                                buttonsAlpha = messageButtonsAlpha.value,
-                                modifier = Modifier.fillMaxWidth()
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .graphicsLayer {
+                                        // Position menu right above footer (same as attach menu)
+                                        // Footer height = buttonHeight + 24.dp padding
+                                        translationY = -with(
+                                            density,
+                                        ) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
+                                    },
+                            ) {
+                                net.vrkknn.andromuks.utils.MessageMenuBar(
+                                    menuConfig = messageMenuConfig ?: retainedMessageMenuConfig,
+                                    onDismiss = { messageMenuConfig = null },
+                                    buttonsAlpha = messageButtonsAlpha.value,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+
+                    // Attachment action bar + in-app camera/video capture overlays (shared with
+                    // RoomTimelineScreen). See utils/AttachmentMenu.kt.
+                    net.vrkknn.andromuks.utils.AttachmentMenuBar(
+                        visible = showAttachmentMenu,
+                        buttonHeight = buttonHeight,
+                        onDismiss = { showAttachmentMenu = false },
+                        onPickImageVideo = {
+                            mediaPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                            )
+                        },
+                        onPickAudio = { audioPickerLauncher.launch("audio/*") },
+                        onPickFile = { filePickerLauncher.launch("*/*") },
+                        onOpenPhotoCamera = { showCameraOverlay = true },
+                        onOpenVideoCamera = { showVideoOverlay = true },
+                        onPickLocation = { showLocationPickerOverlay = true },
+                    )
+
+                    net.vrkknn.andromuks.utils.InAppCameraOverlay(
+                        visible = showCameraOverlay,
+                        onDismiss = { showCameraOverlay = false },
+                        onCaptured = { uri, isVideo ->
+                            selectedMediaUri = uri
+                            selectedMediaIsVideo = isVideo
+                            selectedAudioUri = null
+                            selectedFileUri = null
+                            showMediaPreview = true
+                        },
+                    )
+
+                    net.vrkknn.andromuks.utils.InAppVideoOverlay(
+                        visible = showVideoOverlay,
+                        onDismiss = { showVideoOverlay = false },
+                        onCaptured = { uri, isVideo ->
+                            selectedMediaUri = uri
+                            selectedMediaIsVideo = isVideo
+                            selectedAudioUri = null
+                            selectedFileUri = null
+                            showMediaPreview = true
+                        },
+                    )
+
+                    // Location picker overlay
+                    if (showLocationPickerOverlay) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            LocationPickerOverlay(
+                                onDismiss = { showLocationPickerOverlay = false },
+                                onSendLocation = { lat, lon, caption ->
+                                    appViewModel.sendLocationMessage(
+                                        roomId = roomId,
+                                        latitude = lat,
+                                        longitude = lon,
+                                        description = caption,
+                                        threadRootEventId = threadRootEventId,
+                                    )
+                                    showLocationPickerOverlay = false
+                                },
                             )
                         }
                     }
-                }
 
-                // Attachment action bar + in-app camera/video capture overlays (shared with
-                // RoomTimelineScreen). See utils/AttachmentMenu.kt.
-                net.vrkknn.andromuks.utils.AttachmentMenuBar(
-                    visible = showAttachmentMenu,
-                    buttonHeight = buttonHeight,
-                    onDismiss = { showAttachmentMenu = false },
-                    onPickImageVideo = {
-                        mediaPickerLauncher.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                        )
-                    },
-                    onPickAudio = { audioPickerLauncher.launch("audio/*") },
-                    onPickFile = { filePickerLauncher.launch("*/*") },
-                    onOpenPhotoCamera = { showCameraOverlay = true },
-                    onOpenVideoCamera = { showVideoOverlay = true },
-                    onPickLocation = { showLocationPickerOverlay = true }
-                )
-
-                net.vrkknn.andromuks.utils.InAppCameraOverlay(
-                    visible = showCameraOverlay,
-                    onDismiss = { showCameraOverlay = false },
-                    onCaptured = { uri, isVideo ->
-                        selectedMediaUri = uri
-                        selectedMediaIsVideo = isVideo
-                        selectedAudioUri = null
-                        selectedFileUri = null
-                        showMediaPreview = true
-                    }
-                )
-
-                net.vrkknn.andromuks.utils.InAppVideoOverlay(
-                    visible = showVideoOverlay,
-                    onDismiss = { showVideoOverlay = false },
-                    onCaptured = { uri, isVideo ->
-                        selectedMediaUri = uri
-                        selectedMediaIsVideo = isVideo
-                        selectedAudioUri = null
-                        selectedFileUri = null
-                        showMediaPreview = true
-                    }
-                )
-
-                // Location picker overlay
-                if (showLocationPickerOverlay) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        LocationPickerOverlay(
-                            onDismiss = { showLocationPickerOverlay = false },
-                            onSendLocation = { lat, lon, caption ->
-                                appViewModel.sendLocationMessage(
-                                    roomId = roomId,
-                                    latitude = lat,
-                                    longitude = lon,
-                                    description = caption,
-                                    threadRootEventId = threadRootEventId
+                    // Emoji shortcode suggestion list
+                    if (showEmojiSuggestionList) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    start = 72.dp,
+                                    bottom = 80.dp,
                                 )
-                                showLocationPickerOverlay = false
-                            }
-                        )
-                    }
-                }
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                            contentAlignment = Alignment.BottomStart,
+                        ) {
+                            EmojiSuggestionList(
+                                query = emojiQuery,
+                                customEmojiPacks = appViewModel.customEmojiPacks,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                onSuggestionSelected = { suggestion ->
+                                    val currentText = draft
+                                    val cursorPos = textFieldValue.selection.start
+                                    val endIndex = cursorPos
 
-                // Emoji shortcode suggestion list
-                if (showEmojiSuggestionList) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(
-                                start = 72.dp,
-                                bottom = 80.dp
+                                    val baseReplacement =
+                                        suggestion.emoji
+                                            ?: suggestion.customEmoji?.let { custom ->
+                                                "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
+                                            }
+                                            ?: ""
+
+                                    if (baseReplacement.isNotEmpty() && emojiStartIndex >= 0 &&
+                                        emojiStartIndex < endIndex
+                                    ) {
+                                        val newText =
+                                            currentText.substring(0, emojiStartIndex) +
+                                                baseReplacement +
+                                                currentText.substring(endIndex)
+                                        val newCursor = emojiStartIndex + baseReplacement.length
+
+                                        draft = newText
+                                        textFieldValue = TextFieldValue(
+                                            text = newText,
+                                            selection = TextRange(newCursor),
+                                        )
+
+                                        val emojiForRecent =
+                                            if (baseReplacement.startsWith("![:") && baseReplacement.contains("mxc://")) {
+                                                val mxcStart = baseReplacement.indexOf("mxc://")
+                                                if (mxcStart >= 0) {
+                                                    val mxcEnd = baseReplacement.indexOf("\"", mxcStart)
+                                                    if (mxcEnd > mxcStart) {
+                                                        baseReplacement.substring(mxcStart, mxcEnd).trimEnd()
+                                                    } else {
+                                                        baseReplacement.substring(mxcStart)
+                                                    }
+                                                } else {
+                                                    baseReplacement
+                                                }
+                                            } else {
+                                                baseReplacement
+                                            }
+                                        appViewModel.updateRecentEmojis(emojiForRecent)
+                                    }
+
+                                    showEmojiSuggestionList = false
+                                    emojiQuery = ""
+                                },
+                                modifier = Modifier.zIndex(10f),
                             )
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f),
-                        contentAlignment = Alignment.BottomStart
-                    ) {
-                        EmojiSuggestionList(
-                            query = emojiQuery,
-                            customEmojiPacks = appViewModel.customEmojiPacks,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            onSuggestionSelected = { suggestion ->
-                                val currentText = draft
-                                val cursorPos = textFieldValue.selection.start
-                                val endIndex = cursorPos
+                        }
+                    }
 
-                                val baseReplacement =
-                                    suggestion.emoji
-                                        ?: suggestion.customEmoji?.let { custom ->
-                                            "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
-                                        }
-                                        ?: ""
+                    // Floating per-message profile picker
+                    if (showPmpProfilePicker) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(start = 72.dp, bottom = 80.dp)
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                            contentAlignment = Alignment.BottomStart,
+                        ) {
+                            net.vrkknn.andromuks.utils.PerMessageProfilePicker(
+                                appViewModel = appViewModel,
+                                onProfileSelected = { profile ->
+                                    val newText = "/pmp ${profile.shortcode} "
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
+                                    showPmpProfilePicker = false
+                                },
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
 
-                                if (baseReplacement.isNotEmpty() && emojiStartIndex >= 0 && emojiStartIndex < endIndex) {
-                                    val newText =
-                                        currentText.substring(0, emojiStartIndex) +
-                                            baseReplacement +
-                                            currentText.substring(endIndex)
-                                    val newCursor = emojiStartIndex + baseReplacement.length
+                    // Floating room suggestion list for room mentions
+                    // Floating command suggestion list
+                    if (showCommandSuggestionList) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    start = 72.dp,
+                                    bottom = 80.dp,
+                                )
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                            contentAlignment = Alignment.BottomStart,
+                        ) {
+                            CommandSuggestionList(
+                                query = commandQuery,
+                                onCommandSelected = { command ->
+                                    // Replace the command text with the selected command
+                                    val commandEndIndex = commandStartIndex + 1 + commandQuery.length
+                                    val newText = draft.substring(
+                                        0,
+                                        commandStartIndex,
+                                    ) + command.command + " " + draft.substring(commandEndIndex)
+                                    val newCursorPosition = commandStartIndex + command.command.length + 1
 
                                     draft = newText
                                     textFieldValue = TextFieldValue(
                                         text = newText,
-                                        selection = TextRange(newCursor)
+                                        selection = TextRange(newCursorPosition),
                                     )
 
-                                    val emojiForRecent =
-                                        if (baseReplacement.startsWith("![:") && baseReplacement.contains("mxc://")) {
-                                            val mxcStart = baseReplacement.indexOf("mxc://")
-                                            if (mxcStart >= 0) {
-                                                val mxcEnd = baseReplacement.indexOf("\"", mxcStart)
-                                                if (mxcEnd > mxcStart) {
-                                                    baseReplacement.substring(mxcStart, mxcEnd).trimEnd()
-                                                } else {
-                                                    baseReplacement.substring(mxcStart)
-                                                }
-                                            } else baseReplacement
-                                        } else baseReplacement
-                                    appViewModel.updateRecentEmojis(emojiForRecent)
-                                }
-
-                                showEmojiSuggestionList = false
-                                emojiQuery = ""
-                            },
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-                
-                // Floating per-message profile picker
-                if (showPmpProfilePicker) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(start = 72.dp, bottom = 80.dp)
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f),
-                        contentAlignment = Alignment.BottomStart
-                    ) {
-                        net.vrkknn.andromuks.utils.PerMessageProfilePicker(
-                            appViewModel = appViewModel,
-                            onProfileSelected = { profile ->
-                                val newText = "/pmp ${profile.shortcode} "
-                                draft = newText
-                                textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
-                                showPmpProfilePicker = false
-                            },
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-
-                // Floating room suggestion list for room mentions
-                // Floating command suggestion list
-                if (showCommandSuggestionList) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(
-                                start = 72.dp,
-                                bottom = 80.dp
+                                    // Hide the command suggestion list
+                                    showCommandSuggestionList = false
+                                    commandQuery = ""
+                                },
+                                modifier = Modifier.zIndex(10f),
                             )
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f),
-                        contentAlignment = Alignment.BottomStart
-                    ) {
-                        CommandSuggestionList(
-                            query = commandQuery,
-                            onCommandSelected = { command ->
-                                // Replace the command text with the selected command
-                                val commandEndIndex = commandStartIndex + 1 + commandQuery.length
-                                val newText = draft.substring(0, commandStartIndex) + command.command + " " + draft.substring(commandEndIndex)
-                                val newCursorPosition = commandStartIndex + command.command.length + 1
-                                
-                                draft = newText
-                                textFieldValue = TextFieldValue(
-                                    text = newText,
-                                    selection = TextRange(newCursorPosition)
-                                )
-                                
-                                // Hide the command suggestion list
-                                showCommandSuggestionList = false
-                                commandQuery = ""
-                            },
-                            modifier = Modifier.zIndex(10f)
-                        )
+                        }
                     }
-                }
-                
-                if (showRoomSuggestionList) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(
-                                start = 72.dp,
-                                bottom = 80.dp
-                            )
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f),
-                        contentAlignment = Alignment.BottomStart
-                    ) {
-                        ThreadRoomSuggestionList(
-                            rooms = roomsWithAliases,
-                            query = roomQuery,
-                            onRoomSelect = { selectedRoomId, canonicalAlias ->
-                                // Replace the room mention text with a markdown link
-                                // Format: [#room:server.com](https://matrix.to/#/%23room%3Aserver.com)
-                                val roomEndIndex = roomStartIndex + 1 + roomQuery.length
-                                val encodedAlias = java.net.URLEncoder.encode(canonicalAlias, "UTF-8")
-                                val roomMentionText = "[$canonicalAlias](https://matrix.to/#/$encodedAlias) "
-                                val newText = draft.substring(0, roomStartIndex) + roomMentionText + draft.substring(roomEndIndex)
-                                val newCursorPosition = roomStartIndex + roomMentionText.length
-                                
-                                draft = newText
-                                textFieldValue = TextFieldValue(
-                                    text = newText,
-                                    selection = TextRange(newCursorPosition)
+
+                    if (showRoomSuggestionList) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    start = 72.dp,
+                                    bottom = 80.dp,
                                 )
-                                
-                                // Hide the room suggestion list
-                                showRoomSuggestionList = false
-                                roomQuery = ""
-                            },
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                            contentAlignment = Alignment.BottomStart,
+                        ) {
+                            ThreadRoomSuggestionList(
+                                rooms = roomsWithAliases,
+                                query = roomQuery,
+                                onRoomSelect = { selectedRoomId, canonicalAlias ->
+                                    // Replace the room mention text with a markdown link
+                                    // Format: [#room:server.com](https://matrix.to/#/%23room%3Aserver.com)
+                                    val roomEndIndex = roomStartIndex + 1 + roomQuery.length
+                                    val encodedAlias = java.net.URLEncoder.encode(canonicalAlias, "UTF-8")
+                                    val roomMentionText = "[$canonicalAlias](https://matrix.to/#/$encodedAlias) "
+                                    val newText = draft.substring(
+                                        0,
+                                        roomStartIndex,
+                                    ) + roomMentionText + draft.substring(roomEndIndex)
+                                    val newCursorPosition = roomStartIndex + roomMentionText.length
+
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursorPosition),
+                                    )
+
+                                    // Hide the room suggestion list
+                                    showRoomSuggestionList = false
+                                    roomQuery = ""
+                                },
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    // Floating member list for mentions
+                    if (showMentionList) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(
+                                    start = 72.dp, // Align with text input (attach button width + spacing)
+                                    bottom = 80.dp, // Above text input
+                                )
+                                .navigationBarsPadding()
+                                .imePadding(),
+                            contentAlignment = Alignment.BottomStart,
+                        ) {
+                            ThreadMentionMemberList(
+                                members = roomMembers,
+                                query = mentionQuery,
+                                onMemberSelect = { userId: String, displayName: String? ->
+                                    // Replace the mention text with the selected user
+                                    val mentionEndIndex = mentionStartIndex + 1 + mentionQuery.length
+                                    val newText = handleMentionSelection(
+                                        userId,
+                                        displayName,
+                                        draft,
+                                        mentionStartIndex,
+                                        mentionEndIndex,
+                                    )
+
+                                    // Calculate the new cursor position after the inserted mention
+                                    // The cursor should be positioned right after the inserted mention text
+                                    val escapedDisplayName = (
+                                        displayName?.takeIf { it.isNotBlank() }
+                                        ?: userId.removePrefix(
+                                            "@",
+                                        ).substringBefore(":")
+                                    )
+                                        .replace("[", "\\[")
+                                        .replace("]", "\\]")
+                                    val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
+                                    val newCursorPosition = mentionStartIndex + mentionText.length
+
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursorPosition),
+                                    )
+
+                                    // Hide the mention list
+                                    showMentionList = false
+                                    mentionQuery = ""
+                                },
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    // Emoji selection dialog for text input
+                    if (showEmojiPickerForText) {
+                        EmojiSelectionDialog(
+                            recentEmojis = appViewModel.recentEmojis,
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-                
-                // Floating member list for mentions
-                if (showMentionList) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(
-                                start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 80.dp  // Above text input
-                            )
-                            .navigationBarsPadding()
-                            .imePadding(),
-                        contentAlignment = Alignment.BottomStart
-                    ) {
-                        ThreadMentionMemberList(
-                            members = roomMembers,
-                            query = mentionQuery,
-                            onMemberSelect = { userId: String, displayName: String? ->
-                                // Replace the mention text with the selected user
-                                val mentionEndIndex = mentionStartIndex + 1 + mentionQuery.length
-                                val newText = handleMentionSelection(userId, displayName, draft, mentionStartIndex, mentionEndIndex)
-                                
-                                // Calculate the new cursor position after the inserted mention
-                                // The cursor should be positioned right after the inserted mention text
-                                val escapedDisplayName = (displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":"))
-                                    .replace("[", "\\[")
-                                    .replace("]", "\\]")
-                                val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
-                                val newCursorPosition = mentionStartIndex + mentionText.length
-                                
+                            onEmojiSelected = { emoji ->
+                                val currentText = textFieldValue.text
+                                val cursorPosition = textFieldValue.selection.start
+                                val newText = currentText.substring(0, cursorPosition) +
+                                    emoji +
+                                    currentText.substring(cursorPosition)
+                                val newCursorPosition = cursorPosition + emoji.length
+
                                 draft = newText
                                 textFieldValue = TextFieldValue(
                                     text = newText,
-                                    selection = TextRange(newCursorPosition)
+                                    selection = TextRange(newCursorPosition),
                                 )
-                                
-                                // Hide the mention list
-                                showMentionList = false
-                                mentionQuery = ""
-                            },
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-                
-                // Emoji selection dialog for text input
-                if (showEmojiPickerForText) {
-                    EmojiSelectionDialog(
-                        recentEmojis = appViewModel.recentEmojis,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onEmojiSelected = { emoji ->
-                            val currentText = textFieldValue.text
-                            val cursorPosition = textFieldValue.selection.start
-                            val newText = currentText.substring(0, cursorPosition) +
-                                emoji +
-                                currentText.substring(cursorPosition)
-                            val newCursorPosition = cursorPosition + emoji.length
 
-                            draft = newText
-                            textFieldValue = TextFieldValue(
-                                text = newText,
-                                selection = TextRange(newCursorPosition)
-                            )
-
-                            val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
-                                val mxcStart = emoji.indexOf("mxc://")
-                                if (mxcStart >= 0) {
-                                    val mxcEnd = emoji.indexOf("\"", mxcStart)
-                                    if (mxcEnd > mxcStart) {
-                                        emoji.substring(mxcStart, mxcEnd).trimEnd()
+                                val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
+                                    val mxcStart = emoji.indexOf("mxc://")
+                                    if (mxcStart >= 0) {
+                                        val mxcEnd = emoji.indexOf("\"", mxcStart)
+                                        if (mxcEnd > mxcStart) {
+                                            emoji.substring(mxcStart, mxcEnd).trimEnd()
+                                        } else {
+                                            emoji.substring(mxcStart)
+                                        }
                                     } else {
-                                        emoji.substring(mxcStart)
+                                        emoji
                                     }
-                                } else emoji
-                            } else emoji
-                            appViewModel.updateRecentEmojis(emojiForRecent)
-                        },
-                        onDismiss = { showEmojiPickerForText = false },
-                        customEmojiPacks = appViewModel.customEmojiPacks,
-                        allowCustomReactions = false
-                    )
-                }
+                                } else {
+                                    emoji
+                                }
+                                appViewModel.updateRecentEmojis(emojiForRecent)
+                            },
+                            onDismiss = { showEmojiPickerForText = false },
+                            customEmojiPacks = appViewModel.customEmojiPacks,
+                            allowCustomReactions = false,
+                        )
+                    }
 
-                // Sticker selection dialog for text input
-                if (showStickerPickerForText) {
-                    StickerSelectionDialog(
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onStickerSelected = { sticker ->
-                            val mimeType = sticker.info?.optString("mimetype") ?: "image/png"
-                            val size = sticker.info?.optLong("size") ?: 0L
-                            val width = sticker.info?.optInt("w", 0) ?: 0
-                            val height = sticker.info?.optInt("h", 0) ?: 0
-                            val body = sticker.body ?: sticker.name
+                    // Sticker selection dialog for text input
+                    if (showStickerPickerForText) {
+                        StickerSelectionDialog(
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onStickerSelected = { sticker ->
+                                val mimeType = sticker.info?.optString("mimetype") ?: "image/png"
+                                val size = sticker.info?.optLong("size") ?: 0L
+                                val width = sticker.info?.optInt("w", 0) ?: 0
+                                val height = sticker.info?.optInt("h", 0) ?: 0
+                                val body = sticker.body ?: sticker.name
 
-                            val replyTarget = replyingToEvent?.eventId ?: sortedEvents.lastOrNull()?.eventId
-                            val mentionIds = replyingToEvent?.sender?.let { listOf(it) } ?: emptyList()
-                            val isFallback = replyTarget == null || replyingToEvent == null
+                                val replyTarget = replyingToEvent?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                val mentionIds = replyingToEvent?.sender?.let { listOf(it) } ?: emptyList()
+                                val isFallback = replyTarget == null || replyingToEvent == null
 
-                            appViewModel.sendStickerMessage(
-                                roomId = roomId,
-                                mxcUrl = sticker.mxcUrl,
-                                body = body,
-                                mimeType = mimeType,
-                                size = size,
-                                width = width,
-                                height = height,
-                                threadRootEventId = threadRootEventId,
-                                replyToEventId = replyTarget,
-                                isThreadFallback = isFallback,
-                                mentions = mentionIds
-                            )
+                                appViewModel.sendStickerMessage(
+                                    roomId = roomId,
+                                    mxcUrl = sticker.mxcUrl,
+                                    body = body,
+                                    mimeType = mimeType,
+                                    size = size,
+                                    width = width,
+                                    height = height,
+                                    threadRootEventId = threadRootEventId,
+                                    replyToEventId = replyTarget,
+                                    isThreadFallback = isFallback,
+                                    mentions = mentionIds,
+                                )
 
-                            showStickerPickerForText = false
-                            replyingToEvent = null
-                        },
-                        onDismiss = { showStickerPickerForText = false },
-                        stickerPacks = appViewModel.stickerPacks
-                    )
-                }
+                                showStickerPickerForText = false
+                                replyingToEvent = null
+                            },
+                            onDismiss = { showStickerPickerForText = false },
+                            stickerPacks = appViewModel.stickerPacks,
+                        )
+                    }
 
-                // Media preview dialog
-                if (showMediaPreview && (selectedMediaUri != null || selectedAudioUri != null || selectedFileUri != null)) {
-                    val currentUri = selectedMediaUri ?: selectedAudioUri ?: selectedFileUri!!
-                    val isAudio = selectedAudioUri != null
-                    val isFile = selectedFileUri != null
+                    // Media preview dialog
+                    if (showMediaPreview &&
+                        (selectedMediaUri != null || selectedAudioUri != null || selectedFileUri != null)
+                    ) {
+                        val currentUri = selectedMediaUri ?: selectedAudioUri ?: selectedFileUri!!
+                        val isAudio = selectedAudioUri != null
+                        val isFile = selectedFileUri != null
 
-                    MediaPreviewDialog(
-                        uri = currentUri,
-                        isVideo = selectedMediaIsVideo,
-                        isAudio = isAudio,
-                        isFile = isFile,
-                        onDismiss = {
-                            showMediaPreview = false
-                            selectedMediaUri = null
-                            selectedAudioUri = null
-                            selectedFileUri = null
-                            selectedMediaIsVideo = false
-                        },
-                        onSend = { caption, compressOriginal ->
-                            // Close dialog immediately - upload will continue in background
-                            showMediaPreview = false
-                            
-                            // Clear media selection state immediately so user can select new media
-                            val mediaUriToUpload = selectedMediaUri
-                            val audioUriToUpload = selectedAudioUri
-                            val fileUriToUpload = selectedFileUri
-                            val isVideoToUpload = selectedMediaIsVideo
-                            val replyToEventToUpload = replyingToEvent
-                            
-                            // Clear state immediately
-                            selectedMediaUri = null
-                            selectedAudioUri = null
-                            selectedFileUri = null
-                            selectedMediaIsVideo = false
-                            replyingToEvent = null
-                            
-                            coroutineScope.launch {
-                                // Local helper for uploads with retry
-                                suspend fun <T> performUpload(
-                                    type: String,
-                                    uploadBlock: suspend () -> T?
-                                ): T? {
-                                    appViewModel.beginUpload(roomId, type)
+                        MediaPreviewDialog(
+                            uri = currentUri,
+                            isVideo = selectedMediaIsVideo,
+                            isAudio = isAudio,
+                            isFile = isFile,
+                            onDismiss = {
+                                showMediaPreview = false
+                                selectedMediaUri = null
+                                selectedAudioUri = null
+                                selectedFileUri = null
+                                selectedMediaIsVideo = false
+                            },
+                            onSend = { caption, compressOriginal ->
+                                // Close dialog immediately - upload will continue in background
+                                showMediaPreview = false
+
+                                // Clear media selection state immediately so user can select new media
+                                val mediaUriToUpload = selectedMediaUri
+                                val audioUriToUpload = selectedAudioUri
+                                val fileUriToUpload = selectedFileUri
+                                val isVideoToUpload = selectedMediaIsVideo
+                                val replyToEventToUpload = replyingToEvent
+
+                                // Clear state immediately
+                                selectedMediaUri = null
+                                selectedAudioUri = null
+                                selectedFileUri = null
+                                selectedMediaIsVideo = false
+                                replyingToEvent = null
+
+                                coroutineScope.launch {
+                                    // Local helper for uploads with retry
+                                    suspend fun <T> performUpload(type: String, uploadBlock: suspend () -> T?): T? {
+                                        appViewModel.beginUpload(roomId, type)
+                                        try {
+                                            var result: T? = null
+                                            for (attempt in 0..3) {
+                                                if (attempt > 0) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "ThreadViewerScreen: Retrying $type upload (attempt $attempt/3)",
+                                                    )
+                                                    }
+                                                    appViewModel.setUploadRetryCount(roomId, attempt)
+                                                    kotlinx.coroutines.delay(1000L * attempt)
+                                                }
+                                                result = uploadBlock()
+                                                if (result != null) break
+                                            }
+                                            appViewModel.setUploadRetryCount(roomId, 0)
+                                            return result
+                                        } finally {
+                                            appViewModel.endUpload(roomId, type)
+                                        }
+                                    }
+
                                     try {
-                                        var result: T? = null
-                                        for (attempt in 0..3) {
-                                            if (attempt > 0) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "ThreadViewerScreen: Retrying $type upload (attempt $attempt/3)")
-                                                appViewModel.setUploadRetryCount(roomId, attempt)
-                                                kotlinx.coroutines.delay(1000L * attempt)
+                                        when {
+                                            isVideoToUpload && mediaUriToUpload != null -> {
+                                                val videoResult = performUpload("video") {
+                                                    VideoUploadUtils.uploadVideo(
+                                                        context = context,
+                                                        uri = mediaUriToUpload,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        },
+                                                    )
+                                                }
+                                                if (videoResult != null) {
+                                                    val replyTarget =
+                                                        replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                    val mentions = replyToEventToUpload?.sender?.let {
+                                                        listOf(
+                                                            it,
+                                                        )
+                                                    } ?: emptyList()
+                                                    appViewModel.sendVideoMessage(
+                                                        roomId = roomId,
+                                                        videoMxcUrl = videoResult.videoMxcUrl,
+                                                        thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
+                                                        width = videoResult.width,
+                                                        height = videoResult.height,
+                                                        duration = videoResult.duration,
+                                                        size = videoResult.size,
+                                                        mimeType = videoResult.mimeType,
+                                                        thumbnailBlurHash = videoResult.thumbnailBlurHash,
+                                                        thumbnailWidth = videoResult.thumbnailWidth,
+                                                        thumbnailHeight = videoResult.thumbnailHeight,
+                                                        thumbnailSize = videoResult.thumbnailSize,
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = threadRootEventId,
+                                                        replyToEventId = replyTarget,
+                                                        isThreadFallback = replyToEventToUpload == null,
+                                                        mentions = mentions,
+                                                    )
+                                                } else {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Failed to upload video after 3 attempts",
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
                                             }
-                                            result = uploadBlock()
-                                            if (result != null) break
+
+                                            audioUriToUpload != null -> {
+                                                val audioResult = performUpload("audio") {
+                                                    MediaUploadUtils.uploadAudio(
+                                                        context = context,
+                                                        uri = audioUriToUpload,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        },
+                                                    )
+                                                }
+                                                if (audioResult != null) {
+                                                    val replyTarget =
+                                                        replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                    val mentions = replyToEventToUpload?.sender?.let {
+                                                        listOf(
+                                                            it,
+                                                        )
+                                                    } ?: emptyList()
+                                                    appViewModel.sendAudioMessage(
+                                                        roomId = roomId,
+                                                        mxcUrl = audioResult.mxcUrl,
+                                                        filename = audioResult.filename,
+                                                        duration = audioResult.duration,
+                                                        size = audioResult.size,
+                                                        mimeType = audioResult.mimeType,
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = threadRootEventId,
+                                                        replyToEventId = replyTarget,
+                                                        isThreadFallback = replyToEventToUpload == null,
+                                                        mentions = mentions,
+                                                    )
+                                                } else {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Failed to upload audio after 3 attempts",
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            }
+
+                                            fileUriToUpload != null -> {
+                                                val fileResult = performUpload("file") {
+                                                    MediaUploadUtils.uploadFile(
+                                                        context = context,
+                                                        uri = fileUriToUpload,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        },
+                                                    )
+                                                }
+                                                if (fileResult != null) {
+                                                    val replyTarget =
+                                                        replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                    val mentions = replyToEventToUpload?.sender?.let {
+                                                        listOf(
+                                                            it,
+                                                        )
+                                                    } ?: emptyList()
+                                                    appViewModel.sendFileMessage(
+                                                        roomId = roomId,
+                                                        mxcUrl = fileResult.mxcUrl,
+                                                        filename = fileResult.filename,
+                                                        size = fileResult.size,
+                                                        mimeType = fileResult.mimeType,
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = threadRootEventId,
+                                                        replyToEventId = replyTarget,
+                                                        isThreadFallback = replyToEventToUpload == null,
+                                                        mentions = mentions,
+                                                    )
+                                                } else {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Failed to upload file after 3 attempts",
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            }
+
+                                            mediaUriToUpload != null -> {
+                                                val uploadResult = performUpload("image") {
+                                                    MediaUploadUtils.uploadMedia(
+                                                        context = context,
+                                                        uri = mediaUriToUpload,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        compressOriginal = compressOriginal,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        },
+                                                    )
+                                                }
+                                                if (uploadResult != null) {
+                                                    val replyTarget =
+                                                        replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                    val mentions = replyToEventToUpload?.sender?.let {
+                                                        listOf(
+                                                            it,
+                                                        )
+                                                    } ?: emptyList()
+                                                    appViewModel.sendImageMessage(
+                                                        roomId = roomId,
+                                                        mxcUrl = uploadResult.mxcUrl,
+                                                        width = uploadResult.width,
+                                                        height = uploadResult.height,
+                                                        size = uploadResult.size,
+                                                        mimeType = uploadResult.mimeType,
+                                                        blurHash = uploadResult.blurHash,
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = threadRootEventId,
+                                                        replyToEventId = replyTarget,
+                                                        isThreadFallback = replyToEventToUpload == null,
+                                                        mentions = mentions,
+                                                        thumbnailUrl = uploadResult.thumbnailUrl,
+                                                        thumbnailWidth = uploadResult.thumbnailWidth,
+                                                        thumbnailHeight = uploadResult.thumbnailHeight,
+                                                        thumbnailMimeType = uploadResult.thumbnailMimeType,
+                                                        thumbnailSize = uploadResult.thumbnailSize,
+                                                    )
+                                                } else {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Failed to upload image after 3 attempts",
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            }
                                         }
+                                    } catch (e: Exception) {
+                                        Log.e("Andromuks", "ThreadViewerScreen: Upload error", e)
+                                        // Try to clean up upload state
                                         appViewModel.setUploadRetryCount(roomId, 0)
-                                        return result
-                                    } finally {
-                                        appViewModel.endUpload(roomId, type)
                                     }
                                 }
+                            },
+                        )
+                    }
 
-                                try {
-                                    when {
-                                        isVideoToUpload && mediaUriToUpload != null -> {
-                                            val videoResult = performUpload("video") {
-                                                VideoUploadUtils.uploadVideo(
-                                                    context = context,
-                                                    uri = mediaUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            if (videoResult != null) {
-                                                val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
-                                                val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
-                                                appViewModel.sendVideoMessage(
-                                                    roomId = roomId,
-                                                    videoMxcUrl = videoResult.videoMxcUrl,
-                                                    thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
-                                                    width = videoResult.width,
-                                                    height = videoResult.height,
-                                                    duration = videoResult.duration,
-                                                    size = videoResult.size,
-                                                    mimeType = videoResult.mimeType,
-                                                    thumbnailBlurHash = videoResult.thumbnailBlurHash,
-                                                    thumbnailWidth = videoResult.thumbnailWidth,
-                                                    thumbnailHeight = videoResult.thumbnailHeight,
-                                                    thumbnailSize = videoResult.thumbnailSize,
-                                                    caption = caption.takeIf { it.isNotBlank() },
-                                                    threadRootEventId = threadRootEventId,
-                                                    replyToEventId = replyTarget,
-                                                    isThreadFallback = replyToEventToUpload == null,
-                                                    mentions = mentions
-                                                )
-                                            } else {
-                                                Toast.makeText(context, "Failed to upload video after 3 attempts", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                        audioUriToUpload != null -> {
-                                            val audioResult = performUpload("audio") {
-                                                MediaUploadUtils.uploadAudio(
-                                                    context = context,
-                                                    uri = audioUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            if (audioResult != null) {
-                                                val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
-                                                val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
-                                                appViewModel.sendAudioMessage(
-                                                    roomId = roomId,
-                                                    mxcUrl = audioResult.mxcUrl,
-                                                    filename = audioResult.filename,
-                                                    duration = audioResult.duration,
-                                                    size = audioResult.size,
-                                                    mimeType = audioResult.mimeType,
-                                                    caption = caption.takeIf { it.isNotBlank() },
-                                                    threadRootEventId = threadRootEventId,
-                                                    replyToEventId = replyTarget,
-                                                    isThreadFallback = replyToEventToUpload == null,
-                                                    mentions = mentions
-                                                )
-                                            } else {
-                                                Toast.makeText(context, "Failed to upload audio after 3 attempts", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                        fileUriToUpload != null -> {
-                                            val fileResult = performUpload("file") {
-                                                MediaUploadUtils.uploadFile(
-                                                    context = context,
-                                                    uri = fileUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            if (fileResult != null) {
-                                                val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
-                                                val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
-                                                appViewModel.sendFileMessage(
-                                                    roomId = roomId,
-                                                    mxcUrl = fileResult.mxcUrl,
-                                                    filename = fileResult.filename,
-                                                    size = fileResult.size,
-                                                    mimeType = fileResult.mimeType,
-                                                    caption = caption.takeIf { it.isNotBlank() },
-                                                    threadRootEventId = threadRootEventId,
-                                                    replyToEventId = replyTarget,
-                                                    isThreadFallback = replyToEventToUpload == null,
-                                                    mentions = mentions
-                                                )
-                                            } else {
-                                                Toast.makeText(context, "Failed to upload file after 3 attempts", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                        mediaUriToUpload != null -> {
-                                            val uploadResult = performUpload("image") {
-                                                MediaUploadUtils.uploadMedia(
-                                                    context = context,
-                                                    uri = mediaUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    compressOriginal = compressOriginal,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            if (uploadResult != null) {
-                                                val replyTarget = replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId
-                                                val mentions = replyToEventToUpload?.sender?.let { listOf(it) } ?: emptyList()
-                                                appViewModel.sendImageMessage(
-                                                    roomId = roomId,
-                                                    mxcUrl = uploadResult.mxcUrl,
-                                                    width = uploadResult.width,
-                                                    height = uploadResult.height,
-                                                    size = uploadResult.size,
-                                                    mimeType = uploadResult.mimeType,
-                                                    blurHash = uploadResult.blurHash,
-                                                    caption = caption.takeIf { it.isNotBlank() },
-                                                    threadRootEventId = threadRootEventId,
-                                                    replyToEventId = replyTarget,
-                                                    isThreadFallback = replyToEventToUpload == null,
-                                                    mentions = mentions,
-                                                    thumbnailUrl = uploadResult.thumbnailUrl,
-                                                    thumbnailWidth = uploadResult.thumbnailWidth,
-                                                    thumbnailHeight = uploadResult.thumbnailHeight,
-                                                    thumbnailMimeType = uploadResult.thumbnailMimeType,
-                                                    thumbnailSize = uploadResult.thumbnailSize
-                                                )
-                                            } else {
-                                                Toast.makeText(context, "Failed to upload image after 3 attempts", Toast.LENGTH_SHORT).show()
-                                            }
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e("Andromuks", "ThreadViewerScreen: Upload error", e)
-                                    // Try to clean up upload state
-                                    appViewModel.setUploadRetryCount(roomId, 0)
-                                }
-                            }
-                        }
-                    )
-                }
+                    // Uploading dialog removed - uploads now happen in background with status row indicator
 
-                // Uploading dialog removed - uploads now happen in background with status row indicator
-                
-                // Code viewer dialog
-                if (showCodeViewer) {
-                    CodeViewer(
-                        code = codeViewerContent,
-                        onDismiss = {
-                            showCodeViewer = false
-                            codeViewerContent = ""
-                        }
-                    )
-                }
+                    // Code viewer dialog
+                    if (showCodeViewer) {
+                        CodeViewer(
+                            code = codeViewerContent,
+                            onDismiss = {
+                                showCodeViewer = false
+                                codeViewerContent = ""
+                            },
+                        )
+                    }
 
-                if (showReactionsDialog && reactionsEventId != null) {
-                    val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
-                    net.vrkknn.andromuks.utils.ReactionDetailsDialog(
-                        reactions = reactions,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onDismiss = { showReactionsDialog = false },
-                        appViewModel = appViewModel,
-                        roomId = roomId
-                    )
-                }
+                    if (showReactionsDialog && reactionsEventId != null) {
+                        val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
+                        net.vrkknn.andromuks.utils.ReactionDetailsDialog(
+                            reactions = reactions,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onDismiss = { showReactionsDialog = false },
+                            appViewModel = appViewModel,
+                            roomId = roomId,
+                        )
+                    }
 
-                if (showBridgeDeliveryDialog && bridgeDeliveryEventId != null) {
-                    val eventId = bridgeDeliveryEventId!!
-                    val deliveryInfo = appViewModel.messageBridgeDeliveryInfo[eventId] ?: net.vrkknn.andromuks.BridgeDeliveryInfo()
-                    val deliveryStatus = appViewModel.messageBridgeSendStatus[eventId] ?: "sent"
-                    val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
-                    net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog(
-                        deliveryInfo = deliveryInfo,
-                        status = deliveryStatus,
-                        networkName = networkName,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onDismiss = { showBridgeDeliveryDialog = false },
-                        appViewModel = appViewModel,
-                        roomId = roomId
-                    )
-                }
+                    if (showBridgeDeliveryDialog && bridgeDeliveryEventId != null) {
+                        val eventId = bridgeDeliveryEventId!!
+                        val deliveryInfo =
+                            appViewModel.messageBridgeDeliveryInfo[eventId] ?: net.vrkknn.andromuks.BridgeDeliveryInfo()
+                        val deliveryStatus = appViewModel.messageBridgeSendStatus[eventId] ?: "sent"
+                        val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
+                        net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog(
+                            deliveryInfo = deliveryInfo,
+                            status = deliveryStatus,
+                            networkName = networkName,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onDismiss = { showBridgeDeliveryDialog = false },
+                            appViewModel = appViewModel,
+                            roomId = roomId,
+                        )
+                    }
 
-                // Delete confirmation dialog
-                if (showDeleteDialog && deletingEvent != null) {
-                    DeleteMessageDialog(
-                        onDismiss = {
-                            showDeleteDialog = false
-                            deletingEvent = null
-                        },
-                        onConfirm = { reason ->
-                            appViewModel.sendDelete(roomId, deletingEvent!!, reason)
-                            showDeleteDialog = false
-                            deletingEvent = null
-                        }
-                    )
-                }
-                
-                // Emoji selection dialog for reactions
-                if (showEmojiSelection && reactingToEvent != null) {
-                    EmojiSelectionDialog(
-                        recentEmojis = appViewModel.recentEmojis,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onEmojiSelected = { emoji ->
-                            appViewModel.sendReaction(roomId, reactingToEvent!!.eventId, emoji)
-                            showEmojiSelection = false
-                            reactingToEvent = null
-                        },
-                        onDismiss = {
-                            showEmojiSelection = false
-                            reactingToEvent = null
-                        },
-                        customEmojiPacks = appViewModel.customEmojiPacks
-                    )
-                }
+                    // Delete confirmation dialog
+                    if (showDeleteDialog && deletingEvent != null) {
+                        DeleteMessageDialog(
+                            onDismiss = {
+                                showDeleteDialog = false
+                                deletingEvent = null
+                            },
+                            onConfirm = { reason ->
+                                appViewModel.sendDelete(roomId, deletingEvent!!, reason)
+                                showDeleteDialog = false
+                                deletingEvent = null
+                            },
+                        )
+                    }
+
+                    // Emoji selection dialog for reactions
+                    if (showEmojiSelection && reactingToEvent != null) {
+                        EmojiSelectionDialog(
+                            recentEmojis = appViewModel.recentEmojis,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onEmojiSelected = { emoji ->
+                                appViewModel.sendReaction(roomId, reactingToEvent!!.eventId, emoji)
+                                showEmojiSelection = false
+                                reactingToEvent = null
+                            },
+                            onDismiss = {
+                                showEmojiSelection = false
+                                reactingToEvent = null
+                            },
+                            customEmojiPacks = appViewModel.customEmojiPacks,
+                        )
+                    }
                 }
             }
         }

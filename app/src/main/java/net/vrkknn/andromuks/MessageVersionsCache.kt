@@ -14,59 +14,52 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object MessageVersionsCache {
     private const val TAG = "MessageVersionsCache"
-    
+
     // Thread-safe map storing version history: originalEventId -> VersionedMessage
     private val versionsCache = ConcurrentHashMap<String, VersionedMessage>()
-    
+
     // Maps edit event ID back to original event ID for quick lookup
     private val editToOriginal = ConcurrentHashMap<String, String>()
 
     private val cacheLock = Any()
-    
+
     /**
      * Update or add version history for an event
      */
     fun updateVersion(originalEventId: String, versionedMessage: VersionedMessage) {
         synchronized(cacheLock) {
             versionsCache[originalEventId] = versionedMessage
-            
+
             // Update editToOriginal mapping for all edit versions
             versionedMessage.versions.forEach { version ->
                 if (!version.isOriginal && version.eventId != originalEventId) {
                     editToOriginal[version.eventId] = originalEventId
                 }
             }
-            
         }
     }
-    
+
     /**
      * Get version history for an event
      */
-    fun getVersion(originalEventId: String): VersionedMessage? {
-        return synchronized(cacheLock) {
-            versionsCache[originalEventId]
-        }
+    fun getVersion(originalEventId: String): VersionedMessage? = synchronized(cacheLock) {
+        versionsCache[originalEventId]
     }
-    
+
     /**
      * Get original event ID from an edit event ID
      */
-    fun getOriginalEventId(editEventId: String): String? {
-        return synchronized(cacheLock) {
-            editToOriginal[editEventId]
-        }
+    fun getOriginalEventId(editEventId: String): String? = synchronized(cacheLock) {
+        editToOriginal[editEventId]
     }
-    
+
     /**
      * Get all versions from the cache
      */
-    fun getAllVersions(): Map<String, VersionedMessage> {
-        return synchronized(cacheLock) {
-            HashMap(versionsCache) // Return a copy
-        }
+    fun getAllVersions(): Map<String, VersionedMessage> = synchronized(cacheLock) {
+        HashMap(versionsCache) // Return a copy
     }
-    
+
     /**
      * Clear all versions from the cache
      */
@@ -77,17 +70,22 @@ object MessageVersionsCache {
             if (BuildConfig.DEBUG) Log.d(TAG, "MessageVersionsCache: Cleared all versions")
         }
     }
-    
+
     /**
      * Clear versions for a specific room
      * Note: This requires tracking roomId -> eventIds, which may not be available
      * For now, we'll just clear all (caller should handle room-specific clearing)
      */
     fun clearForRoom(roomId: String) {
-        if (BuildConfig.DEBUG) Log.d(TAG, "MessageVersionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "MessageVersionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)",
+        )
+        }
         clear()
     }
-    
+
     /**
      * Clear versions for specific event IDs (used when evicting a room)
      * This clears both the versions cache and related edit/redaction mappings
@@ -118,8 +116,12 @@ object MessageVersionsCache {
                 }
             }
 
-            if (BuildConfig.DEBUG) Log.d(TAG, "MessageVersionsCache: Cleared versions for ${removedVersions} events, ${removedEdits} edit mappings (out of ${eventIds.size} requested)")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "MessageVersionsCache: Cleared versions for $removedVersions events, $removedEdits edit mappings (out of ${eventIds.size} requested)",
+            )
+            }
         }
     }
 }
-

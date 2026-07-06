@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks.utils
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,34 +26,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.animation.core.Spring
 import androidx.navigation.NavController
-import net.vrkknn.andromuks.ui.theme.scaledSpring
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.animation.core.animate
 import coil3.compose.AsyncImage
-import kotlin.math.roundToInt
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
 import coil3.request.ImageRequest
 import coil3.request.crossfade
-import java.io.File
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MediaInfo
 import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.theme.scaledSpring
+import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * Keep paginating until at least this many media items have been collected, so a freshly opened
@@ -85,13 +85,10 @@ data class GalleryMediaItem(
     val timelineRowid: Long,
     val eventId: String,
     /** BlurHash string from info.xyz.amorgan.blurhash (or info.blurhash), if present */
-    val blurHash: String? = null
+    val blurHash: String? = null,
 )
 
-private fun extractMediaItems(
-    events: List<TimelineEvent>,
-    homeserverUrl: String
-): List<GalleryMediaItem> {
+private fun extractMediaItems(events: List<TimelineEvent>, homeserverUrl: String): List<GalleryMediaItem> {
     return events.mapNotNull { event ->
         if (event.timelineRowid == 0L) return@mapNotNull null
 
@@ -104,6 +101,7 @@ private fun extractMediaItems(
                     else -> return@mapNotNull null
                 }
             }
+
             event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
                 val msgtype = event.decrypted?.optString("msgtype") ?: return@mapNotNull null
                 when (msgtype) {
@@ -112,6 +110,7 @@ private fun extractMediaItems(
                     else -> return@mapNotNull null
                 }
             }
+
             else -> return@mapNotNull null
         }
 
@@ -143,6 +142,7 @@ private fun extractMediaItems(
                 thumbnailHttpUrl = if (encryptedSuffix != null) "$base?$encryptedSuffix" else base
                 fallbackHttpUrl = null
             }
+
             !isVideo -> {
                 thumbnailHttpUrl = if (encryptedSuffix != null) {
                     "$fullHttpUrl?thumbnail=avatar&$encryptedSuffix"
@@ -151,6 +151,7 @@ private fun extractMediaItems(
                 }
                 fallbackHttpUrl = fullHttpUrlWithEnc
             }
+
             else -> {
                 val base = MediaUtils.mxcToThumbnailUrl(fullMxc, homeserverUrl, width = 300, height = 300)
                     ?: return@mapNotNull null
@@ -168,7 +169,7 @@ private fun extractMediaItems(
             isEncrypted = isEncrypted,
             timelineRowid = event.timelineRowid,
             eventId = event.eventId,
-            blurHash = blurHash
+            blurHash = blurHash,
         )
     }
 }
@@ -184,9 +185,9 @@ private fun GalleryMediaItem.toImageMediaMessage(): MediaMessage = MediaMessage(
         size = 0L,
         mimeType = "image/jpeg",
         blurHash = blurHash,
-        thumbnailUrl = thumbnailMxcUrl
+        thumbnailUrl = thumbnailMxcUrl,
     ),
-    msgType = "m.image"
+    msgType = "m.image",
 )
 
 /** Build a [MediaMessage] for [VideoPlayerDialog] (videos only). */
@@ -200,18 +201,14 @@ private fun GalleryMediaItem.toVideoMediaMessage(): MediaMessage = MediaMessage(
         size = 0L,
         mimeType = "video/mp4",
         blurHash = blurHash,
-        thumbnailUrl = thumbnailMxcUrl
+        thumbnailUrl = thumbnailMxcUrl,
     ),
-    msgType = "m.video"
+    msgType = "m.video",
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoomMediaGalleryScreen(
-    roomId: String,
-    navController: NavController,
-    appViewModel: AppViewModel
-) {
+fun RoomMediaGalleryScreen(roomId: String, navController: NavController, appViewModel: AppViewModel) {
     var mediaItems by remember { mutableStateOf<List<GalleryMediaItem>>(emptyList()) }
     var isInitialLoading by remember { mutableStateOf(true) }
     var isLoadingMore by remember { mutableStateOf(false) }
@@ -240,26 +237,46 @@ fun RoomMediaGalleryScreen(
     var settleJob by remember { mutableStateOf<Job?>(null) }
 
     fun loadMore() {
-        if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "loadMore called: isLoadingMore=$isLoadingMore, hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId")
+        if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "GalleryPaginate",
+            "loadMore called: isLoadingMore=$isLoadingMore, hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId",
+        )
+        }
         if (isLoadingMore || !hasMore) return
         isLoadingMore = true
         appViewModel.requestGalleryPaginate(
             roomId = roomId,
             maxTimelineId = nextMaxTimelineId,
-            limit = 100 
+            limit = 100,
         ) { events, moreAvailable, minRowId ->
             val newItems = extractMediaItems(events, homeserverUrl)
-            if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Callback: events=${events.size}, newItems=${newItems.size}, moreAvailable=$moreAvailable, minRowId=$minRowId")
+            if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "GalleryPaginate",
+                "Callback: events=${events.size}, newItems=${newItems.size}, moreAvailable=$moreAvailable, minRowId=$minRowId",
+            )
+            }
             mediaItems = mediaItems + newItems
             hasMore = moreAvailable && events.isNotEmpty()
             if (minRowId != 0L && (nextMaxTimelineId == 0L || minRowId < nextMaxTimelineId)) {
                 nextMaxTimelineId = minRowId
             } else if (events.isNotEmpty() && minRowId == 0L) {
                 // All events lacked a valid timeline_rowid – stop to avoid an infinite loop.
-                if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Stopping to avoid infinite loop (all events lacked a valid timeline_rowid)")
+                if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "GalleryPaginate",
+                    "Stopping to avoid infinite loop (all events lacked a valid timeline_rowid)",
+                )
+                }
                 hasMore = false
             }
-            if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "After state update: hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId")
+            if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "GalleryPaginate",
+                "After state update: hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId",
+            )
+            }
             isLoadingMore = false
             isInitialLoading = false
         }
@@ -288,7 +305,12 @@ fun RoomMediaGalleryScreen(
         derivedStateOf { gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
     }
     LaunchedEffect(lastVisibleIndex, totalItems, hasMore, isLoadingMore) {
-        if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Scroll check: lastVisible=$lastVisibleIndex, total=$totalItems, hasMore=$hasMore, isLoading=$isLoadingMore")
+        if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "GalleryPaginate",
+            "Scroll check: lastVisible=$lastVisibleIndex, total=$totalItems, hasMore=$hasMore, isLoading=$isLoadingMore",
+        )
+        }
         // Two reasons to keep paginating:
         //  1. The grid hasn't filled the screen yet (totalItems too small to scroll). This also
         //     covers the case where a batch came back with zero media items (totalItems == 0):
@@ -298,7 +320,12 @@ fun RoomMediaGalleryScreen(
         val notYetScrollable = totalItems < GALLERY_PREFETCH_THRESHOLD
         val scrolledNearEnd = totalItems > 0 && lastVisibleIndex >= totalItems - 20
         if ((notYetScrollable || scrolledNearEnd) && hasMore && !isLoadingMore) {
-            if (net.vrkknn.andromuks.BuildConfig.DEBUG) android.util.Log.d("GalleryPaginate", "Load condition met (notYetScrollable=$notYetScrollable, scrolledNearEnd=$scrolledNearEnd) -> calling loadMore()")
+            if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "GalleryPaginate",
+                "Load condition met (notYetScrollable=$notYetScrollable, scrolledNearEnd=$scrolledNearEnd) -> calling loadMore()",
+            )
+            }
             loadMore()
         }
     }
@@ -311,17 +338,17 @@ fun RoomMediaGalleryScreen(
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back"
+                            contentDescription = "Back",
                         )
                     }
-                }
+                },
             )
-        }
+        },
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues),
         ) {
             when {
                 isInitialLoading -> {
@@ -329,14 +356,16 @@ fun RoomMediaGalleryScreen(
                         ExpressiveLoadingIndicator()
                     }
                 }
+
                 mediaItems.isEmpty() -> {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(
                             text = "No images or videos found",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
+
                 else -> {
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(columns),
@@ -368,13 +397,13 @@ fun RoomMediaGalleryScreen(
                                             // stay within [MIN, MAX].
                                             pinchTotal = (pinchTotal * event.calculateZoom()).coerceIn(
                                                 columns.toFloat() / GALLERY_MAX_COLUMNS,
-                                                columns.toFloat() / GALLERY_MIN_COLUMNS
+                                                columns.toFloat() / GALLERY_MIN_COLUMNS,
                                             )
                                             if (size.width > 0 && size.height > 0) {
                                                 val centroid = event.calculateCentroid(useCurrent = true)
                                                 zoomOrigin = TransformOrigin(
                                                     (centroid.x / size.width).coerceIn(0f, 1f),
-                                                    (centroid.y / size.height).coerceIn(0f, 1f)
+                                                    (centroid.y / size.height).coerceIn(0f, 1f),
                                                 )
                                             }
                                             // Plain state write — allowed in the restricted pointer
@@ -400,7 +429,7 @@ fun RoomMediaGalleryScreen(
                                             animate(
                                                 initialValue = displayScale,
                                                 targetValue = 1f,
-                                                animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)
+                                                animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow),
                                             ) { value, _ -> displayScale = value }
                                         }
                                     }
@@ -414,11 +443,11 @@ fun RoomMediaGalleryScreen(
                             },
                         contentPadding = PaddingValues(6.dp),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         itemsIndexed(
                             items = mediaItems,
-                            key = { _, item -> item.eventId }
+                            key = { _, item -> item.eventId },
                         ) { _, item ->
                             GalleryThumbnail(
                                 item = item,
@@ -429,9 +458,9 @@ fun RoomMediaGalleryScreen(
                                 modifier = Modifier.animateItem(
                                     placementSpec = scaledSpring(
                                         stiffness = Spring.StiffnessMediumLow,
-                                        visibilityThreshold = IntOffset(1, 1)
-                                    )
-                                )
+                                        visibilityThreshold = IntOffset(1, 1),
+                                    ),
+                                ),
                             )
                         }
                         if (isLoadingMore) {
@@ -441,11 +470,11 @@ fun RoomMediaGalleryScreen(
                                         .aspectRatio(1f)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(MaterialTheme.colorScheme.surfaceVariant),
-                                    contentAlignment = Alignment.Center
+                                    contentAlignment = Alignment.Center,
                                 ) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(24.dp),
-                                        strokeWidth = 2.dp
+                                        strokeWidth = 2.dp,
                                     )
                                 }
                             }
@@ -465,7 +494,7 @@ fun RoomMediaGalleryScreen(
                 authToken = authToken,
                 isEncrypted = item.isEncrypted,
                 shouldAutoPlay = true,
-                onDismiss = { selectedItem = null }
+                onDismiss = { selectedItem = null },
             )
         } else {
             ImageViewerDialog(
@@ -474,7 +503,7 @@ fun RoomMediaGalleryScreen(
                 authToken = authToken,
                 isEncrypted = item.isEncrypted,
                 sourceBounds = null,
-                onDismiss = { selectedItem = null }
+                onDismiss = { selectedItem = null },
             )
         }
     }
@@ -485,7 +514,7 @@ private fun GalleryThumbnail(
     item: GalleryMediaItem,
     authToken: String,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val imageLoader = remember { net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context) }
@@ -535,7 +564,7 @@ private fun GalleryThumbnail(
             .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+        contentAlignment = Alignment.Center,
     ) {
         // BlurHash layer — visible immediately, replaced by the real image once loaded.
         blurHashBitmap?.let { bitmap ->
@@ -543,7 +572,7 @@ private fun GalleryThumbnail(
                 painter = BitmapPainter(bitmap),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
             )
         }
 
@@ -564,27 +593,27 @@ private fun GalleryThumbnail(
             },
             contentDescription = if (item.isVideo) "Video thumbnail" else "Image",
             contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
         )
         if (mediaUnavailable) {
             Icon(
                 imageVector = Icons.Filled.BrokenImage,
                 contentDescription = "Media unavailable",
                 tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.size(32.dp)
+                modifier = Modifier.size(32.dp),
             )
         } else if (item.isVideo) {
             Box(
                 modifier = Modifier
                     .size(32.dp)
                     .background(Color.Black.copy(alpha = 0.55f), shape = androidx.compose.foundation.shape.CircleShape),
-                contentAlignment = Alignment.Center
+                contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
                     contentDescription = "Video",
                     tint = Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(20.dp),
                 )
             }
         }

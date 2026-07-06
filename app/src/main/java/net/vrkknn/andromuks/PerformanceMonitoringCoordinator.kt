@@ -25,7 +25,10 @@ internal class PerformanceMonitoringCoordinator(private val vm: AppViewModel) {
     fun applyPersistedState() {
         FirebasePerformance.getInstance().isPerformanceCollectionEnabled = vm.performanceMonitoringEnabled
         if (BuildConfig.DEBUG) {
-            Log.d("Andromuks", "PerformanceMonitoringCoordinator: applied collectionEnabled=${vm.performanceMonitoringEnabled}")
+            Log.d(
+                "Andromuks",
+                "PerformanceMonitoringCoordinator: applied collectionEnabled=${vm.performanceMonitoringEnabled}",
+            )
         }
     }
 

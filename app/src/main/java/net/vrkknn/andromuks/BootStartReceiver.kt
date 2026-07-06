@@ -16,13 +16,17 @@ import net.vrkknn.andromuks.BuildConfig
 class BootStartReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            if (BuildConfig.DEBUG) Log.d("BootStartReceiver", "Device boot completed - restarting WebSocketService via WorkManager")
-            
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "BootStartReceiver",
+                "Device boot completed - restarting WebSocketService via WorkManager",
+            )
+            }
+
             // Use WorkManager to restart service (higher priority than BroadcastReceiver)
             ServiceStartWorker.enqueue(context, "Boot completed")
-            
+
             WebSocketService.logActivity("Device Boot - Service Restart Scheduled", null)
         }
     }
 }
-

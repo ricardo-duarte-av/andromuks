@@ -7,7 +7,7 @@ import net.vrkknn.andromuks.TimelineEvent
  * Utility functions for handling redaction events and creating deletion messages.
  */
 object RedactionUtils {
-    
+
     /**
      * Resolves an event chain to find the latest version of a message.
      * 
@@ -19,20 +19,17 @@ object RedactionUtils {
      * @param timelineEvents List of all timeline events to search through
      * @return The latest version of the event, or null if not found
      */
-    fun resolveEventChain(
-        originalEventId: String,
-        timelineEvents: List<TimelineEvent>
-    ): TimelineEvent? {
+    fun resolveEventChain(originalEventId: String, timelineEvents: List<TimelineEvent>): TimelineEvent? {
         var currentEventId = originalEventId
         val visitedEvents = mutableSetOf<String>() // Prevent infinite loops
-        
+
         while (currentEventId !in visitedEvents) {
             visitedEvents.add(currentEventId)
-            
+
             // Find the current event
             val currentEvent = timelineEvents.find { it.eventId == currentEventId }
                 ?: return null
-            
+
             // Look for events that relate to this one (redactions or edits)
             val relatedEvent = timelineEvents.find { event ->
                 when (event.type) {
@@ -40,34 +37,39 @@ object RedactionUtils {
                         // Redactions use "redacts" field, not "m.relates_to"
                         // Handle both formats: "redacts" as string or as object with "event_id"
                         val redactsString = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
-                        val redactsObject = event.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
-                        
+                        val redactsObject = event.content?.optJSONObject(
+                            "redacts",
+                        )?.optString("event_id")?.takeIf { it.isNotBlank() }
+
                         (redactsString == currentEventId) || (redactsObject == currentEventId)
                     }
+
                     "m.room.message" -> {
                         // Check for edits (m.replace relationship)
                         val relatesTo = event.content?.optJSONObject("m.relates_to")
                         val relatesToEventId = relatesTo?.optString("event_id")
                         val relType = relatesTo?.optString("rel_type")
-                        
+
                         (relType == "m.replace") && (relatesToEventId == currentEventId)
                     }
+
                     "m.room.encrypted" -> {
                         // Check for encrypted edits (m.replace relationship)
                         if (event.decryptedType == "m.room.message") {
                             val relatesTo = event.decrypted?.optJSONObject("m.relates_to")
                             val relatesToEventId = relatesTo?.optString("event_id")
                             val relType = relatesTo?.optString("rel_type")
-                            
+
                             (relType == "m.replace") && (relatesToEventId == currentEventId)
                         } else {
                             false
                         }
                     }
+
                     else -> false
                 }
             }
-            
+
             if (relatedEvent != null) {
                 // Found a related event, continue the chain
                 currentEventId = relatedEvent.eventId
@@ -76,11 +78,11 @@ object RedactionUtils {
                 return currentEvent
             }
         }
-        
+
         // If we hit a loop, return the original event
         return timelineEvents.find { it.eventId == originalEventId }
     }
-    
+
     /**
      * Finds the latest redaction event for a given event ID.
      * 
@@ -93,27 +95,25 @@ object RedactionUtils {
      */
     @Deprecated(
         "Use AppViewModel.getRedactionEvent() for O(1) lookup",
-        ReplaceWith("appViewModel.getRedactionEvent(targetEventId)")
+        ReplaceWith("appViewModel.getRedactionEvent(targetEventId)"),
     )
-    fun findLatestRedactionEvent(
-        targetEventId: String,
-        timelineEvents: List<TimelineEvent>
-    ): TimelineEvent? {
-        return timelineEvents
+    fun findLatestRedactionEvent(targetEventId: String, timelineEvents: List<TimelineEvent>): TimelineEvent? =
+        timelineEvents
             .filter { event ->
                 if (event.type != "m.room.redaction") {
                     false
                 } else {
                     // Handle both formats: "redacts" as string or as object with "event_id"
                     val redactsString = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
-                    val redactsObject = event.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
-                    
+                    val redactsObject = event.content?.optJSONObject(
+                        "redacts",
+                    )?.optString("event_id")?.takeIf { it.isNotBlank() }
+
                     (redactsString == targetEventId) || (redactsObject == targetEventId)
                 }
             }
             .maxByOrNull { it.timestamp }
-    }
-    
+
     /**
      * OPTIMIZED: Creates deletion message directly from redaction event (O(1))
      * 
@@ -123,29 +123,32 @@ object RedactionUtils {
      */
     fun createDeletionMessageFromEvent(
         redactionEvent: TimelineEvent?,
-        userProfileCache: Map<String, MemberProfile>
+        userProfileCache: Map<String, MemberProfile>,
     ): String {
         if (redactionEvent == null) {
             return "Message deleted"
         }
-        
+
         val redactionReason = redactionEvent.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
         val redactionSender = redactionEvent.sender
-        
+
         val senderDisplayName = redactionSender.let { userId ->
             userProfileCache[userId]?.displayName ?: userId
         }
-        
+
         val timestamp = redactionEvent.timestamp
-        val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
-        
+        val timeString = java.text.SimpleDateFormat(
+            "HH:mm",
+            java.util.Locale.getDefault(),
+        ).format(java.util.Date(timestamp))
+
         return if (!redactionReason.isNullOrBlank()) {
             "Removed by $senderDisplayName for $redactionReason at $timeString"
         } else {
             "Removed by $senderDisplayName at $timeString"
         }
     }
-    
+
     /**
      * Creates a deletion message for a redacted event using the latest redaction information.
      * 
@@ -160,28 +163,31 @@ object RedactionUtils {
     fun createDeletionMessageForEvent(
         redactedEvent: TimelineEvent,
         timelineEvents: List<TimelineEvent>,
-        userProfileCache: Map<String, MemberProfile>
+        userProfileCache: Map<String, MemberProfile>,
     ): String {
         // Find the latest redaction event instead of just using redactedBy
         @Suppress("DEPRECATION")
         val redactionEvent = findLatestRedactionEvent(redactedEvent.eventId, timelineEvents)
         val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
         val redactionSender = redactionEvent?.sender
-        
+
         val senderDisplayName = redactionSender?.let { userId ->
             userProfileCache[userId]?.displayName ?: userId
         } ?: "Unknown user"
-        
+
         val timestamp = redactionEvent?.timestamp ?: System.currentTimeMillis()
-        val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
-        
+        val timeString = java.text.SimpleDateFormat(
+            "HH:mm",
+            java.util.Locale.getDefault(),
+        ).format(java.util.Date(timestamp))
+
         return if (!redactionReason.isNullOrBlank()) {
             "Removed by $senderDisplayName for $redactionReason at $timeString"
         } else {
             "Removed by $senderDisplayName at $timeString"
         }
     }
-    
+
     /**
      * Creates a deletion message using provided redaction information.
      * 
@@ -195,19 +201,22 @@ object RedactionUtils {
      * @return Formatted deletion message string
      */
     fun createDeletionMessage(
-        redactionSender: String?, 
-        redactionReason: String?, 
+        redactionSender: String?,
+        redactionReason: String?,
         redactionTimestamp: Long?,
-        userProfileCache: Map<String, MemberProfile>
+        userProfileCache: Map<String, MemberProfile>,
     ): String {
         val senderDisplayName = redactionSender?.let { userId ->
             userProfileCache[userId]?.displayName ?: userId
         } ?: "Unknown user"
         val timestamp = redactionTimestamp ?: System.currentTimeMillis()
-        
+
         // Format timestamp to readable format
-        val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
-        
+        val timeString = java.text.SimpleDateFormat(
+            "HH:mm",
+            java.util.Locale.getDefault(),
+        ).format(java.util.Date(timestamp))
+
         return if (!redactionReason.isNullOrBlank()) {
             "Removed by $senderDisplayName for $redactionReason at $timeString"
         } else {

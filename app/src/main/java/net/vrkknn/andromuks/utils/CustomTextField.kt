@@ -8,8 +8,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -20,13 +18,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TextFieldColors
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.surfaceColorAtElevation
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
@@ -56,10 +54,10 @@ fun CustomBubbleTextField(
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     colors: TextFieldColors = TextFieldDefaults.colors(),
-    onHeightChanged: ((Int) -> Unit)? = null
+    onHeightChanged: ((Int) -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
-    
+
     // Cursor color in BasicTextField is controlled by the text color
     // Using LocalContentColor.current ensures it adapts to theme (white in dark, black in light)
     val contentColor = LocalContentColor.current
@@ -70,7 +68,7 @@ fun CustomBubbleTextField(
             .heightIn(min = (minLines * 20).dp, max = (maxLines * 20).dp)
             .onGloballyPositioned { coordinates ->
                 onHeightChanged?.invoke(coordinates.size.height)
-            }
+            },
     ) {
         BasicTextField(
             value = value,
@@ -88,21 +86,21 @@ fun CustomBubbleTextField(
                 .fillMaxWidth()
                 .background(
                     color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                    shape = bubbleShape
+                    shape = bubbleShape,
                 ),
             decorationBox = { innerTextField ->
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(contentPadding),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (leadingIcon != null) {
                         leadingIcon()
                     }
                     Box(
                         modifier = Modifier.weight(1f),
-                        contentAlignment = Alignment.CenterStart
+                        contentAlignment = Alignment.CenterStart,
                     ) {
                         if (placeholder != null && value.text.isEmpty()) {
                             Box(modifier = Modifier.zIndex(0f)) {
@@ -117,8 +115,7 @@ fun CustomBubbleTextField(
                         trailingIcon()
                     }
                 }
-            }
+            },
         )
     }
 }
-

@@ -51,23 +51,18 @@ object AnimationSpeed {
 }
 
 /** Scale a tween/keyframe duration (ms) by [AnimationSpeed.tweenFactor]. Never negative. */
-fun scaledTweenMs(baseMillis: Int): Int =
-    (baseMillis * AnimationSpeed.tweenFactor).roundToInt().coerceAtLeast(0)
+fun scaledTweenMs(baseMillis: Int): Int = (baseMillis * AnimationSpeed.tweenFactor).roundToInt().coerceAtLeast(0)
 
 /** Scale a spring stiffness by [AnimationSpeed.stiffnessFactor]. Clamped to a sane minimum. */
-fun scaledStiffness(baseStiffness: Float): Float =
-    (baseStiffness * AnimationSpeed.stiffnessFactor).coerceAtLeast(1f)
+fun scaledStiffness(baseStiffness: Float): Float = (baseStiffness * AnimationSpeed.stiffnessFactor).coerceAtLeast(1f)
 
 /**
  * A [tween] whose duration (and delay) are scaled by [AnimationSpeed.tweenFactor]. Convenience for
  * call sites that prefer not to wrap the literal by hand; equivalent to
  * `tween(scaledTweenMs(durationMillis), scaledTweenMs(delayMillis), easing)`.
  */
-fun <T> scaledTween(
-    durationMillis: Int,
-    delayMillis: Int = 0,
-    easing: Easing = FastOutSlowInEasing
-): TweenSpec<T> = tween(scaledTweenMs(durationMillis), scaledTweenMs(delayMillis), easing)
+fun <T> scaledTween(durationMillis: Int, delayMillis: Int = 0, easing: Easing = FastOutSlowInEasing): TweenSpec<T> =
+    tween(scaledTweenMs(durationMillis), scaledTweenMs(delayMillis), easing)
 
 /**
  * A [spring] whose stiffness is scaled by [AnimationSpeed.stiffnessFactor]. Used both for explicit
@@ -77,7 +72,7 @@ fun <T> scaledTween(
 fun <T> scaledSpring(
     dampingRatio: Float = Spring.DampingRatioNoBouncy,
     stiffness: Float = Spring.StiffnessMedium,
-    visibilityThreshold: T? = null
+    visibilityThreshold: T? = null,
 ): SpringSpec<T> = spring(dampingRatio, scaledStiffness(stiffness), visibilityThreshold)
 
 /**
@@ -88,10 +83,12 @@ fun <T> scaledSpring(
  * [scaledColumnExit]. (Use these only for vertically-laid-out AnimatedVisibility — the value matches
  * the ColumnScope default, not the Row/Box ones.)
  */
-fun scaledColumnEnter(): EnterTransition =
-    fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
-        expandVertically(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntSize(1, 1)))
+fun scaledColumnEnter(): EnterTransition = fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)) +
+    expandVertically(
+        animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntSize(1, 1)),
+    )
 
-fun scaledColumnExit(): ExitTransition =
-    shrinkVertically(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntSize(1, 1))) +
-        fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow))
+fun scaledColumnExit(): ExitTransition = shrinkVertically(
+    animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntSize(1, 1)),
+) +
+    fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow))

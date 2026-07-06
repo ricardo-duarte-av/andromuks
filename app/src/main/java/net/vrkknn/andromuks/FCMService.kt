@@ -6,11 +6,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.core.app.NotificationCompat.MessagingStyle
 import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -23,10 +21,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.Encryption
-import net.vrkknn.andromuks.BuildConfig
-
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -35,38 +32,41 @@ import java.util.concurrent.ConcurrentHashMap
  * Get the push encryption key that was used for registration
  * This is the same key that was sent to the Gomuks Backend
  */
-private fun getExistingPushEncryptionKey(context: Context): ByteArray? {
-    return try {
-        // Use the same key retrieval method as WebClientPushIntegration
-        val sharedPref = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
-        val encryptedKey = sharedPref.getString("push_encryption_key", null)
-        
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "FCMService: Retrieved encrypted key from SharedPreferences: $encryptedKey")
-        
-        if (encryptedKey != null) {
-            // The key is stored as base64-encoded bytes
-            val decodedKey = android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "FCMService: Decoded key of size: ${decodedKey.size} bytes")
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "FCMService: Decoded key (first 8 bytes): ${decodedKey.take(8).joinToString { "%02x".format(it) }}")
-            decodedKey
-        } else {
-            Log.e("Andromuks", "FCMService: No push encryption key found in SharedPreferences")
-            null
+private fun getExistingPushEncryptionKey(context: Context): ByteArray? = try {
+    // Use the same key retrieval method as WebClientPushIntegration
+    val sharedPref = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
+    val encryptedKey = sharedPref.getString("push_encryption_key", null)
+
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "FCMService: Retrieved encrypted key from SharedPreferences: $encryptedKey")
+
+    if (encryptedKey != null) {
+        // The key is stored as base64-encoded bytes
+        val decodedKey = android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "FCMService: Decoded key of size: ${decodedKey.size} bytes")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            "Andromuks",
+            "FCMService: Decoded key (first 8 bytes): ${decodedKey.take(8).joinToString { "%02x".format(it) }}",
+        )
         }
-    } catch (e: Exception) {
-        Log.e("Andromuks", "FCMService: Error getting push encryption key", e)
+        decodedKey
+    } else {
+        Log.e("Andromuks", "FCMService: No push encryption key found in SharedPreferences")
         null
     }
+} catch (e: Exception) {
+    Log.e("Andromuks", "FCMService: Error getting push encryption key", e)
+    null
 }
 
 class FCMService : FirebaseMessagingService() {
-    
+
     companion object {
         private const val TAG = "FCMService"
         private const val CHANNEL_ID = "matrix_notifications"
         private const val CHANNEL_NAME = "Matrix Messages"
         private const val CHANNEL_DESCRIPTION = "Notifications for Matrix messages and events"
-        
+
         // Notification action constants
         private const val ACTION_REPLY = "action_reply"
         private const val ACTION_MARK_READ = "action_mark_read"
@@ -94,7 +94,7 @@ class FCMService : FirebaseMessagingService() {
             }
         }
     }
-    
+
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
     @Volatile
@@ -140,12 +140,12 @@ class FCMService : FirebaseMessagingService() {
         val entryName = resources.getResourceEntryName(rawResId) // e.g. "bright"
         return android.net.Uri.parse("android.resource://$packageName/raw/$entryName")
     }
-    
+
     // Track pending notifications to handle race conditions with dismiss notifications
     // Key: roomId, Value: timestamp when notification was queued
     private val pendingNotifications = mutableSetOf<String>()
     private val pendingNotificationsLock = Any()
-    
+
     override fun onCreate() {
         super.onCreate()
         // EnhancedNotificationDisplay is built lazily via ensureNotificationDisplay()
@@ -168,33 +168,48 @@ class FCMService : FirebaseMessagingService() {
         // probes that StrictMode flags as DiskReadViolation.
         getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
 
-        if (BuildConfig.DEBUG) Log.d(TAG, "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}")
-        if (BuildConfig.DEBUG) Log.d(TAG, "FCM priority=${remoteMessage.priority}, originalPriority=${remoteMessage.originalPriority} (1=HIGH, 2=NORMAL) - priority is FCM-delivered, originalPriority is sender-requested")
-        
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}",
+        )
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "FCM priority=${remoteMessage.priority}, originalPriority=${remoteMessage.originalPriority} (1=HIGH, 2=NORMAL) - priority is FCM-delivered, originalPriority is sender-requested",
+        )
+        }
+
         // Handle data payload (matches the other Gomuks client approach)
         if (remoteMessage.data.isNotEmpty()) {
             if (BuildConfig.DEBUG) Log.d(TAG, "Processing data payload: ${remoteMessage.data}")
-            
+
             // Get push encryption key (matches the other Gomuks client)
             val pushEncKey = getExistingPushEncryptionKey(this)
             if (pushEncKey == null) {
                 Log.e(TAG, "No push encryption key found to handle $remoteMessage")
                 return
             }
-            
+
             // Debug: Log key and payload info
             val encryptedPayload = remoteMessage.data["payload"]
             if (encryptedPayload == null) {
                 Log.e(TAG, "No 'payload' field in FCM data: ${remoteMessage.data.keys}")
                 return
             }
-            
+
             if (BuildConfig.DEBUG) Log.d(TAG, "Using push encryption key of size: ${pushEncKey.size} bytes")
-            if (BuildConfig.DEBUG) Log.d(TAG, "Key (first 8 bytes): ${pushEncKey.take(8).joinToString { "%02x".format(it) }}")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "Key (first 8 bytes): ${pushEncKey.take(8).joinToString { "%02x".format(it) }}",
+            )
+            }
             if (BuildConfig.DEBUG) Log.d(TAG, "Encrypted payload length: ${encryptedPayload.length}")
             if (BuildConfig.DEBUG) Log.d(TAG, "Encrypted payload (first 50 chars): ${encryptedPayload.take(50)}")
             if (BuildConfig.DEBUG) Log.d(TAG, "Encrypted payload (last 50 chars): ${encryptedPayload.takeLast(50)}")
-            
+
             // Determine payload type based on length
             val payloadType = when {
                 encryptedPayload.length < 200 -> "SHORT_PAYLOAD (likely message notification)"
@@ -202,14 +217,14 @@ class FCMService : FirebaseMessagingService() {
                 else -> "MEDIUM_PAYLOAD (unknown type)"
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "Detected payload type: $payloadType")
-            
+
             // Check if payload might be JSON with multiple encrypted parts
             if (encryptedPayload.startsWith("{") || encryptedPayload.contains("\"")) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Payload appears to be JSON format, not raw encrypted data")
                 if (BuildConfig.DEBUG) Log.d(TAG, "Full payload: $encryptedPayload")
                 return // Skip decryption for JSON payloads
             }
-            
+
             // Decrypt the payload (matches the other Gomuks client)
             val decryptedPayload: String = try {
                 Encryption.fromPlainKey(pushEncKey).decrypt(encryptedPayload)
@@ -218,7 +233,7 @@ class FCMService : FirebaseMessagingService() {
                 Log.e(TAG, "This might be a mark_read notification or different payload format")
                 return
             }
-            
+
             if (BuildConfig.DEBUG) Log.d(TAG, "Successfully decrypted payload: ${decryptedPayload.take(100)}...")
 
             // Hold a WakeLock for the duration of async processing. FCM's own WakeLock is
@@ -244,10 +259,12 @@ class FCMService : FirebaseMessagingService() {
                             if (BuildConfig.DEBUG) Log.d(TAG, "Processing message notification payload")
                             handleMessageNotification(jsonObject)
                         }
+
                         jsonObject.has("dismiss") -> {
                             if (BuildConfig.DEBUG) Log.d(TAG, "Processing dismiss notification payload")
                             handleDismissNotification(jsonObject)
                         }
+
                         else -> {
                             if (BuildConfig.DEBUG) Log.d(TAG, "Unknown payload type, trying legacy parsing")
                             // Try legacy parsing for backward compatibility
@@ -260,12 +277,25 @@ class FCMService : FirebaseMessagingService() {
                             if (notificationData != null) {
                                 // Check if room is marked as low priority - skip notifications for low priority rooms
                                 val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                                val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
+                                val lowPriorityRooms = sharedPrefs.getStringSet(
+                                    "low_priority_rooms",
+                                    emptySet(),
+                                ) ?: emptySet()
 
                                 if (lowPriorityRooms.contains(notificationData.roomId)) {
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        TAG,
+                                        "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})",
+                                    )
+                                    }
                                 } else if (shouldSuppressNotification(notificationData.roomId)) {
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        TAG,
+                                        "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground",
+                                    )
+                                    }
                                 } else {
                                     // RACE CONDITION FIX: Mark notification as pending before showing
                                     synchronized(pendingNotificationsLock) {
@@ -282,10 +312,18 @@ class FCMService : FirebaseMessagingService() {
                                                 synchronized(pendingNotificationsLock) {
                                                     pendingNotifications.remove(notificationData.roomId)
                                                 }
-                                                hydrateTimelineCacheFromNotification(notificationData.roomId, notificationData.eventId)
+                                                hydrateTimelineCacheFromNotification(
+                                                    notificationData.roomId,
+                                                    notificationData.eventId,
+                                                )
                                             }
                                         } else {
-                                            if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping")
+                                            if (BuildConfig.DEBUG) {
+                                                Log.d(
+                                                TAG,
+                                                "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping",
+                                            )
+                                            }
                                         }
                                     } catch (e: Exception) {
                                         Log.e(TAG, "Error showing enhanced notification (legacy path)", e)
@@ -304,18 +342,23 @@ class FCMService : FirebaseMessagingService() {
                 }
             }
         }
-        
+
         // Handle notification payload (for when app is in background)
         remoteMessage.notification?.let { notification ->
-            if (BuildConfig.DEBUG) Log.d(TAG, "Processing notification payload - title: ${notification.title}, body: ${notification.body}")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "Processing notification payload - title: ${notification.title}, body: ${notification.body}",
+            )
+            }
             showNotification(
                 title = notification.title ?: "New message",
                 body = notification.body ?: "",
-                data = remoteMessage.data
+                data = remoteMessage.data,
             )
         }
     }
-    
+
     /**
      * Check if the app is actually running in the foreground by checking ActivityManager.
      * This is a more reliable check than SharedPreferences which can have timing issues.
@@ -324,14 +367,14 @@ class FCMService : FirebaseMessagingService() {
         return try {
             val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
             val runningAppProcesses = activityManager?.runningAppProcesses ?: return false
-            
+
             val packageName = packageName
             for (processInfo in runningAppProcesses) {
                 if (processInfo.processName == packageName) {
                     val importance = processInfo.importance
                     // IMPORTANCE_FOREGROUND = 100, IMPORTANCE_VISIBLE = 200
                     val isForeground = importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ||
-                            importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE
+                        importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE
                     return isForeground
                 }
             }
@@ -341,7 +384,7 @@ class FCMService : FirebaseMessagingService() {
             false
         }
     }
-    
+
     /**
      * Check if notifications should be suppressed for a given room.
      * Notifications are suppressed when:
@@ -361,7 +404,7 @@ class FCMService : FirebaseMessagingService() {
             if (BuildConfig.DEBUG) Log.d(TAG, "shouldSuppressNotification: roomId is empty, not suppressing")
             return false
         }
-        
+
         // Read from the in-memory mirror (atomic) instead of SharedPreferences directly. The
         // mirror is populated the moment AppViewModel updates the room/visibility — no disk
         // round-trip. First-ever read in a fresh process hydrates from SharedPreferences
@@ -370,13 +413,13 @@ class FCMService : FirebaseMessagingService() {
             .getCurrentOpenRoomId(this) ?: ""
         val isAppVisiblePrefs = net.vrkknn.andromuks.utils.NotificationSuppressionState
             .isAppVisible(this)
-        
+
         // Normalize room IDs for comparison (remove "!" prefix if present)
         val normalizedRoomId = roomId.removePrefix("!")
         val normalizedCurrentRoomId = currentOpenRoomId.removePrefix("!")
-        
+
         val roomMatches = normalizedCurrentRoomId == normalizedRoomId && normalizedCurrentRoomId.isNotEmpty()
-        
+
         // Use ActivityManager as fallback if SharedPreferences says false (handles timing issues)
         val isAppVisible = if (isAppVisiblePrefs) {
             true
@@ -384,19 +427,34 @@ class FCMService : FirebaseMessagingService() {
             // Double-check using ActivityManager if SharedPreferences says false
             val isForeground = isAppInForeground()
             if (isForeground) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "shouldSuppressNotification: SharedPreferences says app not visible, but ActivityManager says app is in foreground - using ActivityManager result")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "shouldSuppressNotification: SharedPreferences says app not visible, but ActivityManager says app is in foreground - using ActivityManager result",
+                )
+                }
             }
             isForeground
         }
-        
+
         val shouldSuppress = roomMatches && isAppVisible
-        
-        if (BuildConfig.DEBUG) Log.d(TAG, "shouldSuppressNotification: roomId='$roomId' (normalized='$normalizedRoomId'), " +
+
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "shouldSuppressNotification: roomId='$roomId' (normalized='$normalizedRoomId'), " +
                 "currentOpenRoomId='$currentOpenRoomId' (normalized='$normalizedCurrentRoomId'), " +
-                "isAppVisiblePrefs=$isAppVisiblePrefs, isAppVisible=$isAppVisible, roomMatches=$roomMatches, shouldSuppress=$shouldSuppress")
-        
+                "isAppVisiblePrefs=$isAppVisiblePrefs, isAppVisible=$isAppVisible, roomMatches=$roomMatches, shouldSuppress=$shouldSuppress",
+        )
+        }
+
         if (shouldSuppress) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "✅ Suppressing notification for room $roomId - room is open AND app is in foreground")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "✅ Suppressing notification for room $roomId - room is open AND app is in foreground",
+            )
+            }
         } else {
             val reason = when {
                 !roomMatches -> "room doesn't match or no room open"
@@ -405,10 +463,10 @@ class FCMService : FirebaseMessagingService() {
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "❌ NOT suppressing notification for room $roomId - $reason")
         }
-        
+
         return shouldSuppress
     }
-    
+
     /**
      * Handle message notification payload
      */
@@ -421,7 +479,7 @@ class FCMService : FirebaseMessagingService() {
             // it as an HMAC token (not a session lookup), which is the only auth that works
             // in the WorkManager context where there is no active OkHttp session.
             val batchImageAuth = jsonObject.optString("image_auth", "").takeIf { it.isNotEmpty() }
-            
+
             // Process each message
             for (i in 0 until messagesArray.length()) {
                 val message = messagesArray.getJSONObject(i)
@@ -441,16 +499,16 @@ class FCMService : FirebaseMessagingService() {
                 val htmlText = message.optString("html").takeIf { it.isNotEmpty() }
                 val timestamp = message.optLong("timestamp", System.currentTimeMillis())
                 val sound = message.optBoolean("sound", true)
-                
+
                 // Extract sender information
                 val senderObject = message.optJSONObject("sender")
                 val sender = senderObject?.optString("id", "") ?: ""
                 val senderDisplayName = senderObject?.optString("name")?.takeIf { it.isNotEmpty() } ?: sender
                 val senderAvatar = senderObject?.optString("avatar")?.takeIf { it.isNotEmpty() }
-                
+
                 // Extract room avatar
                 val roomAvatar = message.optString("room_avatar").takeIf { it.isNotEmpty() }
-                
+
                 // Verify notification is for the current account via the "self" field
                 val selfObject = message.optJSONObject("self")
                 val selfId = selfObject?.optString("id", "") ?: ""
@@ -458,7 +516,12 @@ class FCMService : FirebaseMessagingService() {
                     val sharedPrefsForSelf = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                     val currentUserId = sharedPrefsForSelf.getString("current_user_id", "") ?: ""
                     if (currentUserId.isNotEmpty() && selfId != currentUserId) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Discarding notification for wrong account: self.id=$selfId, our userId=$currentUserId")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            TAG,
+                            "Discarding notification for wrong account: self.id=$selfId, our userId=$currentUserId",
+                        )
+                        }
                         continue
                     }
                 }
@@ -466,7 +529,7 @@ class FCMService : FirebaseMessagingService() {
                 // Extract image field for image notifications
                 val image = message.optString("image").takeIf { it.isNotEmpty() }
                 if (BuildConfig.DEBUG) Log.d(TAG, "Extracted image field: $image")
-                
+
                 // Normalize avatar URLs to canonical mxc://server/mediaId form so
                 // IntelligentMediaCache always uses the same key regardless of the URL format
                 // the push payload sends (mxc://, relative _gomuks/, or full HTTP).
@@ -505,7 +568,12 @@ class FCMService : FirebaseMessagingService() {
                     }
                 }
 
-                if (BuildConfig.DEBUG) Log.d(TAG, "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl",
+                )
+                }
 
                 val notificationData = NotificationData(
                     roomId = roomId,
@@ -521,26 +589,36 @@ class FCMService : FirebaseMessagingService() {
                     timestamp = timestamp,
                     unreadCount = 1,
                     image = imageUrl,
-                    imageAuthToken = batchImageAuth
+                    imageAuthToken = batchImageAuth,
                 )
-                
+
                 // Check if room is marked as low priority - skip notifications for low priority rooms
                 val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                 val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
-                
+
                 if (lowPriorityRooms.contains(roomId)) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification for low priority room: $roomId ($roomName)")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "Skipping notification for low priority room: $roomId ($roomName)",
+                    )
+                    }
                     continue
                 }
-                
+
                 // Check if notification should be suppressed (room is open and app is foreground)
                 if (shouldSuppressNotification(roomId)) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Suppressing notification for room: $roomId ($roomName) - room is open and app is in foreground")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "Suppressing notification for room: $roomId ($roomName) - room is open and app is in foreground",
+                    )
+                    }
                     continue
                 }
-                
+
                 if (BuildConfig.DEBUG) Log.d(TAG, "Showing notification for room: $roomId, sender: $senderDisplayName, text: $text")
-                
+
                 // RACE CONDITION FIX: Mark notification as pending before showing
                 // This allows dismiss handler to cancel it even if it hasn't been posted yet
                 synchronized(pendingNotificationsLock) {
@@ -560,7 +638,12 @@ class FCMService : FirebaseMessagingService() {
                             hydrateTimelineCacheFromNotification(roomId, eventId)
                         }
                     } else {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId was cancelled before showing - skipping")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            TAG,
+                            "Notification for room $roomId was cancelled before showing - skipping",
+                        )
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error showing enhanced notification", e)
@@ -599,12 +682,22 @@ class FCMService : FirebaseMessagingService() {
         // Seed a FULL window from the start instead. Only when the cache is already warm do we use
         // the small window + pushed-event verification, which escalates to a full paginate on miss/gap.
         if (RoomTimelineCache.getCachedEventCount(roomId) == 0) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "Hydrating timeline cache via /exec paginate for $roomId (cold cache — full window seed)")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "Hydrating timeline cache via /exec paginate for $roomId (cold cache — full window seed)",
+            )
+            }
             viewModel.paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
             return
         }
 
-        if (BuildConfig.DEBUG) Log.d(TAG, "Hydrating timeline cache via /exec paginate for $roomId (warm cache — small window, expecting event $eventId)")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            TAG,
+            "Hydrating timeline cache via /exec paginate for $roomId (warm cache — small window, expecting event $eventId)",
+        )
+        }
         // Warm cache: a small window is enough to catch the pushed event (it's the newest, so
         // max_timeline_id=0 returns it). expectedEventId lets handlePaginationMerge escalate to a
         // full paginate if a burst pushed it out of the window or the window doesn't reach our top.
@@ -652,7 +745,7 @@ class FCMService : FirebaseMessagingService() {
      */
     private fun convertToFullUrl(relativeUrl: String?): String? {
         if (relativeUrl.isNullOrEmpty()) return null
-        
+
         return when {
             relativeUrl.startsWith("mxc://") -> {
                 // Get homeserver URL from SharedPreferences
@@ -664,6 +757,7 @@ class FCMService : FirebaseMessagingService() {
                     null
                 }
             }
+
             relativeUrl.startsWith("_gomuks/") -> {
                 // Get homeserver URL from SharedPreferences
                 val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
@@ -674,12 +768,13 @@ class FCMService : FirebaseMessagingService() {
                     null
                 }
             }
+
             else -> {
                 relativeUrl
             }
         }
     }
-    
+
     /**
      * Handle dismiss notification payload
      */
@@ -687,40 +782,50 @@ class FCMService : FirebaseMessagingService() {
         try {
             val dismissArray = jsonObject.getJSONArray("dismiss")
             if (BuildConfig.DEBUG) Log.d(TAG, "Found ${dismissArray.length()} dismiss requests")
-            
+
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val notificationManagerCompat = NotificationManagerCompat.from(this)
-            
+
             // Dismiss notifications for each room
             for (i in 0 until dismissArray.length()) {
                 val dismissItem = dismissArray.getJSONObject(i)
                 val roomId = dismissItem.optString("room_id", "")
-                
+
                 if (roomId.isEmpty()) {
                     Log.w(TAG, "Empty room_id in dismiss request, skipping")
                     continue
                 }
-                
+
                 if (BuildConfig.DEBUG) Log.d(TAG, "Processing dismiss request for room: $roomId")
-                
+
                 val notifID = roomId.hashCode()
-                
+
                 // RACE CONDITION FIX: Check both active notifications AND pending notifications
                 // This handles the case where dismiss arrives before notification is posted
                 val existingNotification = notificationManager.activeNotifications.firstOrNull { it.id == notifID }
                 val isPending = synchronized(pendingNotificationsLock) {
                     pendingNotifications.contains(roomId)
                 }
-                
+
                 if (existingNotification == null && !isPending) {
                     // activeNotifications can be stale on some devices/OEMs — attempt cancel anyway.
                     // cancel() is a no-op if the notification genuinely doesn't exist, but fixes
                     // cases where the notification is visible on screen yet not returned by the API.
                     val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
                     if (isBubbleOpen) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId but bubble is open - not cancelling")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            TAG,
+                            "No notification found for room: $roomId but bubble is open - not cancelling",
+                        )
+                        }
                     } else {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId in activeNotifications - attempting cancel anyway (may be stale)")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            TAG,
+                            "No notification found for room: $roomId in activeNotifications - attempting cancel anyway (may be stale)",
+                        )
+                        }
                         // Record the dismiss even though nothing is on screen: a message post for
                         // this room may still be in flight (Race 1). The tombstone lets that post
                         // suppress itself when it reaches its guarded notify().
@@ -730,14 +835,22 @@ class FCMService : FirebaseMessagingService() {
                             notificationManagerCompat.cancel(notifID)
                         }
                         EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
-                        Androlog("Notifications", "Room $roomId: dismiss recorded (no active notification — cancel-anyway / in-flight guard)")
+                        Androlog(
+                            "Notifications",
+                            "Room $roomId: dismiss recorded (no active notification — cancel-anyway / in-flight guard)",
+                        )
                     }
                     continue
                 }
 
                 // If notification is pending, cancel it before it's shown
                 if (isPending && existingNotification == null) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId is pending - cancelling before it's shown")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "Notification for room $roomId is pending - cancelling before it's shown",
+                    )
+                    }
                     synchronized(pendingNotificationsLock) {
                         pendingNotifications.remove(roomId)
                     }
@@ -748,23 +861,31 @@ class FCMService : FirebaseMessagingService() {
                         notificationManagerCompat.cancel(notifID)
                     }
                     EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
-                    Androlog("Notifications", "Room $roomId: dismiss recorded (pending notification cancelled before post)")
+                    Androlog(
+                        "Notifications",
+                        "Room $roomId: dismiss recorded (pending notification cancelled before post)",
+                    )
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully cancelled pending notification for room: $roomId")
                     continue
                 }
-                
+
                 // Notification is active - proceed with normal dismiss logic
                 if (existingNotification == null) {
                     // This shouldn't happen, but handle it gracefully
                     if (BuildConfig.DEBUG) Log.w(TAG, "Notification was pending but not active - already cancelled")
                     continue
                 }
-                
+
                 // If the user just replied via the inline notification action, ignore the dismiss
                 // that the backend immediately pushes (it's the automatic mark-read from our own reply).
                 // Any dismiss that arrives after the 5-second window is a true remote dismissal.
                 if (isReplyProtected(roomId)) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - NOT dismissing - within reply protection window (own reply triggered mark-read)")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "Room $roomId - NOT dismissing - within reply protection window (own reply triggered mark-read)",
+                    )
+                    }
                     continue
                 }
 
@@ -774,29 +895,42 @@ class FCMService : FirebaseMessagingService() {
                 // - Bubble metadata persists even when no bubble is actually open
                 // - BubbleTracker accurately tracks when a bubble is ACTUALLY open via lifecycle callbacks
                 val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
-                
+
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "Room $roomId - Bubble state check:")
                     Log.d(TAG, "  - BubbleTracker: $isBubbleOpen")
                     Log.d(TAG, "  - Final result: isBubbleOpen=$isBubbleOpen")
-                    
+
                     // Log bubble metadata for debugging (but don't use it for decision)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                         try {
                             val hasMetadata = existingNotification.notification.bubbleMetadata != null
                             if (hasMetadata && !isBubbleOpen) {
-                                Log.d(TAG, "  - Note: Notification has bubble metadata but no bubble is open (metadata is set on creation, not when bubble opens)")
+                                Log.d(
+                                    TAG,
+                                    "  - Note: Notification has bubble metadata but no bubble is open (metadata is set on creation, not when bubble opens)",
+                                )
                             }
                         } catch (e: Exception) {
                             // Ignore
                         }
                     }
                 }
-                
+
                 if (isBubbleOpen) {
                     // Bubble is actually open - don't dismiss to preserve bubble
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - NOT dismissing notification (bubble is actually open)")
-                    if (BuildConfig.DEBUG) Log.d(TAG, "This prevents the bubble from disappearing when conversation is marked as read")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "Room $roomId - NOT dismissing notification (bubble is actually open)",
+                    )
+                    }
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "This prevents the bubble from disappearing when conversation is marked as read",
+                    )
+                    }
                 } else {
                     // Safe to dismiss - no active bubble. Conversation has been marked read
                     // (or remote-dismissed); drop the cached MessagingStyle history so the
@@ -812,7 +946,7 @@ class FCMService : FirebaseMessagingService() {
                     Androlog("Notifications", "Room $roomId: notification dismissed (active, no bubble)")
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully dismissed notification for room: $roomId")
                 }
-                
+
                 // NOTE: Do NOT remove room shortcut when dismissing notifications
                 // The shortcut should remain so the chat bubble stays open
                 // Only the notification should be dismissed, not the conversation shortcut
@@ -821,64 +955,64 @@ class FCMService : FirebaseMessagingService() {
             Log.e(TAG, "Error handling dismiss notification", e)
         }
     }
-    
+
     // Note: onStartCommand is final in FirebaseMessagingService, so we handle actions differently
     // The reply and mark read actions will be handled via the notification actions directly
-    
+
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        
+
         // Register the new token with the Matrix backend
         serviceScope.launch(Dispatchers.IO) {
             registerTokenWithBackend(token)
         }
     }
-    
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_HIGH
+                NotificationManager.IMPORTANCE_HIGH,
             ).apply {
                 description = CHANNEL_DESCRIPTION
                 enableLights(true)
                 enableVibration(true)
             }
-            
+
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             notificationManager.createNotificationChannel(channel)
         }
     }
-    
-    
-    private fun showNotification(
-        title: String,
-        body: String,
-        data: Map<String, String>
-    ) {
+
+    private fun showNotification(title: String, body: String, data: Map<String, String>) {
         val roomId = data["room_id"]
         val eventId = data["event_id"]
-        
+
         // Check if room is marked as low priority - skip notifications for low priority rooms
         if (roomId != null) {
             val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
             val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
-            
+
             if (lowPriorityRooms.contains(roomId)) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Skipping background notification for low priority room: $roomId")
                 return
             }
-            
+
             // Check if notification should be suppressed (room is open and app is foreground)
             if (shouldSuppressNotification(roomId)) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "Suppressing background notification for room: $roomId - room is open and app is in foreground")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "Suppressing background notification for room: $roomId - room is open and app is in foreground",
+                )
+                }
                 return
             }
         }
-        
+
         val notificationId = generateNotificationId(roomId)
-        
+
         // Create intent for opening the app.
         // SINGLE_TOP (not CLEAR_TASK) so the tap routes through MainActivity.onNewIntent on
         // an existing instance — same path as launcher tap, which empirically recovers the
@@ -893,14 +1027,14 @@ class FCMService : FirebaseMessagingService() {
             putExtra("room_id", roomId)
             putExtra("event_id", eventId)
         }
-        
+
         val pendingIntent = PendingIntent.getActivity(
             this,
             notificationId,
             intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        
+
         // Determine if this is likely a group room based on available data
         // If room_name != sender_display_name, it's a group room
         // If room_name == sender_display_name or room_name is null, it's a DM
@@ -908,14 +1042,17 @@ class FCMService : FirebaseMessagingService() {
         val senderDisplayName = data["sender_display_name"] ?: data["sender"]
         val isLikelyGroupRoom = when {
             roomName != null && senderDisplayName != null -> roomName != senderDisplayName
-            roomName != null -> true // If we have room name but no sender name, assume group
+
+            roomName != null -> true
+
+            // If we have room name but no sender name, assume group
             else -> title.contains(":") || title.length > 20 // Fallback to heuristic
         }
-        
+
         // Choose sound based on room type
         val soundResource = if (isLikelyGroupRoom) R.raw.descending else R.raw.bright
         val soundUri = buildRawResourceUri(soundResource)
-        
+
         // Create notification with reply action
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -929,29 +1066,28 @@ class FCMService : FirebaseMessagingService() {
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setSound(soundUri)
             .build()
-        
+
         // Show notification
         val notificationManager = NotificationManagerCompat.from(this)
         notificationManager.notify(notificationId, notification)
     }
-    
+
     private fun generateNotificationId(roomId: String?): Int {
         // Generate a consistent notification ID for the room
         return roomId?.hashCode()?.let { kotlin.math.abs(it) } ?: UUID.randomUUID().hashCode()
     }
-    
+
     private suspend fun registerTokenWithBackend(token: String) {
         // TODO: Implement token registration with Matrix backend
         // This should make an HTTP request to your Matrix homeserver's push gateway
         // with the FCM token, user credentials, etc.
-        
+
         // Example implementation would be:
         // 1. Get user credentials from SharedPreferences or secure storage
         // 2. Make HTTP POST to /_matrix/push/v1/register endpoint
         // 3. Handle response and store registration status
-        
+
         // For now, we'll just log the token
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "FCMService: New FCM token: $token")
     }
-    
 }

@@ -3,27 +3,26 @@ package net.vrkknn.andromuks
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.runtime.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.isValidMatrixRoomId
-import androidx.activity.compose.BackHandler
-
 
 /**
  * ShortcutActivity - Direct room navigation for shortcuts
@@ -44,6 +43,7 @@ import androidx.activity.compose.BackHandler
 class ShortcutActivity : ComponentActivity() {
 
     private var currentRoomId: String? = null
+
     // Set by onUserLeaveHint (HOME / recents navigation) and consumed in onStop to arm the
     // "finish on next foreground" flag.  onUserLeaveHint is NOT called when we launch a
     // child activity (e.g. an image viewer) from within the app, so this correctly ignores
@@ -73,13 +73,18 @@ class ShortcutActivity : ComponentActivity() {
         // path in navigateToRoomWithCache, issuing a paginate that merges authoritative state.
         WebSocketService.setForceFreshTimelinePaginatePending(this, true)
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct shortcut navigation to room: $roomId")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "ShortcutActivity: OPTIMIZATION #3 - Direct shortcut navigation to room: $roomId",
+        )
+        }
 
         setContent {
             AndromuksTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
+                    color = MaterialTheme.colorScheme.background,
                 ) {
                     ShortcutNavigation(roomId = roomId)
                 }
@@ -96,11 +101,18 @@ class ShortcutActivity : ComponentActivity() {
         if (newRoomId != currentRoomId) {
             // Different room — finish and let Android start a fresh instance so the
             // Compose NavController is rebuilt for the new room.
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: onNewIntent - different room ($currentRoomId → $newRoomId), restarting")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "ShortcutActivity: onNewIntent - different room ($currentRoomId → $newRoomId), restarting",
+            )
+            }
             finish()
-            startActivity(Intent(this, ShortcutActivity::class.java).apply {
+            startActivity(
+                Intent(this, ShortcutActivity::class.java).apply {
                 putExtra("room_id", newRoomId)
-            })
+            }
+            )
         }
         // Same room: activity is already showing it, nothing to do.
     }
@@ -119,7 +131,12 @@ class ShortcutActivity : ComponentActivity() {
             hasBeenStopped = true
         }
         userLeftTask = false
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: onStop called (hasBeenStopped=$hasBeenStopped)")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "ShortcutActivity: onStop called (hasBeenStopped=$hasBeenStopped)",
+        )
+        }
     }
 
     override fun onStart() {
@@ -130,51 +147,71 @@ class ShortcutActivity : ComponentActivity() {
             // Finish the activity so the shortcut task is removed and the home screen is shown.
             // ShortcutActivity runs in its own task (taskAffinity=""), so finishing here does
             // not affect MainActivity's task.
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: onStart after user-leave background — finishing to reveal MainActivity")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "ShortcutActivity: onStart after user-leave background — finishing to reveal MainActivity",
+            )
+            }
             finish()
         }
     }
-    
+
     private fun extractRoomIdFromIntent(intent: Intent): String? {
         // OPTIMIZATION #3: Fast path - check for direct room_id first
         val directRoomId = intent.getStringExtra("room_id")
         val candidate = if (directRoomId != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Using direct room_id: $directRoomId")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "ShortcutActivity: OPTIMIZATION #3 - Using direct room_id: $directRoomId",
+            )
+            }
             directRoomId
         } else {
             // Fallback to URI parsing for legacy shortcuts
             val data = intent.data
             if (data != null) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Parsing URI: $data")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "ShortcutActivity: OPTIMIZATION #3 - Parsing URI: $data",
+                )
+                }
                 extractRoomIdFromMatrixUri(data.toString())
-            } else null
+            } else {
+                null
+            }
         }
         // ShortcutActivity is exported and accepts matrix: URIs from any app on the device.
         // Reject malformed IDs before they reach navigation / homeserver paginate.
         if (candidate != null && !isValidMatrixRoomId(candidate)) {
-            android.util.Log.w("Andromuks", "ShortcutActivity: rejected malformed room_id from intent (length=${candidate.length})")
+            android.util.Log.w(
+                "Andromuks",
+                "ShortcutActivity: rejected malformed room_id from intent (length=${candidate.length})",
+            )
             return null
         }
         return candidate
     }
-    
-    private fun extractRoomIdFromMatrixUri(uri: String): String? {
-        return try {
-            when {
-                uri.startsWith("matrix://bubble/") -> {
-                    val roomId = uri.substringAfter("matrix://bubble/")
-                    if (roomId.startsWith("!")) roomId else "!$roomId"
-                }
-                uri.startsWith("matrix:roomid/") -> {
-                    val roomId = uri.substringAfter("matrix:roomid/")
-                    if (roomId.startsWith("!")) roomId else "!$roomId"
-                }
-                else -> null
+
+    private fun extractRoomIdFromMatrixUri(uri: String): String? = try {
+        when {
+            uri.startsWith("matrix://bubble/") -> {
+                val roomId = uri.substringAfter("matrix://bubble/")
+                if (roomId.startsWith("!")) roomId else "!$roomId"
             }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "ShortcutActivity: Error parsing Matrix URI: $uri", e)
-            null
+
+            uri.startsWith("matrix:roomid/") -> {
+                val roomId = uri.substringAfter("matrix:roomid/")
+                if (roomId.startsWith("!")) roomId else "!$roomId"
+            }
+
+            else -> null
         }
+    } catch (e: Exception) {
+        android.util.Log.e("Andromuks", "ShortcutActivity: Error parsing Matrix URI: $uri", e)
+        null
     }
 }
 
@@ -233,7 +270,12 @@ fun ShortcutNavigation(roomId: String) {
             // a long background). The slow-path LaunchedEffect below polls
             // isWebSocketConnected forever in that case. Trigger a connection now.
             if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: WebSocket not connected — initializing cold-start connection")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "ShortcutActivity: WebSocket not connected — initializing cold-start connection",
+                )
+                }
                 appViewModel.initializeWebSocketConnection(homeserverUrl, authToken)
             }
         }
@@ -253,7 +295,12 @@ fun ShortcutNavigation(roomId: String) {
             }
 
             if (websocketConnected || pollCount >= 100) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: WebSocket connected=$websocketConnected (pollCount=$pollCount), waiting for room data readiness for: $roomId")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "ShortcutActivity: WebSocket connected=$websocketConnected (pollCount=$pollCount), waiting for room data readiness for: $roomId",
+                )
+                }
                 appViewModel.setCurrentRoomIdForTimeline(roomId)
                 appViewModel.navigateToRoomWithCache(roomId)
                 // Wait until the target room actually has state loaded before revealing
@@ -275,7 +322,10 @@ fun ShortcutNavigation(roomId: String) {
         if (hasNavigated) return@LaunchedEffect
         kotlinx.coroutines.delay(10000)
         if (!hasNavigated) {
-            android.util.Log.w("Andromuks", "ShortcutActivity: Navigation timeout (10 s) for $roomId — proceeding without WebSocket")
+            android.util.Log.w(
+                "Andromuks",
+                "ShortcutActivity: Navigation timeout (10 s) for $roomId — proceeding without WebSocket",
+            )
             appViewModel.setCurrentRoomIdForTimeline(roomId)
             appViewModel.navigateToRoomWithCache(roomId)
             // Same reasoning as slow path: don't navigate, just reveal the NavHost.
@@ -289,38 +339,48 @@ fun ShortcutNavigation(roomId: String) {
         Column(
             modifier = Modifier.fillMaxSize(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.Center,
         ) {
             ExpressiveLoadingIndicator(
-                modifier = Modifier.padding(16.dp)
+                modifier = Modifier.padding(16.dp),
             )
         }
         return
     }
-    
+
     NavHost(
         navController = navController,
-        startDestination = "room_timeline/$roomId"
+        startDestination = "room_timeline/$roomId",
     ) {
         composable("room_list") {
             // CRITICAL: Always populate roomMap from singleton cache when RoomListScreen is created in ShortcutActivity
             // This ensures shortcuts have access to all rooms even when AppViewModel is new
             // We do this BEFORE RoomListScreen is composed so roomMap is populated when RoomListScreen's LaunchedEffect runs
             LaunchedEffect(Unit) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: Populating roomMap from singleton cache before RoomListScreen initialization")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "ShortcutActivity: Populating roomMap from singleton cache before RoomListScreen initialization",
+                )
+                }
                 appViewModel.populateRoomMapFromCache()
                 appViewModel.populateSpacesFromCache()
             }
-            
+
             RoomListScreen(
                 navController = navController,
-                appViewModel = appViewModel
+                appViewModel = appViewModel,
             )
-            
+
             // Override back handler for ShortcutActivity - finish activity instead of moving to background
             // This BackHandler is composed AFTER RoomListScreen, so it takes precedence (BackHandlers are processed in reverse order)
             BackHandler(enabled = true) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: Back button pressed from room_list, finishing activity")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "ShortcutActivity: Back button pressed from room_list, finishing activity",
+                )
+                }
                 (context as? androidx.activity.ComponentActivity)?.finish()
             }
         }
@@ -330,7 +390,7 @@ fun ShortcutNavigation(roomId: String) {
                 roomId = currentRoomId,
                 roomName = "Room", // Default name - will be updated by AppViewModel
                 appViewModel = appViewModel,
-                navController = navController
+                navController = navController,
             )
         }
     }

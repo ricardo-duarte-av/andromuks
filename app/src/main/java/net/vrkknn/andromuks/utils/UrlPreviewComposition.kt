@@ -62,7 +62,7 @@ data class UrlPreviewItemState(
     val isLoading: Boolean = false,
     val data: JSONObject? = null,
     val isError: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
 )
 
 class UrlPreviewController {
@@ -87,7 +87,7 @@ private suspend fun fetchUrlPreview(
     homeserverUrl: String,
     authToken: String,
     isRoomEncrypted: Boolean,
-    client: OkHttpClient
+    client: OkHttpClient,
 ): Pair<JSONObject?, String?> = withContext(Dispatchers.IO) {
     try {
         val encodedUrl = URLEncoder.encode(url, "UTF-8")
@@ -105,10 +105,12 @@ private suspend fun fetchUrlPreview(
             val errorMessage = body?.let {
                 runCatching { JSONObject(it).optString("error", "").takeIf { m -> m.isNotBlank() } }.getOrNull()
             }
-            if (BuildConfig.DEBUG) android.util.Log.w(
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w(
                 "Andromuks",
-                "UrlPreview: fetch failed for $url — HTTP ${response.code}, error: $errorMessage"
+                "UrlPreview: fetch failed for $url — HTTP ${response.code}, error: $errorMessage",
             )
+            }
             return@withContext Pair(null, errorMessage)
         }
         if (body == null) return@withContext Pair(null, null)
@@ -116,10 +118,12 @@ private suspend fun fetchUrlPreview(
         val obj = JSONObject(body)
         if (obj.optString("og:title", "").isBlank()) Pair(null, null) else Pair(obj, null)
     } catch (e: Exception) {
-        if (BuildConfig.DEBUG) android.util.Log.w(
+        if (BuildConfig.DEBUG) {
+            android.util.Log.w(
             "Andromuks",
-            "UrlPreview: exception fetching $url: ${e.message}"
+            "UrlPreview: exception fetching $url: ${e.message}",
         )
+        }
         Pair(null, null)
     }
 }
@@ -130,7 +134,7 @@ fun UrlPreviewCompositionBar(
     controller: UrlPreviewController,
     homeserverUrl: String,
     authToken: String,
-    isRoomEncrypted: Boolean
+    isRoomEncrypted: Boolean,
 ) {
     val scope = rememberCoroutineScope()
     val httpClient = urlPreviewHttpClient
@@ -177,7 +181,7 @@ fun UrlPreviewCompositionBar(
                 .fillMaxWidth()
                 .horizontalScroll(rememberScrollState())
                 .padding(horizontal = 8.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             visiblePreviews.forEach { item ->
                 UrlPreviewCard(
@@ -185,7 +189,7 @@ fun UrlPreviewCompositionBar(
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     cardWidth = cardWidth,
-                    onFetch = { doFetch(item.url) }
+                    onFetch = { doFetch(item.url) },
                 )
             }
         }
@@ -198,7 +202,7 @@ private fun UrlPreviewCard(
     homeserverUrl: String,
     authToken: String,
     cardWidth: Dp,
-    onFetch: () -> Unit
+    onFetch: () -> Unit,
 ) {
     when {
         // ── Loading ─────────────────────────────────────────────────────────
@@ -207,12 +211,12 @@ private fun UrlPreviewCard(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 tonalElevation = 2.dp,
-                modifier = Modifier.width(cardWidth)
+                modifier = Modifier.width(cardWidth),
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     Text(
@@ -221,7 +225,7 @@ private fun UrlPreviewCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
@@ -233,12 +237,12 @@ private fun UrlPreviewCard(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.errorContainer,
                 tonalElevation = 2.dp,
-                modifier = Modifier.width(cardWidth)
+                modifier = Modifier.width(cardWidth),
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
@@ -246,7 +250,7 @@ private fun UrlPreviewCard(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
                         )
                         if (item.errorMessage != null) {
                             Text(
@@ -254,7 +258,7 @@ private fun UrlPreviewCard(
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.error,
                                 maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
@@ -262,7 +266,7 @@ private fun UrlPreviewCard(
                         imageVector = Icons.Filled.Error,
                         contentDescription = "Preview unavailable",
                         tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(18.dp),
                     )
                 }
             }
@@ -275,12 +279,12 @@ private fun UrlPreviewCard(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 tonalElevation = 2.dp,
-                modifier = Modifier.width(cardWidth)
+                modifier = Modifier.width(cardWidth),
             ) {
                 Row(
                     modifier = Modifier.padding(start = 12.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     Text(
                         text = item.url.take(40) + if (item.url.length > 40) "…" else "",
@@ -288,14 +292,14 @@ private fun UrlPreviewCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = onFetch) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = "Fetch preview",
                             modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }
@@ -322,7 +326,7 @@ private fun UrlPreviewCard(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 tonalElevation = 2.dp,
-                modifier = Modifier.width(cardWidth)
+                modifier = Modifier.width(cardWidth),
             ) {
                 Box {
                     Column {
@@ -342,7 +346,7 @@ private fun UrlPreviewCard(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(100.dp)
-                                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
+                                    .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)),
                             )
                         }
                         Column(modifier = Modifier.padding(8.dp)) {
@@ -352,7 +356,7 @@ private fun UrlPreviewCard(
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                             if (description != null) {
                                 Text(
@@ -360,7 +364,7 @@ private fun UrlPreviewCard(
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
                                     maxLines = 3,
-                                    overflow = TextOverflow.Ellipsis
+                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                         }
@@ -368,13 +372,13 @@ private fun UrlPreviewCard(
                     // Reload button — top-right overlay
                     IconButton(
                         onClick = onFetch,
-                        modifier = Modifier.align(Alignment.TopEnd)
+                        modifier = Modifier.align(Alignment.TopEnd),
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = "Reload preview",
                             modifier = Modifier.size(18.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         )
                     }
                 }

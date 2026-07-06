@@ -3,21 +3,12 @@ package net.vrkknn.andromuks.utils
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import net.vrkknn.andromuks.BuildConfig
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import net.vrkknn.andromuks.utils.SingleEventRendererDialog
-import net.vrkknn.andromuks.utils.CodeViewer
-import net.vrkknn.andromuks.RoomTimelineCache
-import net.vrkknn.andromuks.TimelineEvent
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -25,6 +16,21 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Message
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.TagFaces
+import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -43,27 +49,20 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.automirrored.filled.Message
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.TagFaces
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.TextFields
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.Forum
-import androidx.compose.material.icons.filled.Warning
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.RoomTimelineCache
+import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.utils.CodeViewer
+import net.vrkknn.andromuks.utils.SingleEventRendererDialog
 import kotlin.math.max
 import kotlin.math.min
 
@@ -96,7 +95,7 @@ data class MessageMenuConfig(
     // replies). startThreadIsExisting toggles the label: "View thread" vs "Start thread".
     val onStartOrViewThread: (() -> Unit)? = null,
     val startThreadIsExisting: Boolean = false,
-    val onShowBridgeDeliveryInfo: (() -> Unit)? = null
+    val onShowBridgeDeliveryInfo: (() -> Unit)? = null,
 )
 
 /**
@@ -108,10 +107,10 @@ fun MessageMenuBar(
     menuConfig: MessageMenuConfig?,
     onDismiss: () -> Unit,
     buttonsAlpha: Float = 1f,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     if (menuConfig == null) return
-    
+
     val event = menuConfig.event
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -126,16 +125,24 @@ fun MessageMenuBar(
     var deletedError by remember { mutableStateOf<String?>(null) }
     var loadedDeletedEvent by remember { mutableStateOf<TimelineEvent?>(null) }
     var loadedDeletedContext by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
-    
+
     val deletedBody = event.localContent?.optString("deleted_body")?.takeIf { it.isNotBlank() }
     val deletedFormattedBody = event.localContent?.optString("deleted_formatted_body")?.takeIf { it.isNotBlank() }
     val deletedMsgType = event.localContent?.optString("deleted_msgtype")?.takeIf { it.isNotBlank() }
     val deletedContentJson = event.localContent?.optString("deleted_content_json")?.takeIf { it.isNotBlank() }
     val redactionReason = event.localContent?.optString("redaction_reason")?.takeIf { it.isNotBlank() }
-    val deletedContentSummary = remember(event.eventId, deletedBody, deletedFormattedBody, deletedMsgType, deletedContentJson) {
+    val deletedContentSummary = remember(
+        event.eventId,
+        deletedBody,
+        deletedFormattedBody,
+        deletedMsgType,
+        deletedContentJson,
+    ) {
         when {
             deletedFormattedBody != null -> deletedFormattedBody
+
             deletedBody != null -> deletedBody
+
             deletedContentJson != null -> {
                 val obj = runCatching { org.json.JSONObject(deletedContentJson) }.getOrNull()
                 val url = obj?.optString("url")?.takeIf { it.isNotBlank() }
@@ -154,10 +161,12 @@ fun MessageMenuBar(
                     msgTypeLabel?.let { "Deleted content ($it)" },
                     fileName?.let { "Name: $it" },
                     mime?.let { "MIME: $it" },
-                    url?.let { "URL: $it" }
+                    url?.let { "URL: $it" },
                 ).joinToString("\n").ifBlank { "Deleted content (no preview available)" }
             }
-            deletedMsgType != null -> "Deleted content (${deletedMsgType})"
+
+            deletedMsgType != null -> "Deleted content ($deletedMsgType)"
+
             else -> null
         }
     }
@@ -165,16 +174,16 @@ fun MessageMenuBar(
     val renderedMessageText = remember(event.eventId, event.content, event.decrypted, event.localContent) {
         extractRenderedMessageTextForMenu(event)
     }
-    
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .zIndex(5f)
+            .zIndex(5f),
     ) {
         Surface(
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 0.dp,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                 val density = LocalDensity.current
@@ -187,310 +196,337 @@ fun MessageMenuBar(
                 val buttonWidth = with(density) { buttonWidthPx.toDp() }
                 var moreExpanded by remember { mutableStateOf(false) }
 
-            fun launchOriginalDialog() {
-                if (menuConfig.canViewOriginal && menuConfig.appViewModel != null) {
-                    deletedDialogText = deletedContentSummary
-                    deletedReason = redactionReason
-                    deletedLoading = true
-                    loadedDeletedEvent = null
-                    loadedDeletedContext = emptyList()
-                    deletedError = null
-                    showDeletedDialog = true
-                    coroutineScope.launch {
-                        try {
-                            val cachedEvents = withContext(Dispatchers.IO) {
-                                RoomTimelineCache.getCachedEvents(event.roomId)
-                            }
-                            if (cachedEvents == null || cachedEvents.isEmpty()) {
-                                if (BuildConfig.DEBUG) android.util.Log.w("MessageMenuBar", "No cached events found for room ${event.roomId}")
-                                deletedError = "No cached events available"
+                fun launchOriginalDialog() {
+                    if (menuConfig.canViewOriginal && menuConfig.appViewModel != null) {
+                        deletedDialogText = deletedContentSummary
+                        deletedReason = redactionReason
+                        deletedLoading = true
+                        loadedDeletedEvent = null
+                        loadedDeletedContext = emptyList()
+                        deletedError = null
+                        showDeletedDialog = true
+                        coroutineScope.launch {
+                            try {
+                                val cachedEvents = withContext(Dispatchers.IO) {
+                                    RoomTimelineCache.getCachedEvents(event.roomId)
+                                }
+                                if (cachedEvents == null || cachedEvents.isEmpty()) {
+                                    if (BuildConfig.DEBUG) {
+                                        android.util.Log.w(
+                                        "MessageMenuBar",
+                                        "No cached events found for room ${event.roomId}",
+                                    )
+                                    }
+                                    deletedError = "No cached events available"
+                                    deletedLoading = false
+                                    return@launch
+                                }
+                                val originalEvent = cachedEvents.find { it.eventId == event.eventId }
+                                if (originalEvent == null) {
+                                    if (BuildConfig.DEBUG) {
+                                        android.util.Log.w(
+                                        "MessageMenuBar",
+                                        "Original event ${event.eventId} not found in cache",
+                                    )
+                                    }
+                                    deletedError = "Original event not found in cache"
+                                    deletedLoading = false
+                                    return@launch
+                                }
+                                val originalIndex = cachedEvents.indexOf(originalEvent)
+                                val contextStart = max(0, originalIndex - 2)
+                                val contextEnd = min(cachedEvents.size, originalIndex + 3)
+                                val contextEvents = cachedEvents.subList(contextStart, contextEnd).toList()
+                                loadedDeletedEvent = originalEvent.copy(redactedBy = null)
+                                loadedDeletedContext = contextEvents
                                 deletedLoading = false
-                                return@launch
-                            }
-                            val originalEvent = cachedEvents.find { it.eventId == event.eventId }
-                            if (originalEvent == null) {
-                                if (BuildConfig.DEBUG) android.util.Log.w("MessageMenuBar", "Original event ${event.eventId} not found in cache")
-                                deletedError = "Original event not found in cache"
+                            } catch (e: Exception) {
+                                android.util.Log.e("MessageMenuBar", "Error loading original event", e)
+                                deletedError = "Error loading original event: ${e.message}"
                                 deletedLoading = false
-                                return@launch
                             }
-                            val originalIndex = cachedEvents.indexOf(originalEvent)
-                            val contextStart = max(0, originalIndex - 2)
-                            val contextEnd = min(cachedEvents.size, originalIndex + 3)
-                            val contextEvents = cachedEvents.subList(contextStart, contextEnd).toList()
-                            loadedDeletedEvent = originalEvent.copy(redactedBy = null)
-                            loadedDeletedContext = contextEvents
-                            deletedLoading = false
-                        } catch (e: Exception) {
-                            android.util.Log.e("MessageMenuBar", "Error loading original event", e)
-                            deletedError = "Error loading original event: ${e.message}"
-                            deletedLoading = false
                         }
                     }
                 }
-            }
 
-            val mainButtons = listOf(
-                Triple(Icons.Filled.TagFaces, "React") {
-                    onDismiss()
-                    menuConfig.onReact()
-                },
-                Triple(Icons.AutoMirrored.Filled.Reply, "Reply") {
-                    onDismiss()
-                    menuConfig.onReply()
-                },
-                Triple(Icons.Filled.Edit, "Edit") {
-                    if (menuConfig.canEdit) {
+                val mainButtons = listOf(
+                    Triple(Icons.Filled.TagFaces, "React") {
                         onDismiss()
-                        menuConfig.onEdit()
-                    }
-                },
-                Triple(Icons.Default.Delete, "Delete") {
-                    if (menuConfig.canDelete) {
+                        menuConfig.onReact()
+                    },
+                    Triple(Icons.AutoMirrored.Filled.Reply, "Reply") {
                         onDismiss()
-                        menuConfig.onDelete()
-                    }
-                }
-            )
+                        menuConfig.onReply()
+                    },
+                    Triple(Icons.Filled.Edit, "Edit") {
+                        if (menuConfig.canEdit) {
+                            onDismiss()
+                            menuConfig.onEdit()
+                        }
+                    },
+                    Triple(Icons.Default.Delete, "Delete") {
+                        if (menuConfig.canDelete) {
+                            onDismiss()
+                            menuConfig.onDelete()
+                        }
+                    },
+                )
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = buttonSpacing, vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(buttonSpacing)
-            ) {
-                mainButtons.forEach { (icon, label, onClick) ->
-                    val enabled = when (label) {
-                        "Edit" -> menuConfig.canEdit
-                        "Delete" -> menuConfig.canDelete
-                        else -> true
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = buttonSpacing, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(buttonSpacing),
+                ) {
+                    mainButtons.forEach { (icon, label, onClick) ->
+                        val enabled = when (label) {
+                            "Edit" -> menuConfig.canEdit
+                            "Delete" -> menuConfig.canDelete
+                            else -> true
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.width(buttonWidth),
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                tonalElevation = 1.dp,
+                                modifier = Modifier.size(56.dp).alpha(buttonsAlpha),
+                            ) {
+                                IconButton(
+                                    onClick = onClick,
+                                    enabled = enabled,
+                                    modifier = Modifier.fillMaxSize(),
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = label,
+                                        tint = if (enabled) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                        },
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (enabled) {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                },
+                            )
+                        }
                     }
+                    // More button with dropdown
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.width(buttonWidth)
+                        modifier = Modifier.width(buttonWidth),
                     ) {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            tonalElevation = 1.dp,
-                            modifier = Modifier.size(56.dp).alpha(buttonsAlpha)
-                        ) {
-                            IconButton(
-                                onClick = onClick,
-                                enabled = enabled,
-                                modifier = Modifier.fillMaxSize()
+                        Box {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                tonalElevation = 1.dp,
+                                modifier = Modifier.size(56.dp).alpha(buttonsAlpha),
                             ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = label,
-                                    tint = if (enabled) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                                IconButton(
+                                    onClick = { moreExpanded = true },
+                                    modifier = Modifier.fillMaxSize(),
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Add,
+                                        contentDescription = "More",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            }
+                            DropdownMenu(
+                                expanded = moreExpanded,
+                                onDismissRequest = { moreExpanded = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text(if (menuConfig.isPinned) "Unpin" else "Pin") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        val allowed = if (menuConfig.isPinned) menuConfig.canUnpin else menuConfig.canPin
+                                        if (allowed) {
+                                            onDismiss()
+                                            if (menuConfig.isPinned) menuConfig.onUnpin() else menuConfig.onPin()
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.PushPin, contentDescription = null)
+                                    },
+                                    enabled = if (menuConfig.isPinned) menuConfig.canUnpin else menuConfig.canPin,
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Original") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        launchOriginalDialog()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Visibility, contentDescription = null)
+                                    },
+                                    enabled = menuConfig.canViewOriginal && menuConfig.appViewModel != null,
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("History") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        if (menuConfig.canViewEditHistory && menuConfig.onShowEditHistory != null) {
+                                            onDismiss()
+                                            menuConfig.onShowEditHistory.invoke()
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.History, contentDescription = null)
+                                    },
+                                    enabled = menuConfig.canViewEditHistory && menuConfig.onShowEditHistory != null,
+                                )
+                                // Reactions option
+                                val hasReactions =
+                                    remember(event.eventId, menuConfig.appViewModel?.reactionUpdateCounter) {
+                                    menuConfig.appViewModel?.messageReactions?.get(event.eventId)?.isNotEmpty() == true
+                                }
+                                DropdownMenuItem(
+                                    text = { Text("Reactions") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onDismiss()
+                                        menuConfig.onShowReactions?.invoke()
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.TagFaces, contentDescription = null)
+                                    },
+                                    enabled = hasReactions && menuConfig.onShowReactions != null,
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Source") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onDismiss()
+                                        val json = event.toRawJsonString(2)
+                                        if (menuConfig.onViewSource != null) {
+                                            menuConfig.onViewSource!!.invoke(json)
+                                        } else {
+                                            rawJsonToShow = json
+                                            showRawJsonDialog = true
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.Code, contentDescription = null)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Copy") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onDismiss()
+                                        val clipboard = context.getSystemService(
+                                            Context.CLIPBOARD_SERVICE,
+                                        ) as ClipboardManager
+                                        clipboard.setPrimaryClip(ClipData.newPlainText("Message", renderedMessageText))
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.ContentCopy, contentDescription = null)
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Text") },
+                                    onClick = {
+                                        moreExpanded = false
+                                        onDismiss()
+                                        val text = renderedMessageText
+                                        if (menuConfig.onViewRenderedText != null) {
+                                            menuConfig.onViewRenderedText.invoke(text)
+                                        } else {
+                                            rawJsonToShow = text
+                                            showRawJsonDialog = true
+                                        }
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Filled.TextFields, contentDescription = null)
+                                    },
+                                )
+                                if (menuConfig.onViewInThread != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Thread") },
+                                        onClick = {
+                                            moreExpanded = false
+                                            onDismiss()
+                                            menuConfig.onViewInThread.invoke()
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
+                                        },
+                                    )
+                                }
+                                if (menuConfig.onStartOrViewThread != null) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(
+                                                if (menuConfig.startThreadIsExisting) "View thread" else "Start thread",
+                                            )
+                                        },
+                                        onClick = {
+                                            moreExpanded = false
+                                            onDismiss()
+                                            menuConfig.onStartOrViewThread.invoke()
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
+                                        },
+                                    )
+                                }
+                                if (menuConfig.onShowBridgeDeliveryInfo != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Delivery Info") },
+                                        onClick = {
+                                            moreExpanded = false
+                                            onDismiss()
+                                            menuConfig.onShowBridgeDeliveryInfo.invoke()
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.DoneAll, contentDescription = null)
+                                        },
+                                    )
+                                }
+                                if (sendError != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Send Error", color = MaterialTheme.colorScheme.error) },
+                                        onClick = {
+                                            moreExpanded = false
+                                            showSendErrorDialog = true
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.Filled.Warning,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error,
+                                            )
+                                        },
+                                    )
+                                }
                             }
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = label,
+                            text = "More",
                             style = MaterialTheme.typography.labelSmall,
-                            color = if (enabled) MaterialTheme.colorScheme.onSurfaceVariant
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
-                // More button with dropdown
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(buttonWidth)
-                ) {
-                    Box {
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            tonalElevation = 1.dp,
-                            modifier = Modifier.size(56.dp).alpha(buttonsAlpha)
-                        ) {
-                            IconButton(
-                                onClick = { moreExpanded = true },
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Add,
-                                    contentDescription = "More",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                        }
-                        DropdownMenu(
-                            expanded = moreExpanded,
-                            onDismissRequest = { moreExpanded = false }
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text(if (menuConfig.isPinned) "Unpin" else "Pin") },
-                                onClick = {
-                                    moreExpanded = false
-                                    val allowed = if (menuConfig.isPinned) menuConfig.canUnpin else menuConfig.canPin
-                                    if (allowed) {
-                                        onDismiss()
-                                        if (menuConfig.isPinned) menuConfig.onUnpin() else menuConfig.onPin()
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.PushPin, contentDescription = null)
-                                },
-                                enabled = if (menuConfig.isPinned) menuConfig.canUnpin else menuConfig.canPin
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Original") },
-                                onClick = {
-                                    moreExpanded = false
-                                    launchOriginalDialog()
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Visibility, contentDescription = null)
-                                },
-                                enabled = menuConfig.canViewOriginal && menuConfig.appViewModel != null
-                            )
-                            DropdownMenuItem(
-                                text = { Text("History") },
-                                onClick = {
-                                    moreExpanded = false
-                                    if (menuConfig.canViewEditHistory && menuConfig.onShowEditHistory != null) {
-                                        onDismiss()
-                                        menuConfig.onShowEditHistory.invoke()
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.History, contentDescription = null)
-                                },
-                                enabled = menuConfig.canViewEditHistory && menuConfig.onShowEditHistory != null
-                            )
-                            // Reactions option
-                            val hasReactions = remember(event.eventId, menuConfig.appViewModel?.reactionUpdateCounter) {
-                                menuConfig.appViewModel?.messageReactions?.get(event.eventId)?.isNotEmpty() == true
-                            }
-                            DropdownMenuItem(
-                                text = { Text("Reactions") },
-                                onClick = {
-                                    moreExpanded = false
-                                    onDismiss()
-                                    menuConfig.onShowReactions?.invoke()
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.TagFaces, contentDescription = null)
-                                },
-                                enabled = hasReactions && menuConfig.onShowReactions != null
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Source") },
-                                onClick = {
-                                    moreExpanded = false
-                                    onDismiss()
-                                    val json = event.toRawJsonString(2)
-                                    if (menuConfig.onViewSource != null) {
-                                        menuConfig.onViewSource!!.invoke(json)
-                                    } else {
-                                        rawJsonToShow = json
-                                        showRawJsonDialog = true
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Code, contentDescription = null)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Copy") },
-                                onClick = {
-                                    moreExpanded = false
-                                    onDismiss()
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    clipboard.setPrimaryClip(ClipData.newPlainText("Message", renderedMessageText))
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.ContentCopy, contentDescription = null)
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Text") },
-                                onClick = {
-                                    moreExpanded = false
-                                    onDismiss()
-                                    val text = renderedMessageText
-                                    if (menuConfig.onViewRenderedText != null) {
-                                        menuConfig.onViewRenderedText.invoke(text)
-                                    } else {
-                                        rawJsonToShow = text
-                                        showRawJsonDialog = true
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.TextFields, contentDescription = null)
-                                }
-                            )
-                            if (menuConfig.onViewInThread != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Thread") },
-                                    onClick = {
-                                        moreExpanded = false
-                                        onDismiss()
-                                        menuConfig.onViewInThread.invoke()
-                                    },
-                                    leadingIcon = {
-                                        Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
-                                    }
-                                )
-                            }
-                            if (menuConfig.onStartOrViewThread != null) {
-                                DropdownMenuItem(
-                                    text = { Text(if (menuConfig.startThreadIsExisting) "View thread" else "Start thread") },
-                                    onClick = {
-                                        moreExpanded = false
-                                        onDismiss()
-                                        menuConfig.onStartOrViewThread.invoke()
-                                    },
-                                    leadingIcon = {
-                                        Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
-                                    }
-                                )
-                            }
-                            if (menuConfig.onShowBridgeDeliveryInfo != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Delivery Info") },
-                                    onClick = {
-                                        moreExpanded = false
-                                        onDismiss()
-                                        menuConfig.onShowBridgeDeliveryInfo.invoke()
-                                    },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.DoneAll, contentDescription = null)
-                                    }
-                                )
-                            }
-                            if (sendError != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Send Error", color = MaterialTheme.colorScheme.error) },
-                                    onClick = {
-                                        moreExpanded = false
-                                        showSendErrorDialog = true
-                                    },
-                                    leadingIcon = {
-                                        Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.error)
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "More",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
             }
         }
     }
-    
+
     // Dialogs
     if (showRawJsonDialog) {
         CodeViewer(
@@ -498,10 +534,10 @@ fun MessageMenuBar(
             onDismiss = {
                 showRawJsonDialog = false
                 rawJsonToShow = null
-            }
+            },
         )
     }
-    
+
     if (showDeletedDialog) {
         when {
             deletedLoading -> {
@@ -511,7 +547,7 @@ fun MessageMenuBar(
                     text = {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
                             ExpressiveLoadingIndicator(modifier = Modifier.size(20.dp))
                             Text("Fetching from cache…")
@@ -521,9 +557,10 @@ fun MessageMenuBar(
                         TextButton(onClick = { showDeletedDialog = false }) {
                             Text("Close")
                         }
-                    }
+                    },
                 )
             }
+
             loadedDeletedEvent != null -> {
                 SingleEventRendererDialog(
                     event = loadedDeletedEvent,
@@ -532,9 +569,10 @@ fun MessageMenuBar(
                     homeserverUrl = menuConfig.appViewModel?.homeserverUrl ?: "",
                     authToken = menuConfig.appViewModel?.authToken ?: "",
                     onDismiss = { showDeletedDialog = false },
-                    error = deletedError
+                    error = deletedError,
                 )
             }
+
             else -> {
                 val fallbackText = deletedError ?: deletedDialogText ?: "Original message not found"
                 AlertDialog(
@@ -544,14 +582,14 @@ fun MessageMenuBar(
                         Column {
                             Text(
                                 text = fallbackText,
-                                style = MaterialTheme.typography.bodyMedium
+                                style = MaterialTheme.typography.bodyMedium,
                             )
                             deletedReason?.let { reason ->
                                 Spacer(Modifier.height(8.dp))
                                 Text(
                                     text = "Reason: $reason",
                                     style = MaterialTheme.typography.bodySmall,
-                                    fontStyle = FontStyle.Italic
+                                    fontStyle = FontStyle.Italic,
                                 )
                             }
                         }
@@ -560,7 +598,7 @@ fun MessageMenuBar(
                         TextButton(onClick = { showDeletedDialog = false }) {
                             Text("Close")
                         }
-                    }
+                    },
                 )
             }
         }
@@ -576,7 +614,7 @@ fun MessageMenuBar(
                 TextButton(onClick = { showSendErrorDialog = false }) {
                     Text("Close")
                 }
-            }
+            },
         )
     }
 }
@@ -601,4 +639,3 @@ private fun extractRenderedMessageTextForMenu(event: TimelineEvent): String {
 
     return decodeHtmlEntities(plainBody).trimEnd()
 }
-

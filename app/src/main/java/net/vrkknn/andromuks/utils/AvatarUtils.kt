@@ -1,12 +1,11 @@
 package net.vrkknn.andromuks.utils
 
-
 import android.content.Context
 import android.util.Log
 
 object AvatarUtils {
     private const val FALLBACK_COLOR_COUNT = 10
-    
+
     // Fallback colors matching the web client (hex codes converted to Color objects)
     // These should stay in sync with the colors used in the web client
     private val FALLBACK_COLORS = intArrayOf(
@@ -19,27 +18,23 @@ object AvatarUtils {
         0xFF4a8b4a.toInt(), // green
         0xFF9b4a4a.toInt(), // red
         0xFF4a4a9b.toInt(), // blue
-        0xFFd991de.toInt()  // pink
+        0xFFd991de.toInt(), // pink
     )
-    
+
     /**
      * Get a deterministic color index (0-9) for a user ID
      * @param userId The Matrix user ID (e.g., "@user:matrix.org")
      * @return An index from 0 to FALLBACK_COLOR_COUNT-1
      */
-    fun getUserColorIndex(userId: String): Int {
-        return userId.sumOf { it.code } % FALLBACK_COLOR_COUNT
-    }
-    
+    fun getUserColorIndex(userId: String): Int = userId.sumOf { it.code } % FALLBACK_COLOR_COUNT
+
     /**
      * Get a deterministic color for a user ID (Performance: Returns Int color directly)
      * @param userId The Matrix user ID (e.g., "@user:matrix.org")
      * @return A color int (ARGB)
      */
-    fun getUserColor(userId: String): Int {
-        return FALLBACK_COLORS[getUserColorIndex(userId)]
-    }
-    
+    fun getUserColor(userId: String): Int = FALLBACK_COLORS[getUserColorIndex(userId)]
+
     /**
      * Extract the fallback character from a display name or user ID
      * Handles Unicode properly and returns the first character uppercased
@@ -53,12 +48,12 @@ object AvatarUtils {
         if (source.isEmpty() || source.length <= index) {
             return ""
         }
-        
+
         // Handle Unicode properly by converting to a list of code points
         val chars = source.codePoints().toArray().map { Character.toString(it) }
         return chars.getOrNull(index)?.uppercase() ?: ""
     }
-    
+
     /**
      * Sanitizes a Matrix room ID or user ID for use as Android shortcut ID or notification channel ID.
      * Android requires IDs to be stable, safe strings without special characters that could cause issues.
@@ -75,23 +70,23 @@ object AvatarUtils {
      */
     fun sanitizeIdForAndroid(roomId: String, maxLength: Int = 100): String {
         if (roomId.isEmpty()) return "unknown"
-        
+
         // Replace special characters with safe alternatives
         // ! -> removed (room IDs start with !)
         // : -> _ (separator)
         // @ -> removed (user IDs start with @)
         // Keep alphanumeric and underscore
         val sanitized = roomId
-            .removePrefix("!")  // Remove leading ! from room IDs
-            .removePrefix("@")   // Remove leading @ from user IDs
-            .replace(":", "_")   // Replace : with _
-            .replace("/", "_")  // Replace / with _
-            .replace("?", "_")   // Replace ? with _
-            .replace("&", "_")   // Replace & with _
-            .replace("=", "_")   // Replace = with _
-            .replace(" ", "_")   // Replace spaces with _
+            .removePrefix("!") // Remove leading ! from room IDs
+            .removePrefix("@") // Remove leading @ from user IDs
+            .replace(":", "_") // Replace : with _
+            .replace("/", "_") // Replace / with _
+            .replace("?", "_") // Replace ? with _
+            .replace("&", "_") // Replace & with _
+            .replace("=", "_") // Replace = with _
+            .replace(" ", "_") // Replace spaces with _
             .filter { it.isLetterOrDigit() || it == '_' || it == '-' } // Keep only safe characters
-        
+
         // Ensure it's not empty after sanitization
         val result = if (sanitized.isEmpty()) {
             // Fallback: use hash of original ID
@@ -99,7 +94,7 @@ object AvatarUtils {
         } else {
             sanitized
         }
-        
+
         // Limit length to prevent platform issues
         return if (result.length > maxLength) {
             result.take(maxLength - 8) + "_" + result.hashCode().toString().take(7).replace("-", "n")
@@ -107,7 +102,7 @@ object AvatarUtils {
             result
         }
     }
-    
+
     /**
      * Converts an MXC URL to a proper HTTP URL for loading avatars (`?thumbnail=avatar`).
      *
@@ -118,13 +113,9 @@ object AvatarUtils {
      * colored-initial fallback locally in [net.vrkknn.andromuks.ui.components.AvatarImage] on a genuine
      * 404/error (which Coil does not disk-cache), so the slot self-heals when the media returns.
      */
-    fun mxcToHttpUrl(
-        mxcUrl: String?,
-        homeserverUrl: String
-    ): String? {
-        return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = true)
-    }
-    
+    fun mxcToHttpUrl(mxcUrl: String?, homeserverUrl: String): String? =
+        buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = true)
+
     /**
      * Gets the avatar URL without preemptive loading - lets Coil handle caching naturally
      * Returns either a cached file path, HTTP URL, or null (fallback handled by AsyncImage)
@@ -134,32 +125,19 @@ object AvatarUtils {
      * @param homeserverUrl The homeserver URL
      * @return A URL (file:// or http://) that can be used with Coil's AsyncImage, or null for fallback
      */
-    fun getAvatarUrl(
-        context: Context,
-        mxcUrl: String?,
-        homeserverUrl: String
-    ): String? {
-        return mxcToHttpUrl(mxcUrl, homeserverUrl)
-    }
-    
+    fun getAvatarUrl(context: Context, mxcUrl: String?, homeserverUrl: String): String? =
+        mxcToHttpUrl(mxcUrl, homeserverUrl)
+
     /**
      * Converts an MXC URL to the original media URL without thumbnail parameters.
      * Useful for full-width backgrounds where we want the source image instead of a downsized avatar.
      */
-    fun getFullImageUrl(
-        context: Context,
-        mxcUrl: String?,
-        homeserverUrl: String
-    ): String? {
+    fun getFullImageUrl(context: Context, mxcUrl: String?, homeserverUrl: String): String? {
         if (mxcUrl.isNullOrBlank() || mxcUrl == "null") return null
         return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = false)
     }
-    
-    private fun buildMediaUrl(
-        mxcUrl: String?,
-        homeserverUrl: String,
-        includeAvatarParams: Boolean
-    ): String? {
+
+    private fun buildMediaUrl(mxcUrl: String?, homeserverUrl: String, includeAvatarParams: Boolean): String? {
         if (mxcUrl.isNullOrBlank() || mxcUrl == "null") return null
 
         return try {

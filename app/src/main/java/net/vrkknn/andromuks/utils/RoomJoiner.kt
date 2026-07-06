@@ -1,8 +1,7 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.BuildConfig
-import android.content.Context
 import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,7 +24,6 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -34,18 +32,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import android.graphics.Color as AndroidColor
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
-import net.vrkknn.andromuks.utils.AvatarUtils
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
-
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
@@ -62,7 +58,7 @@ data class RoomLink(
      * When the link is an event permalink (points at a specific message inside the room),
      * this holds the target event ID (with its leading `$`). Null for plain room links.
      */
-    val eventId: String? = null
+    val eventId: String? = null,
 )
 
 /**
@@ -79,7 +75,7 @@ data class RoomSummary(
     val roomType: String?,
     val worldReadable: Boolean,
     val membership: String?,
-    val roomVersion: String?
+    val roomVersion: String?,
 )
 
 /**
@@ -87,13 +83,13 @@ data class RoomSummary(
  */
 fun extractRoomLink(href: String): RoomLink? {
     val trimmed = href.trim()
-    
+
     // 1. matrix.to URL: https://matrix.to/#/!roomid:server or #roomalias:server
     if (trimmed.startsWith("https://matrix.to/#/")) {
         val encoded = trimmed.removePrefix("https://matrix.to/#/")
         val parts = encoded.split("?")
         val roomPart = runCatching { URLDecoder.decode(parts[0], Charsets.UTF_8.name()) }.getOrDefault(parts[0])
-        
+
         // Extract via servers from query params
         val viaServers = mutableListOf<String>()
         if (parts.size > 1) {
@@ -104,7 +100,7 @@ fun extractRoomLink(href: String): RoomLink? {
                 }
             }
         }
-        
+
         // For event permalinks, matrix.to appends the event as "<roomIdOrAlias>/<$eventId>".
         // Room IDs/aliases never contain "/", so the first segment is always the room and the
         // remainder (if any) is the event id.
@@ -118,7 +114,7 @@ fun extractRoomLink(href: String): RoomLink? {
             return RoomLink(roomIdOrAlias, viaServers, roomIdOrAlias, eventId)
         }
     }
-    
+
     // 2. matrix: URI: matrix:roomid/roomid:server or matrix:r/roomalias:server
     if (trimmed.startsWith("matrix:")) {
         // Match matrix:roomid/... or matrix:r/...
@@ -127,20 +123,22 @@ fun extractRoomLink(href: String): RoomLink? {
         if (match != null) {
             val roomPart = match.groupValues[1]
             val decoded = runCatching { URLDecoder.decode(roomPart, Charsets.UTF_8.name()) }.getOrDefault(roomPart)
-            
+
             // Determine if this is a room ID or alias and add the prefix if missing
             val fullIdentifier = when {
                 trimmed.contains("matrix:roomid/") || trimmed.contains("matrix:/roomid/") -> {
                     // Room ID - add ! if not present
                     if (decoded.startsWith("!")) decoded else "!$decoded"
                 }
+
                 trimmed.contains("matrix:r/") || trimmed.contains("matrix:/r/") -> {
                     // Room alias - add # if not present
                     if (decoded.startsWith("#")) decoded else "#$decoded"
                 }
+
                 else -> decoded
             }
-            
+
             // Extract via servers from query params
             val viaServers = mutableListOf<String>()
             if (trimmed.contains("?via=")) {
@@ -151,7 +149,7 @@ fun extractRoomLink(href: String): RoomLink? {
                     }
                 }
             }
-            
+
             // Event permalink form: matrix:roomid/<room>/e/<event>?via=…
             val eventId = Regex("matrix:(?:/+)?roomid/[^/?]+/e/([^?/]+)").find(trimmed)
                 ?.groupValues?.get(1)
@@ -162,29 +160,26 @@ fun extractRoomLink(href: String): RoomLink? {
             return RoomLink(fullIdentifier, viaServers, fullIdentifier, eventId)
         }
     }
-    
+
     // 3. Direct room alias: #roomalias:server.com
     if (trimmed.startsWith("#") && trimmed.contains(":")) {
         return RoomLink(trimmed, emptyList(), trimmed)
     }
-    
+
     // 4. Direct room ID: !roomid:server.com
     if (trimmed.startsWith("!") && trimmed.contains(":")) {
         return RoomLink(trimmed, emptyList(), trimmed)
     }
-    
+
     return null
 }
 
 /**
  * WebSocket helper for room operations
  */
-class RoomJoinerWebSocket(
-    private val sendMessage: (String) -> Unit,
-    private val requestIdCounter: AtomicInteger
-) {
+class RoomJoinerWebSocket(private val sendMessage: (String) -> Unit, private val requestIdCounter: AtomicInteger) {
     private val pendingRequests = mutableMapOf<Int, (JSONObject) -> Unit>()
-    
+
     /**
      * Handle WebSocket response (both success and error)
      */
@@ -194,25 +189,21 @@ class RoomJoinerWebSocket(
             pendingRequests.remove(requestId)?.invoke(response)
         }
     }
-    
+
     /**
      * Check if response is an error
      */
-    private fun isErrorResponse(response: JSONObject): Boolean {
-        return response.optString("command") == "error"
-    }
-    
+    private fun isErrorResponse(response: JSONObject): Boolean = response.optString("command") == "error"
+
     /**
      * Extract error message from response
      */
-    private fun getErrorMessage(response: JSONObject): String? {
-        return if (isErrorResponse(response)) {
-            response.optString("data")
-        } else {
-            null
-        }
+    private fun getErrorMessage(response: JSONObject): String? = if (isErrorResponse(response)) {
+        response.optString("data")
+    } else {
+        null
     }
-    
+
     /**
      * Resolve room alias to room ID
      * Returns Pair<roomId, servers> on success, null on error
@@ -220,15 +211,18 @@ class RoomJoinerWebSocket(
     suspend fun resolveAlias(alias: String): Pair<String, List<String>>? = withContext(Dispatchers.IO) {
         val requestId = requestIdCounter.incrementAndGet()
         var result: Pair<String, List<String>>? = null
-        
+
         val request = JSONObject().apply {
             put("command", "resolve_alias")
             put("request_id", requestId)
-            put("data", JSONObject().apply {
+            put(
+                "data",
+                JSONObject().apply {
                 put("alias", alias)
-            })
+            }
+            )
         }
-        
+
         kotlinx.coroutines.suspendCancellableCoroutine<Unit> { continuation ->
             pendingRequests[requestId] = { response ->
                 // Check if this is an error response
@@ -251,9 +245,9 @@ class RoomJoinerWebSocket(
                 // On error, result remains null
                 continuation.resumeWith(Result.success(Unit))
             }
-            
+
             sendMessage(request.toString())
-            
+
             // Timeout after 10 seconds
             kotlinx.coroutines.MainScope().launch {
                 kotlinx.coroutines.delay(10000)
@@ -263,95 +257,106 @@ class RoomJoinerWebSocket(
                 }
             }
         }
-        
+
         result
     }
-    
+
     /**
      * Get room summary
      * Returns Pair<RoomSummary?, errorMessage?>
      * Always includes "matrix.org" as a default server in the via list
      */
-    suspend fun getRoomSummary(roomIdOrAlias: String, viaServers: List<String>): Pair<RoomSummary?, String?> = withContext(Dispatchers.IO) {
-        val requestId = requestIdCounter.incrementAndGet()
-        var result: RoomSummary? = null
-        var errorMessage: String? = null
-        
-        // Always include "matrix.org" as default server, plus any additional servers
-        val finalViaServers = (viaServers + "matrix.org").distinct()
-        
-        val request = JSONObject().apply {
-            put("command", "get_room_summary")
-            put("request_id", requestId)
-            put("data", JSONObject().apply {
-                put("room_id_or_alias", roomIdOrAlias)
-                put("via", JSONArray(finalViaServers))
-            })
-        }
-        
-        kotlinx.coroutines.suspendCancellableCoroutine<Unit> { continuation ->
-            pendingRequests[requestId] = { response ->
-                // Check if this is an error response
-                if (isErrorResponse(response)) {
-                    errorMessage = response.optString("data")
-                } else {
-                    val data = response.optJSONObject("data")
-                    if (data != null) {
-                        result = RoomSummary(
-                            roomId = data.optString("room_id", ""),
-                            avatarUrl = data.optString("avatar_url").takeIf { it.isNotEmpty() },
-                            canonicalAlias = data.optString("canonical_alias").takeIf { it.isNotEmpty() },
-                            guestCanJoin = data.optBoolean("guest_can_join", false),
-                            joinRule = data.optString("join_rule", ""),
-                            name = data.optString("name").takeIf { it.isNotEmpty() },
-                            numJoinedMembers = data.optInt("num_joined_members", 0),
-                            roomType = data.optString("room_type").takeIf { it.isNotEmpty() },
-                            worldReadable = data.optBoolean("world_readable", false),
-                            membership = data.optString("membership").takeIf { it.isNotEmpty() },
-                            roomVersion = data.optString("im.nheko.summary.version").takeIf { it.isNotEmpty() }
-                        )
-                    }
+    suspend fun getRoomSummary(roomIdOrAlias: String, viaServers: List<String>): Pair<RoomSummary?, String?> =
+        withContext(
+            Dispatchers.IO,
+        ) {
+            val requestId = requestIdCounter.incrementAndGet()
+            var result: RoomSummary? = null
+            var errorMessage: String? = null
+
+            // Always include "matrix.org" as default server, plus any additional servers
+            val finalViaServers = (viaServers + "matrix.org").distinct()
+
+            val request = JSONObject().apply {
+                put("command", "get_room_summary")
+                put("request_id", requestId)
+                put(
+                    "data",
+                    JSONObject().apply {
+                    put("room_id_or_alias", roomIdOrAlias)
+                    put("via", JSONArray(finalViaServers))
                 }
-                continuation.resumeWith(Result.success(Unit))
+                )
             }
-            
-            sendMessage(request.toString())
-            
-            // Timeout after 10 seconds
-            kotlinx.coroutines.MainScope().launch {
-                kotlinx.coroutines.delay(10000)
-                if (pendingRequests.containsKey(requestId)) {
-                    pendingRequests.remove(requestId)
+
+            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { continuation ->
+                pendingRequests[requestId] = { response ->
+                    // Check if this is an error response
+                    if (isErrorResponse(response)) {
+                        errorMessage = response.optString("data")
+                    } else {
+                        val data = response.optJSONObject("data")
+                        if (data != null) {
+                            result = RoomSummary(
+                                roomId = data.optString("room_id", ""),
+                                avatarUrl = data.optString("avatar_url").takeIf { it.isNotEmpty() },
+                                canonicalAlias = data.optString("canonical_alias").takeIf { it.isNotEmpty() },
+                                guestCanJoin = data.optBoolean("guest_can_join", false),
+                                joinRule = data.optString("join_rule", ""),
+                                name = data.optString("name").takeIf { it.isNotEmpty() },
+                                numJoinedMembers = data.optInt("num_joined_members", 0),
+                                roomType = data.optString("room_type").takeIf { it.isNotEmpty() },
+                                worldReadable = data.optBoolean("world_readable", false),
+                                membership = data.optString("membership").takeIf { it.isNotEmpty() },
+                                roomVersion = data.optString("im.nheko.summary.version").takeIf { it.isNotEmpty() },
+                            )
+                        }
+                    }
                     continuation.resumeWith(Result.success(Unit))
                 }
+
+                sendMessage(request.toString())
+
+                // Timeout after 10 seconds
+                kotlinx.coroutines.MainScope().launch {
+                    kotlinx.coroutines.delay(10000)
+                    if (pendingRequests.containsKey(requestId)) {
+                        pendingRequests.remove(requestId)
+                        continuation.resumeWith(Result.success(Unit))
+                    }
+                }
             }
+
+            Pair(result, errorMessage)
         }
-        
-        Pair(result, errorMessage)
-    }
-    
+
     /**
      * Join a room
      * Returns Pair<roomId?, errorMessage?>
      * Always includes "matrix.org" as a default server in the via list
      */
-    suspend fun joinRoom(roomIdOrAlias: String, viaServers: List<String>): Pair<String?, String?> = withContext(Dispatchers.IO) {
+    suspend fun joinRoom(roomIdOrAlias: String, viaServers: List<String>): Pair<String?, String?> = withContext(
+        Dispatchers.IO,
+    ) {
         val requestId = requestIdCounter.incrementAndGet()
         var joinedRoomId: String? = null
         var errorMessage: String? = null
-        
+
         // Always include "matrix.org" as default server, plus any additional servers
         val finalViaServers = (viaServers + "matrix.org").distinct()
-        
+
         val request = JSONObject().apply {
             put("command", "join_room")
             put("request_id", requestId)
-            put("data", JSONObject().apply {
+            put(
+                "data",
+                JSONObject().apply {
                 put("room_id_or_alias", roomIdOrAlias)
                 put("via", JSONArray(finalViaServers))
-            })
+            }
+            )
         }
-        
+
         kotlinx.coroutines.suspendCancellableCoroutine<Unit> { continuation ->
             pendingRequests[requestId] = { response ->
                 // Check if this is an error response
@@ -365,9 +370,9 @@ class RoomJoinerWebSocket(
                 }
                 continuation.resumeWith(Result.success(Unit))
             }
-            
+
             sendMessage(request.toString())
-            
+
             // Timeout after 10 seconds
             kotlinx.coroutines.MainScope().launch {
                 kotlinx.coroutines.delay(10000)
@@ -378,7 +383,7 @@ class RoomJoinerWebSocket(
                 }
             }
         }
-        
+
         Pair(joinedRoomId, errorMessage)
     }
 }
@@ -395,18 +400,18 @@ fun RoomJoinerScreen(
     appViewModel: net.vrkknn.andromuks.AppViewModel,
     onDismiss: () -> Unit,
     onJoinSuccess: (String) -> Unit,
-    inviteId: String? = null // Optional: if provided, this is an invite and we should use acceptRoomInvite/refuseRoomInvite
+    inviteId: String? = null, // Optional: if provided, this is an invite and we should use acceptRoomInvite/refuseRoomInvite
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    
+
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var roomSummary by remember { mutableStateOf<RoomSummary?>(null) }
     var resolvedRoomId by remember { mutableStateOf<String?>(null) }
     var viaServers by remember { mutableStateOf(roomLink.viaServers) }
     var isJoining by remember { mutableStateOf(false) }
-    
+
     // For invites, get the invite info
     val inviteInfo = remember(inviteId) {
         if (inviteId != null) {
@@ -415,19 +420,22 @@ fun RoomJoinerScreen(
             null
         }
     }
-    
+
     // Handle back button - just dismiss, don't refuse the invite
     // Back button should only dismiss the screen, not refuse the invitation
     // The invite remains pending and will still be visible in the room list
     BackHandler(enabled = true) {
         if (!isJoining) {
             if (BuildConfig.DEBUG && inviteId != null) {
-                android.util.Log.d("Andromuks", "RoomJoinerScreen: Back button pressed - dismissing without refusing invite for room $inviteId")
+                android.util.Log.d(
+                    "Andromuks",
+                    "RoomJoinerScreen: Back button pressed - dismissing without refusing invite for room $inviteId",
+                )
             }
             onDismiss()
         }
     }
-    
+
     // Load room summary on launch
     LaunchedEffect(roomLink, inviteId) {
         try {
@@ -447,7 +455,7 @@ fun RoomJoinerScreen(
                     emptyList<String>()
                 }
                 viaServers = via
-                
+
                 // For invites, try to get room summary but don't block - show invite info if it fails
                 var summaryLoaded = false
                 appViewModel.getRoomSummary(inviteId, via) { summaryResult ->
@@ -455,21 +463,36 @@ fun RoomJoinerScreen(
                     val (summary, summaryError) = summaryResult ?: Pair(null, null)
                     if (summaryError != null) {
                         // For invites, errors are OK - we'll show the invite info
-                        if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Room summary error for invite (this is OK): $summaryError")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "RoomJoiner",
+                            "Room summary error for invite (this is OK): $summaryError",
+                        )
+                        }
                         roomSummary = null
                         errorMessage = null // Don't show error for invites
                     } else if (summary != null) {
                         // If num_joined_members is 0 or missing, also request get_room_state with include_members to get actual count
                         if (summary.numJoinedMembers <= 0) {
-                            if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Room summary has no member count, requesting get_room_state with members for invite")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "RoomJoiner",
+                                "Room summary has no member count, requesting get_room_state with members for invite",
+                            )
+                            }
                             appViewModel.requestRoomStateWithMembers(inviteId) { roomStateInfo, stateError ->
                                 if (roomStateInfo != null && roomStateInfo.members.isNotEmpty()) {
                                     // Update summary with actual member count
                                     val updatedSummary = summary.copy(
-                                        numJoinedMembers = roomStateInfo.members.size
+                                        numJoinedMembers = roomStateInfo.members.size,
                                     )
                                     roomSummary = updatedSummary
-                                    if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Updated room summary with member count: ${roomStateInfo.members.size}")
+                                    if (BuildConfig.DEBUG) {
+                                        Log.d(
+                                        "RoomJoiner",
+                                        "Updated room summary with member count: ${roomStateInfo.members.size}",
+                                    )
+                                    }
                                 } else {
                                     // Use summary as-is (member count will show as "Unknown")
                                     roomSummary = summary
@@ -481,24 +504,34 @@ fun RoomJoinerScreen(
                         errorMessage = null
                         // If already joined, navigate directly
                         if (summary.membership == "join") {
-                            if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "RoomJoiner",
+                                "Already joined to room ${summary.roomId}, navigating",
+                            )
+                            }
                             onJoinSuccess(summary.roomId)
                         }
                     }
                     isLoading = false
                 }
-                
+
                 // Timeout: if summary doesn't load in 3 seconds, show the invite anyway
                 kotlinx.coroutines.delay(3000)
                 if (isLoading && !summaryLoaded) {
-                    if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Room summary timeout for invite, showing invite info anyway")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "RoomJoiner",
+                        "Room summary timeout for invite, showing invite info anyway",
+                    )
+                    }
                     isLoading = false
                 }
             } else {
                 // Regular room link - load summary normally
                 var targetRoomId = roomLink.roomIdOrAlias
                 var servers = roomLink.viaServers
-                
+
                 // If it's an alias, resolve it first
                 if (roomLink.roomIdOrAlias.startsWith("#")) {
                     appViewModel.resolveRoomAlias(roomLink.roomIdOrAlias) { result ->
@@ -507,7 +540,7 @@ fun RoomJoinerScreen(
                             servers = result.second
                             resolvedRoomId = targetRoomId
                             viaServers = servers
-                            
+
                             // Now get room summary
                             appViewModel.getRoomSummary(targetRoomId, servers) { summaryResult ->
                                 val (summary, summaryError) = summaryResult ?: Pair(null, null)
@@ -519,7 +552,12 @@ fun RoomJoinerScreen(
                                     errorMessage = null
                                     // If already joined, navigate directly
                                     if (summary.membership == "join") {
-                                        if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
+                                        if (BuildConfig.DEBUG) {
+                                            Log.d(
+                                            "RoomJoiner",
+                                            "Already joined to room ${summary.roomId}, navigating",
+                                        )
+                                        }
                                         onJoinSuccess(summary.roomId)
                                     }
                                 } else {
@@ -545,7 +583,12 @@ fun RoomJoinerScreen(
                             errorMessage = null
                             // If already joined, navigate directly
                             if (summary.membership == "join") {
-                                if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "RoomJoiner",
+                                    "Already joined to room ${summary.roomId}, navigating",
+                                )
+                                }
                                 onJoinSuccess(summary.roomId)
                             }
                         } else {
@@ -561,25 +604,26 @@ fun RoomJoinerScreen(
             isLoading = false
         }
     }
-    
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Room Preview") }
+                title = { Text("Room Preview") },
             )
-        }
+        },
     ) { paddingValues ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(paddingValues)
+                .padding(paddingValues),
         ) {
             when {
                 isLoading -> {
                     ExpressiveLoadingIndicator(
-                        modifier = Modifier.align(Alignment.Center)
+                        modifier = Modifier.align(Alignment.Center),
                     )
                 }
+
                 inviteId != null && inviteInfo != null && roomSummary == null && errorMessage == null -> {
                     // For invites, show invite info if summary isn't available
                     // Use actual summary if it loaded, otherwise create one from invite info
@@ -594,7 +638,7 @@ fun RoomJoinerScreen(
                         roomType = null,
                         worldReadable = false,
                         membership = "invite",
-                        roomVersion = null
+                        roomVersion = null,
                     )
                     RoomSummaryContent(
                         summary = summaryToShow,
@@ -609,9 +653,10 @@ fun RoomJoinerScreen(
                         onCancelClick = {
                             appViewModel.refuseRoomInvite(inviteId)
                             onDismiss()
-                        }
+                        },
                     )
                 }
+
                 errorMessage != null && roomSummary == null -> {
                     // Show error with fallback UI - still allow joining
                     val roomIdToShow = resolvedRoomId ?: roomLink.roomIdOrAlias
@@ -631,7 +676,7 @@ fun RoomJoinerScreen(
                                 // Regular room join via link
                                 appViewModel.joinRoomWithCallback(
                                     resolvedRoomId ?: roomLink.roomIdOrAlias,
-                                    viaServers
+                                    viaServers,
                                 ) { result ->
                                     val (joinedRoomId, joinError) = result ?: Pair(null, null)
                                     if (joinError != null) {
@@ -655,9 +700,10 @@ fun RoomJoinerScreen(
                                 // Regular dismiss
                                 onDismiss()
                             }
-                        }
+                        },
                     )
                 }
+
                 roomSummary != null -> {
                     RoomSummaryContent(
                         summary = roomSummary!!,
@@ -675,7 +721,7 @@ fun RoomJoinerScreen(
                                 // Regular room join via link
                                 appViewModel.joinRoomWithCallback(
                                     resolvedRoomId ?: roomLink.roomIdOrAlias,
-                                    viaServers
+                                    viaServers,
                                 ) { result ->
                                     val (joinedRoomId, joinError) = result ?: Pair(null, null)
                                     if (joinError != null) {
@@ -699,7 +745,7 @@ fun RoomJoinerScreen(
                                 // Regular dismiss
                                 onDismiss()
                             }
-                        }
+                        },
                     )
                 }
             }
@@ -714,16 +760,16 @@ private fun RoomSummaryContent(
     authToken: String,
     isJoining: Boolean,
     onJoinClick: () -> Unit,
-    onCancelClick: () -> Unit
+    onCancelClick: () -> Unit,
 ) {
     val context = LocalContext.current
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Room Avatar
         if (summary.avatarUrl != null) {
@@ -732,13 +778,15 @@ private fun RoomSummaryContent(
                     summary.avatarUrl.startsWith("mxc://") -> {
                         MediaUtils.mxcToHttpUrl(summary.avatarUrl, homeserverUrl)
                     }
+
                     summary.avatarUrl.startsWith("_gomuks/") -> {
                         "$homeserverUrl/${summary.avatarUrl}"
                     }
+
                     else -> summary.avatarUrl
                 }
             }
-            
+
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(avatarUrl)
@@ -748,36 +796,36 @@ private fun RoomSummaryContent(
                 modifier = Modifier
                     .size(96.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
             )
         } else {
             // Default avatar
             Surface(
                 modifier = Modifier.size(96.dp),
                 shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceVariant
+                color = MaterialTheme.colorScheme.surfaceVariant,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Default.Group,
                         contentDescription = null,
                         modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         // Room Name
         Text(
             text = summary.name ?: summary.canonicalAlias ?: summary.roomId,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
         )
-        
+
         // Canonical Alias (if different from name)
         if (summary.canonicalAlias != null && summary.name != null) {
             Spacer(modifier = Modifier.height(4.dp))
@@ -785,12 +833,12 @@ private fun RoomSummaryContent(
                 text = summary.canonicalAlias,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
             )
         }
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         // Room Info Cards
         InfoCard(
             icon = Icons.Default.Group,
@@ -799,37 +847,37 @@ private fun RoomSummaryContent(
                 "${summary.numJoinedMembers} ${if (summary.numJoinedMembers == 1) "member" else "members"}"
             } else {
                 "Unknown"
-            }
+            },
         )
-        
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         InfoCard(
             icon = if (summary.joinRule == "public") Icons.Default.Public else Icons.Default.Lock,
             title = "Join Rule",
-            value = summary.joinRule.replaceFirstChar { it.uppercase() }
+            value = summary.joinRule.replaceFirstChar { it.uppercase() },
         )
-        
+
         if (summary.worldReadable) {
             Spacer(modifier = Modifier.height(8.dp))
             InfoCard(
                 icon = Icons.Default.Public,
                 title = "History",
-                value = "World readable"
+                value = "World readable",
             )
         }
-        
+
         if (summary.guestCanJoin) {
             Spacer(modifier = Modifier.height(8.dp))
             InfoCard(
                 icon = Icons.Default.Public,
                 title = "Guest Access",
-                value = "Guests can join"
+                value = "Guests can join",
             )
         }
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
+
         // Action Buttons
         if (summary.membership != "join") {
             Button(
@@ -837,26 +885,26 @@ private fun RoomSummaryContent(
                 enabled = !isJoining,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(56.dp),
             ) {
                 if (isJoining) {
                     ExpressiveLoadingIndicator(
                         modifier = Modifier.size(24.dp),
-                        indicatorColor = MaterialTheme.colorScheme.onPrimary
+                        indicatorColor = MaterialTheme.colorScheme.onPrimary,
                     )
                 } else {
                     Text("Join Room", style = MaterialTheme.typography.titleMedium)
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(8.dp))
-            
+
             OutlinedButton(
                 onClick = onCancelClick,
                 enabled = !isJoining,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(56.dp),
             ) {
                 Text("Cancel", style = MaterialTheme.typography.titleMedium)
             }
@@ -865,16 +913,16 @@ private fun RoomSummaryContent(
                 text = "You are already a member of this room",
                 style = MaterialTheme.typography.bodyLarge,
                 color = MaterialTheme.colorScheme.primary,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
             )
-            
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             Button(
                 onClick = onCancelClick,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(56.dp),
             ) {
                 Text("Close", style = MaterialTheme.typography.titleMedium)
             }
@@ -883,37 +931,33 @@ private fun RoomSummaryContent(
 }
 
 @Composable
-private fun InfoCard(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    title: String,
-    value: String
-) {
+private fun InfoCard(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, value: String) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.medium,
-        color = MaterialTheme.colorScheme.surfaceVariant
+        color = MaterialTheme.colorScheme.surfaceVariant,
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 icon,
                 contentDescription = null,
                 modifier = Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.primary
+                tint = MaterialTheme.colorScheme.primary,
             )
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     text = value,
                     style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Medium
+                    fontWeight = FontWeight.Medium,
                 )
             }
         }
@@ -932,9 +976,7 @@ private fun getRoomFallbackCharacter(roomId: String): String {
 /**
  * Helper function to get color for room ID
  */
-private fun getRoomColor(roomId: String): Int {
-    return AvatarUtils.getUserColor(roomId)
-}
+private fun getRoomColor(roomId: String): Int = AvatarUtils.getUserColor(roomId)
 
 @Composable
 private fun RoomErrorFallbackContent(
@@ -943,77 +985,77 @@ private fun RoomErrorFallbackContent(
     isJoining: Boolean,
     inviteId: String?,
     onJoinClick: () -> Unit,
-    onCancelClick: () -> Unit
+    onCancelClick: () -> Unit,
 ) {
     val fallbackChar = remember(roomId) { getRoomFallbackCharacter(roomId) }
     val roomColor = remember(roomId) { getRoomColor(roomId) }
-    
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Room ID
         Text(
             text = roomId,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
         )
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         // Fallback avatar (large circle with first letter)
         Surface(
             modifier = Modifier.size(96.dp),
             shape = CircleShape,
-            color = Color(roomColor)
+            color = Color(roomColor),
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Text(
                     text = fallbackChar,
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White
+                    color = Color.White,
                 )
             }
         }
-        
+
         Spacer(modifier = Modifier.height(32.dp))
-        
+
         // Join Room Button
         Button(
             onClick = onJoinClick,
             enabled = !isJoining,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(56.dp),
         ) {
             if (isJoining) {
                 ExpressiveLoadingIndicator(
                     modifier = Modifier.size(24.dp),
-                    indicatorColor = MaterialTheme.colorScheme.onPrimary
+                    indicatorColor = MaterialTheme.colorScheme.onPrimary,
                 )
             } else {
                 Text("Join Room", style = MaterialTheme.typography.titleMedium)
             }
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         // Error message (non-blocking)
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.Center,
         ) {
             Icon(
                 Icons.Default.Close,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.error
+                tint = MaterialTheme.colorScheme.error,
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
@@ -1021,22 +1063,21 @@ private fun RoomErrorFallbackContent(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
         }
-        
+
         Spacer(modifier = Modifier.height(16.dp))
-        
+
         // Cancel button
         OutlinedButton(
             onClick = onCancelClick,
             enabled = !isJoining,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(56.dp),
         ) {
             Text("Cancel", style = MaterialTheme.typography.titleMedium)
         }
     }
 }
-

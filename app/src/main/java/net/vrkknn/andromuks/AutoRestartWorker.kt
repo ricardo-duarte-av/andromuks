@@ -22,16 +22,13 @@ import java.util.concurrent.TimeUnit
  * 
  * Multiple recovery triggers ensure the service stays alive even under aggressive killing.
  */
-class AutoRestartWorker(
-    context: Context,
-    params: WorkerParameters
-) : CoroutineWorker(context, params) {
-    
+class AutoRestartWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+
     private val TAG = "AutoRestartWorker"
-    
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         if (BuildConfig.DEBUG) Log.d(TAG, "AutoRestartWorker started")
-        
+
         try {
             // Battery-saver mode: user intentionally disconnected — do not restart.
             if (WebSocketService.isBatterySaverUserDisconnected(applicationContext)) {
@@ -45,10 +42,15 @@ class AutoRestartWorker(
             val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
 
             if (homeserverUrl.isEmpty() || authToken.isEmpty()) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "No credentials found - user not logged in, skipping auto-restart check")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "No credentials found - user not logged in, skipping auto-restart check",
+                )
+                }
                 return@withContext Result.success()
             }
-            
+
             // Check if service is running
             if (!WebSocketService.isServiceRunning()) {
                 Log.w(TAG, "WebSocketService not running - scheduling restart")
@@ -57,7 +59,7 @@ class AutoRestartWorker(
             } else {
                 if (BuildConfig.DEBUG) Log.d(TAG, "WebSocketService is running - no action needed")
             }
-            
+
             Result.success()
         } catch (e: Exception) {
             Log.e(TAG, "Error in AutoRestartWorker: ${e.message}", e)
@@ -65,38 +67,38 @@ class AutoRestartWorker(
             Result.success()
         }
     }
-    
+
     companion object {
         private const val WORK_NAME = "websocket_auto_restart"
         private const val REPEAT_INTERVAL_MINUTES = 30L // 30 minutes (WorkManager minimum is 15, but we use 30 to avoid conflicts with health check)
         private const val FLEX_INTERVAL_MINUTES = 5L // Flex window for execution
-        
+
         /**
          * Schedule periodic auto-restart checks
          * Runs every 30 minutes
          */
         fun schedule(context: Context) {
             val workManager = WorkManager.getInstance(context)
-            
+
             val autoRestartWork = PeriodicWorkRequestBuilder<AutoRestartWorker>(
                 repeatInterval = REPEAT_INTERVAL_MINUTES,
                 repeatIntervalTimeUnit = TimeUnit.MINUTES,
                 flexTimeInterval = FLEX_INTERVAL_MINUTES,
-                flexTimeIntervalUnit = TimeUnit.MINUTES
+                flexTimeIntervalUnit = TimeUnit.MINUTES,
             )
                 .addTag("websocket_auto_restart")
                 .build()
-            
+
             // Enqueue unique work (replaces any existing work with same name)
             workManager.enqueueUniquePeriodicWork(
                 WORK_NAME,
                 androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-                autoRestartWork
+                autoRestartWork,
             )
-            
+
             if (BuildConfig.DEBUG) Log.d("AutoRestartWorker", "Scheduled periodic auto-restart checks (every $REPEAT_INTERVAL_MINUTES minutes)")
         }
-        
+
         /**
          * Cancel scheduled auto-restart checks
          */
@@ -106,4 +108,3 @@ class AutoRestartWorker(
         }
     }
 }
-

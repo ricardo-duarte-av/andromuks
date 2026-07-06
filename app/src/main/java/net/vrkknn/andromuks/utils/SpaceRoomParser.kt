@@ -1,13 +1,12 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.SyncUpdateResult
-import kotlinx.coroutines.async
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
-
 import org.json.JSONObject
 
 object SpaceRoomParser {
@@ -76,6 +75,7 @@ object SpaceRoomParser {
                     if (label != null) return Triple(label, sender, eventId)
                 }
             }
+
             "m.room.encrypted" -> {
                 val decryptedType = event.optString("decrypted_type")
                 val decrypted = event.optJSONObject("decrypted")
@@ -112,6 +112,7 @@ object SpaceRoomParser {
                     if (label != null) return Triple(label, sender, eventId)
                 }
             }
+
             "m.sticker" -> {
                 val content = event.optJSONObject("content") ?: return null
                 val label = previewFromMsgtype("m.sticker", content.optString("body")) ?: return null
@@ -144,25 +145,25 @@ object SpaceRoomParser {
             val roomId = roomKeys.next()
             val roomObj = roomsJson.optJSONObject(roomId) ?: continue
             val meta = roomObj.optJSONObject("meta") ?: continue
-            
+
             // Check if this is a space (skip spaces for now)
             val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
             if (type == "m.space") {
-                //Log.d("Andromuks", "SpaceRoomParser: Skipping space: $roomId")
+                // Log.d("Andromuks", "SpaceRoomParser: Skipping space: $roomId")
                 continue
             }
 
             // This is a regular room
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
             val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
-            
+
             // Extract canonical alias from meta
             val canonicalAlias = meta.optString("canonical_alias")?.takeIf { it.isNotBlank() }
-            
+
             // Extract unread count and highlight count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
             val unreadHighlights = meta.optInt("unread_highlights", 0)
-            
+
             // Extract last message preview and sender from events if available
             val events = roomObj.optJSONArray("events")
             var messagePreview: String? = null
@@ -181,7 +182,9 @@ object SpaceRoomParser {
                                 val relatesTo = content?.optJSONObject("m.relates_to")
                                 val isEdit = relatesTo?.optString("rel_type") == "m.replace"
                                 var body = if (isEdit) {
-                                    content?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
+                                    content?.optJSONObject(
+                                        "m.new_content",
+                                    )?.optString("body")?.takeIf { it.isNotBlank() }
                                 } else {
                                     content?.optString("body")?.takeIf { it.isNotBlank() }
                                 }
@@ -207,6 +210,7 @@ object SpaceRoomParser {
                                     }
                                 }
                             }
+
                             "m.room.encrypted" -> {
                                 val decryptedType = event.optString("decrypted_type")
                                 val decrypted = event.optJSONObject("decrypted")
@@ -214,7 +218,9 @@ object SpaceRoomParser {
                                     val relatesTo = decrypted?.optJSONObject("m.relates_to")
                                     val isEdit = relatesTo?.optString("rel_type") == "m.replace"
                                     var body = if (isEdit) {
-                                        decrypted?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
+                                        decrypted?.optJSONObject(
+                                            "m.new_content",
+                                        )?.optString("body")?.takeIf { it.isNotBlank() }
                                     } else {
                                         decrypted?.optString("body")?.takeIf { it.isNotBlank() }
                                     }
@@ -247,6 +253,7 @@ object SpaceRoomParser {
                                     }
                                 }
                             }
+
                             "m.sticker" -> {
                                 val content = event.optJSONObject("content")
                                 messagePreview = previewFromMsgtype("m.sticker", content?.optString("body"))
@@ -290,7 +297,11 @@ object SpaceRoomParser {
                 }
                 val gomuksPrefData = accountData.optJSONObject("fi.mau.gomuks.preferences")
                 if (gomuksPrefData != null) {
-                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "fi.mau.gomuks.preferences", gomuksPrefData)
+                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(
+                        roomId,
+                        "fi.mau.gomuks.preferences",
+                        gomuksPrefData,
+                    )
                 }
                 // m.fully_read: the read-up-to marker. Cached so the timeline can draw an
                 // "unread" divider at this position. May be advanced by another client and
@@ -301,7 +312,7 @@ object SpaceRoomParser {
                 }
             }
 
-            //android.util.Log.d("Andromuks", "SpaceRoomParser: Creating RoomItem for '$name' - messagePreview='$messagePreview', messageSender='$messageSender'")
+            // android.util.Log.d("Andromuks", "SpaceRoomParser: Creating RoomItem for '$name' - messagePreview='$messagePreview', messageSender='$messageSender'")
             rooms.add(
                 RoomItem(
                     id = roomId,
@@ -314,15 +325,15 @@ object SpaceRoomParser {
                     isFavourite = isFavourite,
                     isLowPriority = isLowPriority,
                     canonicalAlias = canonicalAlias,
-                    latestEventId = latestEventId
-                )
+                    latestEventId = latestEventId,
+                ),
             )
         }
 
-        //Log.d("Andromuks", "SpaceRoomParser: Parsed ${rooms.size} rooms from sync JSON")
+        // Log.d("Andromuks", "SpaceRoomParser: Parsed ${rooms.size} rooms from sync JSON")
         return rooms
     }
-    
+
     /**
      * Parses incremental sync updates and returns what changed.
      * Handles room updates, new rooms, and removed rooms.
@@ -333,56 +344,89 @@ object SpaceRoomParser {
      * @param existingRooms Map of existing room IDs to RoomItems (for change detection)
      */
     suspend fun parseSyncUpdate(
-        syncJson: JSONObject, 
-        memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, 
+        syncJson: JSONObject,
+        memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null,
         appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
         existingRooms: Map<String, net.vrkknn.andromuks.RoomItem>? = null,
-        isClearState: Boolean = false
+        isClearState: Boolean = false,
     ): SyncUpdateResult {
         val data = syncJson.optJSONObject("data") ?: return SyncUpdateResult(emptyList(), emptyList(), emptyList())
-        
+
         // Parse spaces from sync data
         val discoveredSpaceIds = mutableSetOf<String>()
-        
+
         // CRITICAL: If clear_state=true, always clear spaces (even if top_level_spaces is null/empty)
         // The clear_state message has all keys null/empty, and subsequent messages will repopulate
         if (isClearState) {
             val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
-            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "SpaceRoomParser: clear_state=true - clearing $currentSpacesSize spaces (will be repopulated by subsequent sync_complete messages)")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w(
+                "Andromuks",
+                "SpaceRoomParser: clear_state=true - clearing $currentSpacesSize spaces (will be repopulated by subsequent sync_complete messages)",
+            )
+            }
             appViewModel?.updateAllSpaces(emptyList())
         }
-        
+
         // Process top_level_spaces if present (in clear_state message or subsequent messages)
         val topLevelSpaces = data.optJSONArray("top_level_spaces")
         if (topLevelSpaces != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: top_level_spaces found with ${topLevelSpaces.length()} items (clear_state=$isClearState)")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "SpaceRoomParser: top_level_spaces found with ${topLevelSpaces.length()} items (clear_state=$isClearState)",
+            )
+            }
             // Only parse basic space info, don't populate edges yet
             val spaces = parseSpacesBasic(data)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data (clear_state=$isClearState)")
-            if (spaces.isNotEmpty() && BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "SpaceRoomParser: Space names: ${spaces.map { it.name }.joinToString(", ")}")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data (clear_state=$isClearState)",
+            )
             }
-            
+            if (spaces.isNotEmpty() && BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "SpaceRoomParser: Space names: ${spaces.map { it.name }.joinToString(", ")}",
+                )
+            }
+
             // SAFETY FIX: Only update allSpaces if we have spaces (non-empty list)
             // This prevents clearing spaces when backend sends empty array in normal syncs
             if (spaces.isNotEmpty()) {
                 val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Calling updateAllSpaces with ${spaces.size} spaces (current: $currentSpacesSize, clear_state=$isClearState)")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "SpaceRoomParser: Calling updateAllSpaces with ${spaces.size} spaces (current: $currentSpacesSize, clear_state=$isClearState)",
+                )
+                }
                 appViewModel?.updateAllSpaces(spaces)
             } else {
                 val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
-                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "SpaceRoomParser: ⚠️ Received empty spaces array (clear_state=$isClearState, current spaces: $currentSpacesSize) - preserving existing spaces")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w(
+                    "Andromuks",
+                    "SpaceRoomParser: ⚠️ Received empty spaces array (clear_state=$isClearState, current spaces: $currentSpacesSize) - preserving existing spaces",
+                )
+                }
             }
             discoveredSpaceIds.addAll(spaces.map { it.id })
         } // else: top_level_spaces is null - don't update, preserve existing spaces
-        
+
         // CRITICAL FIX: Store space_edges even if top_level_spaces is null
         // This allows space edges to update existing spaces even when top_level_spaces isn't present
         // Space edges can arrive in separate sync_complete messages and should be processed
         val spaceEdges = data.optJSONObject("space_edges")
         if (spaceEdges != null) {
             val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Storing space_edges (current spaces: $currentSpacesSize, top_level_spaces was ${if (topLevelSpaces != null) "present" else "null"})")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "SpaceRoomParser: Storing space_edges (current spaces: $currentSpacesSize, top_level_spaces was ${if (topLevelSpaces != null) "present" else "null"})",
+            )
+            }
             appViewModel?.storeSpaceEdges(spaceEdges)
             // Keys of space_edges are also space IDs (can include nested spaces)
             val edgeKeys = spaceEdges.keys()
@@ -393,14 +437,14 @@ object SpaceRoomParser {
                 }
             }
         }
-        
+
         // Debug: Log member cache contents
-        //Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")
-        
+        // Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")
+
         val updatedRooms = mutableListOf<RoomItem>()
         val newRooms = mutableListOf<RoomItem>()
         val removedRoomIds = mutableListOf<String>()
-        
+
         // Process updated/new rooms
         val roomsJson = data.optJSONObject("rooms")
         if (roomsJson != null) {
@@ -414,7 +458,7 @@ object SpaceRoomParser {
                     null
                 }
             }.toList()
-            
+
             // PERFORMANCE: Parse rooms in parallel using coroutines
             // This significantly speeds up processing when there are many rooms (e.g., 100+)
             coroutineScope {
@@ -431,15 +475,15 @@ object SpaceRoomParser {
                         }
                     }
                 }
-                
+
                 // Collect results (maintains order)
                 for ((roomId, room) in roomResults.map { it.await() }) {
-                if (room == null) {
-                    // This is a space
-                    discoveredSpaceIds.add(roomId)
-                    continue
-                }
-                
+                    if (room == null) {
+                        // This is a space
+                        discoveredSpaceIds.add(roomId)
+                        continue
+                    }
+
                     // Determine if this is a new room or updated room
                     val existingRoom = existingRooms?.get(roomId)
                     if (existingRoom == null) {
@@ -449,14 +493,13 @@ object SpaceRoomParser {
                     }
                 }
             }
-            
         }
-        
+
         // Record any newly discovered space IDs so UI filtering can remove them from Home.
         if (discoveredSpaceIds.isNotEmpty()) {
             appViewModel?.registerSpaceIds(discoveredSpaceIds)
         }
-        
+
         // Process left rooms
         val leftRooms = data.optJSONArray("left_rooms")
         if (leftRooms != null) {
@@ -467,7 +510,7 @@ object SpaceRoomParser {
                 }
             }
         }
-        
+
         // Process invited rooms (treat as new rooms for now)
         val invitedRooms = data.optJSONArray("invited_rooms")
         if (invitedRooms != null) {
@@ -480,36 +523,42 @@ object SpaceRoomParser {
                 }
             }
         }
-        
+
         // Debug: Log rooms with null messageSender (this is normal for receipt-only syncs)
         val roomsWithNullSender = updatedRooms.filter { it.messageSender == null }
-        //if (roomsWithNullSender.isNotEmpty()) {
+        // if (roomsWithNullSender.isNotEmpty()) {
         //    Log.d("Andromuks", "SpaceRoomParser: ${roomsWithNullSender.size} rooms in sync with no new messages (may have receipts/state updates only)")
         //    roomsWithNullSender.forEach { room ->
         //        Log.d("Andromuks", "SpaceRoomParser: Room without new message - ID: ${room.id}, Name: ${room.name}")
         //    }
-        //}
-        
-        //Log.d("Andromuks", "SpaceRoomParser: Sync update - updated: ${updatedRooms.size}, removed: ${removedRoomIds.size}")
+        // }
+
+        // Log.d("Andromuks", "SpaceRoomParser: Sync update - updated: ${updatedRooms.size}, removed: ${removedRoomIds.size}")
         return SyncUpdateResult(updatedRooms, newRooms, removedRoomIds)
     }
-    
-    private fun parseRoomFromJson(roomId: String, roomObj: JSONObject, meta: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): RoomItem? {
+
+    private fun parseRoomFromJson(
+        roomId: String,
+        roomObj: JSONObject,
+        meta: JSONObject,
+        memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null,
+        appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
+    ): RoomItem? {
         try {
             // This is a regular room
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
             val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
-            
+
             // Extract canonical alias from meta
             val canonicalAlias = meta.optString("canonical_alias")?.takeIf { it.isNotBlank() }
-            
+
             // Extract unread count and highlight count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
             val unreadHighlights = meta.optInt("unread_highlights", 0)
-            
+
             // Detect if this is a Direct Message room
             val isDirectMessage = detectDirectMessage(roomId, roomObj, meta, appViewModel)
-            
+
             // Extract message preview and sender from events JSON
             // Always parse to keep summaries up-to-date (no local persistence, so only JSON parsing cost)
             var messagePreview: String? = null
@@ -555,11 +604,13 @@ object SpaceRoomParser {
                             bestEvent = ev
                         }
                     }
-                    bestEvent?.let { extractPreviewFromEvent(it)?.let { (preview, snd, eid) ->
-                        messagePreview = preview
-                        messageSender = snd
-                        latestEventId = eid
-                    } }
+                    bestEvent?.let {
+                        extractPreviewFromEvent(it)?.let { (preview, snd, eid) ->
+                            messagePreview = preview
+                            messageSender = snd
+                            latestEventId = eid
+                        }
+                    }
                 }
                 // If still null (room has only reactions, joins, etc.), use the event with the
                 // greatest timestamp so mark_read always has a valid target.
@@ -569,14 +620,17 @@ object SpaceRoomParser {
                         val ev = events.optJSONObject(i) ?: continue
                         val eid = ev.optString("event_id")?.takeIf { it.isNotBlank() } ?: continue
                         val ts = ev.optLong("timestamp", 0L)
-                        if (ts > bestTs) { bestTs = ts; latestEventId = eid }
+                        if (ts > bestTs) {
+                            bestTs = ts;
+                            latestEventId = eid
+                        }
                     }
                 }
             }
 
             // Extract sorting_timestamp from meta
             val sortingTimestamp = meta.optLong("sorting_timestamp", 0L).takeIf { it != 0L }
-            
+
             // Extract tags from account_data.m.tag
             var isFavourite = false
             var isLowPriority = false
@@ -600,7 +654,11 @@ object SpaceRoomParser {
                 }
                 val gomuksPrefData = accountData.optJSONObject("fi.mau.gomuks.preferences")
                 if (gomuksPrefData != null) {
-                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "fi.mau.gomuks.preferences", gomuksPrefData)
+                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(
+                        roomId,
+                        "fi.mau.gomuks.preferences",
+                        gomuksPrefData,
+                    )
                 }
                 // m.fully_read: the read-up-to marker (see the full-parse path above).
                 val fullyReadData = accountData.optJSONObject("m.fully_read")
@@ -647,67 +705,71 @@ object SpaceRoomParser {
                 isLowPriority = isLowPriority,
                 canonicalAlias = canonicalAlias,
                 latestEventId = latestEventId,
-                senderDisplayName = senderDisplayName
+                senderDisplayName = senderDisplayName,
             )
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing room $roomId", e)
             return null
         }
     }
-    
+
     /**
      * Detects if a room is a Direct Message (DM) using multiple methods:
      * 1. Primary: dm_user_id field in meta (most reliable for gomuks JSON)
      * 2. Secondary: m.direct account data (more reliable than name-based detection)
      * 3. Fallback: room name patterns (contains @ symbol or looks like a user ID)
      */
-    private fun detectDirectMessage(roomId: String, roomObj: JSONObject, meta: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): Boolean {
+    private fun detectDirectMessage(
+        roomId: String,
+        roomObj: JSONObject,
+        meta: JSONObject,
+        appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
+    ): Boolean {
         try {
             // Method 1: Check if dm_user_id is populated in meta - this indicates a DM
             val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
-            
+
             if (dmUserId != null) {
-                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")
+                // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")
                 return true
             }
-            
+
             // Method 2: Check m.direct account data (secondary method)
             if (appViewModel != null && appViewModel.isDirectMessageFromAccountData(roomId)) {
-                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (m.direct account data)")
+                // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (m.direct account data)")
                 return true
             }
-            
+
             // Method 3: Fallback - Check if room name is exactly a Matrix user ID (not just contains @)
             val roomName = meta.optString("name", "")
             val isExactMatrixUserId = roomName.matches(Regex("^@[^:]+:[^:]+$")) // Exact Matrix user ID format
-            
+
             if (isExactMatrixUserId) {
-                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name is exact Matrix user ID: '$roomName')")
+                // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name is exact Matrix user ID: '$roomName')")
                 return true
             }
-            
-            //Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id, not in m.direct, name: '$roomName')")
+
+            // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id, not in m.direct, name: '$roomName')")
             return false
-            
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error detecting DM status for room $roomId", e)
             return false
         }
     }
-    
+
     /**
      * Parses basic space info from sync data (without edges)
      */
     private fun parseSpacesBasic(data: JSONObject): List<net.vrkknn.andromuks.SpaceItem> {
         val spaces = mutableListOf<net.vrkknn.andromuks.SpaceItem>()
-        
+
         try {
             // Get top_level_spaces array from sync data
             val topLevelSpaces = data.optJSONArray("top_level_spaces")
             if (topLevelSpaces != null) {
-                //Log.d("Andromuks", "SpaceRoomParser: Found top_level_spaces with ${topLevelSpaces.length()} spaces")
-                //Log.d("Andromuks", "SpaceRoomParser: top_level_spaces content: ${topLevelSpaces.toString()}")
-                
+                // Log.d("Andromuks", "SpaceRoomParser: Found top_level_spaces with ${topLevelSpaces.length()} spaces")
+                // Log.d("Andromuks", "SpaceRoomParser: top_level_spaces content: ${topLevelSpaces.toString()}")
+
                 for (i in 0 until topLevelSpaces.length()) {
                     val spaceId = topLevelSpaces.optString(i)
                     if (spaceId.isNotBlank()) {
@@ -715,51 +777,51 @@ object SpaceRoomParser {
                         val roomsJson = data.optJSONObject("rooms")
                         val spaceDetails = roomsJson?.optJSONObject(spaceId)
                         val meta = spaceDetails?.optJSONObject("meta")
-                        
+
                         val name = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: spaceId
                         val avatar = meta?.optString("avatar")?.takeIf { it.isNotBlank() }
-                        
+
                         val spaceItem = net.vrkknn.andromuks.SpaceItem(
                             id = spaceId,
                             name = name,
                             avatarUrl = avatar,
-                            rooms = emptyList() // No rooms yet - will be populated later
+                            rooms = emptyList(), // No rooms yet - will be populated later
                         )
                         spaces.add(spaceItem)
-                        //Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId) - basic info only")
+                        // Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId) - basic info only")
                     }
                 }
-            }// else {
+            } // else {
             //    Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces found in sync data")
-            //}
+            // }
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing spaces", e)
         }
-        
-        //Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces (basic)")
+
+        // Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces (basic)")
         return spaces
     }
-    
+
     /**
      * Parses spaces from sync data using top_level_spaces array
      */
     private fun parseSpacesFromSync(data: JSONObject): List<net.vrkknn.andromuks.SpaceItem> {
         val spaces = mutableListOf<net.vrkknn.andromuks.SpaceItem>()
-        
+
         try {
             // Get top_level_spaces array from sync data
             val topLevelSpaces = data.optJSONArray("top_level_spaces")
             if (topLevelSpaces != null) {
-                //Log.d("Andromuks", "SpaceRoomParser: Found top_level_spaces with ${topLevelSpaces.length()} spaces")
-                //Log.d("Andromuks", "SpaceRoomParser: top_level_spaces content: ${topLevelSpaces.toString()}")
-                
+                // Log.d("Andromuks", "SpaceRoomParser: Found top_level_spaces with ${topLevelSpaces.length()} spaces")
+                // Log.d("Andromuks", "SpaceRoomParser: top_level_spaces content: ${topLevelSpaces.toString()}")
+
                 // Parse space_edges to get child rooms for each space
                 val spaceEdges = data.optJSONObject("space_edges")
-                //Log.d("Andromuks", "SpaceRoomParser: space_edges found: ${spaceEdges != null}")
-                //if (spaceEdges != null) {
+                // Log.d("Andromuks", "SpaceRoomParser: space_edges found: ${spaceEdges != null}")
+                // if (spaceEdges != null) {
                 //    Log.d("Andromuks", "SpaceRoomParser: space_edges keys: ${spaceEdges.keys()}")
-                //}
-                
+                // }
+
                 for (i in 0 until topLevelSpaces.length()) {
                     val spaceId = topLevelSpaces.optString(i)
                     if (spaceId.isNotBlank()) {
@@ -767,37 +829,41 @@ object SpaceRoomParser {
                         val roomsJson = data.optJSONObject("rooms")
                         val spaceDetails = roomsJson?.optJSONObject(spaceId)
                         val meta = spaceDetails?.optJSONObject("meta")
-                        
+
                         val name = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: spaceId
                         val avatar = meta?.optString("avatar")?.takeIf { it.isNotBlank() }
-                        
+
                         // Get child rooms from space_edges
                         val childRooms = mutableListOf<net.vrkknn.andromuks.RoomItem>()
                         if (spaceEdges != null) {
                             val spaceEdgeArray = spaceEdges.optJSONArray(spaceId)
                             if (spaceEdgeArray != null) {
-                                //Log.d("Andromuks", "SpaceRoomParser: Space $spaceId has ${spaceEdgeArray.length()} child rooms")
-                                //Log.d("Andromuks", "SpaceRoomParser: Space $spaceId edges: ${spaceEdgeArray.toString()}")
+                                // Log.d("Andromuks", "SpaceRoomParser: Space $spaceId has ${spaceEdgeArray.length()} child rooms")
+                                // Log.d("Andromuks", "SpaceRoomParser: Space $spaceId edges: ${spaceEdgeArray.toString()}")
                                 for (j in 0 until spaceEdgeArray.length()) {
                                     val edge = spaceEdgeArray.optJSONObject(j)
                                     val childId = edge?.optString("child_id")?.takeIf { it.isNotBlank() }
                                     if (childId != null) {
                                         // Try to find this room in the rooms data
                                         val childRoomData = roomsJson?.optJSONObject(childId)
-                                        //Log.d("Andromuks", "SpaceRoomParser: Looking for child room $childId in rooms data: ${childRoomData != null}")
+                                        // Log.d("Andromuks", "SpaceRoomParser: Looking for child room $childId in rooms data: ${childRoomData != null}")
                                         if (childRoomData != null) {
                                             val childMeta = childRoomData.optJSONObject("meta")
-                                            val childName = childMeta?.optString("name")?.takeIf { it.isNotBlank() } ?: childId
+                                            val childName = childMeta?.optString(
+                                                "name",
+                                            )?.takeIf { it.isNotBlank() } ?: childId
                                             val childAvatar = childMeta?.optString("avatar")?.takeIf { it.isNotBlank() }
                                             val unreadCount = childMeta?.optInt("unread_messages", 0) ?: 0
                                             val highlightCount = childMeta?.optInt("unread_highlights", 0) ?: 0
-                                            
+
                                             // Check if this child is a space (has space_edges) - if so, skip it
                                             val isChildSpace = spaceEdges.has(childId)
                                             if (isChildSpace) {
-                                                //Log.d("Andromuks", "SpaceRoomParser: Skipping child space: $childName")
+                                                // Log.d("Andromuks", "SpaceRoomParser: Skipping child space: $childName")
                                             } else {
-                                                val childCanonicalAlias = childMeta?.optString("canonical_alias")?.takeIf { it.isNotBlank() }
+                                                val childCanonicalAlias = childMeta?.optString(
+                                                    "canonical_alias",
+                                                )?.takeIf { it.isNotBlank() }
                                                 val childRoom = net.vrkknn.andromuks.RoomItem(
                                                     id = childId,
                                                     name = childName,
@@ -808,42 +874,46 @@ object SpaceRoomParser {
                                                     messageSender = null,
                                                     isDirectMessage = false,
                                                     canonicalAlias = childCanonicalAlias,
-                                                    latestEventId = null
+                                                    latestEventId = null,
                                                 )
                                                 childRooms.add(childRoom)
-                                                //Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                                                // Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
                                             }
                                         }
                                     }
                                 }
                             }
                         }
-                        
+
                         val spaceItem = net.vrkknn.andromuks.SpaceItem(
                             id = spaceId,
                             name = name,
                             avatarUrl = avatar,
-                            rooms = childRooms
+                            rooms = childRooms,
                         )
                         spaces.add(spaceItem)
-                        //Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId) with ${childRooms.size} rooms")
+                        // Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId) with ${childRooms.size} rooms")
                     }
                 }
-            }// else {
+            } // else {
             //    Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces found in sync data")
-            //}
+            // }
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing spaces", e)
         }
-        
-        //Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces")
+
+        // Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces")
         return spaces
     }
-    
+
     /**
      * Updates existing spaces with child rooms from space_edges
      */
-    fun updateExistingSpacesWithEdges(spaceEdges: JSONObject, data: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel?) {
+    fun updateExistingSpacesWithEdges(
+        spaceEdges: JSONObject,
+        data: JSONObject,
+        appViewModel: net.vrkknn.andromuks.AppViewModel?,
+    ) {
         try {
             val roomsJson = data.optJSONObject("rooms")
             val updatedSpaces = mutableListOf<net.vrkknn.andromuks.SpaceItem>()
@@ -855,26 +925,29 @@ object SpaceRoomParser {
                     discoveredSpaceIds.add(id)
                 }
             }
-            
+
             // Get current spaces from AppViewModel
             val currentSpaces = appViewModel?.allSpaces ?: emptyList()
-            //android.util.Log.d("Andromuks", "SpaceRoomParser: Updating ${currentSpaces.size} existing spaces with edges")
-            
+            // android.util.Log.d("Andromuks", "SpaceRoomParser: Updating ${currentSpaces.size} existing spaces with edges")
+
             // CRITICAL FIX: If currentSpaces is empty, don't update (would clear all spaces)
             // This can happen if updateExistingSpacesWithEdges is called before parseSpacesBasic
             // has populated spaces, or if spaces were cleared but not yet repopulated.
             // Wait for spaces to be populated first via parseSpacesBasic.
             if (currentSpaces.isEmpty()) {
-                android.util.Log.w("Andromuks", "SpaceRoomParser: updateExistingSpacesWithEdges called but currentSpaces is empty - skipping update to prevent clearing spaces")
+                android.util.Log.w(
+                    "Andromuks",
+                    "SpaceRoomParser: updateExistingSpacesWithEdges called but currentSpaces is empty - skipping update to prevent clearing spaces",
+                )
                 return
             }
-            
+
             for (space in currentSpaces) {
                 val spaceEdgeArray = spaceEdges.optJSONArray(space.id)
                 val childRooms = mutableListOf<net.vrkknn.andromuks.RoomItem>()
-                
+
                 if (spaceEdgeArray != null) {
-                    //android.util.Log.d("Andromuks", "SpaceRoomParser: Space ${space.name} has ${spaceEdgeArray.length()} child rooms")
+                    // android.util.Log.d("Andromuks", "SpaceRoomParser: Space ${space.name} has ${spaceEdgeArray.length()} child rooms")
                     for (j in 0 until spaceEdgeArray.length()) {
                         val edge = spaceEdgeArray.optJSONObject(j)
                         val childId = edge?.optString("child_id")?.takeIf { it.isNotBlank() }
@@ -896,8 +969,13 @@ object SpaceRoomParser {
                                 ?: joinedRoom?.avatarUrl
                                 ?: appViewModel?.allSpaces?.find { it.id == childId }?.avatarUrl
                             val unreadCount = childMeta?.optInt("unread_messages", 0) ?: joinedRoom?.unreadCount ?: 0
-                            val highlightCount = childMeta?.optInt("unread_highlights", 0) ?: joinedRoom?.highlightCount ?: 0
-                            val childCanonicalAlias = childMeta?.optString("canonical_alias")?.takeIf { it.isNotBlank() }
+                            val highlightCount = childMeta?.optInt(
+                                "unread_highlights",
+                                0,
+                            ) ?: joinedRoom?.highlightCount ?: 0
+                            val childCanonicalAlias = childMeta?.optString(
+                                "canonical_alias",
+                            )?.takeIf { it.isNotBlank() }
                                 ?: joinedRoom?.canonicalAlias
                             val childRoom = net.vrkknn.andromuks.RoomItem(
                                 id = childId,
@@ -909,35 +987,36 @@ object SpaceRoomParser {
                                 messageSender = null,
                                 isDirectMessage = false,
                                 canonicalAlias = childCanonicalAlias,
-                                latestEventId = null
+                                latestEventId = null,
                             )
                             childRooms.add(childRoom)
-                            //android.util.Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                            // android.util.Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
                         }
                     }
                 }
-                
+
                 // Create updated space with new child rooms
                 val updatedSpace = space.copy(rooms = childRooms)
                 updatedSpaces.add(updatedSpace)
-                //android.util.Log.d("Andromuks", "SpaceRoomParser: Updated space ${space.name} with ${childRooms.size} rooms")
+                // android.util.Log.d("Andromuks", "SpaceRoomParser: Updated space ${space.name} with ${childRooms.size} rooms")
             }
-            
+
             // Update the spaces in AppViewModel
             // CRITICAL FIX: Only update if we have spaces to update (should always be true after the check above)
             if (updatedSpaces.isNotEmpty()) {
                 appViewModel?.updateAllSpaces(updatedSpaces)
             } else {
-                android.util.Log.w("Andromuks", "SpaceRoomParser: updateExistingSpacesWithEdges produced no updated spaces - skipping update")
+                android.util.Log.w(
+                    "Andromuks",
+                    "SpaceRoomParser: updateExistingSpacesWithEdges produced no updated spaces - skipping update",
+                )
             }
-            //android.util.Log.d("Andromuks", "SpaceRoomParser: Updated ${updatedSpaces.size} spaces with edges")
+            // android.util.Log.d("Andromuks", "SpaceRoomParser: Updated ${updatedSpaces.size} spaces with edges")
             if (discoveredSpaceIds.isNotEmpty()) {
                 appViewModel?.registerSpaceIds(discoveredSpaceIds)
             }
-            
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "SpaceRoomParser: Error updating spaces with edges", e)
         }
     }
-    
 }

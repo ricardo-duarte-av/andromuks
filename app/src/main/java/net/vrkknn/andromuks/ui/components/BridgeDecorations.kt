@@ -34,7 +34,7 @@ fun BridgeNetworkBadge(
     homeserverUrl: String,
     authToken: String,
     modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null
+    onClick: (() -> Unit)? = null,
 ) {
     if (!bridgeInfo.hasRenderableIcon) {
         return
@@ -49,7 +49,7 @@ fun BridgeNetworkBadge(
     if (onClick != null) {
         IconButton(
             onClick = onClick,
-            modifier = semanticsModifier
+            modifier = semanticsModifier,
         ) {
             AvatarImage(
                 mxcUrl = bridgeInfo.avatarUrl,
@@ -59,7 +59,7 @@ fun BridgeNetworkBadge(
                 size = badgeSize,
                 userId = bridgeInfo.protocol?.id ?: bridgeInfo.channel?.id,
                 displayName = networkName,
-                isVisible = true
+                isVisible = true,
             )
         }
     } else {
@@ -67,7 +67,7 @@ fun BridgeNetworkBadge(
             modifier = semanticsModifier
                 .size(badgeSize)
                 .clip(CircleShape),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             AvatarImage(
                 mxcUrl = bridgeInfo.avatarUrl,
@@ -77,7 +77,7 @@ fun BridgeNetworkBadge(
                 size = badgeSize,
                 userId = bridgeInfo.protocol?.id ?: bridgeInfo.channel?.id,
                 displayName = networkName,
-                isVisible = true
+                isVisible = true,
             )
         }
     }
@@ -90,7 +90,7 @@ fun BridgeBackgroundLayer(
     authToken: String,
     modifier: Modifier = Modifier,
     blurRadius: Dp = 18.dp,
-    alpha: Float = 0.08f
+    alpha: Float = 0.08f,
 ) {
     if (bridgeInfo == null) {
         return
@@ -120,7 +120,7 @@ fun BridgeBackgroundLayer(
             modifier = Modifier
                 .fillMaxSize()
                 .blur(blurRadius)
-                .alpha(alpha)
+                .alpha(alpha),
         )
 
         Box(
@@ -131,11 +131,10 @@ fun BridgeBackgroundLayer(
                         colors = listOf(
                             Color.Black.copy(alpha = 0.25f),
                             Color.Transparent,
-                            Color.Black.copy(alpha = 0.2f)
-                        )
-                    )
-                )
+                            Color.Black.copy(alpha = 0.2f),
+                        ),
+                    ),
+                ),
         )
     }
 }
-

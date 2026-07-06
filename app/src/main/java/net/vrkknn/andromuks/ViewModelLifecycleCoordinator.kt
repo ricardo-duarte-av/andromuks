@@ -12,11 +12,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
     fun markAsPrimaryInstance() {
         with(vm) {
             instanceRole = AppViewModel.InstanceRole.PRIMARY
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Instance role set to PRIMARY for $viewModelId",
                 )
+            }
 
             // STEP 2.1: Register/update this ViewModel with service (as primary)
             // This updates the registration if it was already registered as secondary
@@ -54,11 +55,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
     fun registerPrimaryCallbacks() {
         with(vm) {
             if (instanceRole != AppViewModel.InstanceRole.PRIMARY) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Skipping primary registration - not PRIMARY",
                     )
+                }
                 return
             }
             WebSocketService.setPrimaryClearCacheCallback(viewModelId) {
@@ -73,22 +75,24 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             }
             WebSocketService.setOfflineModeCallback(viewModelId) {}
             WebSocketService.setActivityLogCallback(viewModelId) { _, _ -> }
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Primary registered (SyncRepository flows); viewModelId=$viewModelId",
                 )
+            }
         }
     }
 
     fun markAsBubbleInstance() {
         with(vm) {
             instanceRole = AppViewModel.InstanceRole.BUBBLE
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Instance role set to BUBBLE for $viewModelId",
                 )
+            }
 
             // STEP 2.1: Register this ViewModel with service (as secondary)
             WebSocketService.registerViewModel(viewModelId, isPrimary = false)
@@ -97,11 +101,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
 
     fun onPromotedToPrimary() {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: STEP 2.3 - ViewModel $viewModelId promoted to primary",
                 )
+            }
 
             // Update instance role
             instanceRole = AppViewModel.InstanceRole.PRIMARY
@@ -176,13 +181,13 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun isPrimaryInstance(): Boolean =
-        with(vm) { instanceRole == AppViewModel.InstanceRole.PRIMARY }
+    fun isPrimaryInstance(): Boolean = with(vm) { instanceRole == AppViewModel.InstanceRole.PRIMARY }
 
     fun onAppBecameVisible() {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: App became visible")
+            }
             isAppVisible = true
             mainActivityEverResumed = true
             updateAppVisibilityInPrefs(true)
@@ -210,11 +215,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             // currentRoomId was preserved, so no state restoration is needed — just re-persist.
             // Skip when a new room navigation is pending — that path sets SharedPreferences itself.
             if (currentRoomId.isNotEmpty() && directRoomNavigation == null && pendingRoomNavigation == null) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Restoring current_open_room_id=$currentRoomId on visibility change",
                     )
+                }
                 appContext?.applicationContext?.let { ctx ->
                     net.vrkknn.andromuks.utils.NotificationSuppressionState
                         .setCurrentOpenRoomId(ctx, currentRoomId)
@@ -249,19 +255,31 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 }
 
                 val pingFired = WebSocketService.pingNowWithWatchdog()
-                Androlog("FCMOpen", "onAppBecameVisible: pingFired=$pingFired role=$instanceRole wsConn=${WebSocketService.isWebSocketConnected()} currentRoom=$currentRoomId")
-                WebSocketService.logActivity("FCMOpen: onAppBecameVisible pingFired=$pingFired role=$instanceRole wsConn=${WebSocketService.isWebSocketConnected()} currentRoom=$currentRoomId")
+                Androlog(
+                    "FCMOpen",
+                    "onAppBecameVisible: pingFired=$pingFired role=$instanceRole wsConn=${WebSocketService.isWebSocketConnected()} currentRoom=$currentRoomId",
+                )
+                WebSocketService.logActivity(
+                    "FCMOpen: onAppBecameVisible pingFired=$pingFired role=$instanceRole wsConn=${WebSocketService.isWebSocketConnected()} currentRoom=$currentRoomId",
+                )
                 if (!pingFired) {
                     val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
                     val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
                     val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
-                    if (BuildConfig.DEBUG) android.util.Log.i(
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.i(
                         "Andromuks",
                         "AppViewModel: Resume health check — pingNowWithWatchdog returned false → re-dialling WebSocket",
                     )
+                    }
                     val haveCreds = homeserverUrl.isNotEmpty() && authToken.isNotEmpty()
-                    Androlog("FCMOpen", "onAppBecameVisible: re-dial branch haveCreds=$haveCreds → ${if (haveCreds) "initializeWebSocketConnection" else "startWebSocketService"}")
-                    WebSocketService.logActivity("FCMOpen: onAppBecameVisible re-dial haveCreds=$haveCreds → ${if (haveCreds) "initializeWebSocketConnection" else "startWebSocketService"}")
+                    Androlog(
+                        "FCMOpen",
+                        "onAppBecameVisible: re-dial branch haveCreds=$haveCreds → ${if (haveCreds) "initializeWebSocketConnection" else "startWebSocketService"}",
+                    )
+                    WebSocketService.logActivity(
+                        "FCMOpen: onAppBecameVisible re-dial haveCreds=$haveCreds → ${if (haveCreds) "initializeWebSocketConnection" else "startWebSocketService"}",
+                    )
                     if (haveCreds) {
                         initializeWebSocketConnection(homeserverUrl, authToken)
                     } else {
@@ -281,11 +299,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 viewModelScope.launch {
                     try {
                         batchFlushJob.join() // Wait for batch flush to complete
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Batch flush completed, refreshing UI",
                             )
+                        }
                         // Refresh UI with up-to-date state after batches are processed
                         refreshUIState()
                         // Re-trigger timeline refresh now that batched events are in cache.
@@ -293,11 +312,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                         // completes, so the open room timeline must be rebuilt a second time
                         // after the batch lands to pick up any events that were buffered.
                         if (currentRoomId.isNotEmpty()) {
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "AppViewModel: Batch flush done, re-triggering timeline refresh for room $currentRoomId",
                                 )
+                            }
                             timelineRefreshTrigger++
                         }
                     } catch (e: Exception) {
@@ -319,27 +339,30 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             // is already in cache. A second refresh fires after the batch flush (above) to pick
             // up any events that were still buffered at this point.
             if (currentRoomId.isNotEmpty()) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh",
                     )
+                }
                 timelineRefreshTrigger++
             }
 
             // WebSocket service maintains connection
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: App visible, will refresh UI after batch flush completes",
                 )
+            }
         }
     }
 
     fun onAppBecameInvisible() {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: App became invisible")
+            }
             isAppVisible = false
             updateAppVisibilityInPrefs(false)
 
@@ -349,11 +372,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             // Notify service of app visibility change
             WebSocketService.setAppVisibility(false)
             if (currentRoomId.isNotEmpty()) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: App invisible — clearing SharedPreferences room entry to allow FCM notifications for $currentRoomId (in-memory currentRoomId preserved)",
                     )
+                }
                 // Clear current_open_room_id so FCM doesn't suppress notifications for this
                 // room while backgrounded. The in-memory currentRoomId on AppViewModel is kept
                 // so timelineRefreshTrigger works immediately on resume without a restore dance.
@@ -385,34 +409,40 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 // taps to expand it. AppViewModel.notifyBubbleClosed reschedules when
                 // the last bubble is swiped away.
                 if (BubbleTracker.anyBubbleOpen()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d(
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: BatterySaver linger skipped — bubble open",
                     )
+                    }
                 } else {
                     WebSocketService.scheduleBatterySaverLinger()
-                    if (BuildConfig.DEBUG) android.util.Log.d(
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Battery-saver mode active — service will stop after linger",
                     )
+                    }
                 }
             } else {
                 // Persistent-WebSocket mode: service stays alive in background.
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: App invisible, WebSocket service continues maintaining connection",
                     )
+                }
             }
         }
     }
 
     fun suspendApp() {
-        if (BuildConfig.DEBUG)
+        if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: App manually suspended, WebSocket service continues",
             )
+        }
         onAppBecameInvisible()
     }
 
@@ -422,19 +452,21 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
      */
     fun onCleared() {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: onCleared - cleaning up resources for $viewModelId",
                 )
+            }
 
             // Detach from SyncRepository (single registry: lifecycle + receive; primary promotion
             // on detach)
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Unregistering $viewModelId from WebSocket / SyncRepository",
                 )
+            }
             WebSocketService.unregisterReceiveCallback(viewModelId)
 
             // PHASE 1.3: Clear primary callbacks if this is the primary instance
@@ -447,11 +479,12 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                     // This instance is confirmed as primary - safe to clear
                     val cleared = WebSocketService.clearPrimaryCallbacks(viewModelId)
                     if (cleared) {
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Cleared primary callbacks for $viewModelId",
                             )
+                        }
                     } else {
                         android.util.Log.w(
                             "Andromuks",
@@ -502,28 +535,31 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 // Check if service is still running - if so, don't clear the connection
                 val serviceStillRunning = WebSocketService.isServiceRunning()
                 if (serviceStillRunning) {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Service still running - NOT clearing WebSocket (foreground service maintains connection)",
                         )
+                    }
                     // Just cancel reconnection, but keep the connection alive
                     WebSocketService.cancelReconnection()
                 } else {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Service not running - clearing WebSocket (app shutdown)",
                         )
+                    }
                     WebSocketService.cancelReconnection()
                     clearWebSocket("ViewModel cleared - service not running")
                 }
             } else {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Skipping global WebSocket teardown for role=$instanceRole",
                     )
+                }
             }
         }
     }

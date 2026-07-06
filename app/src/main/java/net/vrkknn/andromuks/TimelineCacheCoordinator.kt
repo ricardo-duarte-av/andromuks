@@ -57,11 +57,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // freshnessCheckRequests is NOT cleared there, so it's the reliable in-flight signal —
             // skip a duplicate probe. The first probe's response clears the pending reservation.
             if (freshnessCheckRequests.containsValue(roomId)) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "TimelineCacheCoordinator: Freshness probe already in flight for $roomId — skipping duplicate",
                     )
+                }
                 return WebSocketResult.SUCCESS
             }
             val requestId = WebSocketService.allocateRequestId()
@@ -83,22 +84,24 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 roomsWithPendingPaginate.remove(roomId)
                 stopOpenRoomTrace(requestId, "send_failed")
             }
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "TimelineCacheCoordinator: Sent freshness probe for $roomId (reqId=$requestId, result=$result)",
                 )
+            }
             return result
         }
     }
 
     fun clearTimelineCache() {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Clearing timeline cache (${timelineEvents.size} events, ${eventChainMap.size} chain entries)",
                 )
+            }
             timelineEvents = emptyList()
             eventChainMap.clear()
             editEventsMap.clear()
@@ -121,20 +124,20 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             RoomTimelineCache.saveProcessedTimelineState(
                 roomId = roomId,
                 eventChainMap = chainSnapshot,
-                editEventsMap = editsSnapshot
+                editEventsMap = editsSnapshot,
             )
 
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Saved processed timeline state for room $roomId (${eventChainMap.size} chains, ${editEventsMap.size} edits)",
                 )
+            }
         }
     }
 
     fun restoreFromLruCache(roomId: String): Boolean {
         with(vm) {
-
             // Get cached events from RoomTimelineCache
             val cachedEvents = RoomTimelineCache.getCachedEvents(roomId) ?: return false
 
@@ -150,11 +153,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 editEventsMap.clear()
                 editEventsMap.putAll(processedState.editEventsMap)
 
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Restored room $roomId from cache (${timelineEvents.size} events, ${processedState.eventChainMap.size} chains, ${processedState.editEventsMap.size} edits)",
                     )
+                }
             } else {
                 // No processed state (cleared by a sync_complete with edits/reactions while the
                 // room was closed). Rebuild eventChainMap from raw cached events now so that any
@@ -167,11 +171,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     buildEditChainsFromEvents(eventsForChain, clearExisting = false)
                     processEditRelationships()
                 }
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Restored room $roomId events from cache (${timelineEvents.size} events), no processed state - rebuilt ${eventChainMap.size} chain entries from cached events",
                     )
+                }
             }
 
             return true
@@ -181,18 +186,21 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
     fun appendEventsToCachedRoom(roomId: String, newEvents: List<TimelineEvent>): Boolean {
         with(vm) {
             if (newEvents.isEmpty()) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: appendEventsToCachedRoom called for $roomId with 0 events",
                     )
+                }
                 return true
             }
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: appendEventsToCachedRoom called for $roomId with ${newEvents.size} events (eventIds: ${newEvents.take(3).map { it.eventId }.joinToString(", ")})",
+                    "AppViewModel: appendEventsToCachedRoom called for $roomId with ${newEvents.size} events (eventIds: ${newEvents.take(
+                        3,
+                    ).map { it.eventId }.joinToString(", ")})",
                 )
             }
 
@@ -232,11 +240,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (requiresFullRerender) {
                 // Invalidate processed state for this room - will be rebuilt on next open
                 RoomTimelineCache.clearProcessedTimelineState(roomId)
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Invalidated processed timeline state for $roomId (edit/redaction/reaction detected)",
                     )
+                }
                 return false
             }
 
@@ -277,11 +286,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     if (newestReal != null && newestReal.sender == currentUserId) {
                         val target = cached.maxByOrNull { it.timestamp } ?: newestStatus
                         if (target.eventId.isNotBlank()) {
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "AppViewModel: Marking non-open room $roomId read up to ${target.eventId} to clear bridge send-status unread",
                                 )
+                            }
                             markRoomAsRead(roomId, target.eventId)
                         }
                     }
@@ -307,9 +317,24 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             if (relType == "m.reference" && relatedEventId != null && !status.isNullOrBlank()) {
                                 val deliveredToUsers = if (content.has("delivered_to_users")) {
                                     content.optJSONArray("delivered_to_users")
-                                        ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } } }
-                                } else null
-                                vm.processBridgeSendStatus(roomId, relatedEventId, event.sender, status, deliveredToUsers, event.timestamp)
+                                        ?.let { arr ->
+                                            (0 until arr.length()).mapNotNull {
+                                                arr.optString(
+                                                    it,
+                                                ).takeIf { s -> s.isNotBlank() }
+                                            }
+                                        }
+                                } else {
+                                    null
+                                }
+                                vm.processBridgeSendStatus(
+                                    roomId,
+                                    relatedEventId,
+                                    event.sender,
+                                    status,
+                                    deliveredToUsers,
+                                    event.timestamp,
+                                )
                                 if (event.eventId.isNotBlank()) {
                                     vm.bridgeStatusEventToMessageId[event.eventId] = relatedEventId
                                 }
@@ -398,11 +423,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 }
             }
 
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Appended ${trulyNewEvents.size} events to cached room $roomId",
                 )
+            }
 
             // Check for missing m.in_reply_to targets after adding events from sync_complete
             // If a message references a reply target that's not in the cache, fetch it via
@@ -432,22 +458,24 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             // Check if the reply target is in the cache
                             if (!cachedEventIds.contains(replyToEventId)) {
                                 missingReplyTargets.add(Pair(event.roomId, replyToEventId))
-                                if (BuildConfig.DEBUG)
+                                if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
                                         "Andromuks",
                                         "AppViewModel: Missing reply target event_id=$replyToEventId for event ${event.eventId} in room ${event.roomId} (from sync_complete)",
                                     )
+                                }
                             }
                         }
                     }
 
                     // Fetch missing reply targets via get_event
                     if (missingReplyTargets.isNotEmpty()) {
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Fetching ${missingReplyTargets.size} missing reply target events via get_event (from sync_complete)",
                             )
+                        }
 
                         for ((targetRoomId, targetEventId) in missingReplyTargets) {
                             // Use a suspend function to fetch the event
@@ -470,11 +498,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                     eventsJsonArray,
                                     memberMap,
                                 )
-                                if (BuildConfig.DEBUG)
+                                if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
                                         "Andromuks",
                                         "AppViewModel: Fetched and cached missing reply target event_id=$targetEventId for room $targetRoomId (from sync_complete)",
                                     )
+                                }
                             } else {
                                 android.util.Log.w(
                                     "Andromuks",
@@ -496,28 +525,29 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun hasInitialPaginate(roomId: String): Boolean =
-        with(vm) { roomsPaginatedOnce.contains(roomId) }
+    fun hasInitialPaginate(roomId: String): Boolean = with(vm) { roomsPaginatedOnce.contains(roomId) }
 
     fun markInitialPaginate(roomId: String, reason: String) {
         with(vm) {
             val added = roomsPaginatedOnce.add(roomId)
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Recorded initial paginate for $roomId (reason=$reason, added=$added)",
                 )
+            }
             setAutoPaginationEnabled(false, "paginate_lock_$roomId")
         }
     }
 
     internal fun logSkippedPaginate(roomId: String, reason: String) {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Skipping paginate for $roomId ($reason) - already paginated once this session",
                 )
+            }
         }
     }
 
@@ -545,40 +575,47 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         (it.type == "m.room.message" || it.type == "m.room.encrypted")
                 }
             val cacheType =
-                if (openingFromNotification && cachedEvents.size < 100) "notification-optimized"
-                else "standard"
-            if (BuildConfig.DEBUG)
+                if (openingFromNotification && cachedEvents.size < 100) {
+                    "notification-optimized"
+                } else {
+                    "standard"
+                }
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: ✓ CACHE HIT ($cacheType) - Instant room opening: ${cachedEvents.size} events (including $ownMessagesInCache of your own messages)",
                 )
+            }
             if (ownMessagesInCache > 0) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: ★ Cache contains $ownMessagesInCache messages from YOU",
                     )
+                }
             }
             if (BuildConfig.DEBUG) {
                 val firstCached = cachedEvents.firstOrNull()
                 val lastCached = cachedEvents.lastOrNull()
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Cached snapshot for $roomId -> first=${firstCached?.eventId}@${firstCached?.timestamp}, " +
                             "last=${lastCached?.eventId}@${lastCached?.timestamp}",
                     )
+                }
             }
 
             // Clear and rebuild internal structures (but don't clear timelineEvents yet).
             // Lock so a concurrent buildTimelineFromChain on Dispatchers.Default cannot
             // snapshot a half-rebuilt pair. MessageVersionsCache and friends have their own
             // concurrency and stay outside the lock.
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Clearing eventChainMap (had ${eventChainMap.size} entries) before processing ${cachedEvents.size} cached events",
                 )
+            }
             synchronized(eventChainMapLock) {
                 eventChainMap.clear()
                 editEventsMap.clear()
@@ -598,11 +635,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
             // Populate edit chain mapping from cached events
             // Process synchronously to ensure all events are added before building timeline
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Processing ${cachedEvents.size} cached events into eventChainMap",
                 )
+            }
             var regularEventCount = 0
             var editEventCount = 0
 
@@ -610,67 +648,84 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // is observable to other threads as either "old map" or "new map" but never
             // "partially populated new map".
             synchronized(eventChainMapLock) {
-            for (event in cachedEvents) {
-                val isEditEvent = isEditEvent(event)
+                for (event in cachedEvents) {
+                    val isEditEvent = isEditEvent(event)
 
-                if (isEditEvent) {
-                    editEventsMap[event.eventId] = event
-                    editEventCount++
-                } else if (event.type == "com.beeper.message_send_status") {
-                    // Bridge delivery confirmation from cached history
-                    val content = event.content
-                    if (content != null) {
-                        val relatesTo = content.optJSONObject("m.relates_to")
-                        val relType = relatesTo?.optString("rel_type")
-                        val relatedEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
-                        val status = content.optString("status")
-                        if (relType == "m.reference" && relatedEventId != null && !status.isNullOrBlank()) {
-                            val deliveredToUsers = if (content.has("delivered_to_users")) {
-                                content.optJSONArray("delivered_to_users")
-                                    ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } } }
-                            } else null
-                            vm.processBridgeSendStatus(roomId, relatedEventId, event.sender, status, deliveredToUsers, event.timestamp)
-                            // Track status eventId → original message eventId for receipt remapping.
-                            if (event.eventId.isNotBlank()) {
-                                vm.bridgeStatusEventToMessageId[event.eventId] = relatedEventId
+                    if (isEditEvent) {
+                        editEventsMap[event.eventId] = event
+                        editEventCount++
+                    } else if (event.type == "com.beeper.message_send_status") {
+                        // Bridge delivery confirmation from cached history
+                        val content = event.content
+                        if (content != null) {
+                            val relatesTo = content.optJSONObject("m.relates_to")
+                            val relType = relatesTo?.optString("rel_type")
+                            val relatedEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+                            val status = content.optString("status")
+                            if (relType == "m.reference" && relatedEventId != null && !status.isNullOrBlank()) {
+                                val deliveredToUsers = if (content.has("delivered_to_users")) {
+                                    content.optJSONArray("delivered_to_users")
+                                        ?.let { arr ->
+                                            (0 until arr.length()).mapNotNull {
+                                                arr.optString(
+                                                    it,
+                                                ).takeIf { s -> s.isNotBlank() }
+                                            }
+                                        }
+                                } else {
+                                    null
+                                }
+                                vm.processBridgeSendStatus(
+                                    roomId,
+                                    relatedEventId,
+                                    event.sender,
+                                    status,
+                                    deliveredToUsers,
+                                    event.timestamp,
+                                )
+                                // Track status eventId → original message eventId for receipt remapping.
+                                if (event.eventId.isNotBlank()) {
+                                    vm.bridgeStatusEventToMessageId[event.eventId] = relatedEventId
+                                }
                             }
                         }
+                    } else {
+                        eventChainMap[event.eventId] =
+                            AppViewModel.EventChainEntry(
+                                eventId = event.eventId,
+                                ourBubble = event,
+                                replacedBy = null,
+                                originalTimestamp = event.timestamp,
+                            )
+                        regularEventCount++
                     }
-                } else {
-                    eventChainMap[event.eventId] =
-                        AppViewModel.EventChainEntry(
-                            eventId = event.eventId,
-                            ourBubble = event,
-                            replacedBy = null,
-                            originalTimestamp = event.timestamp,
-                        )
-                    regularEventCount++
                 }
-            }
 
-            if (BuildConfig.DEBUG)
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Added ${regularEventCount} regular events and ${editEventCount} edit events to maps",
-                )
-            if (BuildConfig.DEBUG)
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: eventChainMap now has ${eventChainMap.size} entries (expected ${cachedEvents.size - editEventCount} regular events)",
-                )
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Added $regularEventCount regular events and $editEventCount edit events to maps",
+                    )
+                }
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: eventChainMap now has ${eventChainMap.size} entries (expected ${cachedEvents.size - editEventCount} regular events)",
+                    )
+                }
 
-            // SAFETY: Remove any edit events that might have been incorrectly added to
-            // eventChainMap
-            // (This shouldn't happen with the fix, but clean up any existing bad state)
-            val editEventIds = editEventsMap.keys.toSet()
-            val editEventsInChain = eventChainMap.keys.filter { editEventIds.contains(it) }
-            if (editEventsInChain.isNotEmpty()) {
-                android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: Removing ${editEventsInChain.size} edit events incorrectly added to eventChainMap",
-                )
-                editEventsInChain.forEach { eventChainMap.remove(it) }
-            }
+                // SAFETY: Remove any edit events that might have been incorrectly added to
+                // eventChainMap
+                // (This shouldn't happen with the fix, but clean up any existing bad state)
+                val editEventIds = editEventsMap.keys.toSet()
+                val editEventsInChain = eventChainMap.keys.filter { editEventIds.contains(it) }
+                if (editEventsInChain.isNotEmpty()) {
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: Removing ${editEventsInChain.size} edit events incorrectly added to eventChainMap",
+                    )
+                    editEventsInChain.forEach { eventChainMap.remove(it) }
+                }
             } // synchronized(eventChainMapLock)
 
             // DIAGNOSTIC: Verify all events were added
@@ -712,7 +767,15 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 if (editEventsInCache.isNotEmpty()) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Edit events in cache: ${editEventsInCache.map { "${it.eventId} -> ${it.content?.optJSONObject("m.relates_to")?.optString("event_id") ?: it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")}" }.joinToString(", ")}",
+                        "AppViewModel: Edit events in cache: ${editEventsInCache.map {
+                            "${it.eventId} -> ${it.content?.optJSONObject(
+                                "m.relates_to",
+                            )?.optString(
+                                "event_id",
+                            ) ?: it.decrypted?.optJSONObject(
+                                "m.relates_to",
+                            )?.optString("event_id")}"
+                        }.joinToString(", ")}",
                     )
                 }
             }
@@ -752,7 +815,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     // Guard: if the user navigated away from this room while background processing
                     // ran, discard all post-processing state updates for it (profiles, reactions, etc.).
                     if (currentRoomId != roomId) {
-                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "processCachedEvents: Discarding stale post-processing for $roomId (currentRoomId=$currentRoomId)")
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.w(
+                            "Andromuks",
+                            "processCachedEvents: Discarding stale post-processing for $roomId (currentRoomId=$currentRoomId)",
+                        )
+                        }
                         return@withContext
                     }
                     val expectedMinEvents = cachedEvents.size - editEventCount
@@ -760,15 +828,16 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         android.util.Log.w(
                             "Andromuks",
                             "AppViewModel: ⚠️ SIGNIFICANT EVENT LOSS - Timeline has ${timelineEvents.size} events " +
-                                "but expected at least ${expectedMinEvents} (from ${cachedEvents.size} cached events, $editEventCount edits filtered)",
+                                "but expected at least $expectedMinEvents (from ${cachedEvents.size} cached events, $editEventCount edits filtered)",
                         )
                     }
                     val latestTimelineEvent = timelineEvents.lastOrNull()
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Timeline latest event=${latestTimelineEvent?.eventId} timelineRowId=${latestTimelineEvent?.timelineRowid} ts=${latestTimelineEvent?.timestamp}",
                         )
+                    }
                     loadReactionsForRoom(roomId, cachedEvents)
                     applyAggregatedReactionsFromEvents(cachedEvents, "cache")
                     updateRoomStateFromTimelineEvents(roomId, cachedEvents)
@@ -776,26 +845,28 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     val smallestCached =
                         cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
                     if (smallestCached > 0) smallestRowId = smallestCached
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: ✅ Room opened with ${timelineEvents.size} cached events (chain processing on background)",
                         )
+                    }
                     if (openingFromNotification) isPendingNavigationFromNotification = false
                     val currentNavigationState = getRoomNavigationState(roomId)
                     if (
                         !skipNetworkRequests &&
-                            currentNavigationState?.essentialDataLoaded != true &&
-                            !pendingRoomStateRequests.contains(roomId)
+                        currentNavigationState?.essentialDataLoaded != true &&
+                        !pendingRoomStateRequests.contains(roomId)
                     ) {
                         requestRoomState(roomId)
                     }
                     if (currentNavigationState?.memberDataLoaded != true) {
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: SKIPPING member data loading (using opportunistic loading)",
                             )
+                        }
                         navigationCache[roomId] =
                             currentNavigationState?.copy(memberDataLoaded = true)
                                 ?: AppViewModel.RoomNavigationState(roomId, memberDataLoaded = true)
@@ -814,11 +885,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             ?: RoomListCache.getLatestEventId(roomId)
                         if (latestKnownId != null) markRoomAsRead(roomId, latestKnownId)
                     } else {
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)",
                             )
+                        }
                     }
                     if (!skipNetworkRequests && REACTION_BACKFILL_ON_OPEN_ENABLED) {
                         requestHistoricalReactions(roomId, smallestCached)
@@ -866,11 +938,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 !isRefreshingSameRoom &&
                 (RoomTimelineCache.getCachedEventCount(roomId) >= lruThreshold)
             if (lruRestoreEligible && restoreFromLruCache(roomId)) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: ✅ INSTANT room switch from LRU cache for $roomId (${timelineEvents.size} events)",
                     )
+                }
                 updateCurrentRoomIdInPrefs(roomId)
                 isTimelineLoading = false
                 // The LRU restore populated timelineEvents synchronously; release any
@@ -947,11 +1020,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (!isRefreshingSameRoom || !roomOpenTimestamps.containsKey(roomId)) {
                 val openTimestamp = System.currentTimeMillis()
                 roomOpenTimestamps[roomId] = openTimestamp
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Stored room open timestamp for $roomId: $openTimestamp (only messages newer than this will animate)",
                     )
+                }
             }
 
             updateCurrentRoomIdInPrefs(roomId)
@@ -962,11 +1036,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 val stateRequestId = WebSocketService.allocateRequestId()
                 roomStateRequests[stateRequestId] = roomId
                 pendingRoomStateRequests.add(roomId)
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Requesting room state WITHOUT members to prevent OOM (reqId: $stateRequestId)",
                     )
+                }
                 sendWebSocketCommand(
                     "get_room_state",
                     stateRequestId,
@@ -982,11 +1057,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // NAVIGATION PERFORMANCE: Check cached navigation state and use partial loading
             val navigationState = getRoomNavigationState(roomId)
             if (navigationState != null && navigationState.essentialDataLoaded) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: NAVIGATION OPTIMIZATION - Using cached navigation state for: $roomId",
                     )
+                }
 
                 // Load additional details in background if needed
                 loadRoomDetails(roomId, navigationState)
@@ -1012,11 +1088,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // empty cache (batterySaver linger wiped it, or never opened) falls through to the
             // foreground paginate below, where the loading indicator is the correct state.
             if (cachedEvents != null && cachedEvents.isNotEmpty()) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: ✅ Found ${cachedEvents.size} events in RoomTimelineCache for $roomId (activelyCached=$isActivelyCached)",
                     )
+                }
 
                 // CRITICAL FIX: Mark as actively cached so sync_complete updates start being
                 // applied
@@ -1048,7 +1125,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     roomId,
                     RoomTimelineCache.getCachedEventsForTimeline(roomId),
                     openingFromNotification =
-                        isPendingNavigationFromNotification && currentRoomId == roomId,
+                    isPendingNavigationFromNotification && currentRoomId == roomId,
                 )
 
                 // Mark room as accessed in RoomTimelineCache for LRU eviction
@@ -1064,26 +1141,28 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                 if (
                     !isRefreshingSameRoom &&
-                        isWebSocketConnected() &&
-                        AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT > 0 &&
-                        wasAdded
+                    isWebSocketConnected() &&
+                    AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT > 0 &&
+                    wasAdded
                 ) {
                     // A freshness probe can only short-circuit safely when the cache is reasonably
                     // full: for a sparse cache we still want the full paginate so it backfills
                     // history, not just confirms the top. (The LRU warm path is already gated on
                     // this same threshold, so its probe is always safe.)
                     if (RoomTimelineCache.getCachedEventCount(roomId) >=
-                            AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT / 2) {
+                        AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT / 2
+                    ) {
                         sendFreshnessProbe(roomId)
                     } else {
                         val paginateRequestId = WebSocketService.allocateRequestId()
                         backgroundPrefetchRequests[paginateRequestId] = roomId
                         startOpenRoomTrace(paginateRequestId, "open_room_full", trigger = "sparse_cache")
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Sparse cache — full paginate (not probe) to fetch+backfill for $roomId (reqId=$paginateRequestId)",
                             )
+                        }
                         val result =
                             sendWebSocketCommand(
                                 "paginate",
@@ -1108,11 +1187,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             } else {
                                 // Connected but queued (canSendCommandsToBackend=false): keep
                                 // tracking so the response is handled after flushPendingQueue().
-                                if (BuildConfig.DEBUG)
+                                if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
                                         "Andromuks",
                                         "AppViewModel: Paginate for newer events queued for $roomId (reqId=$paginateRequestId) — keeping tracking",
                                     )
+                                }
                             }
                         }
                     }
@@ -1153,8 +1233,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // bumps arrive before that gate opens — they get "consumed" by lastKnownRefreshTrigger
                 // without firing the retry, leaving the room stuck on "Loading...".
                 roomsAwaitingInitCompletePaginate.add(roomId)
-                Androlog("FCMOpen", "requestRoomTimeline: WS down → isTimelineLoading=true, queued paginate room=$roomId currentRoom=$currentRoomId")
-                WebSocketService.logActivity("FCMOpen: requestRoomTimeline WS down → queued paginate room=$roomId currentRoom=$currentRoomId")
+                Androlog(
+                    "FCMOpen",
+                    "requestRoomTimeline: WS down → isTimelineLoading=true, queued paginate room=$roomId currentRoom=$currentRoomId",
+                )
+                WebSocketService.logActivity(
+                    "FCMOpen: requestRoomTimeline WS down → queued paginate room=$roomId currentRoom=$currentRoomId",
+                )
                 // Bug B: clear the notification-pending flag so awaitRoomDataReadiness unsticks.
                 if (isPendingNavigationFromNotification && currentRoomId == roomId) {
                     isPendingNavigationFromNotification = false
@@ -1291,7 +1376,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 val missNavigationState = getRoomNavigationState(roomId)
                 if (
                     missNavigationState?.essentialDataLoaded != true &&
-                        !pendingRoomStateRequests.contains(roomId)
+                    !pendingRoomStateRequests.contains(roomId)
                 ) {
                     requestRoomState(roomId)
                 }
@@ -1301,11 +1386,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
             // Cache is sufficient OR we're refreshing the same room - handle accordingly
             if (isRefreshingSameRoom) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Preserving existing timeline on resume (${timelineEvents.size} events)",
                     )
+                }
                 isTimelineLoading = false
             } else {
                 // CRITICAL FIX: If we reached here with events in cache, we MUST call
@@ -1316,11 +1402,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // or other race conditions.
                 val eventsToProcess = cachedEvents ?: RoomTimelineCache.getCachedEvents(roomId)
                 if (eventsToProcess != null && eventsToProcess.isNotEmpty()) {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Cache has $currentCachedCount events (>= 50) - processing them now",
                         )
+                    }
                     // Include redaction events for correct "Removed by X for Y" rendering
                     processCachedEvents(
                         roomId,
@@ -1328,11 +1415,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         false,
                     )
                 } else {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Cache reported sufficient count ($currentCachedCount) but no events found - setting loading false anyway",
                         )
+                    }
                     isTimelineLoading = false
                 }
             }
@@ -1341,7 +1429,6 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
     suspend fun flushSyncBatchForRoom(roomId: String) {
         with(vm) {
-
             // Ensure the room is marked as actively cached BEFORE flushing,
             // so events for this room are added to cache during ingestion.
             RoomTimelineCache.markRoomAsCached(roomId)
@@ -1362,28 +1449,31 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
     fun addTimelineEvent(event: TimelineEvent) {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: addTimelineEvent called for event: ${event.eventId}, type=${event.type}, roomId=${event.roomId}, currentRoomId=$currentRoomId",
                 )
+            }
 
             // Only add to timeline if it's for the current room
             if (event.roomId == currentRoomId) {
                 val currentEvents = timelineEvents.toMutableList()
                 currentEvents.add(event)
                 timelineEvents = currentEvents.sortedBy { it.timestamp }
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Added event to timeline, total events: ${timelineEvents.size}",
                     )
+                }
             } else {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Event roomId (${event.roomId}) doesn't match currentRoomId ($currentRoomId), not adding to timeline",
                     )
+                }
             }
         }
     }
@@ -1393,11 +1483,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // Stop any open_room_full trace for this paginate (no-op for user pull-to-paginate reqIds,
             // which are never registered). Probe reqIds are stopped in handleFreshnessCheckResponse.
             stopOpenRoomTrace(requestId, "success")
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "🟡 handleTimelineResponse: START - requestId=$requestId, dataType=${data::class.java.simpleName}, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading",
                 )
+            }
 
             // Determine request type and get room ID
             val roomId =
@@ -1414,11 +1505,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
             val isPaginateRequest = paginateRequests.containsKey(requestId)
             val isBackgroundPrefetchRequest = backgroundPrefetchRequests.containsKey(requestId)
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "🟡 handleTimelineResponse: Processing - roomId=$roomId, requestId=$requestId, isPaginate=$isPaginateRequest, isBackgroundPrefetch=$isBackgroundPrefetchRequest, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading",
                 )
+            }
 
             // CRITICAL FIX: Parse has_more field BEFORE processing events, so we have it even if
             // events
@@ -1427,11 +1519,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (data is JSONObject && isPaginateRequest) {
                 hasMoreFromResponse =
                     data.optBoolean("has_more", true) // Default to true if not present
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Parsed has_more=$hasMoreFromResponse from response BEFORE processing events",
                     )
+                }
             }
 
             var totalReactionsProcessed = 0
@@ -1439,11 +1532,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // Process events array - main event processing logic
             fun processEventsArray(eventsArray: JSONArray): Int {
                 val eventCount = eventsArray.length()
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "🟡 processEventsArray: START - roomId=$roomId, requestId=$requestId, eventCount=$eventCount, isPaginate=$isPaginateRequest, isBackgroundPrefetch=$isBackgroundPrefetchRequest, currentRoomId=$currentRoomId, isTimelineLoading=$isTimelineLoading",
                     )
+                }
                 if (eventCount == 0) {
                     android.util.Log.w(
                         "Andromuks",
@@ -1467,15 +1561,17 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         // Track our own messages
                         if (
                             event.sender == currentUserId &&
-                                (event.type == "m.room.message" || event.type == "m.room.encrypted")
+                            (event.type == "m.room.message" || event.type == "m.room.encrypted")
                         ) {
                             ownMessageCount++
                             val bodyPreview =
                                 when {
                                     event.type == "m.room.message" ->
                                         event.content?.optString("body", "")?.take(50)
+
                                     event.type == "m.room.encrypted" ->
                                         event.decrypted?.optString("body", "")?.take(50)
+
                                     else -> ""
                                 }
                             // android.util.Log.d("Andromuks", "AppViewModel: [PAGINATE] ★ Found OUR
@@ -1485,7 +1581,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         }
 
                         // Process member events using helper function
-                        if (event.type == "m.room.member" && (event.timelineRowid == -1L || event.timelineRowid == 0L)) {
+                        if (event.type == "m.room.member" &&
+                            (event.timelineRowid == -1L || event.timelineRowid == 0L)
+                        ) {
                             val mutableMemberMap = memberMap.toMutableMap()
                             processMemberEvent(event, mutableMemberMap)
                             // Update singleton cache with changes
@@ -1510,9 +1608,24 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                     if (relType == "m.reference" && relatedEventId != null && status.isNotBlank()) {
                                         val deliveredToUsers = if (content.has("delivered_to_users")) {
                                             content.optJSONArray("delivered_to_users")
-                                                ?.let { arr -> (0 until arr.length()).mapNotNull { arr.optString(it).takeIf { s -> s.isNotBlank() } } }
-                                        } else null
-                                        vm.processBridgeSendStatus(roomId, relatedEventId, event.sender, status, deliveredToUsers, event.timestamp)
+                                                ?.let { arr ->
+                                                    (0 until arr.length()).mapNotNull {
+                                                        arr.optString(
+                                                            it,
+                                                        ).takeIf { s -> s.isNotBlank() }
+                                                    }
+                                                }
+                                        } else {
+                                            null
+                                        }
+                                        vm.processBridgeSendStatus(
+                                            roomId,
+                                            relatedEventId,
+                                            event.sender,
+                                            status,
+                                            deliveredToUsers,
+                                            event.timestamp,
+                                        )
                                         // Track status eventId → original message eventId for receipt remapping.
                                         if (event.eventId.isNotBlank()) {
                                             vm.bridgeStatusEventToMessageId[event.eventId] = relatedEventId
@@ -1534,24 +1647,27 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         }
                     }
                 }
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}, ownMessages=$ownMessageCount, reactions=$reactionProcessedCount, filteredByRowId=$filteredByRowId, filteredByType=$filteredByType",
                     )
+                }
                 if (ownMessageCount > 0) {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: ★★★ PAGINATE RESPONSE CONTAINS $ownMessageCount OF YOUR OWN MESSAGES ★★★",
                         )
+                    }
                 }
                 if (reactionProcessedCount > 0) {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: ★★★ PROCESSED $reactionProcessedCount REACTIONS FROM PAGINATE RESPONSE ★★★",
                         )
+                    }
                 }
 
                 // Track the latest event seen for this room so mark_read always has a valid target.
@@ -1560,11 +1676,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 }
 
                 // OPTIMIZED: Process versioned messages (edits, redactions) - O(n)
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Processing ${allEvents.size} events for version tracking",
                     )
+                }
                 processVersionedMessages(allEvents)
 
                 // Handle empty pagination responses
@@ -1575,10 +1692,16 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     // past these events instead of re-requesting the same range.
                     val maxTimelineIdUsed = paginateRequestMaxTimelineIds[requestId]
                     val cursorFromAll = allEvents.filter { it.timelineRowid != 0L }.minOfOrNull { it.timelineRowid }
-                    if (cursorFromAll != null && (maxTimelineIdUsed == null || maxTimelineIdUsed == 0L || cursorFromAll < maxTimelineIdUsed)) {
+                    if (cursorFromAll != null &&
+                        (maxTimelineIdUsed == null || maxTimelineIdUsed == 0L || cursorFromAll < maxTimelineIdUsed)
+                    ) {
                         oldestRowIdPerRoom[roomId] = cursorFromAll
-                        if (BuildConfig.DEBUG)
-                            android.util.Log.d("Andromuks", "AppViewModel: Advanced cursor to $cursorFromAll from reaction-only paginate page (was max_timeline_id=$maxTimelineIdUsed)")
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                                "Andromuks",
+                                "AppViewModel: Advanced cursor to $cursorFromAll from reaction-only paginate page (was max_timeline_id=$maxTimelineIdUsed)",
+                            )
+                        }
                     }
                     android.util.Log.w(
                         "Andromuks",
@@ -1598,7 +1721,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         viewModelScope.launch(Dispatchers.Main) { hasMoreMessages = hasMoreFromResponse }
                         android.util.Log.w(
                             "Andromuks",
-                            "AppViewModel: Setting hasMoreMessages=${hasMoreFromResponse} based on has_more field from response",
+                            "AppViewModel: Setting hasMoreMessages=$hasMoreFromResponse based on has_more field from response",
                         )
                         if (!hasMoreFromResponse) {
                             android.util.Log.w(
@@ -1666,11 +1789,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             } else {
                                 // Positive value is correct - store it for pull-to-refresh
                                 oldestRowIdPerRoom[roomId] = oldestInResponse
-                                if (BuildConfig.DEBUG)
+                                if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
                                         "Andromuks",
                                         "AppViewModel: Tracked oldest positive timelineRowId=$oldestInResponse for room $roomId from initial paginate (${timelineList.size} events, ${positiveEvents.size} positive)",
                                     )
+                                }
                             }
                         } else if (positiveEvents.isEmpty()) {
                             android.util.Log.w(
@@ -1683,11 +1807,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         val minRowId = timelineList.minByOrNull { it.timelineRowid }?.timelineRowid
                         val maxRowId = timelineList.maxByOrNull { it.timelineRowid }?.timelineRowid
                         val cacheBefore = RoomTimelineCache.getCachedEventCount(roomId)
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Pagination response - received ${timelineList.size} events with rowId range: $minRowId to $maxRowId, cache before: $cacheBefore",
                             )
+                        }
                     }
 
                     // Populate edit chain mapping for clean edit handling using helper function
@@ -1706,11 +1831,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         // Process edit relationships
                         processEditRelationships()
                     } else {
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Skipping global edit chain build - roomId ($roomId) != currentRoomId ($currentRoomId)",
                             )
+                        }
                     }
 
                     if (isPaginationRequest) {
@@ -1728,19 +1854,21 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         if (roomId == currentRoomId) {
                             viewModelScope.launch(Dispatchers.Main) { isPaginating = false }
                         }
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Pagination complete - roomId=$roomId, isPaginating set to ${if (roomId == currentRoomId) "FALSE" else "unchanged (background)"}",
                             )
+                        }
                     } else {
                         // This is an initial paginate — collect all user IDs from events and
                         // receipts, fetch any missing room profiles, then render.
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "🟡 handleTimelineResponse: Initial paginate - roomId=$roomId, requestId=$requestId, timelineList.size=${timelineList.size}, isTimelineLoading=$isTimelineLoading",
                             )
+                        }
 
                         // Peek at receipts JSON to collect receipt holder user IDs synchronously
                         // (the async receipt-processing coroutine below uses the same JSON later).
@@ -1761,21 +1889,23 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                         val doRender = {
                             handleInitialTimelineBuild(roomId, timelineList)
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "🟡 handleTimelineResponse: After handleInitialTimelineBuild - roomId=$roomId, requestId=$requestId, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading",
                                 )
+                            }
                             if (isInitialPaginate) {
                                 timelineRequests.remove(requestId)
                                 roomsWithPendingPaginate.remove(roomId)
                                 // Post-join reset paginate rendered — drop the "Waiting for room data" spinner.
                                 endPostJoinLoading(roomId)
-                                if (BuildConfig.DEBUG)
+                                if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
                                         "Andromuks",
                                         "🟡 handleTimelineResponse: Cleaned up tracking - roomId=$roomId, requestId=$requestId, remaining timelineRequests=${timelineRequests.size}",
                                     )
+                                }
                             }
                         }
 
@@ -1802,11 +1932,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         // pagination
                         val isRoomOpen = currentRoomId == roomId
                         if (!isRoomOpen) {
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "AppViewModel: Skipping mark as read for room $roomId (room not currently open - preemptive pagination)",
                                 )
+                            }
                         } else {
                             // Mark as read only if room is actually visible (not just a minimized
                             // bubble)
@@ -1831,11 +1962,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                     markRoomAsRead(roomId, mostRecentEventId)
                                 }
                             } else {
-                                if (BuildConfig.DEBUG)
+                                if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
                                         "Andromuks",
                                         "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)",
                                     )
+                                }
                             }
                         }
                     }
@@ -1852,36 +1984,41 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     }
                 }
 
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "🟡 processEventsArray: COMPLETE - roomId=$roomId, requestId=$requestId, reactionsProcessed=$reactionProcessedCount, timelineList.size=${timelineList.size}, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading",
                     )
+                }
                 return reactionProcessedCount
             }
 
             when (data) {
                 is JSONArray -> {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "🟡 handleTimelineResponse: JSONArray response - roomId=$roomId, requestId=$requestId, array.length=${data.length()}",
                         )
+                    }
                     totalReactionsProcessed = processEventsArray(data)
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading",
                         )
+                    }
                 }
+
                 is JSONObject -> {
                     val eventsArray = data.optJSONArray("events")
                     if (eventsArray != null) {
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "🟡 handleTimelineResponse: JSONObject with events array - roomId=$roomId, requestId=$requestId, events.length=${eventsArray.length()}",
                             )
+                        }
 
                         // CRITICAL: Process related_events FIRST before processing main events
                         // These are reply-context events provided by the backend so that reply
@@ -1889,20 +2026,22 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         // timeline items — store them in the dedicated replyContextEvents bucket.
                         val relatedEventsArray = data.optJSONArray("related_events")
                         if (relatedEventsArray != null && relatedEventsArray.length() > 0) {
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "AppViewModel: Processing ${relatedEventsArray.length()} related_events from paginate response for room $roomId (reply-context only)",
                                 )
+                            }
                             val relatedEvents = (0 until relatedEventsArray.length())
                                 .mapNotNull { relatedEventsArray.optJSONObject(it) }
                                 .map { TimelineEvent.fromJson(it) }
                             RoomTimelineCache.addReplyContextEvents(roomId, relatedEvents)
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "AppViewModel: Stored ${relatedEvents.size} related_events as reply-context for room $roomId",
                                 )
+                            }
                             // CRITICAL: Increment timelineUpdateCounter so reply previews can
                             // reactively find
                             // events in related_events
@@ -1915,11 +2054,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                         // NOW process main events array - related_events are already in cache
                         totalReactionsProcessed = processEventsArray(eventsArray)
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "🟡 handleTimelineResponse: processEventsArray completed - roomId=$roomId, requestId=$requestId, reactionsProcessed=$totalReactionsProcessed, timelineEvents.size=${timelineEvents.size}, isTimelineLoading=$isTimelineLoading",
                             )
+                        }
 
                         // CRITICAL: Process read receipts AFTER events are fully processed
                         // This ensures that when receipts are applied, the events they reference
@@ -1930,11 +2070,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         // processed AFTER
                         val receipts = data.optJSONObject("receipts")
                         if (receipts != null && receipts.length() > 0) {
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "AppViewModel: Processing read receipts from paginate response for room: $roomId (AFTER events processed) - ${receipts.length()} event groups, total events in timeline: ${timelineEvents.size}",
                                 )
+                            }
                             // Process receipts in background for parsing, but ensure events are
                             // already processed
                             viewModelScope.launch(Dispatchers.Default) {
@@ -1970,22 +2111,22 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                     val receipt =
                                                         ReadReceipt(
                                                             userId =
-                                                                receiptJson.optString(
-                                                                    "user_id",
-                                                                    "",
-                                                                ),
+                                                            receiptJson.optString(
+                                                                "user_id",
+                                                                "",
+                                                            ),
                                                             eventId =
-                                                                receiptJson.optString(
-                                                                    "event_id",
-                                                                    "",
-                                                                ),
+                                                            receiptJson.optString(
+                                                                "event_id",
+                                                                "",
+                                                            ),
                                                             timestamp =
-                                                                receiptJson.optLong("timestamp", 0),
+                                                            receiptJson.optLong("timestamp", 0),
                                                             receiptType =
-                                                                receiptJson.optString(
-                                                                    "receipt_type",
-                                                                    "",
-                                                                ),
+                                                            receiptJson.optString(
+                                                                "receipt_type",
+                                                                "",
+                                                            ),
                                                             roomId = roomId, // Store room ID for
                                                             // consistency (paginate is
                                                             // authoritative but roomId helps with
@@ -1996,17 +2137,18 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                     // eventId matches
                                                     if (
                                                         receipt.userId.isNotBlank() &&
-                                                            receipt.eventId.isNotBlank() &&
-                                                            receipt.eventId == eventId
+                                                        receipt.eventId.isNotBlank() &&
+                                                        receipt.eventId == eventId
                                                     ) {
                                                         receiptsForEvent.add(receipt)
                                                         receiptUserIds.add(receipt.userId)
                                                     } else {
-                                                        if (BuildConfig.DEBUG)
+                                                        if (BuildConfig.DEBUG) {
                                                             android.util.Log.w(
                                                                 "Andromuks",
                                                                 "AppViewModel: Invalid receipt - eventId=$eventId, receiptEventId=${receipt.eventId}, userId=${receipt.userId}, roomId=$roomId",
                                                             )
+                                                        }
                                                     }
                                                 }
                                             }
@@ -2017,11 +2159,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                             // Event has no receipts array - mark as empty (remove
                                             // existing receipts)
                                             authoritativeReceipts[eventId] = mutableListOf()
-                                            if (BuildConfig.DEBUG)
+                                            if (BuildConfig.DEBUG) {
                                                 android.util.Log.d(
                                                     "Andromuks",
                                                     "AppViewModel: Event $eventId has no receipts array - marking as empty",
                                                 )
+                                            }
                                         }
                                     }
 
@@ -2035,27 +2178,35 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                             .filter { vm.bridgeStatusEventToMessageId.containsKey(it.key) }
                                             .toList()
                                         for ((statusEventId, receipts) in remapEntries) {
-                                            val originalMessageId = vm.bridgeStatusEventToMessageId[statusEventId] ?: continue
+                                            val originalMessageId =
+                                                vm.bridgeStatusEventToMessageId[statusEventId] ?: continue
                                             authoritativeReceipts.remove(statusEventId)
                                             if (receipts.isNotEmpty()) {
                                                 val remapped = receipts.map { r -> r.copy(eventId = originalMessageId) }
-                                                val existing = authoritativeReceipts.getOrPut(originalMessageId) { mutableListOf() }
+                                                val existing = authoritativeReceipts.getOrPut(
+                                                    originalMessageId,
+                                                ) { mutableListOf() }
                                                 remapped.forEach { r ->
                                                     if (existing.none { it.userId == r.userId }) existing.add(r)
                                                 }
-                                                if (BuildConfig.DEBUG)
-                                                    android.util.Log.d("Andromuks", "BridgeReceipt: remapped ${receipts.size} receipt(s) from status event $statusEventId → $originalMessageId")
+                                                if (BuildConfig.DEBUG) {
+                                                    android.util.Log.d(
+                                                        "Andromuks",
+                                                        "BridgeReceipt: remapped ${receipts.size} receipt(s) from status event $statusEventId → $originalMessageId",
+                                                    )
+                                                }
                                             }
                                         }
                                     }
 
                                     val totalReceipts =
                                         authoritativeReceipts.values.sumOf { it.size }
-                                    if (BuildConfig.DEBUG)
+                                    if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
                                             "Andromuks",
                                             "AppViewModel: Processed $totalReceipts total receipts from paginate, distributed across ${authoritativeReceipts.size} events",
                                         )
+                                    }
 
                                     // Apply changes on main thread to avoid concurrent modification
                                     // during
@@ -2066,7 +2217,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                                             synchronized(readReceiptsLock) {
                                                 val roomReceiptsMap = readReceipts.getOrPut(roomId) { mutableMapOf() }
-                                                val roomUserIndex = readReceiptsIndex.getOrPut(roomId) { mutableMapOf() }
+                                                val roomUserIndex = readReceiptsIndex.getOrPut(
+                                                    roomId,
+                                                ) { mutableMapOf() }
 
                                                 authoritativeReceipts.forEach { (eventId, receipts) ->
                                                     val existingReceipts = roomReceiptsMap[eventId]
@@ -2092,10 +2245,20 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                         if (receipts.isEmpty()) {
                                                             val removed = roomReceiptsMap.remove(eventId)
                                                             removed?.forEach { r ->
-                                                                if (roomUserIndex[r.userId] == eventId) roomUserIndex.remove(r.userId)
+                                                                if (roomUserIndex[r.userId] ==
+                                                                    eventId
+                                                                ) {
+                                                                        roomUserIndex.remove(
+                                                                    r.userId,
+                                                                )
+                                                                    }
                                                             }
-                                                            if (BuildConfig.DEBUG)
-                                                                android.util.Log.d("Andromuks", "ReceiptFunctions: Removed all receipts for eventId=$eventId, roomId=$roomId")
+                                                            if (BuildConfig.DEBUG) {
+                                                                android.util.Log.d(
+                                                                    "Andromuks",
+                                                                    "ReceiptFunctions: Removed all receipts for eventId=$eventId, roomId=$roomId",
+                                                                )
+                                                            }
                                                         } else {
                                                             roomReceiptsMap[eventId] = receipts
                                                             // Rebuild inverted index entries for this event
@@ -2104,8 +2267,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                             if (messageBridgeSendStatus.containsKey(eventId)) {
                                                                 updateBridgeStatus(eventId, "delivered")
                                                             }
-                                                            if (BuildConfig.DEBUG)
-                                                                android.util.Log.d("Andromuks", "ReceiptFunctions: Replaced receipts for eventId=$eventId, roomId=$roomId with ${receipts.size} receipts from paginate")
+                                                            if (BuildConfig.DEBUG) {
+                                                                android.util.Log.d(
+                                                                    "Andromuks",
+                                                                    "ReceiptFunctions: Replaced receipts for eventId=$eventId, roomId=$roomId with ${receipts.size} receipts from paginate",
+                                                                )
+                                                            }
                                                         }
                                                         hasChanges = true
                                                     }
@@ -2115,10 +2282,14 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                     ReadReceiptCache.setForRoom(
                                                         roomId,
                                                         roomReceiptsMap.mapValues { it.value.toList() },
-                                                        roomUserIndex
+                                                        roomUserIndex,
                                                     )
-                                                    if (BuildConfig.DEBUG)
-                                                        android.util.Log.d("Andromuks", "AppViewModel: Updated ReadReceiptCache for $roomId from paginate")
+                                                    if (BuildConfig.DEBUG) {
+                                                        android.util.Log.d(
+                                                            "Andromuks",
+                                                            "AppViewModel: Updated ReadReceiptCache for $roomId from paginate",
+                                                        )
+                                                    }
                                                 }
                                             }
 
@@ -2134,7 +2305,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                             // null (unknown); "" means confirmed absent, skip those.
                                             for (userId in receiptUserIds) {
                                                 val profile = vm.getUserProfile(userId, roomId)
-                                                if (profile == null || profile.displayName == null || profile.avatarUrl == null) {
+                                                if (profile == null || profile.displayName == null ||
+                                                    profile.avatarUrl == null
+                                                ) {
                                                     vm.requestUserProfileOnDemand(userId, roomId)
                                                 }
                                             }
@@ -2155,11 +2328,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 }
                             }
                         } else {
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "AppViewModel: No receipts found in paginate response for room: $roomId",
                                 )
+                            }
                         }
 
                         // After processing all events, check for missing m.in_reply_to targets
@@ -2201,13 +2375,14 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                         // Check if the reply target is in the cache
                                         if (!cachedEventIds.contains(replyToEventId)) {
                                             missingReplyTargets.add(
-                                                Pair(event.roomId, replyToEventId)
+                                                Pair(event.roomId, replyToEventId),
                                             )
-                                            if (BuildConfig.DEBUG)
+                                            if (BuildConfig.DEBUG) {
                                                 android.util.Log.d(
                                                     "Andromuks",
                                                     "AppViewModel: Missing reply target event_id=$replyToEventId for event ${event.eventId} in room ${event.roomId}",
                                                 )
+                                            }
                                         }
                                     }
                                 }
@@ -2232,13 +2407,14 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                         if (replyToEventId != null && replyToEventId.isNotBlank()) {
                                             if (!cachedEventIds.contains(replyToEventId)) {
                                                 missingReplyTargets.add(
-                                                    Pair(event.roomId, replyToEventId)
+                                                    Pair(event.roomId, replyToEventId),
                                                 )
-                                                if (BuildConfig.DEBUG)
+                                                if (BuildConfig.DEBUG) {
                                                     android.util.Log.d(
                                                         "Andromuks",
                                                         "AppViewModel: Missing reply target event_id=$replyToEventId for related event ${event.eventId} in room ${event.roomId}",
                                                     )
+                                                }
                                             }
                                         }
                                     }
@@ -2246,11 +2422,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                                 // Fetch missing reply targets via get_event
                                 if (missingReplyTargets.isNotEmpty()) {
-                                    if (BuildConfig.DEBUG)
+                                    if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
                                             "Andromuks",
                                             "AppViewModel: Fetching ${missingReplyTargets.size} missing reply target events via get_event",
                                         )
+                                    }
 
                                     for ((targetRoomId, targetEventId) in missingReplyTargets) {
                                         // Use a suspend function to fetch the event
@@ -2277,11 +2454,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                             )
                                             // Notify composables that new reply context is available
                                             withContext(Dispatchers.Main) { timelineUpdateCounter++ }
-                                            if (BuildConfig.DEBUG)
+                                            if (BuildConfig.DEBUG) {
                                                 android.util.Log.d(
                                                     "Andromuks",
                                                     "AppViewModel: Fetched and cached missing reply target event_id=$targetEventId for room $targetRoomId",
                                                 )
+                                            }
                                         } else {
                                             android.util.Log.w(
                                                 "Andromuks",
@@ -2318,46 +2496,54 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 ) // Use pre-parsed value if available, otherwise parse
                         val fromServer = data.optBoolean("from_server", false)
 
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: ========================================",
                             )
-                        if (BuildConfig.DEBUG)
+                        }
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: PARSING PAGINATION METADATA",
                             )
-                        if (BuildConfig.DEBUG)
+                        }
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d("Andromuks", "AppViewModel:    has_more: $hasMore")
-                        if (BuildConfig.DEBUG)
+                        }
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel:    from_server: $fromServer",
                             )
-                        if (BuildConfig.DEBUG)
+                        }
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel:    hasMoreMessages BEFORE: $hasMoreMessages",
                             )
+                        }
 
                         viewModelScope.launch(Dispatchers.Main) { hasMoreMessages = hasMore }
 
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel:    hasMoreMessages AFTER: $hasMoreMessages",
                             )
-                        if (BuildConfig.DEBUG)
+                        }
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Full pagination response data keys: ${data.keys().asSequence().toList()}",
                             )
-                        if (BuildConfig.DEBUG)
+                        }
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: ========================================",
                             )
+                        }
 
                         // Show toast when reaching the end (empty responses already handled in
                         // processEventsArray)
@@ -2385,11 +2571,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     } else if (backgroundPrefetchRequests.containsKey(requestId)) {
                         // For background prefetch, we don't update hasMoreMessages to avoid
                         // affecting UI
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Skipping has_more parsing for background prefetch request",
                             )
+                        }
                     }
 
                     // NOTE: Receipts are now processed AFTER events (see above, after
@@ -2397,22 +2584,25 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     // completes)
                     // This ensures events are in the timeline before receipts are applied
                 }
+
                 else -> {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Unhandled data type in handleTimelineResponse: ${data::class.java.simpleName}",
                         )
+                    }
                 }
             }
 
             // IMPORTANT: If we processed reactions in background prefetch, trigger UI update
             if (isBackgroundPrefetchRequest && totalReactionsProcessed > 0) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Triggering UI update for $totalReactionsProcessed reactions processed in background prefetch",
                     )
+                }
                 viewModelScope.launch(Dispatchers.Main) {
                     reactionUpdateCounter++ // Trigger UI recomposition for reactions
                 }
@@ -2444,6 +2634,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     isEditEvent(event) -> {
                         editEventsMap[event.eventId] = event
                     }
+
                     else -> {
                         val existingEntry = eventChainMap[event.eventId]
                         if (existingEntry == null) {
@@ -2461,8 +2652,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         // Handle redaction events (both encrypted and non-encrypted for E2EE rooms)
                         val isRedaction =
                             event.type == "m.room.redaction" ||
-                                (event.type == "m.room.encrypted" &&
-                                    event.decryptedType == "m.room.redaction")
+                                (
+                                    event.type == "m.room.encrypted" &&
+                                    event.decryptedType == "m.room.redaction"
+                                )
 
                         if (isRedaction) {
                             // For encrypted redactions, check decrypted content; for non-encrypted,
@@ -2475,6 +2668,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                             it.isNotBlank()
                                         }
                                     }
+
                                     else -> {
                                         event.content?.optString("redacts")?.takeIf {
                                             it.isNotBlank()
@@ -2514,11 +2708,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                 redactionEvent = event,
                                             ),
                                         )
-                                        if (BuildConfig.DEBUG)
+                                        if (BuildConfig.DEBUG) {
                                             android.util.Log.d(
                                                 "Andromuks",
                                                 "AppViewModel: mergePaginationEvents - Redaction event ${event.eventId} received before original $redactsEventId, but found original in cache",
                                             )
+                                        }
                                     } else {
                                         // Original not in cache yet - create placeholder so
                                         // redaction can be found
@@ -2535,11 +2730,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                 redactionEvent = event,
                                             ),
                                         )
-                                        if (BuildConfig.DEBUG)
+                                        if (BuildConfig.DEBUG) {
                                             android.util.Log.d(
                                                 "Andromuks",
                                                 "AppViewModel: mergePaginationEvents - Redaction event ${event.eventId} received before original $redactsEventId - created placeholder",
                                             )
+                                        }
                                     }
                                 }
                             }
@@ -2555,11 +2751,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
     fun handleBackgroundPrefetch(roomId: String, timelineList: List<TimelineEvent>): Int {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache (roomId: $roomId)",
                 )
+            }
             // GAP DETECTION: this paginate fetched the latest events (max_timeline_id=0). If the
             // response shares at least one event id with the cache, the two windows touch and we
             // can safely merge — the shared event stitches them with no hole. If they share
@@ -2586,11 +2783,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             signalRoomSnapshotReady(roomId)
 
             val newCacheCount = RoomTimelineCache.getCachedEventCount(roomId)
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: ✅ Background prefetch completed - cache now has $newCacheCount events for room $roomId",
                 )
+            }
 
             // CRITICAL FIX: Only update smallestRowId if this room is currently open
             // smallestRowId is a global variable that affects the currently open room's pagination
@@ -2623,17 +2821,19 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
                 roomsWithPendingPaginate.remove(roomId)
                 clearForceFreshPaginateAfterWsDown()
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Updated smallestRowId=$smallestRowId for background prefetch (room is currently open, timeline rebuilt)",
                     )
+                }
             } else {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Skipped updating smallestRowId for background prefetch (room $roomId is not currently open, currentRoomId=$currentRoomId)",
                     )
+                }
             }
             return 0 // No reactions processed
         }
@@ -2650,11 +2850,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (freshnessAnchor != null) {
                 val probeIds = timelineList.mapTo(HashSet()) { it.eventId }
                 if (probeIds.contains(freshnessAnchor)) {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: freshness probe OK for $roomId — anchor $freshnessAnchor present in ${timelineList.size}-event window; merging newer events and rendering",
                         )
+                    }
                     // Contiguous: fall through to the normal merge+render below. It rebuilds the full
                     // timeline from cache (existing tail + the few newer events) and clears the stale
                     // flag at the end via freshnessProbePendingEpoch. No expectedEventId was set, so
@@ -2702,31 +2903,36 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     }
                 }
             }
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: ========================================",
                 )
-            if (BuildConfig.DEBUG)
+            }
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: PAGINATION RESPONSE RECEIVED (requestId: $requestId)",
                 )
-            if (BuildConfig.DEBUG)
+            }
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Received ${timelineList.size} events from backend",
                 )
-            if (BuildConfig.DEBUG)
+            }
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Timeline events BEFORE merge: ${timelineEvents.size}",
                 )
-            if (BuildConfig.DEBUG)
+            }
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Cache BEFORE merge: ${RoomTimelineCache.getCachedEventCount(roomId)} events",
                 )
+            }
 
             val cacheBefore = RoomTimelineCache.getCachedEventCount(roomId)
             val oldestRowIdBefore = RoomTimelineCache.getOldestCachedEventRowId(roomId)
@@ -2736,9 +2942,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // small "fetch latest" window doesn't contain it, more than a window's worth of events
             // landed since we last updated → there is a gap. Null/empty for non-hydration requests.
             val newestCachedIdBeforeMerge =
-                if (hydrateExpectedEventIds.containsKey(requestId))
+                if (hydrateExpectedEventIds.containsKey(requestId)) {
                     RoomTimelineCache.getLatestCachedEventMetadata(roomId)?.eventId
-                else null
+                } else {
+                    null
+                }
 
             // CRITICAL FIX: Validate pagination response before merging
             // Backend should only return events with timeline_rowid < max_timeline_id
@@ -2746,8 +2954,8 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             val eventsToMerge =
                 if (
                     maxTimelineIdUsed != null &&
-                        maxTimelineIdUsed != 0L &&
-                        timelineList.isNotEmpty()
+                    maxTimelineIdUsed != 0L &&
+                    timelineList.isNotEmpty()
                 ) {
                     val invalidEvents =
                         timelineList.filter { it.timelineRowid >= maxTimelineIdUsed }
@@ -2789,11 +2997,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // eventChainMap
             val eventsForChain = RoomTimelineCache.getCachedEventsForTimeline(roomId)
             if (eventsForChain.isNotEmpty()) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Reloading ${eventsForChain.size} events from cache into eventChainMap after pagination",
                     )
+                }
 
                 // CRITICAL FIX: Only update global state (eventChainMap, editEventsMap,
                 // timelineEvents) if
@@ -2826,7 +3035,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         }
 
                         processVersionedMessages(
-                            RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
+                            RoomTimelineCache.getCachedEvents(roomId) ?: emptyList(),
                         )
                         processEditRelationships()
                     }
@@ -2834,11 +3043,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     // Rebuild timeline from all cached events
                     buildTimelineFromChain(expectedRoomId = roomId)
                 } else {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Skipping eventChainMap rebuild - roomId ($roomId) != currentRoomId ($currentRoomId). Cache merged only.",
                         )
+                    }
                 }
             } else {
                 // Fallback: if we can't get all cached events, just merge the new ones
@@ -2884,11 +3094,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
                 when {
                     contiguous && caughtPushed ->
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: FCM hydration OK for $roomId — caught $expectedEventId, contiguous with cache",
                             )
+                        }
+
                     !contiguous -> {
                         // Don't nuke a visible timeline: if this room is somehow open, skip the
                         // purge (the open-room background prefetch handles gaps) and just escalate.
@@ -2898,13 +3110,19 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             "AppViewModel: FCM hydration gap for $roomId — newest cached event " +
                                 "$newestCachedIdBeforeMerge absent from ${timelineList.size}-event window " +
                                 "(pushed caught=$caughtPushed)." +
-                                (if (purge) " Purging timeline and reseeding with full paginate."
-                                else " Room is open — skipping purge, escalating with full merge-paginate."),
+                                (
+                                    if (purge) {
+                                    " Purging timeline and reseeding with full paginate."
+                                } else {
+                                    " Room is open — skipping purge, escalating with full merge-paginate."
+                                }
+                                ),
                         )
                         if (purge) RoomTimelineCache.clearRoomCache(roomId)
                         paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
                         escalatedToFullWindow = true
                     }
+
                     else -> { // contiguous, but the pushed event fell outside the small window
                         android.util.Log.i(
                             "Andromuks",
@@ -3010,11 +3228,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     } else {
                         // Cursor advanced — store the minimum rowId for next pagination.
                         oldestRowIdPerRoom[roomId] = oldestInResponse
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Tracked oldest timelineRowId=$oldestInResponse for room $roomId (from ${timelineList.size} events, ${validEvents.size} valid, max_timeline_id used was $maxTimelineIdUsed)",
                             )
+                        }
                     }
                 } else {
                     android.util.Log.w(
@@ -3055,35 +3274,40 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
             // No local persistence - using cache only
 
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Timeline events AFTER merge: ${timelineEvents.size}",
                 )
-            if (BuildConfig.DEBUG)
+            }
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Cache AFTER merge: ${RoomTimelineCache.getCachedEventCount(roomId)} events",
                 )
+            }
 
             val newSmallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: smallestRowId BEFORE: $smallestRowId",
                 )
-            if (BuildConfig.DEBUG)
+            }
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: smallestRowId AFTER: $newSmallestRowId",
                 )
+            }
             smallestRowId = newSmallestRowId
 
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: ========================================",
                 )
+            }
         }
     }
 
@@ -3134,11 +3358,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     } else {
                         // Store it for pull-to-refresh (only positive values)
                         oldestRowIdPerRoom[roomId] = oldestInResponse
-                        if (BuildConfig.DEBUG)
+                        if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
                                 "AppViewModel: Tracked oldest positive timelineRowId=$oldestInResponse for room $roomId from initial paginate in handleInitialTimelineBuild (${timelineList.size} events, ${positiveEvents.size} positive)",
                             )
+                        }
                     }
                 } else if (positiveEvents.isEmpty()) {
                     android.util.Log.w(
@@ -3148,11 +3373,12 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 }
             }
 
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId",
                 )
+            }
             RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
 
             // CRITICAL FIX: Restore reactions from cache and apply aggregated reactions from events
@@ -3172,31 +3398,39 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 buildTimelineFromChain(expectedRoomId = roomId)
                 val timelineSizeBefore = timelineEvents.size
                 viewModelScope.launch(Dispatchers.Main) { isTimelineLoading = false }
-                Androlog("FCMOpen", "handleInitialTimelineBuild: built room=$roomId events=${timelineList.size} → isTimelineLoading=false")
-                WebSocketService.logActivity("FCMOpen: handleInitialTimelineBuild built room=$roomId events=${timelineList.size} → isTimelineLoading=false")
+                Androlog(
+                    "FCMOpen",
+                    "handleInitialTimelineBuild: built room=$roomId events=${timelineList.size} → isTimelineLoading=false",
+                )
+                WebSocketService.logActivity(
+                    "FCMOpen: handleInitialTimelineBuild built room=$roomId events=${timelineList.size} → isTimelineLoading=false",
+                )
                 // RACE CONDITION FIX: Clear notification-pending flag so awaitRoomDataReadiness
                 // unblocks when the initial paginate arrives for rooms without a cache hit.
                 if (isPendingNavigationFromNotification) {
                     isPendingNavigationFromNotification = false
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "🟡 handleInitialTimelineBuild: Cleared isPendingNavigationFromNotification for $roomId",
                         )
+                    }
                 }
                 clearForceFreshPaginateAfterWsDown()
                 val timelineSizeAfter = timelineEvents.size
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "🟡 handleInitialTimelineBuild: Timeline built - roomId=$roomId, timelineList.size=${timelineList.size}, timelineEvents.size=$timelineSizeAfter (was $timelineSizeBefore), isTimelineLoading=$isTimelineLoading",
                     )
+                }
             } else {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "🟡 handleInitialTimelineBuild: Skipping timeline build - roomId ($roomId) != currentRoomId ($currentRoomId). Cache seeded only.",
                     )
+                }
             }
 
             // Persist initial paginated events to cache

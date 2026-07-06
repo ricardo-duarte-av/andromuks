@@ -28,7 +28,7 @@ object RoomListCache {
     // Latest known event per room: roomId -> (eventId, timestamp)
     // Updated from every sync_complete and paginate response so mark_read always has a target.
     private val latestEventCache = ConcurrentHashMap<String, Pair<String, Long>>()
-    
+
     /**
      * Update or add a room to the cache.
      *
@@ -88,7 +88,7 @@ object RoomListCache {
         val updates = rooms.mapNotNull { metaUpdateFor(it) }
         if (updates.isNotEmpty()) RoomMetadataStore.upsertMetadataBatchAsync(updates)
     }
-    
+
     /**
      * Remove a room from the cache
      */
@@ -102,16 +102,14 @@ object RoomListCache {
         // until the clear_state diff-prune catches it.
         RoomMetadataStore.remove(roomId)
     }
-    
+
     /**
      * Get a room from the cache
      */
-    fun getRoom(roomId: String): RoomItem? {
-        return synchronized(cacheLock) {
-            roomCache[roomId]
-        }
+    fun getRoom(roomId: String): RoomItem? = synchronized(cacheLock) {
+        roomCache[roomId]
     }
-    
+
     /**
      * Get all rooms from the cache
      */
@@ -120,16 +118,14 @@ object RoomListCache {
         // callers from mutating the cache without paying the O(N) copy cost.
         return java.util.Collections.unmodifiableMap(roomCache)
     }
-    
+
     /**
      * Get the number of rooms in the cache
      */
-    fun getRoomCount(): Int {
-        return synchronized(cacheLock) {
-            roomCache.size
-        }
+    fun getRoomCount(): Int = synchronized(cacheLock) {
+        roomCache.size
     }
-    
+
     /**
      * Record the latest event seen for a room. Only advances forward (higher timestamp wins).
      */
@@ -194,7 +190,7 @@ object RoomListCache {
             if (BuildConfig.DEBUG) Log.d(TAG, "RoomListCache: Cleared all rooms")
         }
     }
-    
+
     /**
      * Check if cache is empty or suspiciously small (e.g., only 1 room)
      */
@@ -203,4 +199,3 @@ object RoomListCache {
         return count <= 1
     }
 }
-

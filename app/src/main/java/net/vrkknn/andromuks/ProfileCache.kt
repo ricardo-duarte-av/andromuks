@@ -16,25 +16,23 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object ProfileCache {
     private const val TAG = "ProfileCache"
-    
+
     // Global user profile cache with access timestamps for LRU-style cleanup
     data class CachedProfileEntry(var profile: MemberProfile, var lastAccess: Long)
-    
+
     // Thread-safe caches
     private val globalProfileCache = ConcurrentHashMap<String, CachedProfileEntry>()
     private val flattenedMemberCache = ConcurrentHashMap<String, MemberProfile>() // Key: "roomId:userId"
     private val roomMemberIndex = ConcurrentHashMap<String, MutableSet<String>>() // Key: roomId, Value: Set of userIds
     private val cacheLock = Any()
-    
+
     // Constants for cache limits
     private const val MAX_MEMBER_CACHE_SIZE = 5000
-    
+
     /**
      * Get a global profile entry
      */
-    fun getGlobalProfile(userId: String): CachedProfileEntry? {
-        return globalProfileCache[userId]
-    }
+    fun getGlobalProfile(userId: String): CachedProfileEntry? = globalProfileCache[userId]
 
     /**
      * Set a global profile entry
@@ -46,10 +44,8 @@ object ProfileCache {
     /**
      * Get a global profile (returns the profile, not the entry)
      */
-    fun getGlobalProfileProfile(userId: String): MemberProfile? {
-        return globalProfileCache[userId]?.profile
-    }
-    
+    fun getGlobalProfileProfile(userId: String): MemberProfile? = globalProfileCache[userId]?.profile
+
     /**
      * Update last access time for a global profile
      */
@@ -58,13 +54,11 @@ object ProfileCache {
             globalProfileCache[userId]?.lastAccess = System.currentTimeMillis()
         }
     }
-    
+
     /**
      * Get a room-specific profile from flattened cache
      */
-    fun getFlattenedProfile(roomId: String, userId: String): MemberProfile? {
-        return flattenedMemberCache["$roomId:$userId"]
-    }
+    fun getFlattenedProfile(roomId: String, userId: String): MemberProfile? = flattenedMemberCache["$roomId:$userId"]
 
     /**
      * Set a room-specific profile in flattened cache
@@ -83,16 +77,13 @@ object ProfileCache {
     /**
      * Check if a flattened profile exists
      */
-    fun hasFlattenedProfile(roomId: String, userId: String): Boolean {
-        return flattenedMemberCache.containsKey("$roomId:$userId")
-    }
+    fun hasFlattenedProfile(roomId: String, userId: String): Boolean =
+        flattenedMemberCache.containsKey("$roomId:$userId")
 
     /**
      * Get all user IDs for a room from the index
      */
-    fun getRoomUserIds(roomId: String): Set<String>? {
-        return roomMemberIndex[roomId]
-    }
+    fun getRoomUserIds(roomId: String): Set<String>? = roomMemberIndex[roomId]
 
     /**
      * Add a user ID to a room's index
@@ -107,7 +98,7 @@ object ProfileCache {
     fun removeFromRoomIndex(roomId: String, userId: String) {
         roomMemberIndex[roomId]?.remove(userId)
     }
-    
+
     /**
      * Get the size of the flattened cache
      */
@@ -117,7 +108,7 @@ object ProfileCache {
      * Get the size of the global cache
      */
     fun getGlobalCacheSize(): Int = globalProfileCache.size
-    
+
     /**
      * Cleanup old global profiles (LRU-style)
      */
@@ -129,13 +120,13 @@ object ProfileCache {
                     .sortedBy { it.value.lastAccess }
                     .take(overflow)
                     .map { it.key }
-                
+
                 oldestKeys.forEach { globalProfileCache.remove(it) }
                 if (BuildConfig.DEBUG) Log.d(TAG, "ProfileCache: Cleaned up $overflow old global profiles")
             }
         }
     }
-    
+
     /**
      * Cleanup old flattened profiles (LRU-style)
      */
@@ -151,11 +142,16 @@ object ProfileCache {
                 }
                 val keysToRemove = flattenedMemberCache.keys.filter { it !in validKeys }
                 keysToRemove.take(maxSize / 2).forEach { flattenedMemberCache.remove(it) }
-                if (BuildConfig.DEBUG) Log.d(TAG, "ProfileCache: Cleaned up ${keysToRemove.size} old flattened profiles")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    TAG,
+                    "ProfileCache: Cleaned up ${keysToRemove.size} old flattened profiles",
+                )
+                }
             }
         }
     }
-    
+
     /**
      * Remove all room-specific entries for a user that now match the global profile
      */
@@ -166,7 +162,8 @@ object ProfileCache {
                 if (key.endsWith(":$userId")) {
                     // Check if room profile now matches the global profile
                     if (roomProfile.displayName == globalProfile.displayName &&
-                        roomProfile.avatarUrl == globalProfile.avatarUrl) {
+                        roomProfile.avatarUrl == globalProfile.avatarUrl
+                    ) {
                         keysToRemove.add(key)
                         // Also remove from index
                         val roomId = key.substringBefore(":")
@@ -177,7 +174,7 @@ object ProfileCache {
             keysToRemove.forEach { flattenedMemberCache.remove(it) }
         }
     }
-    
+
     /**
      * Clear all caches
      */
@@ -189,7 +186,7 @@ object ProfileCache {
             if (BuildConfig.DEBUG) Log.d(TAG, "ProfileCache: Cleared all caches")
         }
     }
-    
+
     /**
      * Clear all profiles for a specific room
      */
@@ -200,23 +197,18 @@ object ProfileCache {
             }
         }
     }
-    
+
     /**
      * Get all flattened profiles (for iteration)
      */
-    fun getAllFlattenedProfiles(): Map<String, MemberProfile> {
-        return synchronized(cacheLock) {
-            flattenedMemberCache.toMap()
-        }
+    fun getAllFlattenedProfiles(): Map<String, MemberProfile> = synchronized(cacheLock) {
+        flattenedMemberCache.toMap()
     }
-    
+
     /**
      * Get all global profiles (for iteration)
      */
-    fun getAllGlobalProfiles(): Map<String, CachedProfileEntry> {
-        return synchronized(cacheLock) {
-            globalProfileCache.toMap()
-        }
+    fun getAllGlobalProfiles(): Map<String, CachedProfileEntry> = synchronized(cacheLock) {
+        globalProfileCache.toMap()
     }
 }
-

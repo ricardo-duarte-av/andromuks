@@ -57,7 +57,7 @@ sealed class SyncEvent {
      */
     data class IncomingWebSocketMessage(
         val jsonString: String,
-        val hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE
+        val hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE,
     ) : SyncEvent()
 }
 
@@ -66,10 +66,13 @@ sealed class SyncEvent {
  */
 enum class IncomingWebSocketHint {
     NONE,
+
     /** First sync_complete after reconnect with last_received_event — call [AppViewModel.onInitComplete] before room sync. */
     SYNC_COMPLETE_AFTER_RESUME,
+
     /** init_complete — each VM runs [AppViewModel.onInitComplete] on Main. */
     INIT_COMPLETE,
+
     /**
      * Sentinel enqueued by [SyncRepository.enqueueDrainSentinel]. Not a real message — when the
      * pipeline processes it, all previously-queued sync_completes have been dispatched, so the
@@ -78,15 +81,9 @@ enum class IncomingWebSocketHint {
     DRAIN_SENTINEL,
 }
 
-data class ViewModelRegistryInfo(
-    val viewModelId: String,
-    val isPrimary: Boolean
-)
+data class ViewModelRegistryInfo(val viewModelId: String, val isPrimary: Boolean)
 
-data class ViewModelEntry(
-    val viewModel: WeakReference<AppViewModel>,
-    @Volatile var isPrimary: Boolean
-) {
+data class ViewModelEntry(val viewModel: WeakReference<AppViewModel>, @Volatile var isPrimary: Boolean) {
     fun get(): AppViewModel? = viewModel.get()
 }
 
@@ -114,6 +111,7 @@ object SyncRepository {
     private val noVmBufferLock = Any()
     private val noVmBuffer = ArrayDeque<PendingSyncComplete>()
     private const val MAX_NO_VM_BUFFER = 500
+
     @Volatile private var noVmBufferEpoch = 0
 
     // Callbacks for DRAIN_SENTINEL messages, in FIFO order matching the sentinel enqueue order.
@@ -151,7 +149,10 @@ object SyncRepository {
     fun clearSyncBuffer() {
         synchronized(noVmBufferLock) {
             if (noVmBuffer.isNotEmpty()) {
-                Log.i(TAG, "clearSyncBuffer: discarding ${noVmBuffer.size} buffered message(s) (epoch $noVmBufferEpoch → ${noVmBufferEpoch + 1})")
+                Log.i(
+                    TAG,
+                    "clearSyncBuffer: discarding ${noVmBuffer.size} buffered message(s) (epoch $noVmBufferEpoch → ${noVmBufferEpoch + 1})",
+                )
                 noVmBuffer.clear()
             }
             noVmBufferEpoch++
@@ -177,11 +178,17 @@ object SyncRepository {
             toReplay = noVmBuffer.toList()
             noVmBuffer.clear()
         }
-        Log.i(TAG, "triggerBufferedSyncDrain: re-enqueuing ${toReplay.size} buffered sync_complete(s) (epoch $epochAtDrain)")
+        Log.i(
+            TAG,
+            "triggerBufferedSyncDrain: re-enqueuing ${toReplay.size} buffered sync_complete(s) (epoch $epochAtDrain)",
+        )
         for (msg in toReplay) {
             val result = syncCompleteChannel.trySend(msg)
             if (!result.isSuccess) {
-                Log.e(TAG, "triggerBufferedSyncDrain: channel failed, ${toReplay.size - toReplay.indexOf(msg)} message(s) lost")
+                Log.e(
+                    TAG,
+                    "triggerBufferedSyncDrain: channel failed, ${toReplay.size - toReplay.indexOf(msg)} message(s) lost",
+                )
                 break
             }
         }
@@ -199,7 +206,10 @@ object SyncRepository {
             if (noVmBuffer.isEmpty()) return emptyList()
             val taken = noVmBuffer.map { it.jsonString to it.hint }
             noVmBuffer.clear()
-            Log.i(TAG, "takeBufferedMessages: took ${taken.size} message(s) for direct processing (epoch $noVmBufferEpoch)")
+            Log.i(
+                TAG,
+                "takeBufferedMessages: took ${taken.size} message(s) for direct processing (epoch $noVmBufferEpoch)",
+            )
             return taken
         }
     }
@@ -253,7 +263,10 @@ object SyncRepository {
             synchronized(noVmBufferLock) {
                 if (noVmBuffer.size < MAX_NO_VM_BUFFER) {
                     noVmBuffer.addLast(msg)
-                    Log.w(TAG, "sync_complete: no VM (buffered ${noVmBuffer.size}/$MAX_NO_VM_BUFFER, epoch $noVmBufferEpoch)")
+                    Log.w(
+                        TAG,
+                        "sync_complete: no VM (buffered ${noVmBuffer.size}/$MAX_NO_VM_BUFFER, epoch $noVmBufferEpoch)",
+                    )
                 } else {
                     Log.w(TAG, "sync_complete: no VM and buffer full ($MAX_NO_VM_BUFFER), message dropped")
                 }
@@ -279,7 +292,7 @@ object SyncRepository {
     private val _events = MutableSharedFlow<SyncEvent>(
         replay = 0,
         extraBufferCapacity = 1024,
-        onBufferOverflow = BufferOverflow.DROP_LATEST
+        onBufferOverflow = BufferOverflow.DROP_LATEST,
     )
     val events: SharedFlow<SyncEvent> = _events.asSharedFlow()
 
@@ -293,7 +306,7 @@ object SyncRepository {
     private val _ackEvents = MutableSharedFlow<SyncEvent>(
         replay = 0,
         extraBufferCapacity = 1024,
-        onBufferOverflow = BufferOverflow.DROP_OLDEST
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val ackEvents: SharedFlow<SyncEvent> = _ackEvents.asSharedFlow()
 
@@ -347,7 +360,10 @@ object SyncRepository {
     fun registerViewModel(viewModelId: String, isPrimary: Boolean): Boolean {
         synchronized(registryLock) {
             val e = attachedViewModels[viewModelId] ?: run {
-                android.util.Log.w("SyncRepository", "registerViewModel: no entry for $viewModelId (attachViewModel first)")
+                android.util.Log.w(
+                    "SyncRepository",
+                    "registerViewModel: no entry for $viewModelId (attachViewModel first)",
+                )
                 return false
             }
             if (isPrimary) {
@@ -400,6 +416,7 @@ object SyncRepository {
     /**
      * Picks a primary among attached ViewModels (prefers `AppViewModel_0*`). Notifies via [AppViewModel.onPromotedToPrimary].
      */
+
     /**
      * Clears primary state for a stale id (e.g. health check) then runs [promoteNextPrimary].
      */
@@ -445,8 +462,7 @@ object SyncRepository {
         }
     }
 
-    fun isViewModelAttached(viewModelId: String): Boolean =
-        attachedViewModels[viewModelId]?.get() != null
+    fun isViewModelAttached(viewModelId: String): Boolean = attachedViewModels[viewModelId]?.get() != null
 
     fun getViewModel(viewModelId: String): AppViewModel? {
         pruneStaleViewModelEntries("getViewModel")
@@ -460,13 +476,11 @@ object SyncRepository {
 
     fun getRegisteredViewModelIds(): List<String> = attachedViewModels.keys.toList().sorted()
 
-    fun getRegisteredViewModelInfos(): List<ViewModelRegistryInfo> =
-        attachedViewModels.mapNotNull { (id, e) ->
-            if (e.get() != null) ViewModelRegistryInfo(id, e.isPrimary) else null
-        }
+    fun getRegisteredViewModelInfos(): List<ViewModelRegistryInfo> = attachedViewModels.mapNotNull { (id, e) ->
+        if (e.get() != null) ViewModelRegistryInfo(id, e.isPrimary) else null
+    }
 
-    fun isViewModelRegistered(viewModelId: String): Boolean =
-        attachedViewModels[viewModelId]?.get() != null
+    fun isViewModelRegistered(viewModelId: String): Boolean = attachedViewModels[viewModelId]?.get() != null
 
     /**
      * True when primary id is set, the entry exists, and it is still marked primary.
@@ -503,7 +517,10 @@ object SyncRepository {
      * non-lossy [ackEvents] flow instead of [_events]. Keeps acks safe from high-volume sync/key
      * bursts so request responses are never silently dropped.
      */
-    fun emitPriorityIncomingWebSocketMessage(jsonString: String, hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) {
+    fun emitPriorityIncomingWebSocketMessage(
+        jsonString: String,
+        hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE,
+    ) {
         if (!_ackEvents.tryEmit(SyncEvent.IncomingWebSocketMessage(jsonString, hint))) {
             // DROP_OLDEST never reports failure for a non-zero buffer; logged only for completeness.
             android.util.Log.w("SyncRepository", "Ack event dropped (buffer full)")

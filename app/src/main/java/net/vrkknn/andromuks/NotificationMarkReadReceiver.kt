@@ -1,14 +1,13 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.BuildConfig
-
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
-import kotlin.concurrent.thread
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.ExecApi
+import kotlin.concurrent.thread
 
 /**
  * Global broadcast receiver for handling notification mark read actions

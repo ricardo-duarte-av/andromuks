@@ -1,91 +1,88 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
+import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.filled.VideoCall
-import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import net.vrkknn.andromuks.LocalScrollHighlightState
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.text.TextLayoutResult
-import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.MediaInfo
 import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.PowerLevelsInfo
-import net.vrkknn.andromuks.ReadReceipt
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
 import org.json.JSONObject
 
 private val LocalNarratorLongPressAction = compositionLocalOf<(() -> Unit)?> { null }
 
-private fun trimDisplayNameForNarrator(name: String, appViewModel: AppViewModel?): String {
-    return if (appViewModel?.trimLongDisplayNames == true && name.length > 40) {
+private fun trimDisplayNameForNarrator(name: String, appViewModel: AppViewModel?): String =
+    if (appViewModel?.trimLongDisplayNames == true && name.length > 40) {
         name.take(40) + "..."
     } else {
         name
     }
-}
 
 @Composable
 fun SystemEventNarrator(
@@ -105,42 +102,46 @@ fun SystemEventNarrator(
     onRoomClick: (String) -> Unit = {},
     onReply: (TimelineEvent) -> Unit = {},
     onDelete: (TimelineEvent) -> Unit = {},
-    onShowMenu: ((MessageMenuConfig) -> Unit)? = null
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
 ) {
     var showMenu by remember { mutableStateOf(false) }
     var narratorBounds by remember { mutableStateOf<Rect?>(null) }
     // Non-state holder: stores the LayoutCoordinates reference without triggering recomposition
     // on every layout pass. boundsInWindow() is computed on demand when the menu is triggered.
-    val coordinatesHolder = remember { object { var value: LayoutCoordinates? = null } }
+    val coordinatesHolder = remember {
+        object {
+        var value: LayoutCoordinates? = null
+    }
+    }
     val content = event.content
     val eventType = event.type
-    
+
     val density = LocalDensity.current
     val hapticFeedback = LocalHapticFeedback.current
     val configuration = LocalConfiguration.current
     val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
-    
+
     // Highlight animation when this event is the active scroll target
     val scrollHighlightState = LocalScrollHighlightState.current
     val isHighlightTarget =
         scrollHighlightState.requestId > 0 && scrollHighlightState.eventId == event.eventId
     val highlightAnim = remember(event.eventId) { Animatable(0f) }
-    
+
     LaunchedEffect(scrollHighlightState.requestId, isHighlightTarget) {
         if (isHighlightTarget) {
             highlightAnim.snapTo(1f)
             highlightAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = scaledTweenMs(5000), easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(5000), easing = FastOutSlowInEasing),
             )
         } else if (!isHighlightTarget && highlightAnim.value > 0f) {
             highlightAnim.animateTo(
                 targetValue = 0f,
-                animationSpec = tween(durationMillis = scaledTweenMs(150), easing = FastOutSlowInEasing)
+                animationSpec = tween(durationMillis = scaledTweenMs(150), easing = FastOutSlowInEasing),
             )
         }
     }
-    
+
     val highlightValue = highlightAnim.value
     val activeMenuEventId = LocalActiveMessageMenuEventId.current
     val isMenuActiveForThisNarrator = activeMenuEventId == event.eventId
@@ -151,18 +152,18 @@ fun SystemEventNarrator(
             while (true) {
                 narratorMenuPulse.animateTo(
                     targetValue = 1f,
-                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing),
                 )
                 narratorMenuPulse.animateTo(
                     targetValue = 0f,
-                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing)
+                    animationSpec = tween(durationMillis = scaledTweenMs(700), easing = FastOutSlowInEasing),
                 )
             }
         } else {
             narratorMenuPulse.snapTo(0f)
         }
     }
-    
+
     // Get read receipts for this event, flattening in any that landed on non-rendered events
     // collapsing onto this narrator line (see ReceiptFunctions.gatherFlattenedReceipts).
     val readReceipts = remember(event.eventId, absorbedReceiptEventIds, appViewModel?.readReceiptsUpdateCounter) {
@@ -171,13 +172,13 @@ fun SystemEventNarrator(
                 anchorEventId = event.eventId,
                 absorbedEventIds = absorbedReceiptEventIds,
                 roomId = event.roomId,
-                readReceiptsMap = appViewModel.getReadReceiptsMap(event.roomId)
+                readReceiptsMap = appViewModel.getReadReceiptsMap(event.roomId),
             )
         } else {
             emptyList()
         }
     }
-    
+
     // Get member map for user profiles (for read receipt avatars)
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
         appViewModel?.getMemberMap(roomId) ?: emptyMap()
@@ -189,7 +190,9 @@ fun SystemEventNarrator(
     val effectivePowerLevels = powerLevels ?: appViewModel?.currentRoomState?.powerLevels
     val myPowerLevel = if (myUserId != null && effectivePowerLevels != null) {
         effectivePowerLevels.users[myUserId] ?: effectivePowerLevels.usersDefault
-    } else 0
+    } else {
+        0
+    }
     val redactPowerLevel = effectivePowerLevels?.redact ?: 50
     val canRedactOthersMessages = myPowerLevel >= redactPowerLevel
     val isMine = myUserId != null && event.sender == myUserId
@@ -198,7 +201,7 @@ fun SystemEventNarrator(
     } else {
         canRedactOthersMessages
     }
-    
+
     // Calculate pin/unpin permissions
     val currentRoomState = appViewModel?.currentRoomState
     val isPinned = remember(roomId, currentRoomState?.pinnedEventIds, event.eventId) {
@@ -240,7 +243,7 @@ fun SystemEventNarrator(
                     appViewModel?.pinUnpinEvent(roomId, event.eventId, pin = false)
                 },
                 onShowEditHistory = null,
-                appViewModel = appViewModel
+                appViewModel = appViewModel,
             )
             onShowMenu.invoke(menuConfig)
         } else {
@@ -251,365 +254,412 @@ fun SystemEventNarrator(
     val timestampText = remember(event.timestamp) { formatSmartTimestamp(event.timestamp) }
 
     CompositionLocalProvider(
-        LocalNarratorLongPressAction provides triggerNarratorMenu
+        LocalNarratorLongPressAction provides triggerNarratorMenu,
     ) {
-    Box {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp)
-                .onGloballyPositioned { layoutCoordinates ->
-                    // Store reference only; bounds are computed on demand when the menu is triggered
-                    coordinatesHolder.value = layoutCoordinates
-                }
-                .then(
-                    // Add glow effect when highlighted
-                    if (isMenuActiveForThisNarrator) {
-                        val pulse = narratorMenuPulse.value
-                        val glowColor = MaterialTheme.colorScheme.primary
-                        Modifier
-                            .background(
-                                color = glowColor.copy(alpha = 0.10f + (0.14f * pulse)),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
-                            )
-                            .shadow(
-                                elevation = 10.dp + (14.dp * pulse),
-                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                                ambientColor = glowColor.copy(alpha = 0.35f + (0.40f * pulse)),
-                                spotColor = glowColor.copy(alpha = 0.45f + (0.45f * pulse))
-                            )
-                    } else if (highlightValue > 0.01f) {
-                        val glowColor = MaterialTheme.colorScheme.tertiary
-                        val glowIntensity = highlightValue * 0.6f // Max 60% opacity
-                        Modifier.shadow(
-                            elevation = (8.dp + 12.dp * highlightValue),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                            ambientColor = glowColor.copy(alpha = glowIntensity * 0.4f),
-                            spotColor = glowColor.copy(alpha = glowIntensity * 0.6f)
-                        )
-                    } else {
-                        Modifier
+        Box {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp)
+                    .onGloballyPositioned { layoutCoordinates ->
+                        // Store reference only; bounds are computed on demand when the menu is triggered
+                        coordinatesHolder.value = layoutCoordinates
                     }
-                )
-                .combinedClickable(
-                    onClick = { /* Regular click does nothing */ },
-                    onLongClick = { 
-                        if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Long press detected")
-                        triggerNarratorMenu()
-                    },
-                    onLongClickLabel = "Show message options"
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-        // Left side - centered content
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .weight(1f)
-                .then(
-                    // Add subtle background glow when highlighted
-                    if (highlightValue > 0.01f) {
-                        val glowColor = MaterialTheme.colorScheme.tertiary
-                        val glowAlpha = highlightValue * 0.15f // Subtle background glow
-                        Modifier.background(
-                            color = glowColor.copy(alpha = glowAlpha),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
-                        )
-                    } else {
-                        Modifier
-                    }
-                )
-                .padding(horizontal = if (highlightValue > 0.01f) 4.dp else 0.dp, vertical = if (highlightValue > 0.01f) 2.dp else 0.dp)
-        ) {
-            // Small avatar for the actor (clickable)
-            AvatarImage(
-                mxcUrl = avatarUrl,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                fallbackText = displayName,
-                size = 20.dp,
-                userId = event.sender,
-                displayName = displayName,
-                modifier = Modifier.clickable { onUserClick(event.sender) }
-            )
-        
-        // Narrator text
-        when (eventType) {
-            "m.room.member" -> {
-                MemberEventNarrator(
-                    event = event,
-                    displayName = displayName,
-                    content = content,
-                    appViewModel = appViewModel,
-                    roomId = roomId,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    onUserClick = onUserClick
-                )
-            }
-            "m.room.name" -> {
-                val roomName = content?.optString("name", "")
-                val userMentionColor = MaterialTheme.colorScheme.primary
-                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-                val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
-                
-                if (senderProfile == null && appViewModel != null) {
-                    appViewModel.requestUserProfile(event.sender, roomId)
-                }
-                
-                val annotatedText = remember(displayName, event.sender, senderDisplayName, roomName, memberMap, userMentionColor) {
-                    buildAnnotatedString {
-                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                        append(" changed the room name to ")
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(roomName ?: "")
-                        }
-                    }
-                }
-                
-                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
-            }
-            "m.room.topic" -> {
-                val userMentionColor = MaterialTheme.colorScheme.primary
-                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-                val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
-                
-                if (senderProfile == null && appViewModel != null) {
-                    appViewModel.requestUserProfile(event.sender, roomId)
-                }
-                
-                val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
-                    buildAnnotatedString {
-                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                        append(" changed the room topic")
-                    }
-                }
-                
-                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
-            }
-            "m.room.avatar" -> {
-                val userMentionColor = MaterialTheme.colorScheme.primary
-                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-                val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
-                
-                if (senderProfile == null && appViewModel != null) {
-                    appViewModel.requestUserProfile(event.sender, roomId)
-                }
-                
-                val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
-                    buildAnnotatedString {
-                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                        append(" changed the room avatar")
-                    }
-                }
-                
-                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
-            }
-            "m.room.tombstone" -> {
-                TombstoneEventNarrator(
-                    event = event,
-                    displayName = displayName,
-                    content = content,
-                    onRoomClick = onRoomClick,
-                    appViewModel = appViewModel,
-                    roomId = roomId,
-                    onUserClick = onUserClick
-                )
-            }
-            "m.space.parent" -> {
-                SpaceParentEventNarrator(
-                    event = event,
-                    displayName = displayName,
-                    onRoomClick = onRoomClick,
-                    appViewModel = appViewModel,
-                    roomId = roomId,
-                    onUserClick = onUserClick
-                )
-            }
-            "m.room.pinned_events" -> {
-                PinnedEventsNarrator(
-                    event = event,
-                    displayName = displayName,
-                    avatarUrl = avatarUrl,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    appViewModel = appViewModel,
-                    roomId = roomId,
-                    onUserClick = onUserClick
-                )
-            }
-            "m.room.server_acl" -> {
-                ServerAclEventNarrator(
-                    event = event,
-                    displayName = displayName,
-                    content = content,
-                    appViewModel = appViewModel,
-                    roomId = roomId,
-                    onUserClick = onUserClick
-                )
-            }
-            "m.room.power_levels" -> {
-                PowerLevelsEventNarrator(
-                    event = event,
-                    displayName = displayName,
-                    content = content,
-                    appViewModel = appViewModel,
-                    roomId = roomId,
-                    onUserClick = onUserClick
-                )
-            }
-            "org.matrix.msc3401.call.member" -> {
-                CallMemberEventNarrator(
-                    event = event,
-                    displayName = displayName,
-                    content = content,
-                    appViewModel = appViewModel,
-                    roomId = roomId,
-                    onUserClick = onUserClick
-                )
-            }
-            else -> {
-                val userMentionColor = MaterialTheme.colorScheme.primary
-                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-
-                if (senderProfile == null && appViewModel != null) {
-                    appViewModel.requestUserProfile(event.sender, roomId)
-                }
-
-                val annotatedText = remember(displayName, event.sender, senderDisplayName, eventType, memberMap, userMentionColor) {
-                    buildAnnotatedString {
-                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                        append(" sent an unknown event: ")
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(eventType)
-                        }
-                    }
-                }
-
-                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
-            }
-        }
-        }
-        
-        // Right side - read receipts (if any) + timestamp
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            // Read receipts (left of timestamp)
-            // System events are not "mine", so use isMine = false (others' style)
-            if (readReceipts.isNotEmpty()) {
-                InlineReadReceiptAvatars(
-                    receipts = readReceipts,
-                    userProfileCache = memberMap,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    appViewModel = appViewModel,
-                    messageSender = event.sender,
-                    roomId = roomId,
-                    onUserClick = onUserClick,
-                    isMine = false
-                )
-            }
-            
-            // Timestamp
-            Text(
-                text = timestampText,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontStyle = FontStyle.Italic
-            )
-        }
-        }
-
-        // Floating menu for system events (only Reply option) - same style as MessageBubbleWithMenu
-        if (showMenu) {
-            Popup(
-                onDismissRequest = {
-                    if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Popup dismissed")
-                    showMenu = false
-                },
-                properties = PopupProperties(
-                    focusable = true,
-                    dismissOnBackPress = true,
-                    dismissOnClickOutside = true
-                )
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    // Fullscreen transparent scrim to capture outside taps
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(androidx.compose.ui.graphics.Color.Transparent)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Scrim tapped, dismissing menu")
-                                        showMenu = false
-                                    }
+                    .then(
+                        // Add glow effect when highlighted
+                        if (isMenuActiveForThisNarrator) {
+                            val pulse = narratorMenuPulse.value
+                            val glowColor = MaterialTheme.colorScheme.primary
+                            Modifier
+                                .background(
+                                    color = glowColor.copy(alpha = 0.10f + (0.14f * pulse)),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp),
                                 )
-                            }
+                                .shadow(
+                                    elevation = 10.dp + (14.dp * pulse),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                    ambientColor = glowColor.copy(alpha = 0.35f + (0.40f * pulse)),
+                                    spotColor = glowColor.copy(alpha = 0.45f + (0.45f * pulse)),
+                                )
+                        } else if (highlightValue > 0.01f) {
+                            val glowColor = MaterialTheme.colorScheme.tertiary
+                            val glowIntensity = highlightValue * 0.6f // Max 60% opacity
+                            Modifier.shadow(
+                                elevation = (8.dp + 12.dp * highlightValue),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                                ambientColor = glowColor.copy(alpha = glowIntensity * 0.4f),
+                                spotColor = glowColor.copy(alpha = glowIntensity * 0.6f),
+                            )
+                        } else {
+                            Modifier
+                        },
                     )
-                    
-                    // Card with Reply button positioned above narrator row
-                    if (narratorBounds != null) {
-                        Card(
+                    .combinedClickable(
+                        onClick = { /* Regular click does nothing */ },
+                        onLongClick = {
+                            if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Long press detected")
+                            triggerNarratorMenu()
+                        },
+                        onLongClickLabel = "Show message options",
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                // Left side - centered content
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            // Add subtle background glow when highlighted
+                            if (highlightValue > 0.01f) {
+                                val glowColor = MaterialTheme.colorScheme.tertiary
+                                val glowAlpha = highlightValue * 0.15f // Subtle background glow
+                                Modifier.background(
+                                    color = glowColor.copy(alpha = glowAlpha),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
+                                )
+                            } else {
+                                Modifier
+                            },
+                        )
+                        .padding(
+                            horizontal = if (highlightValue > 0.01f) 4.dp else 0.dp,
+                            vertical = if (highlightValue > 0.01f) 2.dp else 0.dp,
+                        ),
+                ) {
+                    // Small avatar for the actor (clickable)
+                    AvatarImage(
+                        mxcUrl = avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = displayName,
+                        size = 20.dp,
+                        userId = event.sender,
+                        displayName = displayName,
+                        modifier = Modifier.clickable { onUserClick(event.sender) },
+                    )
+
+                    // Narrator text
+                    when (eventType) {
+                        "m.room.member" -> {
+                            MemberEventNarrator(
+                                event = event,
+                                displayName = displayName,
+                                content = content,
+                                appViewModel = appViewModel,
+                                roomId = roomId,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                onUserClick = onUserClick,
+                            )
+                        }
+
+                        "m.room.name" -> {
+                            val roomName = content?.optString("name", "")
+                            val userMentionColor = MaterialTheme.colorScheme.primary
+                            val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                            val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter(
+                                "@",
+                            ).substringBefore(":")
+                            val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
+
+                            if (senderProfile == null && appViewModel != null) {
+                                appViewModel.requestUserProfile(event.sender, roomId)
+                            }
+
+                            val annotatedText =
+                                remember(displayName, event.sender, senderDisplayName, roomName, memberMap, userMentionColor) {
+                                buildAnnotatedString {
+                                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                                    append(" changed the room name to ")
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(roomName ?: "")
+                                    }
+                                }
+                            }
+
+                            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
+                        }
+
+                        "m.room.topic" -> {
+                            val userMentionColor = MaterialTheme.colorScheme.primary
+                            val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                            val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter(
+                                "@",
+                            ).substringBefore(":")
+                            val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
+
+                            if (senderProfile == null && appViewModel != null) {
+                                appViewModel.requestUserProfile(event.sender, roomId)
+                            }
+
+                            val annotatedText =
+                                remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                                buildAnnotatedString {
+                                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                                    append(" changed the room topic")
+                                }
+                            }
+
+                            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
+                        }
+
+                        "m.room.avatar" -> {
+                            val userMentionColor = MaterialTheme.colorScheme.primary
+                            val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                            val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter(
+                                "@",
+                            ).substringBefore(":")
+                            val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
+
+                            if (senderProfile == null && appViewModel != null) {
+                                appViewModel.requestUserProfile(event.sender, roomId)
+                            }
+
+                            val annotatedText =
+                                remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                                buildAnnotatedString {
+                                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                                    append(" changed the room avatar")
+                                }
+                            }
+
+                            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
+                        }
+
+                        "m.room.tombstone" -> {
+                            TombstoneEventNarrator(
+                                event = event,
+                                displayName = displayName,
+                                content = content,
+                                onRoomClick = onRoomClick,
+                                appViewModel = appViewModel,
+                                roomId = roomId,
+                                onUserClick = onUserClick,
+                            )
+                        }
+
+                        "m.space.parent" -> {
+                            SpaceParentEventNarrator(
+                                event = event,
+                                displayName = displayName,
+                                onRoomClick = onRoomClick,
+                                appViewModel = appViewModel,
+                                roomId = roomId,
+                                onUserClick = onUserClick,
+                            )
+                        }
+
+                        "m.room.pinned_events" -> {
+                            PinnedEventsNarrator(
+                                event = event,
+                                displayName = displayName,
+                                avatarUrl = avatarUrl,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                appViewModel = appViewModel,
+                                roomId = roomId,
+                                onUserClick = onUserClick,
+                            )
+                        }
+
+                        "m.room.server_acl" -> {
+                            ServerAclEventNarrator(
+                                event = event,
+                                displayName = displayName,
+                                content = content,
+                                appViewModel = appViewModel,
+                                roomId = roomId,
+                                onUserClick = onUserClick,
+                            )
+                        }
+
+                        "m.room.power_levels" -> {
+                            PowerLevelsEventNarrator(
+                                event = event,
+                                displayName = displayName,
+                                content = content,
+                                appViewModel = appViewModel,
+                                roomId = roomId,
+                                onUserClick = onUserClick,
+                            )
+                        }
+
+                        "org.matrix.msc3401.call.member" -> {
+                            CallMemberEventNarrator(
+                                event = event,
+                                displayName = displayName,
+                                content = content,
+                                appViewModel = appViewModel,
+                                roomId = roomId,
+                                onUserClick = onUserClick,
+                            )
+                        }
+
+                        else -> {
+                            val userMentionColor = MaterialTheme.colorScheme.primary
+                            val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                            val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter(
+                                "@",
+                            ).substringBefore(":")
+
+                            if (senderProfile == null && appViewModel != null) {
+                                appViewModel.requestUserProfile(event.sender, roomId)
+                            }
+
+                            val annotatedText = remember(
+                                displayName,
+                                event.sender,
+                                senderDisplayName,
+                                eventType,
+                                memberMap,
+                                userMentionColor,
+                            ) {
+                                buildAnnotatedString {
+                                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                                    append(" sent an unknown event: ")
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(eventType)
+                                    }
+                                }
+                            }
+
+                            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
+                        }
+                    }
+                }
+
+                // Right side - read receipts (if any) + timestamp
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // Read receipts (left of timestamp)
+                    // System events are not "mine", so use isMine = false (others' style)
+                    if (readReceipts.isNotEmpty()) {
+                        InlineReadReceiptAvatars(
+                            receipts = readReceipts,
+                            userProfileCache = memberMap,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            appViewModel = appViewModel,
+                            messageSender = event.sender,
+                            roomId = roomId,
+                            onUserClick = onUserClick,
+                            isMine = false,
+                        )
+                    }
+
+                    // Timestamp
+                    Text(
+                        text = timestampText,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontStyle = FontStyle.Italic,
+                    )
+                }
+            }
+
+            // Floating menu for system events (only Reply option) - same style as MessageBubbleWithMenu
+            if (showMenu) {
+                Popup(
+                    onDismissRequest = {
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                            "NarratorFunctions",
+                            "SystemEventNarrator: Popup dismissed",
+                        )
+                        }
+                        showMenu = false
+                    },
+                    properties = PopupProperties(
+                        focusable = true,
+                        dismissOnBackPress = true,
+                        dismissOnClickOutside = true,
+                    ),
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        // Fullscreen transparent scrim to capture outside taps
+                        Box(
                             modifier = Modifier
-                                .offset {
-                                    with(density) {
-                                        // Calculate menu position relative to narrator row
-                                        val buttonCount = 1 // Only Reply button
-                                        val menuWidth = ((44 * buttonCount).dp + 16.dp).toPx() // 44dp per button + padding
-                                        val menuHeight = 50.dp.toPx()
-                                        val narratorCenterX = narratorBounds!!.left + (narratorBounds!!.width / 2)
-                                        val menuX = narratorCenterX - (menuWidth / 2)
-                                        val menuY = narratorBounds!!.top - menuHeight - 8.dp.toPx()
-                                        
-                                        // Clamp to keep menu on screen
-                                        val margin = 8.dp.toPx()
-                                        val clampedX = menuX
-                                            .coerceAtLeast(margin)
-                                            .coerceAtMost(screenWidth - menuWidth - margin)
-                                        val clampedY = menuY.coerceAtLeast(margin)
-                                        
-                                        if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth")
-                                        
-                                        IntOffset(
-                                            x = clampedX.toInt(),
-                                            y = clampedY.toInt()
+                                .fillMaxSize()
+                                .background(androidx.compose.ui.graphics.Color.Transparent)
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = {
+                                            if (BuildConfig.DEBUG) {
+                                                android.util.Log.d(
+                                                "NarratorFunctions",
+                                                "SystemEventNarrator: Scrim tapped, dismissing menu",
+                                            )
+                                            }
+                                            showMenu = false
+                                        },
+                                    )
+                                },
+                        )
+
+                        // Card with Reply button positioned above narrator row
+                        if (narratorBounds != null) {
+                            Card(
+                                modifier = Modifier
+                                    .offset {
+                                        with(density) {
+                                            // Calculate menu position relative to narrator row
+                                            val buttonCount = 1 // Only Reply button
+                                            val menuWidth = ((44 * buttonCount).dp + 16.dp).toPx() // 44dp per button + padding
+                                            val menuHeight = 50.dp.toPx()
+                                            val narratorCenterX = narratorBounds!!.left + (narratorBounds!!.width / 2)
+                                            val menuX = narratorCenterX - (menuWidth / 2)
+                                            val menuY = narratorBounds!!.top - menuHeight - 8.dp.toPx()
+
+                                            // Clamp to keep menu on screen
+                                            val margin = 8.dp.toPx()
+                                            val clampedX = menuX
+                                                .coerceAtLeast(margin)
+                                                .coerceAtMost(screenWidth - menuWidth - margin)
+                                            val clampedY = menuY.coerceAtLeast(margin)
+
+                                            if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth")
+
+                                            IntOffset(
+                                                x = clampedX.toInt(),
+                                                y = clampedY.toInt(),
+                                            )
+                                        }
+                                    },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface,
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    // Reply button (only option for system events)
+                                    IconButton(
+                                        onClick = {
+                                            if (BuildConfig.DEBUG) {
+                                                android.util.Log.d(
+                                                "NarratorFunctions",
+                                                "SystemEventNarrator: Reply clicked",
+                                            )
+                                            }
+                                            showMenu = false
+                                            onReply(event)
+                                        },
+                                        modifier = Modifier.size(40.dp),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Reply,
+                                            contentDescription = "Reply",
+                                            tint = MaterialTheme.colorScheme.primary,
                                         )
                                     }
-                                },
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surface
-                            ),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                // Reply button (only option for system events)
-                                IconButton(
-                                    onClick = {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Reply clicked")
-                                        showMenu = false
-                                        onReply(event)
-                                    },
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.AutoMirrored.Filled.Reply,
-                                        contentDescription = "Reply",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
                                 }
                             }
                         }
@@ -618,9 +668,7 @@ fun SystemEventNarrator(
             }
         }
     }
-    }
 }
-
 
 /**
  * Simple narrator text composable for displaying system event messages.
@@ -632,14 +680,12 @@ fun SystemEventNarrator(
  * @param text The annotated text to display with formatting
  */
 @Composable
-fun NarratorText(
-    text: AnnotatedString
-) {
+fun NarratorText(text: AnnotatedString) {
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontStyle = FontStyle.Italic
+        fontStyle = FontStyle.Italic,
     )
 }
 
@@ -648,18 +694,15 @@ fun NarratorText(
  * User mentions are rendered as clickable text with user display names.
  */
 @Composable
-fun ClickableNarratorText(
-    text: AnnotatedString,
-    onUserClick: (String) -> Unit = {}
-) {
+fun ClickableNarratorText(text: AnnotatedString, onUserClick: (String) -> Unit = {}) {
     var textLayoutResult: TextLayoutResult? by remember { mutableStateOf(null) }
     val narratorLongPressAction = LocalNarratorLongPressAction.current
-    
+
     Text(
         text = text,
         style = MaterialTheme.typography.bodySmall.copy(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontStyle = FontStyle.Italic
+            fontStyle = FontStyle.Italic,
         ),
         modifier = Modifier.pointerInput(Unit) {
             detectTapGestures(
@@ -670,7 +713,7 @@ fun ClickableNarratorText(
                         text.getStringAnnotations(
                             tag = "USER_ID",
                             start = offset,
-                            end = offset
+                            end = offset,
                         ).firstOrNull()?.let { annotation ->
                             onUserClick(annotation.item)
                         }
@@ -678,27 +721,23 @@ fun ClickableNarratorText(
                 },
                 onLongPress = {
                     narratorLongPressAction?.invoke()
-                }
+                },
             )
         },
-        onTextLayout = { textLayoutResult = it }
+        onTextLayout = { textLayoutResult = it },
     )
 }
 
 /**
  * Helper function to append a clickable user mention to an AnnotatedString builder.
  */
-private fun AnnotatedString.Builder.appendClickableUser(
-    userId: String,
-    displayName: String,
-    userMentionColor: Color
-) {
+private fun AnnotatedString.Builder.appendClickableUser(userId: String, displayName: String, userMentionColor: Color) {
     pushStringAnnotation("USER_ID", userId)
     pushStyle(
         SpanStyle(
             fontWeight = FontWeight.Bold,
-            color = userMentionColor
-        )
+            color = userMentionColor,
+        ),
     )
     append(displayName)
     pop()
@@ -713,57 +752,54 @@ private fun AnnotatedString.Builder.appendTextWithMentions(
     memberMap: Map<String, MemberProfile>,
     appViewModel: AppViewModel?,
     roomId: String,
-    userMentionColor: Color
+    userMentionColor: Color,
 ) {
     // Regex to find Matrix user IDs (@user:server.com)
     val matrixIdRegex = Regex("@([^:]+):([^\\s]+)")
     val matches = matrixIdRegex.findAll(text)
-    
+
     if (matches.none()) {
         // No Matrix IDs found, just append the text
         append(text)
     } else {
         var lastIndex = 0
-        
+
         matches.forEach { match ->
             val fullMatch = match.value
             val userId = fullMatch
             val startIndex = match.range.first
             val endIndex = match.range.last + 1
-            
+
             // Add text before the mention
             if (startIndex > lastIndex) {
                 append(text.substring(lastIndex, startIndex))
             }
-            
+
             // Get profile for the mentioned user
             val profile = memberMap[userId] ?: appViewModel?.getMemberMap(roomId)?.get(userId)
             val displayName = profile?.displayName
-            
+
             // Request profile if not found
             if (profile == null && appViewModel != null) {
                 appViewModel.requestUserProfile(userId, roomId)
             }
-            
+
             // Create clickable user mention
             appendClickableUser(
                 userId = userId,
                 displayName = displayName ?: userId.substringAfter("@").substringBefore(":"),
-                userMentionColor = userMentionColor
+                userMentionColor = userMentionColor,
             )
-            
+
             lastIndex = endIndex
         }
-        
+
         // Add remaining text
         if (lastIndex < text.length) {
             append(text.substring(lastIndex))
         }
     }
 }
-
-
-
 
 private fun formatTimestamp(timestamp: Long): String {
     val date = java.util.Date(timestamp)
@@ -777,16 +813,16 @@ private fun formatTimestamp(timestamp: Long): String {
 private fun formatSmartTimestamp(timestamp: Long): String {
     val eventDate = java.util.Date(timestamp)
     val today = java.util.Date()
-    
+
     val eventCalendar = java.util.Calendar.getInstance()
     val todayCalendar = java.util.Calendar.getInstance()
-    
+
     eventCalendar.time = eventDate
     todayCalendar.time = today
-    
+
     val isToday = eventCalendar.get(java.util.Calendar.YEAR) == todayCalendar.get(java.util.Calendar.YEAR) &&
-                  eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
-    
+        eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
+
     return if (isToday) {
         // Show time for today
         val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
@@ -816,7 +852,7 @@ fun EmoteEventNarrator(
     onDelete: () -> Unit = {},
     onUserClick: (String) -> Unit = {},
     appViewModel: AppViewModel? = null,
-    roomId: String? = null
+    roomId: String? = null,
 ) {
     // For encrypted messages, prioritize decrypted content, otherwise use regular content
     val content = if (event.type == "m.room.encrypted" && event.decrypted != null) {
@@ -825,9 +861,9 @@ fun EmoteEventNarrator(
         event.content
     }
     val body = content?.optString("body", "") ?: ""
-    
+
     var showMenu by remember { mutableStateOf(false) }
-    
+
     // Get member map and sender profile for clickable user mentions
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
         if (roomId != null) {
@@ -839,18 +875,18 @@ fun EmoteEventNarrator(
     val userMentionColor = MaterialTheme.colorScheme.primary
     val senderProfile = if (roomId != null) appViewModel?.getUserProfile(event.sender, roomId) else null
     val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-    
+
     if (senderProfile == null && appViewModel != null && roomId != null) {
         appViewModel.requestUserProfile(event.sender, roomId)
     }
-    
+
     val annotatedText = remember(
         displayName,
         event.sender,
         senderDisplayName,
         body,
         memberMap,
-        userMentionColor
+        userMentionColor,
     ) {
         buildAnnotatedString {
             appendClickableUser(event.sender, senderDisplayName, userMentionColor)
@@ -866,16 +902,16 @@ fun EmoteEventNarrator(
             .padding(vertical = 2.dp)
             .clickable(
                 onClick = { showMenu = true },
-                onClickLabel = "Show message options"
+                onClickLabel = "Show message options",
             ),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         // Left side - centered content
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         ) {
             // Small avatar for the actor (clickable)
             AvatarImage(
@@ -886,22 +922,22 @@ fun EmoteEventNarrator(
                 size = 20.dp,
                 userId = event.sender,
                 displayName = displayName,
-                modifier = Modifier.clickable { onUserClick(event.sender) }
+                modifier = Modifier.clickable { onUserClick(event.sender) },
             )
-            
+
             // Emote text with clickable user mentions
             ClickableNarratorText(
                 text = annotatedText,
-                onUserClick = onUserClick
+                onUserClick = onUserClick,
             )
         }
-        
+
         // Right side - timestamp
         Text(
             text = timestampText,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontStyle = FontStyle.Italic
+            fontStyle = FontStyle.Italic,
         )
     }
 
@@ -917,7 +953,7 @@ fun EmoteEventNarrator(
                             showMenu = false
                             onReply()
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Reply")
                     }
@@ -926,7 +962,7 @@ fun EmoteEventNarrator(
                             showMenu = false
                             onReact()
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("React")
                     }
@@ -935,7 +971,7 @@ fun EmoteEventNarrator(
                             showMenu = false
                             onEdit()
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Edit")
                     }
@@ -944,7 +980,7 @@ fun EmoteEventNarrator(
                             showMenu = false
                             onDelete()
                         },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Text("Delete")
                     }
@@ -954,7 +990,7 @@ fun EmoteEventNarrator(
                 TextButton(onClick = { showMenu = false }) {
                     Text("Cancel")
                 }
-            }
+            },
         )
     }
 }
@@ -972,7 +1008,7 @@ private fun PinnedEventNarration(
     senderDisplayName: String,
     memberMap: Map<String, MemberProfile>,
     userMentionColor: Color,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     var showDialog by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
@@ -980,7 +1016,7 @@ private fun PinnedEventNarration(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         val annotatedText = remember(senderId, senderDisplayName, memberMap, userMentionColor) {
             buildAnnotatedString {
@@ -988,10 +1024,10 @@ private fun PinnedEventNarration(
                 append(" pinned an event: ")
             }
         }
-        
+
         ClickableNarratorText(
             text = annotatedText,
-            onUserClick = onUserClick
+            onUserClick = onUserClick,
         )
 
         Text(
@@ -1013,7 +1049,7 @@ private fun PinnedEventNarration(
                 } else {
                     showDialog = true
                 }
-            }
+            },
         )
     }
 
@@ -1029,14 +1065,16 @@ private fun PinnedEventNarration(
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             ExpressiveLoadingIndicator()
                         }
                     }
+
                     errorMessage != null -> {
                         Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
                     }
+
                     event != null -> {
                         TimelineEventItem(
                             event = event!!,
@@ -1046,9 +1084,10 @@ private fun PinnedEventNarration(
                             userProfileCache = memberMap,
                             isMine = false,
                             myUserId = appViewModel?.currentUserId,
-                            onUserClick = onUserClick
+                            onUserClick = onUserClick,
                         )
                     }
+
                     else -> {
                         Text("Event data not available.")
                     }
@@ -1058,7 +1097,7 @@ private fun PinnedEventNarration(
                 TextButton(onClick = { showDialog = false }) {
                     Text("Close")
                 }
-            }
+            },
         )
     }
 }
@@ -1076,7 +1115,7 @@ private fun UnpinnedEventNarration(
     senderDisplayName: String,
     memberMap: Map<String, MemberProfile>,
     userMentionColor: Color,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     var showDialog by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
@@ -1084,7 +1123,7 @@ private fun UnpinnedEventNarration(
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         val annotatedText = remember(senderId, senderDisplayName, memberMap, userMentionColor) {
             buildAnnotatedString {
@@ -1092,10 +1131,10 @@ private fun UnpinnedEventNarration(
                 append(" unpinned an event: ")
             }
         }
-        
+
         ClickableNarratorText(
             text = annotatedText,
-            onUserClick = onUserClick
+            onUserClick = onUserClick,
         )
 
         Text(
@@ -1117,7 +1156,7 @@ private fun UnpinnedEventNarration(
                 } else {
                     showDialog = true
                 }
-            }
+            },
         )
     }
 
@@ -1133,14 +1172,16 @@ private fun UnpinnedEventNarration(
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
                             ExpressiveLoadingIndicator()
                         }
                     }
+
                     errorMessage != null -> {
                         Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
                     }
+
                     event != null -> {
                         TimelineEventItem(
                             event = event!!,
@@ -1150,9 +1191,10 @@ private fun UnpinnedEventNarration(
                             userProfileCache = memberMap,
                             isMine = false,
                             myUserId = appViewModel?.currentUserId,
-                            onUserClick = onUserClick
+                            onUserClick = onUserClick,
                         )
                     }
+
                     else -> {
                         Text("Event data not available.")
                     }
@@ -1162,7 +1204,7 @@ private fun UnpinnedEventNarration(
                 TextButton(onClick = { showDialog = false }) {
                     Text("Close")
                 }
-            }
+            },
         )
     }
 }
@@ -1176,14 +1218,17 @@ private fun CallMemberEventNarrator(
     content: JSONObject?,
     appViewModel: AppViewModel?,
     roomId: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     val userMentionColor = MaterialTheme.colorScheme.primary
     val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
     val rawSenderDisplayName = senderProfile?.displayName
         ?: event.sender.substringAfter("@").substringBefore(":")
-    val senderDisplayName = if (appViewModel?.trimLongDisplayNames == true && rawSenderDisplayName.length > 40)
-        rawSenderDisplayName.take(40) + "..." else rawSenderDisplayName
+    val senderDisplayName = if (appViewModel?.trimLongDisplayNames == true && rawSenderDisplayName.length > 40) {
+        rawSenderDisplayName.take(40) + "..."
+    } else {
+        rawSenderDisplayName
+    }
 
     if (senderProfile == null && appViewModel != null) {
         appViewModel.requestUserProfile(event.sender, roomId)
@@ -1208,13 +1253,13 @@ private fun CallMemberEventNarrator(
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Icon(
             imageVector = Icons.Filled.VideoCall,
             contentDescription = null,
             tint = if (isJoining) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = androidx.compose.ui.Modifier.size(14.dp)
+            modifier = androidx.compose.ui.Modifier.size(14.dp),
         )
         ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
     }
@@ -1229,11 +1274,11 @@ private fun MemberEventNarrator(
     roomId: String,
     homeserverUrl: String,
     authToken: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     val membership = content?.optString("membership", "")
     val reason = content?.optString("reason", "")
-    
+
     when (membership) {
         "join" -> {
             // Check if this is a profile change vs actual join
@@ -1241,35 +1286,38 @@ private fun MemberEventNarrator(
             val prevContent = unsigned?.optJSONObject("prev_content")
             val prevMembership = prevContent?.optString("membership", "")
             val isProfileChange = prevContent != null && prevMembership == "join"
-            
+
             if (isProfileChange) {
                 val prevDisplayName = prevContent.optString("displayname", "")
                 val prevAvatar = prevContent.optString("avatar_url", "")
                 val currentDisplayName = content?.optString("displayname", "") ?: ""
                 val currentAvatar = content?.optString("avatar_url", "") ?: ""
-                
+
                 val contentMatches = prevDisplayName == currentDisplayName && prevAvatar == currentAvatar
-                
+
                 if (contentMatches) {
                     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
                         appViewModel?.getMemberMap(roomId) ?: emptyMap()
                     }
                     val userMentionColor = MaterialTheme.colorScheme.primary
                     val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                    val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                    val rawSenderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter(
+                        "@",
+                    ).substringBefore(":")
                     val senderDisplayName = trimDisplayNameForNarrator(rawSenderDisplayName, appViewModel)
-                    
+
                     if (senderProfile == null && appViewModel != null) {
                         appViewModel.requestUserProfile(event.sender, roomId)
                     }
-                    
-                    val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+
+                    val annotatedText =
+                        remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
                         buildAnnotatedString {
                             appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                             append(" made no change")
                         }
                     }
-                    
+
                     ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
                 } else {
                     ProfileChangeNarrator(
@@ -1283,7 +1331,7 @@ private fun MemberEventNarrator(
                         roomId = roomId,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
-                        onUserClick = onUserClick
+                        onUserClick = onUserClick,
                     )
                 }
             } else {
@@ -1292,44 +1340,52 @@ private fun MemberEventNarrator(
                 }
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-                
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter(
+                    "@",
+                ).substringBefore(":")
+
                 if (senderProfile == null && appViewModel != null) {
                     appViewModel.requestUserProfile(event.sender, roomId)
                 }
-                
-                val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+
+                val annotatedText =
+                    remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
                     buildAnnotatedString {
                         appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" joined the room")
                     }
                 }
-                
+
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
+
         "leave" -> {
             val unsigned = event.unsigned
             val prevContent = unsigned?.optJSONObject("prev_content")
             val prevMembership = prevContent?.optString("membership", "")
-            
+
             // Check if sender is different from state_key
             // If sender != state_key, it's a kick, not a leave
             val leftUserId = event.stateKey
             val isKick = leftUserId != null && event.sender != leftUserId
-            
+
             if (isKick) {
                 // This is actually a kick (someone else kicked the user)
                 // Get sender profile for display name
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-                
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter(
+                    "@",
+                ).substringBefore(":")
+
                 // Get kicked user profile for display name
                 val kickedProfile = leftUserId?.let { userId ->
                     appViewModel?.getUserProfile(userId, roomId)
                 }
-                val kickedDisplayName = kickedProfile?.displayName ?: leftUserId?.substringAfter("@")?.substringBefore(":") ?: "Unknown"
-                
+                val kickedDisplayName = kickedProfile?.displayName ?: leftUserId?.substringAfter(
+                    "@",
+                )?.substringBefore(":") ?: "Unknown"
+
                 // Request profiles if not found
                 if (senderProfile == null && appViewModel != null) {
                     appViewModel.requestUserProfile(event.sender, roomId)
@@ -1337,15 +1393,15 @@ private fun MemberEventNarrator(
                 if (kickedProfile == null && appViewModel != null) {
                     leftUserId?.let { appViewModel.requestUserProfile(it, roomId) }
                 }
-                
+
                 // Get member map for user mentions in reason
                 val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
                     appViewModel?.getMemberMap(roomId) ?: emptyMap()
                 }
-                
+
                 // Build text with clickable user mentions
                 val userMentionColor = MaterialTheme.colorScheme.primary
-                
+
                 val annotatedText = remember(
                     senderDisplayName,
                     event.sender,
@@ -1353,7 +1409,7 @@ private fun MemberEventNarrator(
                     leftUserId,
                     reason,
                     memberMap,
-                    userMentionColor
+                    userMentionColor,
                 ) {
                     buildAnnotatedString {
                         // Sender name (clickable)
@@ -1361,15 +1417,15 @@ private fun MemberEventNarrator(
                         pushStyle(
                             SpanStyle(
                                 fontWeight = FontWeight.Bold,
-                                color = userMentionColor
-                            )
+                                color = userMentionColor,
+                            ),
                         )
                         append(senderDisplayName)
                         pop()
                         pop()
-                        
+
                         append(" kicked ")
-                        
+
                         // Kicked user name (clickable)
                         // leftUserId is guaranteed to be non-null in kick branch
                         leftUserId?.let { userId ->
@@ -1377,8 +1433,8 @@ private fun MemberEventNarrator(
                             pushStyle(
                                 SpanStyle(
                                     fontWeight = FontWeight.Bold,
-                                    color = userMentionColor
-                                )
+                                    color = userMentionColor,
+                                ),
                             )
                             append(kickedDisplayName)
                             pop()
@@ -1389,56 +1445,56 @@ private fun MemberEventNarrator(
                                 append(kickedDisplayName)
                             }
                         }
-                        
+
                         // Reason with clickable user mentions
                         if (!reason.isNullOrEmpty()) {
                             append(": ")
                             // Parse reason for @username:servername.com patterns
                             val matrixIdRegex = Regex("@([^:]+):([^\\s]+)")
                             val matches = matrixIdRegex.findAll(reason)
-                            
+
                             if (matches.none()) {
                                 // No Matrix IDs found, just append the reason
                                 append(reason)
                             } else {
                                 var lastIndex = 0
-                                
+
                                 matches.forEach { match ->
                                     val fullMatch = match.value
                                     val userId = fullMatch
                                     val startIndex = match.range.first
                                     val endIndex = match.range.last + 1
-                                    
+
                                     // Add text before the mention
                                     if (startIndex > lastIndex) {
                                         append(reason.substring(lastIndex, startIndex))
                                     }
-                                    
+
                                     // Get profile for the mentioned user
                                     val profile = memberMap[userId] ?: appViewModel?.getMemberMap(roomId)?.get(userId)
                                     val displayName = profile?.displayName
-                                    
+
                                     // Request profile if not found
                                     if (profile == null && appViewModel != null) {
                                         appViewModel.requestUserProfile(userId, roomId)
                                     }
-                                    
+
                                     // Create clickable user mention with bold styling
                                     pushStringAnnotation("USER_ID", userId)
                                     pushStyle(
                                         SpanStyle(
                                             fontWeight = FontWeight.Bold,
-                                            color = userMentionColor
-                                        )
+                                            color = userMentionColor,
+                                        ),
                                     )
                                     // Use display name if available, otherwise extract username from Matrix ID
                                     append(displayName ?: userId.substringAfter("@").substringBefore(":"))
                                     pop()
                                     pop()
-                                    
+
                                     lastIndex = endIndex
                                 }
-                                
+
                                 // Add remaining text
                                 if (lastIndex < reason.length) {
                                     append(reason.substring(lastIndex))
@@ -1447,10 +1503,10 @@ private fun MemberEventNarrator(
                         }
                     }
                 }
-                
+
                 ClickableNarratorText(
                     text = annotatedText,
-                    onUserClick = onUserClick
+                    onUserClick = onUserClick,
                 )
             } else {
                 // This is a leave (user left themselves)
@@ -1459,13 +1515,16 @@ private fun MemberEventNarrator(
                 }
                 val userMentionColor = MaterialTheme.colorScheme.primary
                 val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
-                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-                
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter(
+                    "@",
+                ).substringBefore(":")
+
                 if (senderProfile == null && appViewModel != null) {
                     appViewModel.requestUserProfile(event.sender, roomId)
                 }
-                
-                val annotatedText = remember(displayName, event.sender, senderDisplayName, reason, memberMap, userMentionColor) {
+
+                val annotatedText =
+                    remember(displayName, event.sender, senderDisplayName, reason, memberMap, userMentionColor) {
                     buildAnnotatedString {
                         appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" left the room")
@@ -1475,36 +1534,39 @@ private fun MemberEventNarrator(
                         }
                     }
                 }
-                
+
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
+
         "invite" -> {
             val invitedUserId = event.stateKey
             val invitedProfile = invitedUserId?.let { userId ->
                 appViewModel?.getUserProfile(userId, roomId)
             }
-            val invitedDisplayName = invitedProfile?.displayName ?: invitedUserId?.substringAfter("@")?.substringBefore(":") ?: "Unknown"
+            val invitedDisplayName = invitedProfile?.displayName ?: invitedUserId?.substringAfter(
+                "@",
+            )?.substringBefore(":") ?: "Unknown"
             val invitedAvatarUrl = invitedProfile?.avatarUrl
-            
+
             if (invitedProfile == null && appViewModel != null && invitedUserId != null) {
                 appViewModel.requestUserProfile(invitedUserId, roomId)
             }
-            
+
             val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
                 appViewModel?.getMemberMap(roomId) ?: emptyMap()
             }
             val userMentionColor = MaterialTheme.colorScheme.primary
             val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
             val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-            
+
             if (senderProfile == null && appViewModel != null) {
                 appViewModel.requestUserProfile(event.sender, roomId)
             }
-            
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 val annotatedText = remember(
                     displayName,
@@ -1514,7 +1576,7 @@ private fun MemberEventNarrator(
                     invitedUserId,
                     reason,
                     memberMap,
-                    userMentionColor
+                    userMentionColor,
                 ) {
                     buildAnnotatedString {
                         appendClickableUser(event.sender, senderDisplayName, userMentionColor)
@@ -1532,35 +1594,38 @@ private fun MemberEventNarrator(
                         }
                     }
                 }
-                
+
                 ClickableNarratorText(
                     text = annotatedText,
-                    onUserClick = onUserClick
+                    onUserClick = onUserClick,
                 )
             }
         }
+
         "ban" -> {
             val bannedUserId = event.stateKey
             val bannedProfile = bannedUserId?.let { userId ->
                 appViewModel?.getUserProfile(userId, roomId)
             }
-            val bannedDisplayName = bannedProfile?.displayName ?: bannedUserId?.substringAfter("@")?.substringBefore(":") ?: "Unknown"
-            
+            val bannedDisplayName = bannedProfile?.displayName ?: bannedUserId?.substringAfter(
+                "@",
+            )?.substringBefore(":") ?: "Unknown"
+
             if (bannedProfile == null && appViewModel != null && bannedUserId != null) {
                 appViewModel.requestUserProfile(bannedUserId, roomId)
             }
-            
+
             val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
                 appViewModel?.getMemberMap(roomId) ?: emptyMap()
             }
             val userMentionColor = MaterialTheme.colorScheme.primary
             val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
             val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-            
+
             if (senderProfile == null && appViewModel != null) {
                 appViewModel.requestUserProfile(event.sender, roomId)
             }
-            
+
             val annotatedText = remember(
                 displayName,
                 event.sender,
@@ -1569,7 +1634,7 @@ private fun MemberEventNarrator(
                 bannedUserId,
                 reason,
                 memberMap,
-                userMentionColor
+                userMentionColor,
             ) {
                 buildAnnotatedString {
                     appendClickableUser(event.sender, senderDisplayName, userMentionColor)
@@ -1587,31 +1652,34 @@ private fun MemberEventNarrator(
                     }
                 }
             }
-            
+
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         "kick" -> {
             val kickedUserId = event.stateKey
             val kickedProfile = kickedUserId?.let { userId ->
                 appViewModel?.getUserProfile(userId, roomId)
             }
-            val kickedDisplayName = kickedProfile?.displayName ?: kickedUserId?.substringAfter("@")?.substringBefore(":") ?: "Unknown"
-            
+            val kickedDisplayName = kickedProfile?.displayName ?: kickedUserId?.substringAfter(
+                "@",
+            )?.substringBefore(":") ?: "Unknown"
+
             if (kickedProfile == null && appViewModel != null && kickedUserId != null) {
                 appViewModel.requestUserProfile(kickedUserId, roomId)
             }
-            
+
             val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
                 appViewModel?.getMemberMap(roomId) ?: emptyMap()
             }
             val userMentionColor = MaterialTheme.colorScheme.primary
             val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
             val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-            
+
             if (senderProfile == null && appViewModel != null) {
                 appViewModel.requestUserProfile(event.sender, roomId)
             }
-            
+
             val annotatedText = remember(
                 displayName,
                 event.sender,
@@ -1620,7 +1688,7 @@ private fun MemberEventNarrator(
                 kickedUserId,
                 reason,
                 memberMap,
-                userMentionColor
+                userMentionColor,
             ) {
                 buildAnnotatedString {
                     appendClickableUser(event.sender, senderDisplayName, userMentionColor)
@@ -1638,7 +1706,7 @@ private fun MemberEventNarrator(
                     }
                 }
             }
-            
+
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
     }
@@ -1656,7 +1724,7 @@ private fun ProfileChangeNarrator(
     roomId: String,
     homeserverUrl: String,
     authToken: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
         appViewModel?.getMemberMap(roomId) ?: emptyMap()
@@ -1669,7 +1737,8 @@ private fun ProfileChangeNarrator(
         appViewModel.requestUserProfile(event.sender, roomId)
     }
     val displayNameRemoved = prevDisplayName.isNotEmpty() && currentDisplayName.isEmpty()
-    val displayNameChanged = prevDisplayName.isNotEmpty() && currentDisplayName.isNotEmpty() && prevDisplayName != currentDisplayName
+    val displayNameChanged =
+        prevDisplayName.isNotEmpty() && currentDisplayName.isNotEmpty() && prevDisplayName != currentDisplayName
     val displayNameAdded = prevDisplayName.isEmpty() && currentDisplayName.isNotEmpty()
 
     val avatarRemoved = prevAvatar.isNotEmpty() && currentAvatar.isEmpty()
@@ -1689,16 +1758,16 @@ private fun ProfileChangeNarrator(
         val actionText = when {
             displayNameRemoved && avatarRemoved -> " removed their display name and avatar"
             displayNameRemoved && avatarChanged -> " removed their display name and changed their avatar from"
-            displayNameRemoved && avatarAdded  -> " removed their display name and set their avatar"
+            displayNameRemoved && avatarAdded -> " removed their display name and set their avatar"
             displayNameChanged && avatarRemoved -> " changed their display name and removed their avatar"
             displayNameChanged && avatarChanged -> " changed their display name and avatar from"
-            displayNameChanged && avatarAdded  -> " changed their display name and set their avatar"
-            displayNameAdded && avatarRemoved  -> " set their display name and removed their avatar"
-            displayNameAdded && avatarChanged  -> " set their display name and changed their avatar from"
-            displayNameAdded && avatarAdded   -> " set their display name and avatar"
+            displayNameChanged && avatarAdded -> " changed their display name and set their avatar"
+            displayNameAdded && avatarRemoved -> " set their display name and removed their avatar"
+            displayNameAdded && avatarChanged -> " set their display name and changed their avatar from"
+            displayNameAdded && avatarAdded -> " set their display name and avatar"
             avatarRemoved -> " removed their avatar"
             avatarChanged -> " changed their avatar from"
-            avatarAdded   -> " set their avatar"
+            avatarAdded -> " set their avatar"
             else -> " made a change"
         }
 
@@ -1716,7 +1785,7 @@ private fun ProfileChangeNarrator(
         // read-receipt / timestamp area on the right, rather than clipping them.
         FlowRow(
             verticalArrangement = Arrangement.Center,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             ClickableNarratorText(text = prefixText, onUserClick = onUserClick)
 
@@ -1730,7 +1799,7 @@ private fun ProfileChangeNarrator(
                     size = 20.dp,
                     userId = event.sender,
                     displayName = displayName,
-                    modifier = Modifier.clickable { viewerMxcUrl = prevAvatar }
+                    modifier = Modifier.clickable { viewerMxcUrl = prevAvatar },
                 )
             }
 
@@ -1740,7 +1809,7 @@ private fun ProfileChangeNarrator(
                     text = "to",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontStyle = FontStyle.Italic
+                    fontStyle = FontStyle.Italic,
                 )
             }
 
@@ -1754,7 +1823,7 @@ private fun ProfileChangeNarrator(
                     size = 20.dp,
                     userId = event.sender,
                     displayName = displayName,
-                    modifier = Modifier.clickable { viewerMxcUrl = currentAvatar }
+                    modifier = Modifier.clickable { viewerMxcUrl = currentAvatar },
                 )
             }
         }
@@ -1768,24 +1837,29 @@ private fun ProfileChangeNarrator(
                     filename = "avatar",
                     caption = null,
                     info = MediaInfo(width = 0, height = 0, size = 0, mimeType = "image/*", blurHash = null),
-                    msgType = "m.image"
+                    msgType = "m.image",
                 ),
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 isEncrypted = false,
-                onDismiss = { viewerMxcUrl = null }
+                onDismiss = { viewerMxcUrl = null },
             )
         }
     } else {
         val annotatedText = remember(
-            event.sender, senderDisplayName, memberMap, userMentionColor,
-            displayNameRemoved, displayNameChanged, displayNameAdded
+            event.sender,
+            senderDisplayName,
+            memberMap,
+            userMentionColor,
+            displayNameRemoved,
+            displayNameChanged,
+            displayNameAdded,
         ) {
             when {
                 displayNameRemoved -> buildProfileChangeText("removed their display name")
                 displayNameChanged -> buildProfileChangeText("changed their display name")
-                displayNameAdded   -> buildProfileChangeText("set their display name")
-                else               -> buildProfileChangeText("joined the room")
+                displayNameAdded -> buildProfileChangeText("set their display name")
+                else -> buildProfileChangeText("joined the room")
             }
         }
         ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
@@ -1800,7 +1874,7 @@ private fun TombstoneEventNarrator(
     onRoomClick: (String) -> Unit,
     appViewModel: AppViewModel?,
     roomId: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
         appViewModel?.getMemberMap(roomId) ?: emptyMap()
@@ -1808,22 +1882,22 @@ private fun TombstoneEventNarrator(
     val userMentionColor = MaterialTheme.colorScheme.primary
     val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
     val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-    
+
     if (senderProfile == null && appViewModel != null) {
         appViewModel.requestUserProfile(event.sender, roomId)
     }
     val body = content?.optString("body", "")?.takeIf { it.isNotBlank() }
     val replacementRoom = content?.optString("replacement_room", "")?.takeIf { it.isNotBlank() }
-    
+
     if (replacementRoom != null) {
         // Get replacement room name for display (if available)
         val replacementRoomItem = appViewModel?.getRoomById(replacementRoom)
         val replacementRoomName = replacementRoomItem?.name ?: replacementRoom
-        
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             val annotatedText = remember(
                 event.sender,
@@ -1832,7 +1906,7 @@ private fun TombstoneEventNarrator(
                 replacementRoomName,
                 body,
                 memberMap,
-                userMentionColor
+                userMentionColor,
             ) {
                 buildAnnotatedString {
                     appendClickableUser(event.sender, senderDisplayName, userMentionColor)
@@ -1842,8 +1916,8 @@ private fun TombstoneEventNarrator(
                     pushStyle(
                         SpanStyle(
                             fontWeight = FontWeight.Bold,
-                            color = userMentionColor
-                        )
+                            color = userMentionColor,
+                        ),
                     )
                     append(replacementRoomName)
                     pop()
@@ -1854,13 +1928,13 @@ private fun TombstoneEventNarrator(
                     }
                 }
             }
-            
+
             var textLayoutResult: TextLayoutResult? by remember { mutableStateOf(null) }
             Text(
                 text = annotatedText,
                 style = MaterialTheme.typography.bodySmall.copy(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontStyle = FontStyle.Italic
+                    fontStyle = FontStyle.Italic,
                 ),
                 modifier = Modifier.pointerInput(Unit) {
                     detectTapGestures(
@@ -1871,7 +1945,7 @@ private fun TombstoneEventNarrator(
                                 annotatedText.getStringAnnotations(
                                     tag = "ROOM_ID",
                                     start = offset,
-                                    end = offset
+                                    end = offset,
                                 ).firstOrNull()?.let { annotation ->
                                     onRoomClick(annotation.item)
                                 }
@@ -1879,15 +1953,15 @@ private fun TombstoneEventNarrator(
                                 annotatedText.getStringAnnotations(
                                     tag = "USER_ID",
                                     start = offset,
-                                    end = offset
+                                    end = offset,
                                 ).firstOrNull()?.let { annotation ->
                                     onUserClick(annotation.item)
                                 }
                             }
-                        }
+                        },
                     )
                 },
-                onTextLayout = { textLayoutResult = it }
+                onTextLayout = { textLayoutResult = it },
             )
         }
     } else {
@@ -1908,7 +1982,7 @@ private fun SpaceParentEventNarrator(
     onRoomClick: (String) -> Unit,
     appViewModel: AppViewModel?,
     roomId: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
         appViewModel?.getMemberMap(roomId) ?: emptyMap()
@@ -1916,20 +1990,20 @@ private fun SpaceParentEventNarrator(
     val userMentionColor = MaterialTheme.colorScheme.primary
     val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
     val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-    
+
     if (senderProfile == null && appViewModel != null) {
         appViewModel.requestUserProfile(event.sender, roomId)
     }
     val spaceParent = event.stateKey?.takeIf { it.isNotBlank() }
-    
+
     if (spaceParent != null) {
         val useShortLink = spaceParent.length > 20
         val linkText = if (useShortLink) "this" else spaceParent
-        
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
                 buildAnnotatedString {
@@ -1937,25 +2011,25 @@ private fun SpaceParentEventNarrator(
                     append(" defined the ")
                 }
             }
-            
+
             ClickableNarratorText(
                 text = annotatedText,
-                onUserClick = onUserClick
+                onUserClick = onUserClick,
             )
-            
+
             Text(
                 text = linkText,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
                 fontStyle = FontStyle.Italic,
-                modifier = Modifier.clickable { onRoomClick(spaceParent) }
+                modifier = Modifier.clickable { onRoomClick(spaceParent) },
             )
-            
+
             Text(
                 text = " for this room",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontStyle = FontStyle.Italic
+                fontStyle = FontStyle.Italic,
             )
         }
     } else {
@@ -1978,7 +2052,7 @@ private fun PinnedEventsNarrator(
     authToken: String,
     appViewModel: AppViewModel?,
     roomId: String,
-    onUserClick: (String) -> Unit
+    onUserClick: (String) -> Unit,
 ) {
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
         appViewModel?.getMemberMap(roomId) ?: emptyMap()
@@ -1986,7 +2060,7 @@ private fun PinnedEventsNarrator(
     val userMentionColor = MaterialTheme.colorScheme.primary
     val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
     val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-    
+
     if (senderProfile == null && appViewModel != null) {
         appViewModel.requestUserProfile(event.sender, roomId)
     }
@@ -1994,18 +2068,18 @@ private fun PinnedEventsNarrator(
     val unsigned = event.unsigned
     val prevContent = unsigned?.optJSONObject("prev_content")
     val prevPinnedArray = prevContent?.optJSONArray("pinned")
-    
+
     val currentPinned = pinnedArray?.let { array ->
         (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotBlank() } }.toSet()
     } ?: emptySet()
-    
+
     val previousPinned = prevPinnedArray?.let { array ->
         (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotBlank() } }.toSet()
     } ?: emptySet()
-    
+
     val newlyPinned = currentPinned - previousPinned
     val unpinned = previousPinned - currentPinned
-    
+
     when {
         newlyPinned.isNotEmpty() && unpinned.isEmpty() -> {
             if (newlyPinned.size == 1) {
@@ -2021,10 +2095,16 @@ private fun PinnedEventsNarrator(
                     senderDisplayName = senderDisplayName,
                     memberMap = memberMap,
                     userMentionColor = userMentionColor,
-                    onUserClick = onUserClick
+                    onUserClick = onUserClick,
                 )
             } else {
-                val annotatedText = remember(event.sender, senderDisplayName, newlyPinned.size, memberMap, userMentionColor) {
+                val annotatedText = remember(
+                    event.sender,
+                    senderDisplayName,
+                    newlyPinned.size,
+                    memberMap,
+                    userMentionColor,
+                ) {
                     buildAnnotatedString {
                         appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" pinned ${newlyPinned.size} events")
@@ -2033,6 +2113,7 @@ private fun PinnedEventsNarrator(
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
+
         unpinned.isNotEmpty() && newlyPinned.isEmpty() -> {
             if (unpinned.size == 1) {
                 UnpinnedEventNarration(
@@ -2047,10 +2128,16 @@ private fun PinnedEventsNarrator(
                     senderDisplayName = senderDisplayName,
                     memberMap = memberMap,
                     userMentionColor = userMentionColor,
-                    onUserClick = onUserClick
+                    onUserClick = onUserClick,
                 )
             } else {
-                val annotatedText = remember(event.sender, senderDisplayName, unpinned.size, memberMap, userMentionColor) {
+                val annotatedText = remember(
+                    event.sender,
+                    senderDisplayName,
+                    unpinned.size,
+                    memberMap,
+                    userMentionColor,
+                ) {
                     buildAnnotatedString {
                         appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" unpinned ${unpinned.size} events")
@@ -2059,6 +2146,7 @@ private fun PinnedEventsNarrator(
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
+
         newlyPinned.isNotEmpty() && unpinned.isNotEmpty() -> {
             val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
                 buildAnnotatedString {
@@ -2068,6 +2156,7 @@ private fun PinnedEventsNarrator(
             }
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         else -> {
             val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
                 buildAnnotatedString {
@@ -2087,7 +2176,7 @@ private fun ServerAclEventNarrator(
     content: JSONObject?,
     appViewModel: AppViewModel?,
     roomId: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
         appViewModel?.getMemberMap(roomId) ?: emptyMap()
@@ -2095,7 +2184,7 @@ private fun ServerAclEventNarrator(
     val userMentionColor = MaterialTheme.colorScheme.primary
     val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
     val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-    
+
     if (senderProfile == null && appViewModel != null) {
         appViewModel.requestUserProfile(event.sender, roomId)
     }
@@ -2103,27 +2192,25 @@ private fun ServerAclEventNarrator(
     val unsigned = event.unsigned
     val prevContent = unsigned?.optJSONObject("prev_content")
     val prevDenyArray = prevContent?.optJSONArray("deny")
-    
+
     val currentDeny = denyArray?.let { array ->
         (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotBlank() } }.toSet()
     } ?: emptySet()
-    
+
     val previousDeny = prevDenyArray?.let { array ->
         (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotBlank() } }.toSet()
     } ?: emptySet()
-    
+
     val isInitialSetup = prevContent == null
     val newlyAdded = currentDeny - previousDeny
     val removed = previousDeny - currentDeny
-    
+
     // Helper to build annotated text with clickable sender
-    fun buildAclText(message: String): AnnotatedString {
-        return buildAnnotatedString {
-            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-            append(" $message")
-        }
+    fun buildAclText(message: String): AnnotatedString = buildAnnotatedString {
+        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+        append(" $message")
     }
-    
+
     when {
         isInitialSetup -> {
             if (currentDeny.size == 1 && currentDeny.first() == "*") {
@@ -2137,12 +2224,19 @@ private fun ServerAclEventNarrator(
                 }
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             } else {
-                val annotatedText = remember(event.sender, senderDisplayName, currentDeny.size, memberMap, userMentionColor) {
+                val annotatedText = remember(
+                    event.sender,
+                    senderDisplayName,
+                    currentDeny.size,
+                    memberMap,
+                    userMentionColor,
+                ) {
                     buildAclText("added ${currentDeny.size} servers to the ACL list")
                 }
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
+
         newlyAdded.isNotEmpty() && removed.isEmpty() -> {
             if (newlyAdded.size == 1) {
                 val server = newlyAdded.first()
@@ -2165,12 +2259,19 @@ private fun ServerAclEventNarrator(
                     ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
                 }
             } else {
-                val annotatedText = remember(event.sender, senderDisplayName, newlyAdded.size, memberMap, userMentionColor) {
+                val annotatedText = remember(
+                    event.sender,
+                    senderDisplayName,
+                    newlyAdded.size,
+                    memberMap,
+                    userMentionColor,
+                ) {
                     buildAclText("added ${newlyAdded.size} servers to the ACL list")
                 }
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
+
         removed.isNotEmpty() && newlyAdded.isEmpty() -> {
             if (removed.size == 1) {
                 val server = removed.first()
@@ -2186,14 +2287,28 @@ private fun ServerAclEventNarrator(
                 }
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             } else {
-                val annotatedText = remember(event.sender, senderDisplayName, removed.size, memberMap, userMentionColor) {
+                val annotatedText = remember(
+                    event.sender,
+                    senderDisplayName,
+                    removed.size,
+                    memberMap,
+                    userMentionColor,
+                ) {
                     buildAclText("removed ${removed.size} servers from the ACL list")
                 }
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
+
         newlyAdded.isNotEmpty() && removed.isNotEmpty() -> {
-            val annotatedText = remember(event.sender, senderDisplayName, newlyAdded.size, removed.size, memberMap, userMentionColor) {
+            val annotatedText = remember(
+                event.sender,
+                senderDisplayName,
+                newlyAdded.size,
+                removed.size,
+                memberMap,
+                userMentionColor,
+            ) {
                 buildAnnotatedString {
                     appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" added ${newlyAdded.size} server${if (newlyAdded.size == 1) "" else "s"} to the ACL list")
@@ -2202,6 +2317,7 @@ private fun ServerAclEventNarrator(
             }
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         else -> {
             val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
                 buildAclText("updated ACL List")
@@ -2218,7 +2334,7 @@ private fun PowerLevelsEventNarrator(
     content: JSONObject?,
     appViewModel: AppViewModel?,
     roomId: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
         appViewModel?.getMemberMap(roomId) ?: emptyMap()
@@ -2226,38 +2342,44 @@ private fun PowerLevelsEventNarrator(
     val userMentionColor = MaterialTheme.colorScheme.primary
     val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
     val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
-    
+
     if (senderProfile == null && appViewModel != null) {
         appViewModel.requestUserProfile(event.sender, roomId)
     }
     val unsigned = event.unsigned
     val prevContent = unsigned?.optJSONObject("prev_content")
-    
+
     val currentUsers = content?.optJSONObject("users") ?: org.json.JSONObject()
     val previousUsers = prevContent?.optJSONObject("users") ?: org.json.JSONObject()
-    
+
     val currentUserIds = currentUsers.keys().asSequence().toSet()
     val previousUserIds = previousUsers.keys().asSequence().toSet()
-    
+
     val addedUsers = currentUserIds - previousUserIds
     val removedUsers = previousUserIds - currentUserIds
     val changedUsers = currentUserIds.intersect(previousUserIds).filter { userId ->
         currentUsers.optInt(userId, -1) != previousUsers.optInt(userId, -1)
     }
-    
+
     val roomPowerLevelKeys = setOf(
-        "ban", "kick", "redact", "invite", "historical",
-        "events_default", "state_default", "users_default"
+        "ban",
+        "kick",
+        "redact",
+        "invite",
+        "historical",
+        "events_default",
+        "state_default",
+        "users_default",
     )
-    
+
     val currentEvents = content?.optJSONObject("events") ?: org.json.JSONObject()
     val previousEvents = prevContent?.optJSONObject("events") ?: org.json.JSONObject()
-    
+
     val currentEventKeys = currentEvents.keys().asSequence().toSet()
     val previousEventKeys = previousEvents.keys().asSequence().toSet()
-    
+
     val changedRoomSettings = mutableListOf<String>()
-    
+
     for (key in roomPowerLevelKeys) {
         val currentValue = content?.optInt(key, -1)
         val previousValue = prevContent?.optInt(key, -1)
@@ -2265,16 +2387,16 @@ private fun PowerLevelsEventNarrator(
             changedRoomSettings.add(key)
         }
     }
-    
+
     val changedEventKeys = (currentEventKeys + previousEventKeys).filter { eventKey ->
         val currentValue = currentEvents.optInt(eventKey, -1)
         val previousValue = previousEvents.optInt(eventKey, -1)
         currentValue != previousValue
     }
-    
+
     val hasUserChanges = addedUsers.isNotEmpty() || removedUsers.isNotEmpty() || changedUsers.isNotEmpty()
     val hasRoomChanges = changedRoomSettings.isNotEmpty() || changedEventKeys.isNotEmpty()
-    
+
     when {
         hasUserChanges && !hasRoomChanges -> {
             PowerLevelsUserChangesNarrator(
@@ -2289,9 +2411,10 @@ private fun PowerLevelsEventNarrator(
                 senderDisplayName = senderDisplayName,
                 memberMap = memberMap,
                 userMentionColor = userMentionColor,
-                onUserClick = onUserClick
+                onUserClick = onUserClick,
             )
         }
+
         hasRoomChanges && !hasUserChanges -> {
             PowerLevelsRoomChangesNarrator(
                 displayName = displayName,
@@ -2302,9 +2425,10 @@ private fun PowerLevelsEventNarrator(
                 senderId = event.sender,
                 senderDisplayName = senderDisplayName,
                 userMentionColor = userMentionColor,
-                onUserClick = onUserClick
+                onUserClick = onUserClick,
             )
         }
+
         hasUserChanges && hasRoomChanges -> {
             val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
                 buildAnnotatedString {
@@ -2314,6 +2438,7 @@ private fun PowerLevelsEventNarrator(
             }
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         prevContent == null -> {
             val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
                 buildAnnotatedString {
@@ -2323,6 +2448,7 @@ private fun PowerLevelsEventNarrator(
             }
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         else -> {
             val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
                 buildAnnotatedString {
@@ -2348,21 +2474,22 @@ private fun PowerLevelsUserChangesNarrator(
     senderDisplayName: String,
     memberMap: Map<String, MemberProfile>,
     userMentionColor: Color,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     when {
         changedUsers.size == 1 && addedUsers.isEmpty() && removedUsers.isEmpty() -> {
             val userId = changedUsers.first()
             val newLevel = currentUsers.optInt(userId)
-            
+
             if (appViewModel != null) {
                 appViewModel.requestUserProfile(userId, roomId)
             }
-            
+
             val userProfile = appViewModel?.getUserProfile(userId, roomId)
             val userDisplayName = userProfile?.displayName ?: userId.substringAfter("@").substringBefore(":")
-            
-            val annotatedText = remember(senderId, senderDisplayName, userId, userDisplayName, newLevel, memberMap, userMentionColor) {
+
+            val annotatedText =
+                remember(senderId, senderDisplayName, userId, userDisplayName, newLevel, memberMap, userMentionColor) {
                 buildAnnotatedString {
                     appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" set user ")
@@ -2370,20 +2497,22 @@ private fun PowerLevelsUserChangesNarrator(
                     append(" power level to $newLevel")
                 }
             }
-            
+
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         removedUsers.size == 1 && addedUsers.isEmpty() && changedUsers.isEmpty() -> {
             val userId = removedUsers.first()
-            
+
             if (appViewModel != null) {
                 appViewModel.requestUserProfile(userId, roomId)
             }
-            
+
             val userProfile = appViewModel?.getUserProfile(userId, roomId)
             val userDisplayName = userProfile?.displayName ?: userId.substringAfter("@").substringBefore(":")
-            
-            val annotatedText = remember(senderId, senderDisplayName, userId, userDisplayName, memberMap, userMentionColor) {
+
+            val annotatedText =
+                remember(senderId, senderDisplayName, userId, userDisplayName, memberMap, userMentionColor) {
                 buildAnnotatedString {
                     appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" set user ")
@@ -2391,21 +2520,23 @@ private fun PowerLevelsUserChangesNarrator(
                     append(" power level to the default")
                 }
             }
-            
+
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         addedUsers.size == 1 && removedUsers.isEmpty() && changedUsers.isEmpty() -> {
             val userId = addedUsers.first()
             val newLevel = currentUsers.optInt(userId)
-            
+
             if (appViewModel != null) {
                 appViewModel.requestUserProfile(userId, roomId)
             }
-            
+
             val userProfile = appViewModel?.getUserProfile(userId, roomId)
             val userDisplayName = userProfile?.displayName ?: userId.substringAfter("@").substringBefore(":")
-            
-            val annotatedText = remember(senderId, senderDisplayName, userId, userDisplayName, newLevel, memberMap, userMentionColor) {
+
+            val annotatedText =
+                remember(senderId, senderDisplayName, userId, userDisplayName, newLevel, memberMap, userMentionColor) {
                 buildAnnotatedString {
                     appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" set user ")
@@ -2413,9 +2544,10 @@ private fun PowerLevelsUserChangesNarrator(
                     append(" power level to $newLevel")
                 }
             }
-            
+
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         else -> {
             val totalChanges = changedUsers.size + addedUsers.size + removedUsers.size
             val annotatedText = remember(senderId, senderDisplayName, totalChanges, memberMap, userMentionColor) {
@@ -2439,14 +2571,13 @@ private fun PowerLevelsRoomChangesNarrator(
     senderId: String,
     senderDisplayName: String,
     userMentionColor: Color,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
-    
     when {
         changedEventKeys.size == 1 && changedRoomSettings.isEmpty() -> {
             val eventKey = changedEventKeys.first()
             val newLevel = currentEvents.optInt(eventKey)
-            
+
             val annotatedText = remember(senderId, senderDisplayName, eventKey, newLevel, userMentionColor) {
                 buildAnnotatedString {
                     appendClickableUser(senderId, senderDisplayName, userMentionColor)
@@ -2459,10 +2590,11 @@ private fun PowerLevelsRoomChangesNarrator(
             }
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         changedRoomSettings.size == 1 && changedEventKeys.isEmpty() -> {
             val settingKey = changedRoomSettings.first()
             val newLevel = content?.optInt(settingKey) ?: 0
-            
+
             val annotatedText = remember(senderId, senderDisplayName, settingKey, newLevel, userMentionColor) {
                 buildAnnotatedString {
                     appendClickableUser(senderId, senderDisplayName, userMentionColor)
@@ -2475,6 +2607,7 @@ private fun PowerLevelsRoomChangesNarrator(
             }
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
+
         else -> {
             val totalChanges = changedRoomSettings.size + changedEventKeys.size
             val annotatedText = remember(senderId, senderDisplayName, totalChanges, userMentionColor) {
@@ -2487,10 +2620,3 @@ private fun PowerLevelsRoomChangesNarrator(
         }
     }
 }
-
-
-
-
-
-
-

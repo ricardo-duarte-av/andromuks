@@ -31,8 +31,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
@@ -89,7 +89,7 @@ fun SearchResultsScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
     appViewModel: AppViewModel = viewModel(),
-    roomId: String? = null
+    roomId: String? = null,
 ) {
     val homeserverUrl = appViewModel.homeserverUrl
     val authToken = appViewModel.authToken
@@ -98,8 +98,10 @@ fun SearchResultsScreen(
     val isRoomEncrypted = remember(roomId) {
         when {
             roomId == null -> false
+
             appViewModel.currentRoomId == roomId && appViewModel.currentRoomState != null ->
                 appViewModel.currentRoomState?.isEncrypted ?: false
+
             else -> isRoomEncryptedFromState(appViewModel.getRoomState(roomId)) ?: false
         }
     }
@@ -129,7 +131,7 @@ fun SearchResultsScreen(
             sortByTime = sortByTime,
             includeRedacted = searchLocal && includeRedacted,
             limit = 50,
-            nextBatch = if (append) nextBatch else ""
+            nextBatch = if (append) nextBatch else "",
         ) { events, batch ->
             results = if (append) results + events else events
             nextBatch = batch
@@ -187,26 +189,26 @@ fun SearchResultsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(top = statusBarTop),
-                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
                     ) {
                         Column(modifier = Modifier.fillMaxWidth()) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 4.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 IconButton(onClick = { navController.popBackStack() }) {
                                     Icon(
                                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                        contentDescription = "Back"
+                                        contentDescription = "Back",
                                     )
                                 }
                                 Text(
                                     text = "Search",
                                     style = MaterialTheme.typography.titleLarge,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.weight(1f)
+                                    modifier = Modifier.weight(1f),
                                 )
                             }
 
@@ -223,12 +225,12 @@ fun SearchResultsScreen(
                                     IconButton(onClick = { runSearch(append = false) }) {
                                         Icon(
                                             imageVector = Icons.Filled.Search,
-                                            contentDescription = "Search"
+                                            contentDescription = "Search",
                                         )
                                     }
                                 },
                                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(onSearch = { runSearch(append = false) })
+                                keyboardActions = KeyboardActions(onSearch = { runSearch(append = false) }),
                             )
 
                             // Options
@@ -236,23 +238,23 @@ fun SearchResultsScreen(
                                 label = "Current room only",
                                 checked = currentRoomOnly,
                                 enabled = roomId != null,
-                                onCheckedChange = { currentRoomOnly = it }
+                                onCheckedChange = { currentRoomOnly = it },
                             )
                             SearchOptionRow(
                                 label = "Sort by time",
                                 checked = sortByTime,
-                                onCheckedChange = { sortByTime = it }
+                                onCheckedChange = { sortByTime = it },
                             )
                             SearchOptionRow(
                                 label = "Search backend database",
                                 checked = searchLocal,
-                                onCheckedChange = { searchLocal = it }
+                                onCheckedChange = { searchLocal = it },
                             )
                             if (searchLocal) {
                                 SearchOptionRow(
                                     label = "Include redacted events",
                                     checked = includeRedacted,
-                                    onCheckedChange = { includeRedacted = it }
+                                    onCheckedChange = { includeRedacted = it },
                                 )
                             }
                             Spacer(modifier = Modifier.height(4.dp))
@@ -265,46 +267,49 @@ fun SearchResultsScreen(
                             isSearching && results.isEmpty() -> {
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
+                                    contentAlignment = Alignment.Center,
                                 ) {
                                     Column(
                                         horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
+                                        verticalArrangement = Arrangement.Center,
                                     ) {
                                         ExpressiveLoadingIndicator(modifier = Modifier.size(96.dp))
                                         Spacer(modifier = Modifier.height(16.dp))
                                         Text(
                                             text = "Searching...",
                                             style = MaterialTheme.typography.bodyLarge,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
                                 }
                             }
+
                             hasSearched && resultItems.isEmpty() -> {
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
+                                    contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
                                         text = "No results found",
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             }
+
                             !hasSearched -> {
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
+                                    contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
                                         text = "Enter a search term",
                                         style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             }
+
                             else -> {
                                 LazyColumn(
                                     state = listState,
@@ -316,22 +321,23 @@ fun SearchResultsScreen(
                                         start = 8.dp,
                                         end = 8.dp,
                                         top = 8.dp,
-                                        bottom = 8.dp
-                                    )
+                                        bottom = 8.dp,
+                                    ),
                                 ) {
                                     items(
                                         items = resultItems,
-                                        key = { it.stableKey }
+                                        key = { it.stableKey },
                                     ) { item ->
                                         when (item) {
                                             is SearchResultItem.DateDivider -> DateDivider(item.date)
+
                                             is SearchResultItem.Event -> SearchResultCard(
                                                 event = item.event,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
                                                 myUserId = myUserId,
                                                 appViewModel = appViewModel,
-                                                navController = navController
+                                                navController = navController,
                                             )
                                         }
                                     }
@@ -344,7 +350,7 @@ fun SearchResultsScreen(
                                                     .fillMaxWidth()
                                                     .clickable(enabled = !isSearching) { runSearch(append = true) }
                                                     .padding(16.dp),
-                                                contentAlignment = Alignment.Center
+                                                contentAlignment = Alignment.Center,
                                             ) {
                                                 if (isSearching) {
                                                     ExpressiveLoadingIndicator(modifier = Modifier.size(32.dp))
@@ -352,7 +358,7 @@ fun SearchResultsScreen(
                                                     Text(
                                                         text = "Load more",
                                                         style = MaterialTheme.typography.labelLarge,
-                                                        color = MaterialTheme.colorScheme.primary
+                                                        color = MaterialTheme.colorScheme.primary,
                                                     )
                                                 }
                                             }
@@ -373,25 +379,28 @@ private fun SearchOptionRow(
     label: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (enabled) MaterialTheme.colorScheme.onSurface
-            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-            modifier = Modifier.weight(1f)
+            color = if (enabled) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+            },
+            modifier = Modifier.weight(1f),
         )
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            enabled = enabled
+            enabled = enabled,
         )
     }
 }
@@ -404,7 +413,7 @@ private fun SearchResultCard(
     authToken: String,
     myUserId: String?,
     appViewModel: AppViewModel,
-    navController: NavController
+    navController: NavController,
 ) {
     val roomId = event.roomId
     val room = appViewModel.getRoomById(roomId)
@@ -446,13 +455,13 @@ private fun SearchResultCard(
             },
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-        tonalElevation = 1.dp
+        tonalElevation = 1.dp,
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
             // Room context
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 AvatarImage(
                     mxcUrl = room?.avatarUrl,
@@ -461,7 +470,7 @@ private fun SearchResultCard(
                     fallbackText = roomName.take(1),
                     size = 24.dp,
                     userId = roomId,
-                    displayName = roomName
+                    displayName = roomName,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
@@ -469,7 +478,7 @@ private fun SearchResultCard(
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
 
@@ -478,7 +487,7 @@ private fun SearchResultCard(
             // Sender and message
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.Top,
             ) {
                 AvatarImage(
                     mxcUrl = senderAvatarUrl,
@@ -487,27 +496,27 @@ private fun SearchResultCard(
                     fallbackText = senderName.take(1),
                     size = 32.dp,
                     userId = event.sender,
-                    displayName = senderName
+                    displayName = senderName,
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = senderName,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Medium,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = formatTimeShort(event.timestamp),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 11.sp
+                            fontSize = 11.sp,
                         )
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -520,7 +529,7 @@ private fun SearchResultCard(
                         authToken = authToken,
                         appViewModel = appViewModel,
                         roomId = roomId,
-                        textColor = MaterialTheme.colorScheme.onSurfaceVariant
+                        textColor = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }

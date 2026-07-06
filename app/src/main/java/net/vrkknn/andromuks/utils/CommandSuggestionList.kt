@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -32,7 +31,7 @@ data class CommandDefinition(
     val command: String,
     val aliases: List<String> = emptyList(),
     val description: String,
-    val parameters: List<String> = emptyList() // e.g., ["user_id", "reason"]
+    val parameters: List<String> = emptyList(), // e.g., ["user_id", "reason"]
 )
 
 /**
@@ -44,103 +43,103 @@ object Commands {
         CommandDefinition(
             command = "/join",
             description = "Join a room",
-            parameters = listOf("room_reference", "reason?")
+            parameters = listOf("room_reference", "reason?"),
         ),
         CommandDefinition(
             command = "/leave",
             aliases = listOf("/part"),
-            description = "Leave the current room"
+            description = "Leave the current room",
         ),
         CommandDefinition(
             command = "/invite",
             description = "Invite a user to the current room",
-            parameters = listOf("user_id", "reason?")
+            parameters = listOf("user_id", "reason?"),
         ),
         CommandDefinition(
             command = "/kick",
             description = "Kick a user from the current room",
-            parameters = listOf("user_id", "reason?")
+            parameters = listOf("user_id", "reason?"),
         ),
         CommandDefinition(
             command = "/ban",
             description = "Ban a user from the current room",
-            parameters = listOf("user_id", "reason?")
+            parameters = listOf("user_id", "reason?"),
         ),
         CommandDefinition(
             command = "/myroomnick",
             aliases = listOf("/roomnick"),
             description = "Set your display name in the current room",
-            parameters = listOf("name")
+            parameters = listOf("name"),
         ),
         CommandDefinition(
             command = "/myroomavatar",
-            description = "Set your avatar in the current room"
+            description = "Set your avatar in the current room",
         ),
         CommandDefinition(
             command = "/globalnick",
             aliases = listOf("/globalname"),
             description = "Set your global display name across all rooms",
-            parameters = listOf("name")
+            parameters = listOf("name"),
         ),
         CommandDefinition(
             command = "/globalavatar",
-            description = "Set your global avatar across all rooms"
+            description = "Set your global avatar across all rooms",
         ),
         // Room state commands
         CommandDefinition(
             command = "/roomname",
             description = "Set the current room name",
-            parameters = listOf("name")
+            parameters = listOf("name"),
         ),
         CommandDefinition(
             command = "/roomavatar",
-            description = "Set the current room avatar"
+            description = "Set the current room avatar",
         ),
         CommandDefinition(
             command = "/redact",
             description = "Redact (delete) an event",
-            parameters = listOf("event_id", "reason?")
+            parameters = listOf("event_id", "reason?"),
         ),
         // Event sending commands
         CommandDefinition(
             command = "/raw",
             description = "Send encrypted raw timeline event",
-            parameters = listOf("event_type", "json?")
+            parameters = listOf("event_type", "json?"),
         ),
         CommandDefinition(
             command = "/unencryptedraw",
             description = "Send unencrypted raw timeline event",
-            parameters = listOf("event_type", "json?")
+            parameters = listOf("event_type", "json?"),
         ),
         CommandDefinition(
             command = "/rawstate",
             description = "Send raw state event",
-            parameters = listOf("event_type", "state_key", "json?")
+            parameters = listOf("event_type", "state_key", "json?"),
         ),
         // Room alias commands
         CommandDefinition(
             command = "/alias",
             description = "Manage room aliases",
-            parameters = listOf("add|del|create|remove|rm|delete", "name")
+            parameters = listOf("add|del|create|remove|rm|delete", "name"),
         ),
         // Direct message (m.direct) account data
         CommandDefinition(
             command = "/converttodm",
             description = "Mark the current room as a DM (m.direct)",
-            parameters = listOf("@user:server | [name](https://matrix.to/#/@user:server)?")
+            parameters = listOf("@user:server | [name](https://matrix.to/#/@user:server)?"),
         ),
         CommandDefinition(
             command = "/converttoroom",
-            description = "Remove the current room from DMs (m.direct)"
+            description = "Remove the current room from DMs (m.direct)",
         ),
         CommandDefinition(
             command = "/pmp",
             aliases = listOf("/profile"),
             description = "Send message as a per-message profile",
-            parameters = listOf("shortcode", "message")
-        )
+            parameters = listOf("shortcode", "message"),
+        ),
     )
-    
+
     /**
      * Get suggestions based on query
      * Filters by command name and aliases only (not description or parameters)
@@ -149,15 +148,15 @@ object Commands {
         if (query.isBlank()) {
             return allCommands
         }
-        
+
         val lowerQuery = query.lowercase().trim()
         return allCommands.filter { cmd ->
             // Filter only by command name and aliases
             // Strip leading slash from command name for comparison
             val commandName = cmd.command.removePrefix("/").lowercase()
             val matchesCommand = commandName.startsWith(lowerQuery)
-            val matchesAlias = cmd.aliases.any { 
-                it.removePrefix("/").lowercase().startsWith(lowerQuery) 
+            val matchesAlias = cmd.aliases.any {
+                it.removePrefix("/").lowercase().startsWith(lowerQuery)
             }
             matchesCommand || matchesAlias
         }
@@ -171,7 +170,7 @@ object Commands {
 fun CommandSuggestionList(
     query: String,
     onCommandSelected: (CommandDefinition) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val suggestions = remember(query) {
         Commands.getSuggestions(query)
@@ -185,17 +184,17 @@ fun CommandSuggestionList(
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
             ),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
+        tonalElevation = 8.dp,
     ) {
         LazyColumn(
             modifier = Modifier
                 .height(250.dp),
             contentPadding = PaddingValues(8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             items(suggestions) { command ->
                 Row(
@@ -203,25 +202,25 @@ fun CommandSuggestionList(
                         .fillMaxWidth()
                         .clickable { onCommandSelected(command) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = command.command,
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.primary,
                         )
                         if (command.parameters.isNotEmpty()) {
                             Text(
                                 text = command.parameters.joinToString(" ") { "{${it.removeSuffix("?")}}" },
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                         Text(
                             text = command.description,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -229,4 +228,3 @@ fun CommandSuggestionList(
         }
     }
 }
-

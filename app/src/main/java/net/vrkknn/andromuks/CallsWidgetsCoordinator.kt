@@ -11,12 +11,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
-data class IncomingCallInfo(
-    val roomId: String,
-    val callerId: String,
-    val callIntent: String,
-    val expiresAt: Long
-)
+data class IncomingCallInfo(val roomId: String, val callerId: String, val callIntent: String, val expiresAt: Long)
 
 /**
  * Element Call `.well-known` resolution, call UI state, and widget WebSocket commands — [AppViewModel].
@@ -121,17 +116,17 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
 
     fun handleRtcNotification(roomId: String, senderId: String, content: JSONObject, eventTimestamp: Long) = with(vm) {
         if (senderId == currentUserId) return@with
-        if (callActiveInternal) return@with  // Already in a call
+        if (callActiveInternal) return@with // Already in a call
         val senderTs = content.optLong("sender_ts", eventTimestamp)
         val lifetime = content.optLong("lifetime", 30_000L)
         val expiresAt = senderTs + lifetime
-        if (System.currentTimeMillis() >= expiresAt) return@with  // Already expired
+        if (System.currentTimeMillis() >= expiresAt) return@with // Already expired
         val callIntent = content.optString("m.call.intent", "video")
         incomingCallInfo = IncomingCallInfo(
             roomId = roomId,
             callerId = senderId,
             callIntent = callIntent,
-            expiresAt = expiresAt
+            expiresAt = expiresAt,
         )
     }
 

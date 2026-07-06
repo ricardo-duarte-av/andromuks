@@ -12,10 +12,8 @@ import android.os.IBinder
 import android.util.Log
 import net.vrkknn.andromuks.BuildConfig
 
-class MatrixContactsSyncAdapter(
-    context: Context,
-    autoInitialize: Boolean
-) : AbstractThreadedSyncAdapter(context, autoInitialize) {
+class MatrixContactsSyncAdapter(context: Context, autoInitialize: Boolean) :
+    AbstractThreadedSyncAdapter(context, autoInitialize) {
 
     companion object {
         private const val TAG = "MatrixContactsSync"
@@ -26,7 +24,7 @@ class MatrixContactsSyncAdapter(
         extras: Bundle,
         authority: String,
         provider: ContentProviderClient,
-        syncResult: SyncResult
+        syncResult: SyncResult,
     ) {
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "onPerformSync called for account: ${account.name}")
@@ -44,7 +42,5 @@ class MatrixContactsSyncAdapterService : Service() {
         syncAdapter = MatrixContactsSyncAdapter(applicationContext, true)
     }
 
-    override fun onBind(intent: Intent?): IBinder {
-        return syncAdapter.syncAdapterBinder
-    }
+    override fun onBind(intent: Intent?): IBinder = syncAdapter.syncAdapterBinder
 }

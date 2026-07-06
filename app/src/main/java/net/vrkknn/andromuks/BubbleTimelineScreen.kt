@@ -1,8 +1,5 @@
 package net.vrkknn.andromuks
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
-import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
-import net.vrkknn.andromuks.ui.theme.scaledColumnExit
 import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -11,20 +8,18 @@ import android.content.IntentFilter
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -33,17 +28,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -55,173 +48,151 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Launch
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Mood
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.collectAsState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Mood
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.outlined.StickyNote2
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.snapshotFlow
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.FlowPreview
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.zIndex
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.TransformedText
 import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.TextRange
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import kotlin.math.min
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.filterNotNull
+import coil3.memory.MemoryCache
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import coil3.request.ImageRequest
-import coil3.request.CachePolicy
-import coil3.memory.MemoryCache
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.ScrollHighlightState
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
-import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
-import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
-import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
+import net.vrkknn.andromuks.ui.theme.scaledColumnExit
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
+import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.CodeViewer
+import net.vrkknn.andromuks.utils.CommandSuggestionList
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
-import net.vrkknn.andromuks.utils.StickerSelectionDialog
-import net.vrkknn.andromuks.utils.EmoteEventNarrator
-import net.vrkknn.andromuks.utils.HtmlMessageText
-import net.vrkknn.andromuks.utils.CodeViewer
-import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
-import net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars
-import net.vrkknn.andromuks.utils.navigateToUserInfo
-import net.vrkknn.andromuks.utils.MediaMessage
+import net.vrkknn.andromuks.utils.EmojiShortcodes
+import net.vrkknn.andromuks.utils.EmojiSuggestionList
+import net.vrkknn.andromuks.utils.ImageLoaderSingleton
+import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
 import net.vrkknn.andromuks.utils.MediaPreviewDialog
 import net.vrkknn.andromuks.utils.MediaUploadUtils
-import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
+import net.vrkknn.andromuks.utils.MessageMenuBar
+import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.utils.MessageSoundPlayer
-import net.vrkknn.andromuks.utils.ReactionBadges
-import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
-import net.vrkknn.andromuks.utils.SmartMessageText
-import net.vrkknn.andromuks.utils.StickerMessage
-import net.vrkknn.andromuks.utils.SystemEventNarrator
+import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.TypingNotificationArea
-import net.vrkknn.andromuks.utils.MessageMenuBar
-import net.vrkknn.andromuks.utils.MessageMenuConfig
-import net.vrkknn.andromuks.utils.LocalActiveMessageMenuEventId
-import net.vrkknn.andromuks.utils.UploadingDialog
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
-import net.vrkknn.andromuks.utils.extractStickerFromEvent
-import net.vrkknn.andromuks.utils.supportsHtmlRendering
-import net.vrkknn.andromuks.utils.EmojiShortcodes
-import net.vrkknn.andromuks.utils.EmojiSuggestionList
-import net.vrkknn.andromuks.utils.CommandSuggestionList
-import net.vrkknn.andromuks.utils.CommandDefinition
-import net.vrkknn.andromuks.utils.AvatarUtils
-import net.vrkknn.andromuks.utils.ImageLoaderSingleton
-import net.vrkknn.andromuks.BuildConfig
-
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlin.math.min
 
 /** Sealed class for timeline items (events and date dividers) */
 sealed class BubbleTimelineItem {
     // PERFORMANCE: Stable key for LazyColumn items
     abstract val stableKey: String
-    
+
     // absorbedReceiptEventIds: non-rendered event IDs whose read receipts flatten onto this event
     // (see ReceiptFunctions.gatherFlattenedReceipts and TimelineItem.Event in RoomTimelineScreen).
     data class Event(
         val event: TimelineEvent,
         val isConsecutive: Boolean = false,
         val hasPerMessageProfile: Boolean = false,
-        val absorbedReceiptEventIds: List<String> = emptyList()
+        val absorbedReceiptEventIds: List<String> = emptyList(),
     ) : BubbleTimelineItem() {
         override val stableKey: String
             get() = event.eventId
@@ -246,26 +217,32 @@ private data class BubblePaginateSnapshot(
     val total: Int,
     val lastVisible: Int,
     val isPaginating: Boolean,
-    val pendingScrollRestoration: Boolean
+    val pendingScrollRestoration: Boolean,
 )
 
 /** PERFORMANCE: Helper function to process timeline events in background */
 suspend fun bubbleProcessTimelineEvents(
     timelineEvents: List<TimelineEvent>,
     allowedEventTypes: Set<String>,
-    showHiddenEvents: Boolean = false
+    showHiddenEvents: Boolean = false,
 ): List<TimelineEvent> = withContext(Dispatchers.Default) {
-    if (BuildConfig.DEBUG) Log.d(
+    if (BuildConfig.DEBUG) {
+        Log.d(
         "Andromuks",
-        "BubbleTimelineScreen: Background processing ${timelineEvents.size} timeline events"
+        "BubbleTimelineScreen: Background processing ${timelineEvents.size} timeline events",
     )
+    }
 
     // Debug: Log event types in timeline
     val eventTypes = timelineEvents.groupBy { it.type }
-    if (BuildConfig.DEBUG) Log.d(
+    if (BuildConfig.DEBUG) {
+        Log.d(
         "Andromuks",
-        "BubbleTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(", ")}"
+        "BubbleTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(
+            ", ",
+        )}",
     )
+    }
 
     val filteredEvents = timelineEvents.filter { event ->
         // Special events with timeline_rowid = -1 are context events for replies, not to be rendered directly
@@ -275,20 +252,27 @@ suspend fun bubbleProcessTimelineEvents(
         if (showHiddenEvents) return@filter true
         // Filter out org.matrix.msc4075.* events (call notifications)
         if (event.type.startsWith("org.matrix.msc4075.") ||
-            event.decryptedType?.startsWith("org.matrix.msc4075.") == true) {
+            event.decryptedType?.startsWith("org.matrix.msc4075.") == true
+        ) {
             return@filter false
         }
         // Filter out Element Call reaction events and call membership state events
         if (event.type == "io.element.call.reaction" ||
             event.decryptedType == "io.element.call.reaction" ||
             event.type == "org.matrix.msc3401.call.member" ||
-            event.decryptedType == "org.matrix.msc3401.call.member") {
+            event.decryptedType == "org.matrix.msc3401.call.member"
+        ) {
             return@filter false
         }
         // Only allow events in the whitelist
         allowedEventTypes.contains(event.type)
     }
-    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: After type filtering: ${filteredEvents.size} events")
+    if (BuildConfig.DEBUG) {
+        Log.d(
+        "Andromuks",
+        "BubbleTimelineScreen: After type filtering: ${filteredEvents.size} events",
+    )
+    }
 
     // PERFORMANCE: Optimize edit filtering by creating a lookup set
     val editedEventIds = filteredEvents.filter { event ->
@@ -305,7 +289,12 @@ suspend fun bubbleProcessTimelineEvents(
         if (event.type == "m.room.message") {
             val isSuperseded = editedEventIds.contains(event.eventId)
             if (isSuperseded) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Filtering out edited event: ${event.eventId}")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Filtering out edited event: ${event.eventId}",
+                )
+                }
             }
             !isSuperseded
         } else {
@@ -313,16 +302,23 @@ suspend fun bubbleProcessTimelineEvents(
         }
     }
 
-    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events")
+    if (BuildConfig.DEBUG) {
+        Log.d(
+        "Andromuks",
+        "BubbleTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events",
+    )
+    }
 
     // Sort by timeline_rowid (server order) while ensuring pending echoes (~ prefixed IDs)
     // sort last. Chronicled backfilled events (negative rowid, lower=older) sort first.
-    val sorted = eventsWithoutSuperseded.sortedWith(compareBy(
+    val sorted = eventsWithoutSuperseded.sortedWith(
+        compareBy(
         { it.eventId.startsWith("~") },
         { it.timelineRowid },
         { it.timestamp },
-        { it.eventId }
-    ))
+        { it.eventId },
+    )
+    )
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Final sorted events: ${sorted.size} events")
 
     sorted
@@ -336,13 +332,13 @@ fun BubbleRoomSuggestionList(
     onRoomSelect: (String, String) -> Unit, // (roomId, canonicalAlias)
     homeserverUrl: String,
     authToken: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val filteredRooms = remember(rooms, query) {
         rooms.filter { (room, alias) ->
-            query.isBlank() || 
-            room.name.contains(query, ignoreCase = true) ||
-            alias.contains(query, ignoreCase = true)
+            query.isBlank() ||
+                room.name.contains(query, ignoreCase = true) ||
+                alias.contains(query, ignoreCase = true)
         }.sortedBy { it.first.name }
     }
 
@@ -353,17 +349,17 @@ fun BubbleRoomSuggestionList(
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
             ),
         shape = RoundedCornerShape(16.dp),
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
+        tonalElevation = 8.dp,
     ) {
         LazyColumn(
             modifier = Modifier
                 .widthIn(max = 300.dp)
                 .height(200.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
         ) {
             items(filteredRooms.size) { index ->
                 val (room, alias) = filteredRooms[index]
@@ -372,7 +368,7 @@ fun BubbleRoomSuggestionList(
                         .fillMaxWidth()
                         .clickable { onRoomSelect(room.id, alias) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AvatarImage(
                         mxcUrl = room.avatarUrl,
@@ -381,19 +377,19 @@ fun BubbleRoomSuggestionList(
                         fallbackText = room.name.take(1),
                         size = 32.dp,
                         userId = room.id,
-                        displayName = room.name
+                        displayName = room.name,
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = room.name,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         Text(
                             text = alias,
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -410,16 +406,16 @@ fun BubbleMentionMemberList(
     onMemberSelect: (String, String?) -> Unit,
     homeserverUrl: String,
     authToken: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val filteredMembers = remember(members, query) {
         members.filter { (userId, profile) ->
             val displayName = profile.displayName
             val username = userId.removePrefix("@").substringBefore(":")
-            query.isBlank() || 
-            displayName?.contains(query, ignoreCase = true) == true ||
-            username.contains(query, ignoreCase = true) ||
-            userId.contains(query, ignoreCase = true)
+            query.isBlank() ||
+                displayName?.contains(query, ignoreCase = true) == true ||
+                username.contains(query, ignoreCase = true) ||
+                userId.contains(query, ignoreCase = true)
         }.entries.sortedBy { (userId, profile) ->
             profile.displayName?.takeIf { it.isNotBlank() } ?: userId
         }
@@ -432,17 +428,17 @@ fun BubbleMentionMemberList(
             .border(
                 width = 1.dp,
                 color = MaterialTheme.colorScheme.outlineVariant,
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
             ),
         shape = RoundedCornerShape(16.dp), // Rounder corners
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
+        tonalElevation = 8.dp, // Use tonalElevation for dark mode visibility
     ) {
         LazyColumn(
             modifier = Modifier
                 .widthIn(max = 250.dp)
                 .height(200.dp),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp),
         ) {
             items(filteredMembers.size) { index ->
                 val (userId, profile) = filteredMembers[index]
@@ -451,7 +447,7 @@ fun BubbleMentionMemberList(
                         .fillMaxWidth()
                         .clickable { onMemberSelect(userId, profile.displayName) }
                         .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     AvatarImage(
                         mxcUrl = profile.avatarUrl,
@@ -460,20 +456,20 @@ fun BubbleMentionMemberList(
                         fallbackText = (profile.displayName ?: userId).take(1),
                         size = 32.dp,
                         userId = userId,
-                        displayName = profile.displayName
+                        displayName = profile.displayName,
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = profile.displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@"),
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                         if (!profile.displayName.isNullOrBlank()) {
                             Text(
                                 text = userId,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -488,13 +484,13 @@ fun BubbleMentionMemberList(
 fun BubbleDateDivider(date: String) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.foundation.layout.Spacer(
             modifier =
-                Modifier.weight(1f)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+            Modifier.weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
         )
 
         Text(
@@ -502,14 +498,14 @@ fun BubbleDateDivider(date: String) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 16.dp)
+            modifier = Modifier.padding(horizontal = 16.dp),
         )
 
         androidx.compose.foundation.layout.Spacer(
             modifier =
-                Modifier.weight(1f)
-                    .height(1.dp)
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+            Modifier.weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)),
         )
     }
 }
@@ -527,7 +523,7 @@ fun BubbleTimelineScreen(
     appViewModel: AppViewModel,
     onCloseBubble: () -> Unit = {},
     onMinimizeBubble: () -> Unit = {},
-    onOpenInApp: () -> Unit = {}
+    onOpenInApp: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val appContext = context.applicationContext
@@ -538,7 +534,7 @@ fun BubbleTimelineScreen(
     DisposableEffect(messageSoundPlayer) {
         onDispose { messageSoundPlayer.release() }
     }
-    
+
     // Track bubble lifecycle for notification dismissal logic
     // NOTE: This is redundant with Activity-level tracking but provides early detection
     // Activity-level tracking in ChatBubbleActivity.onDestroy() is the authoritative source
@@ -546,7 +542,12 @@ fun BubbleTimelineScreen(
         // Only track if not already tracked (Activity might have already tracked it)
         if (!BubbleTracker.isBubbleOpen(roomId)) {
             BubbleTracker.onBubbleOpened(roomId)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Tracked bubble opened for room: $roomId (Composable level)")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Tracked bubble opened for room: $roomId (Composable level)",
+            )
+            }
         }
         // When the screen is composed, the bubble is visible
         BubbleTracker.onBubbleVisible(roomId)
@@ -559,9 +560,19 @@ fun BubbleTimelineScreen(
             // Only close if Activity hasn't already closed it (check before closing)
             if (BubbleTracker.isBubbleOpen(roomId)) {
                 BubbleTracker.onBubbleClosed(roomId)
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Tracked bubble closed for room: $roomId (Composable disposal)")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Tracked bubble closed for room: $roomId (Composable disposal)",
+                )
+                }
             } else {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Bubble already closed (likely by Activity) for room: $roomId")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Bubble already closed (likely by Activity) for room: $roomId",
+                )
+                }
             }
         }
     }
@@ -656,15 +667,17 @@ fun BubbleTimelineScreen(
         val required = pl.events["m.room.message"] ?: pl.eventsDefault
         myPl >= required
     }
-    
+
     // Messages typed while the WebSocket is down are buffered and sent on reconnect,
     // so only gate the input on permission, not on connectivity.
     val isInputEnabled = canSendMessage
 
-    if (BuildConfig.DEBUG) Log.d(
+    if (BuildConfig.DEBUG) {
+        Log.d(
         "Andromuks",
-        "BubbleTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading"
+        "BubbleTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading",
     )
+    }
 
     // Reply state
     var replyingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
@@ -679,17 +692,17 @@ fun BubbleTimelineScreen(
     // Emoji selection state
     var showEmojiSelection by remember { mutableStateOf(false) }
     var reactingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
-    
+
     // Emoji selection state for text input
     var showEmojiPickerForText by remember { mutableStateOf(false) }
-    
+
     // Sticker selection state for text input
     var showStickerPickerForText by remember { mutableStateOf(false) }
-    
+
     // Code viewer state
     var showCodeViewer by remember { mutableStateOf(false) }
     var codeViewerContent by remember { mutableStateOf("") }
-    
+
     // Message menu state (for bottom menu bar)
     var messageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
     var retainedMessageMenuConfig by remember { mutableStateOf<MessageMenuConfig?>(null) }
@@ -708,38 +721,38 @@ fun BubbleTimelineScreen(
     var selectedMediaIsVideo by remember { mutableStateOf(false) }
     var showMediaPreview by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
-    
+
     // Attachment menu state
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var showLocationPickerOverlay by remember { mutableStateOf(false) }
     var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
-    
+
     // Camera state
     var cameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
     var cameraVideoUri by remember { mutableStateOf<Uri?>(null) }
-    
+
     // Room joiner state
     var showRoomJoiner by remember { mutableStateOf(false) }
     var roomLinkToJoin by remember { mutableStateOf<RoomLink?>(null) }
-    
+
     // Mention state
     var showMentionList by remember { mutableStateOf(false) }
     var mentionQuery by remember { mutableStateOf("") }
     var mentionStartIndex by remember { mutableStateOf(-1) }
     var isWaitingForFullMemberList by remember { mutableStateOf(false) }
     var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }
-    
+
     // Emoji shortcode ( :shortname: ) state
     var showEmojiSuggestionList by remember { mutableStateOf(false) }
     var emojiQuery by remember { mutableStateOf("") }
     var emojiStartIndex by remember { mutableStateOf(-1) }
-    
+
     // Room mention ( #roomalias ) state
     var showRoomSuggestionList by remember { mutableStateOf(false) }
     var roomQuery by remember { mutableStateOf("") }
     var roomStartIndex by remember { mutableStateOf(-1) }
-    
+
     // Command ( /command ) state
     var showCommandSuggestionList by remember { mutableStateOf(false) }
     var commandQuery by remember { mutableStateOf("") }
@@ -749,7 +762,9 @@ fun BubbleTimelineScreen(
     var showPmpProfilePicker by remember { mutableStateOf(false) }
 
     // Avatar command state (for commands that need image picker)
-    var pendingAvatarCommand by remember { mutableStateOf<String?>(null) } // "myroomavatar", "globalavatar", or "roomavatar"
+    var pendingAvatarCommand by remember {
+        mutableStateOf<String?>(null)
+    } // "myroomavatar", "globalavatar", or "roomavatar"
 
     // Scroll highlight state for jump-to-message interactions
     var highlightedEventId by remember(roomId) { mutableStateOf<String?>(null) }
@@ -771,17 +786,17 @@ fun BubbleTimelineScreen(
             }
         }
     }
-    
+
     // Text input state (moved here to be accessible by mention handler)
     val urlPreviewController = remember { UrlPreviewController() }
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
-    
+
     // Focus requester for text field (to focus when replying)
     val textFieldFocusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-    
+
     // Track text field height to match button heights
     var textFieldHeight by remember { mutableStateOf(0) }
     val density = LocalDensity.current
@@ -801,25 +816,25 @@ fun BubbleTimelineScreen(
             imeBottom > 50.dp
         }
     }
-    
+
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
         if (textFieldValue.text != draft) {
             textFieldValue = textFieldValue.copy(text = draft, selection = TextRange(draft.length))
         }
     }
-    
+
     // Pre-fill draft when editing starts
     LaunchedEffect(editingEvent) {
         if (editingEvent != null) {
             val body = appViewModel.getBodyTextForEdit(editingEvent!!)
             draft = body
-            
+
             // Hide mention list when editing
             showMentionList = false
         }
     }
-    
+
     // Hide mention list when replying starts and focus text field with keyboard
     LaunchedEffect(replyingToEvent) {
         if (replyingToEvent != null) {
@@ -831,20 +846,25 @@ fun BubbleTimelineScreen(
             keyboardController?.show()
         }
     }
-    
+
     // Show mention list when full member list is loaded
     LaunchedEffect(appViewModel.memberUpdateCounter, isWaitingForFullMemberList) {
         if (isWaitingForFullMemberList && appViewModel.memberUpdateCounter > lastMemberUpdateCounterBeforeMention) {
             // Full member list has been loaded, now show the mention list
             val memberMap = appViewModel.getMemberMap(roomId)
             if (memberMap.isNotEmpty()) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Full member list loaded (${memberMap.size} members), showing mention list")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Full member list loaded (${memberMap.size} members), showing mention list",
+                )
+                }
                 showMentionList = true
                 isWaitingForFullMemberList = false
             }
         }
     }
-    
+
     // Hide attachment menu when editing or replying starts
     LaunchedEffect(editingEvent, replyingToEvent) {
         if (editingEvent != null || replyingToEvent != null) {
@@ -852,7 +872,7 @@ fun BubbleTimelineScreen(
         }
     }
 
-    // PERFORMANCE: Typing detection with debouncing - UI level rate limiting removed 
+    // PERFORMANCE: Typing detection with debouncing - UI level rate limiting removed
     // since AppViewModel.sendTyping() now handles rate limiting internally (3 seconds)
     LaunchedEffect(draft) {
         if (draft.isNotBlank()) {
@@ -864,7 +884,6 @@ fun BubbleTimelineScreen(
         }
     }
 
-
     // Avatar image picker launcher (for avatar commands). Android Photo Picker — no permission needed.
     val avatarImagePickerLauncher =
         rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
@@ -874,7 +893,7 @@ fun BubbleTimelineScreen(
                     // Handle avatar upload
                     val command = pendingAvatarCommand
                     pendingAvatarCommand = null
-                    
+
                     if (command != null) {
                         coroutineScope.launch {
                             try {
@@ -885,9 +904,9 @@ fun BubbleTimelineScreen(
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     isEncrypted = false,
-                                    compressOriginal = false
+                                    compressOriginal = false,
                                 )
-                                
+
                                 if (uploadResult != null) {
                                     // Set the avatar based on command type
                                     when (command) {
@@ -896,23 +915,25 @@ fun BubbleTimelineScreen(
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "Room avatar updated",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
+
                                         "globalavatar" -> {
                                             appViewModel.setGlobalAvatar(uploadResult.mxcUrl)
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "Global avatar updated",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
+
                                         "roomavatar" -> {
                                             appViewModel.setRoomAvatar(roomId, uploadResult.mxcUrl)
                                             android.widget.Toast.makeText(
                                                 context,
                                                 "Room avatar updated",
-                                                android.widget.Toast.LENGTH_SHORT
+                                                android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                         }
                                     }
@@ -920,7 +941,7 @@ fun BubbleTimelineScreen(
                                     android.widget.Toast.makeText(
                                         context,
                                         "Failed to upload avatar",
-                                        android.widget.Toast.LENGTH_SHORT
+                                        android.widget.Toast.LENGTH_SHORT,
                                     ).show()
                                 }
                             } catch (e: Exception) {
@@ -928,7 +949,7 @@ fun BubbleTimelineScreen(
                                 android.widget.Toast.makeText(
                                     context,
                                     "Error uploading avatar: ${e.message}",
-                                    android.widget.Toast.LENGTH_SHORT
+                                    android.widget.Toast.LENGTH_SHORT,
                                 ).show()
                             }
                         }
@@ -937,22 +958,21 @@ fun BubbleTimelineScreen(
                     android.widget.Toast.makeText(
                         context,
                         "Please select an image file",
-                        android.widget.Toast.LENGTH_SHORT
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
                     pendingAvatarCommand = null
                 }
             }
         }
-    
+
     // Media picker launcher - images and videos via the Android Photo Picker (no permission needed).
     val mediaPickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) {
-            uri: Uri? ->
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.PickVisualMedia()) { uri: Uri? ->
             uri?.let {
                 // Check if this is an image or video file
                 val mimeType = context.contentResolver.getType(it)
                 val isImageOrVideo = mimeType?.startsWith("image/") == true || mimeType?.startsWith("video/") == true
-                
+
                 if (isImageOrVideo) {
                     selectedMediaUri = it
                     // Detect if this is a video or image
@@ -963,26 +983,24 @@ fun BubbleTimelineScreen(
                     android.widget.Toast.makeText(
                         context,
                         "Please select an image or video file",
-                        android.widget.Toast.LENGTH_SHORT
+                        android.widget.Toast.LENGTH_SHORT,
                     ).show()
                 }
             }
         }
-    
+
     // Audio picker launcher
     val audioPickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) {
-            uri: Uri? ->
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
             uri?.let {
                 selectedAudioUri = it
                 showMediaPreview = true
             }
         }
-    
+
     // File picker launcher
     val filePickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) {
-            uri: Uri? ->
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
             uri?.let {
                 selectedFileUri = it
                 // Detect if this is a video file
@@ -991,10 +1009,10 @@ fun BubbleTimelineScreen(
                 showMediaPreview = true
             }
         }
-    
+
     // Camera photo launcher
     val cameraPhotoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
+        contract = ActivityResultContracts.TakePicture(),
     ) { success ->
         if (success && cameraPhotoUri != null) {
             cameraPhotoUri?.let { uri ->
@@ -1005,10 +1023,10 @@ fun BubbleTimelineScreen(
         }
         cameraPhotoUri = null
     }
-    
+
     // Camera video launcher
     val cameraVideoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CaptureVideo()
+        contract = ActivityResultContracts.CaptureVideo(),
     ) { success ->
         if (success && cameraVideoUri != null) {
             cameraVideoUri?.let { uri ->
@@ -1019,33 +1037,40 @@ fun BubbleTimelineScreen(
         }
         cameraVideoUri = null
     }
-    
+
     // Helper function to create camera file URI
-    fun createCameraFileUri(isVideo: Boolean): Uri? {
-        return try {
-            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
-            val fileName = if (isVideo) "VID_${timeStamp}.mp4" else "IMG_${timeStamp}.jpg"
-            val contentValues = android.content.ContentValues().apply {
-                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (isVideo) "video/mp4" else "image/jpeg")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, if (isVideo) android.os.Environment.DIRECTORY_MOVIES else android.os.Environment.DIRECTORY_PICTURES)
-                }
+    fun createCameraFileUri(isVideo: Boolean): Uri? = try {
+        val timeStamp = java.text.SimpleDateFormat(
+            "yyyyMMdd_HHmmss",
+            java.util.Locale.getDefault(),
+        ).format(java.util.Date())
+        val fileName = if (isVideo) "VID_$timeStamp.mp4" else "IMG_$timeStamp.jpg"
+        val contentValues = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (isVideo) "video/mp4" else "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(
+                    android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                    if (isVideo) android.os.Environment.DIRECTORY_MOVIES else android.os.Environment.DIRECTORY_PICTURES,
+                )
             }
-            context.contentResolver.insert(
-                if (isVideo) android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                else android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                contentValues
-            )
-        } catch (e: Exception) {
-            Log.e("Andromuks", "Error creating camera file URI", e)
-            null
         }
+        context.contentResolver.insert(
+            if (isVideo) {
+                android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            } else {
+                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            },
+            contentValues,
+        )
+    } catch (e: Exception) {
+        Log.e("Andromuks", "Error creating camera file URI", e)
+        null
     }
-    
+
     // Camera permission launcher for photo
     val cameraPhotoPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
+        contract = ActivityResultContracts.RequestPermission(),
     ) { isGranted ->
         if (isGranted) {
             val uri = createCameraFileUri(false) // Photo
@@ -1057,21 +1082,21 @@ fun BubbleTimelineScreen(
                 android.widget.Toast.makeText(
                     context,
                     "Error creating camera file",
-                    android.widget.Toast.LENGTH_SHORT
+                    android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
         } else {
             android.widget.Toast.makeText(
                 context,
                 "Camera permission is required to take photos",
-                android.widget.Toast.LENGTH_SHORT
+                android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
     }
-    
+
     // Camera permission launcher for video
     val cameraVideoPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
+        contract = ActivityResultContracts.RequestPermission(),
     ) { isGranted ->
         if (isGranted) {
             val uri = createCameraFileUri(true) // Video
@@ -1083,21 +1108,25 @@ fun BubbleTimelineScreen(
                 android.widget.Toast.makeText(
                     context,
                     "Error creating camera file",
-                    android.widget.Toast.LENGTH_SHORT
+                    android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
         } else {
             android.widget.Toast.makeText(
                 context,
                 "Camera permission is required to record videos",
-                android.widget.Toast.LENGTH_SHORT
+                android.widget.Toast.LENGTH_SHORT,
             ).show()
         }
     }
-    
+
     // Helper function to launch camera
     fun launchCamera(isVideo: Boolean) {
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA,
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
             val uri = createCameraFileUri(isVideo)
             if (uri != null) {
                 if (isVideo) {
@@ -1112,7 +1141,7 @@ fun BubbleTimelineScreen(
                 android.widget.Toast.makeText(
                     context,
                     "Error creating camera file",
-                    android.widget.Toast.LENGTH_SHORT
+                    android.widget.Toast.LENGTH_SHORT,
                 ).show()
             }
         } else {
@@ -1124,7 +1153,6 @@ fun BubbleTimelineScreen(
         }
     }
 
-
     // (removed userProfileCache building loop - it was unused and caused main thread jank)
 
     // Get current room members for mention list (exclude current user and filter out invalid entries)
@@ -1132,24 +1160,23 @@ fun BubbleTimelineScreen(
         appViewModel.getMemberMap(roomId).filter { (userId, profile) ->
             // Exclude current user
             userId != myUserId &&
-            // Ensure userId is a valid Matrix user ID format (@user:domain)
-            userId.startsWith("@") && 
-            userId.contains(":") &&
-            // Ensure userId is not empty or malformed
-            userId.length > 3
+                // Ensure userId is a valid Matrix user ID format (@user:domain)
+                userId.startsWith("@") &&
+                userId.contains(":") &&
+                // Ensure userId is not empty or malformed
+                userId.length > 3
         }
     }
-    
+
     // Get rooms with canonical aliases for room mentions
     val roomsWithAliases = remember(appViewModel.allRooms) {
         appViewModel.getRoomsWithCanonicalAliases()
     }
 
-
     // Mention detection and handling functions
     fun detectMention(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for @ at or before cursor position
         var atIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -1162,23 +1189,25 @@ fun BubbleTimelineScreen(
                 break
             }
         }
-        
+
         // Also check if cursor is right after @ at the beginning or after space
         if (atIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '@') {
                 // Check if @ is at beginning or preceded by space/newline
-                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                if (cursorPosition == 1 ||
+                    (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))
+                ) {
                     atIndex = cursorPosition - 1
                 }
             }
         }
-        
+
         if (atIndex == -1) return null
-        
+
         // Extract the query after @
         val queryStart = atIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Look for space after cursor position to find end of mention
         if (cursorPosition < text.length) {
             for (i in cursorPosition until text.length) {
@@ -1189,7 +1218,7 @@ fun BubbleTimelineScreen(
                 queryEnd = i + 1
             }
         }
-        
+
         // Allow showing mention list even if we just typed @ (empty query)
         if (queryStart <= cursorPosition) {
             val query = if (queryStart < min(queryEnd, text.length)) {
@@ -1199,14 +1228,14 @@ fun BubbleTimelineScreen(
             }
             return Pair(query, atIndex)
         }
-        
+
         return null
     }
 
     // Emoji shortcode detection function (for ':' based autocomplete)
     fun detectEmojiShortcode(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for ':' at or before cursor position
         var colonIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -1220,9 +1249,9 @@ fun BubbleTimelineScreen(
                 break
             }
         }
-        
+
         if (colonIndex == -1) return null
-        
+
         // Ensure ':' is at start of text or preceded by whitespace/newline
         if (colonIndex > 0) {
             val prev = text[colonIndex - 1]
@@ -1230,10 +1259,10 @@ fun BubbleTimelineScreen(
                 return null
             }
         }
-        
+
         val queryStart = colonIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Stop query at next delimiter or second ':'
         if (cursorPosition < text.length) {
             for (i in cursorPosition until text.length) {
@@ -1244,21 +1273,21 @@ fun BubbleTimelineScreen(
                 queryEnd = i + 1
             }
         }
-        
+
         if (queryStart <= cursorPosition) {
             val safeEnd = min(queryEnd, text.length)
             val query =
                 if (queryStart < safeEnd) text.substring(queryStart, safeEnd) else ""
             return Pair(query, colonIndex)
         }
-        
+
         return null
     }
 
     // Room mention detection function (for '#' based autocomplete)
     fun detectRoomMention(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for '#' at or before cursor position
         var hashIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -1271,23 +1300,25 @@ fun BubbleTimelineScreen(
                 break
             }
         }
-        
+
         // Also check if cursor is right after # at the beginning or after space
         if (hashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '#') {
                 // Check if # is at beginning or preceded by space/newline
-                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                if (cursorPosition == 1 ||
+                    (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))
+                ) {
                     hashIndex = cursorPosition - 1
                 }
             }
         }
-        
+
         if (hashIndex == -1) return null
-        
+
         // Extract the query after #
         val queryStart = hashIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Look for space after cursor position to find end of mention
         if (cursorPosition < text.length) {
             for (i in cursorPosition until text.length) {
@@ -1298,7 +1329,7 @@ fun BubbleTimelineScreen(
                 queryEnd = i + 1
             }
         }
-        
+
         // Allow showing room list even if we just typed # (empty query)
         if (queryStart <= cursorPosition) {
             val query = if (queryStart < min(queryEnd, text.length)) {
@@ -1308,7 +1339,7 @@ fun BubbleTimelineScreen(
             }
             return Pair(query, hashIndex)
         }
-        
+
         return null
     }
 
@@ -1316,7 +1347,7 @@ fun BubbleTimelineScreen(
     // Commands only trigger when '/' is the very first character.
     fun detectCommand(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-        
+
         // Look for '/' at or before cursor position
         var slashIndex = -1
         for (i in (cursorPosition - 1) downTo 0) {
@@ -1329,7 +1360,7 @@ fun BubbleTimelineScreen(
                 break
             }
         }
-        
+
         // Also check if cursor is right after / (similar to mention detection)
         if (slashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
             if (text[cursorPosition - 1] == '/') {
@@ -1339,14 +1370,14 @@ fun BubbleTimelineScreen(
                 }
             }
         }
-        
+
         if (slashIndex == -1) return null
         if (slashIndex != 0) return null
-        
+
         // Extract the query after / (only the command name, up to first space/newline or cursor)
         val queryStart = slashIndex + 1
         var queryEnd = cursorPosition
-        
+
         // Find the first space or newline after / and before/at cursor position
         for (i in queryStart until min(cursorPosition, text.length)) {
             if (text[i] == ' ' || text[i] == '\n') {
@@ -1354,7 +1385,7 @@ fun BubbleTimelineScreen(
                 break
             }
         }
-        
+
         // Allow showing command list even if we just typed / (empty query)
         if (queryStart <= cursorPosition) {
             val query = if (queryStart < min(queryEnd, text.length)) {
@@ -1364,34 +1395,31 @@ fun BubbleTimelineScreen(
             }
             return Pair(query, slashIndex)
         }
-        
+
         return null
     }
 
     // Handle backspace deletion of custom emoji markdown
-    fun handleCustomEmojiDeletion(
-        oldValue: TextFieldValue,
-        newValue: TextFieldValue
-    ): TextFieldValue {
+    fun handleCustomEmojiDeletion(oldValue: TextFieldValue, newValue: TextFieldValue): TextFieldValue {
         // Check if text was deleted (backspace was pressed)
         if (newValue.text.length >= oldValue.text.length) return newValue
-        
+
         val oldText = oldValue.text
         val newText = newValue.text
         val cursor = newValue.selection.start
         val deletedLength = oldText.length - newText.length
-        
+
         // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
         val customEmojiRegex = Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
-        
+
         // Find all custom emoji markdowns in the old text
         val matches = customEmojiRegex.findAll(oldText).toList()
-        
+
         // Check if cursor is within or right after a custom emoji markdown
         for (match in matches) {
             val markdownStart = match.range.first
             val markdownEnd = match.range.last + 1
-            
+
             // Check if cursor is strictly within the markdown range (user is deleting from within the markdown)
             // Only trigger if cursor is inside the markdown, not at the boundary
             if (cursor >= markdownStart && cursor < markdownEnd && deletedLength == 1) {
@@ -1400,26 +1428,24 @@ fun BubbleTimelineScreen(
                 val afterMarkdown = oldText.substring(markdownEnd)
                 val finalText = beforeMarkdown + afterMarkdown
                 val finalCursor = markdownStart
-                
+
                 return TextFieldValue(
                     text = finalText,
-                    selection = TextRange(finalCursor)
+                    selection = TextRange(finalCursor),
                 )
             }
         }
-        
+
         return newValue
     }
 
     // Replace completed :shortcode: with its emoji/custom emoji representation
-    fun applyCompletedEmojiShortcode(
-        value: TextFieldValue
-    ): TextFieldValue {
+    fun applyCompletedEmojiShortcode(value: TextFieldValue): TextFieldValue {
         val text = value.text
         val cursor = value.selection.start
         if (cursor <= 0 || cursor > text.length) return value
         if (text[cursor - 1] != ':') return value
-        
+
         // Find matching opening ':'
         var start = cursor - 2
         while (start >= 0) {
@@ -1432,38 +1458,48 @@ fun BubbleTimelineScreen(
             }
             start--
         }
-        
+
         if (start < 0 || text[start] != ':') return value
-        
+
         val nameStart = start + 1
         val nameEnd = cursor - 1
         if (nameEnd <= nameStart) return value
-        
+
         val shortcode = text.substring(nameStart, nameEnd)
         val suggestion =
             EmojiShortcodes.findByShortcode(shortcode, appViewModel.customEmojiPacks)
                 ?: return value
-        
+
         val replacement =
             suggestion.emoji
                 ?: suggestion.customEmoji?.let { custom ->
                     "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
                 }
                 ?: return value
-        
+
         val newText =
             text.substring(0, start) + replacement + text.substring(cursor)
         val newCursorPos = start + replacement.length
-        
+
         return TextFieldValue(
             text = newText,
-            selection = TextRange(newCursorPos)
+            selection = TextRange(newCursorPos),
         )
     }
 
-    fun handleMentionSelection(userId: String, displayName: String?, originalText: String, startIndex: Int, endIndex: Int): String {
+    fun handleMentionSelection(
+        userId: String,
+        displayName: String?,
+        originalText: String,
+        startIndex: Int,
+        endIndex: Int,
+    ): String {
         // Escape square brackets in display name to prevent regex issues
-        val escapedDisplayName = (displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":"))
+        val escapedDisplayName = (
+            displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix(
+            "@",
+        ).substringBefore(":")
+        )
             .replace("[", "\\[")
             .replace("]", "\\]")
         val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
@@ -1483,7 +1519,7 @@ fun BubbleTimelineScreen(
             "m.room.pinned_events",
             "m.room.tombstone",
             "m.reaction",
-            "m.sticker"
+            "m.sticker",
             // m.room.redaction is intentionally excluded - redaction events should not appear in
             // timeline
         )
@@ -1494,14 +1530,16 @@ fun BubbleTimelineScreen(
 
     // Process timeline events in background when dependencies change
     LaunchedEffect(timelineEvents, showHiddenEvents) {
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "BubbleTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, roomId=$roomId"
+            "BubbleTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, roomId=$roomId",
         )
+        }
         sortedEvents = bubbleProcessTimelineEvents(
             timelineEvents = timelineEvents,
             allowedEventTypes = allowedEventTypes,
-            showHiddenEvents = showHiddenEvents
+            showHiddenEvents = showHiddenEvents,
         )
     }
 
@@ -1509,7 +1547,7 @@ fun BubbleTimelineScreen(
     LaunchedEffect(timelineEvents) {
         if (appViewModel.isAppVisible && appViewModel.currentRoomId == roomId) {
             val uniqueSenders = timelineEvents.map { it.sender }.toSet()
-            
+
             uniqueSenders.forEach { sender ->
                 val existingProfile = appViewModel.getUserProfile(sender, roomId)
                 if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
@@ -1534,7 +1572,7 @@ fun BubbleTimelineScreen(
                 { it.eventId.startsWith("~") },
                 { it.timelineRowid },
                 { it.timestamp },
-                { it.eventId }
+                { it.eventId },
             )
             val renderedIds = HashSet<String>(sortedEvents.size)
             for (e in sortedEvents) if (e.type != "m.reaction") renderedIds.add(e.eventId)
@@ -1569,23 +1607,31 @@ fun BubbleTimelineScreen(
                 }
 
                 // Check if this event has per-message profile (from bridges like Beeper)
-                val hasPerMessageProfile = 
+                val hasPerMessageProfile =
                     event.content?.has("com.beeper.per_message_profile") == true ||
-                    event.decrypted?.has("com.beeper.per_message_profile") == true
+                        event.decrypted?.has("com.beeper.per_message_profile") == true
 
                 // Check if this is a consecutive message from the same sender
-                val timeDifference = if (previousEvent != null) kotlin.math.abs(event.timestamp - previousEvent.timestamp) else 0L
-                val isConsecutive = !hasPerMessageProfile && 
+                val timeDifference = if (previousEvent != null) {
+                    kotlin.math.abs(
+                    event.timestamp - previousEvent.timestamp,
+                )
+                } else {
+                    0L
+                }
+                val isConsecutive = !hasPerMessageProfile &&
                     previousEvent?.sender == event.sender &&
                     timeDifference <= 5 * 60 * 1000
 
                 // Add the event with pre-computed flags
-                items.add(BubbleTimelineItem.Event(
+                items.add(
+                    BubbleTimelineItem.Event(
                     event = event,
                     isConsecutive = isConsecutive,
                     hasPerMessageProfile = hasPerMessageProfile,
-                    absorbedReceiptEventIds = absorbedByAnchor[event.eventId] ?: emptyList()
-                ))
+                    absorbedReceiptEventIds = absorbedByAnchor[event.eventId] ?: emptyList(),
+                )
+                )
 
                 previousEvent = event
             }
@@ -1598,28 +1644,30 @@ fun BubbleTimelineScreen(
     val baseMemberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
         appViewModel.getMemberMapWithFallback(roomId, sortedEvents)
     }
-    
+
     // CRITICAL FIX: Ensure current user profile is included in memberMap
     // The current user's profile might not be in the room's member map if there's no m.room.member event for them
     // This fixes the issue where own messages show username instead of display name/avatar
     val memberMap = remember(baseMemberMap, appViewModel.currentUserProfile, myUserId) {
         val enhancedMap = baseMemberMap.toMutableMap()
-        
+
         // If current user is not in member map but we have currentUserProfile, add it
         if (myUserId.isNotBlank() && !enhancedMap.containsKey(myUserId)) {
             val currentProfile = appViewModel.currentUserProfile
             if (currentProfile != null) {
                 enhancedMap[myUserId] = MemberProfile(
                     displayName = currentProfile.displayName,
-                    avatarUrl = currentProfile.avatarUrl
+                    avatarUrl = currentProfile.avatarUrl,
                 )
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "BubbleTimelineScreen: Added current user profile to memberMap - userId: $myUserId, displayName: ${currentProfile.displayName}"
+                    "BubbleTimelineScreen: Added current user profile to memberMap - userId: $myUserId, displayName: ${currentProfile.displayName}",
                 )
+                }
             }
         }
-        
+
         enhancedMap
     }
 
@@ -1657,11 +1705,7 @@ fun BubbleTimelineScreen(
     val prefetchedTimelineMemoryKeys = remember(roomId) { mutableSetOf<String>() }
     val prefetchGuardband = 50
 
-    fun enqueueTimelinePrefetch(
-        mxcUrl: String?,
-        keyPrefix: String,
-        requestSize: Int
-    ) {
+    fun enqueueTimelinePrefetch(mxcUrl: String?, keyPrefix: String, requestSize: Int) {
         if (mxcUrl.isNullOrBlank()) return
         val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl) ?: return
         val memoryKey = "bubble_timeline_prefetch:$roomId:$keyPrefix:${mxcUrl.hashCode()}"
@@ -1702,7 +1746,7 @@ fun BubbleTimelineScreen(
                     enqueueTimelinePrefetch(
                         mxcUrl = avatarMxc,
                         keyPrefix = "avatar:${event.sender}",
-                        requestSize = 256
+                        requestSize = 256,
                     )
 
                     // Prefetch media thumbnail (or media URL fallback) for image/video/sticker events
@@ -1727,7 +1771,7 @@ fun BubbleTimelineScreen(
                         enqueueTimelinePrefetch(
                             mxcUrl = thumbnailMxc ?: mediaMxc,
                             keyPrefix = "media:${event.eventId}",
-                            requestSize = 512
+                            requestSize = 512,
                         )
                     }
                 }
@@ -1743,7 +1787,7 @@ fun BubbleTimelineScreen(
             prefetchedTimelineMemoryKeys.clear()
         }
     }
-    
+
     // Track scroll position using event ID anchor (more robust than index)
     // Track scroll position for pagination restoration
     // With reverseLayout, we capture the highest visible index (oldest message at top)
@@ -1771,37 +1815,46 @@ fun BubbleTimelineScreen(
             // After pagination adds older events, we'll scroll so this index is at bottom of view
             val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
             val highestVisibleIndex = visibleIndices.maxOrNull()
-            
+
             if (highestVisibleIndex != null && timelineItems.isNotEmpty()) {
                 highestVisibleIndexBeforePagination = highestVisibleIndex
                 anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
                 pendingScrollRestoration = true
                 expectedTimelineSizeBeforePagination = timelineItems.size
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "BubbleTimelineScreen: Pull-to-refresh triggered, capturing highest visible index: $highestVisibleIndex (out of ${timelineItems.size} items)"
+                    "BubbleTimelineScreen: Pull-to-refresh triggered, capturing highest visible index: $highestVisibleIndex (out of ${timelineItems.size} items)",
                 )
+                }
             } else {
                 // Fallback: use first visible item index
                 highestVisibleIndexBeforePagination = listState.firstVisibleItemIndex
                 anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
                 pendingScrollRestoration = true
                 expectedTimelineSizeBeforePagination = timelineItems.size
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "BubbleTimelineScreen: Pull-to-refresh triggered, no visible items, using first visible index: ${listState.firstVisibleItemIndex}"
+                    "BubbleTimelineScreen: Pull-to-refresh triggered, no visible items, using first visible index: ${listState.firstVisibleItemIndex}",
                 )
+                }
             }
-            
+
             // Use the oldest event from cache, not the oldest rendered event
             // The cache may have events that aren't currently rendered, so we need to use
             // the absolute oldest event to avoid requesting duplicates
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest cached event")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest cached event",
+            )
+            }
             isRefreshingPull = true
             appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
-        }
+        },
     )
-    
+
     // Monitor pagination state to stop refresh indicator
     // Note: Refresh indicator is now cleared in scroll restoration LaunchedEffect
     // This is kept as a fallback in case scroll restoration doesn't trigger
@@ -1813,10 +1866,10 @@ fun BubbleTimelineScreen(
 
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
-    
+
     // Track previous app visibility state to detect background/foreground transitions
     var previousAppVisibleState by remember(roomId) { mutableStateOf(appViewModel.isAppVisible) }
-    
+
     // CRITICAL FIX: Immediately set scroll position to bottom when timelineItems first becomes available
     // This LaunchedEffect runs as soon as items are computed, before the first render completes
     // Using a separate flag to ensure we only do this once per room
@@ -1828,13 +1881,15 @@ fun BubbleTimelineScreen(
             listState.scrollToItem(0)
             isAttachedToBottom = true
             hasSetInitialScrollPosition = true
-            if (BuildConfig.DEBUG) Log.d(
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "BubbleTimelineScreen: Set initial scroll position to bottom (index=0, items=${timelineItems.size}) - reverseLayout anchors at bottom"
+                "BubbleTimelineScreen: Set initial scroll position to bottom (index=0, items=${timelineItems.size}) - reverseLayout anchors at bottom",
             )
+            }
         }
     }
-    
+
     // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
     // With reverseLayout, index 0 is bottom (newest message)
     // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
@@ -1846,23 +1901,24 @@ fun BubbleTimelineScreen(
         }
         if (timelineItems.isNotEmpty() && isAttachedToBottom && hasSetInitialScrollPosition) {
             val currentFirstVisible = listState.firstVisibleItemIndex
-            
+
             // Only adjust if we're not already at bottom (index 0)
             if (currentFirstVisible > 0) {
                 // Immediately adjust scroll position - happens in same frame as item addition
                 listState.scrollToItem(0)
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "BubbleTimelineScreen: Adjusted scroll position for new items (was at index=$currentFirstVisible, scrolled to 0) - reverseLayout"
+                    "BubbleTimelineScreen: Adjusted scroll position for new items (was at index=$currentFirstVisible, scrolled to 0) - reverseLayout",
                 )
+                }
             }
         }
     }
-    
 
     // Track if this is the first load (to avoid animation on initial room open)
     var isInitialLoad by remember { mutableStateOf(true) }
-    
+
     // Track if we're refreshing (to scroll to bottom after refresh)
     var isRefreshing by remember { mutableStateOf(false) }
 
@@ -1879,7 +1935,7 @@ fun BubbleTimelineScreen(
     LaunchedEffect(
         pendingNotificationJumpEventId,
         timelineItems,
-        readinessCheckComplete
+        readinessCheckComplete,
     ) {
         val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
         if (!readinessCheckComplete || timelineItems.isEmpty()) {
@@ -1896,14 +1952,16 @@ fun BubbleTimelineScreen(
             highlightedEventId = targetEventId
             highlightRequestId++
             pendingNotificationJumpEventId = null
-            if (BuildConfig.DEBUG) Log.d(
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "BubbleTimelineScreen: Jumped to notification target event=$targetEventId at index=$targetIndex"
+                "BubbleTimelineScreen: Jumped to notification target event=$targetEventId at index=$targetIndex",
             )
+            }
         } else if (BuildConfig.DEBUG) {
             Log.d(
                 "Andromuks",
-                "BubbleTimelineScreen: Pending notification target $targetEventId not yet in timeline (size=${timelineItems.size})"
+                "BubbleTimelineScreen: Pending notification target $targetEventId not yet in timeline (size=${timelineItems.size})",
             )
         }
     }
@@ -1919,7 +1977,9 @@ fun BubbleTimelineScreen(
             .debounce(50L)
             .collect { (index, offset) ->
                 // Match previous behavior: mark layout complete once we have items (independent of keyboard)
-                if (sortedEvents.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0 && !hasCompletedInitialLayout) {
+                if (sortedEvents.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0 &&
+                    !hasCompletedInitialLayout
+                ) {
                     hasCompletedInitialLayout = true
                 }
                 if (!hasInitialSnapCompleted || !hasLoadedInitialBatch || pendingScrollRestoration) {
@@ -1933,7 +1993,7 @@ fun BubbleTimelineScreen(
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "BubbleTimelineScreen: Attachment updated, isAttachedToBottom=$atBottom (index=$index, offset=$offset)"
+                                "BubbleTimelineScreen: Attachment updated, isAttachedToBottom=$atBottom (index=$index, offset=$offset)",
                             )
                         }
                     }
@@ -1946,7 +2006,7 @@ fun BubbleTimelineScreen(
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "BubbleTimelineScreen: Keyboard open, user scrolled up — detached (index=$index, offset=$offset) so FAB can show"
+                                "BubbleTimelineScreen: Keyboard open, user scrolled up — detached (index=$index, offset=$offset) so FAB can show",
                             )
                         }
                     }
@@ -1973,14 +2033,19 @@ fun BubbleTimelineScreen(
     // distinctUntilChanged would otherwise suppress the re-emission and stall the chain.
     // The total > 0 guard is dropped for the same reason: total == 0 with hasMoreMessages == true
     // is exactly the case we need to paginate through.
-    val REFILL_TRIGGER = 60          // start refilling when this few items remain above the viewport
-    val REFILL_TARGET = 180          // keep fetching until at least this many sit above the viewport
-    val MAX_REFILL_ROUNDS = 20       // safety valve against a backend that keeps advancing with no real yield
+    val REFILL_TRIGGER = 60 // start refilling when this few items remain above the viewport
+    val REFILL_TARGET = 180 // keep fetching until at least this many sit above the viewport
+    val MAX_REFILL_ROUNDS = 20 // safety valve against a backend that keeps advancing with no real yield
     LaunchedEffect(listState, roomId) {
         snapshotFlow {
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.maxOfOrNull { it.index } ?: 0
-            BubblePaginateSnapshot(info.totalItemsCount, lastVisible, appViewModel.isPaginating, pendingScrollRestoration)
+            BubblePaginateSnapshot(
+                info.totalItemsCount,
+                lastVisible,
+                appViewModel.isPaginating,
+                pendingScrollRestoration,
+            )
         }
             .distinctUntilChanged()
             .debounce(50L)
@@ -1997,21 +2062,25 @@ fun BubbleTimelineScreen(
                     refillRoundCount = 0
                 }
                 // Exit conditions: target reached, history exhausted, or safety cap hit.
-                if (itemsAbove >= REFILL_TARGET || !appViewModel.hasMoreMessages || refillRoundCount >= MAX_REFILL_ROUNDS) {
-                    if (isRefillingBuffer && BuildConfig.DEBUG) Log.d(
+                if (itemsAbove >= REFILL_TARGET || !appViewModel.hasMoreMessages ||
+                    refillRoundCount >= MAX_REFILL_ROUNDS
+                ) {
+                    if (isRefillingBuffer && BuildConfig.DEBUG) {
+                        Log.d(
                         "Andromuks",
-                        "BubbleTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages})"
+                        "BubbleTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages})",
                     )
+                    }
                     isRefillingBuffer = false
                 }
                 prevItemsAbove = itemsAbove
 
-                if (isRefillingBuffer
-                    && hasLoadedInitialBatch
-                    && hasInitialSnapCompleted
-                    && !pendingScrollRestoration
-                    && !snap.isPaginating
-                    && appViewModel.hasMoreMessages
+                if (isRefillingBuffer &&
+                    hasLoadedInitialBatch &&
+                    hasInitialSnapCompleted &&
+                    !pendingScrollRestoration &&
+                    !snap.isPaginating &&
+                    appViewModel.hasMoreMessages
                 ) {
                     val atBottom = listState.firstVisibleItemIndex == 0
                     if (!atBottom && total > 0) {
@@ -2021,15 +2090,19 @@ fun BubbleTimelineScreen(
                         anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
                         pendingScrollRestoration = true
                         expectedTimelineSizeBeforePagination = timelineItems.size
-                        if (BuildConfig.DEBUG) Log.d(
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
                             "Andromuks",
-                            "BubbleTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, highestVisible=$highestVisible)"
+                            "BubbleTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, highestVisible=$highestVisible)",
                         )
+                        }
                     } else {
-                        if (BuildConfig.DEBUG) Log.d(
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
                             "Andromuks",
-                            "BubbleTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total) — skipping scroll restoration"
+                            "BubbleTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total) — skipping scroll restoration",
                         )
+                        }
                     }
                     refillRoundCount++
                     appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
@@ -2052,16 +2125,18 @@ fun BubbleTimelineScreen(
             if (timelineItems.isNotEmpty()) {
                 coroutineScope.launch {
                     animatedScrollTo(0)
-                    if (BuildConfig.DEBUG) Log.d(
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
                         "Andromuks",
-                        "BubbleTimelineScreen: App resumed, animating scroll to bottom (index=0, items=${timelineItems.size}) - reverseLayout"
+                        "BubbleTimelineScreen: App resumed, animating scroll to bottom (index=0, items=${timelineItems.size}) - reverseLayout",
                     )
+                    }
                 }
             }
-            
+
             // Also set up a delayed check in case more items arrive during batch processing
             kotlinx.coroutines.delay(150)
-            
+
             // Re-check after a brief delay to catch any items added during batch processing
             if (timelineItems.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
                 val currentFirstVisible = listState.firstVisibleItemIndex
@@ -2072,49 +2147,53 @@ fun BubbleTimelineScreen(
                     // Still not at bottom after batch processing - animate scroll again
                     coroutineScope.launch {
                         animatedScrollTo(0)
-                        if (BuildConfig.DEBUG) Log.d(
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
                             "Andromuks",
-                            "BubbleTimelineScreen: App resumed, adjusted animated scroll after batch (was at index=$currentFirstVisible, scrolled to 0)"
+                            "BubbleTimelineScreen: App resumed, adjusted animated scroll after batch (was at index=$currentFirstVisible, scrolled to 0)",
                         )
+                        }
                     }
                 }
             }
         }
-        
+
         previousAppVisibleState = appViewModel.isAppVisible
     }
 
     // Track previous pagination state to detect when pagination finishes
     var previousIsPaginating by remember { mutableStateOf(appViewModel.isPaginating) }
-    
+
     // Detect when pagination completes and trigger scroll restoration
     // CRITICAL FIX: Only depend on isPaginating, not timelineItems.size
     // This prevents scroll restoration from triggering when new messages arrive
     LaunchedEffect(appViewModel.isPaginating) {
         val paginationJustFinished = previousIsPaginating && !appViewModel.isPaginating
         previousIsPaginating = appViewModel.isPaginating
-        
+
         // When pagination finishes and we have scroll restoration pending
         if (paginationJustFinished && pendingScrollRestoration) {
             val highestIndex = highestVisibleIndexBeforePagination
             val oldSize = expectedTimelineSizeBeforePagination
-            
+
             // CRITICAL: Check timelineEvents.size (from ViewModel) not timelineItems.size (from UI)
             // timelineItems.size may not be updated yet when this LaunchedEffect fires
             val newSize = appViewModel.timelineEvents.size
-            
+
             if (highestIndex != null && oldSize != null && newSize > oldSize) {
                 // With reverseLayout, new events are added at higher indices (older messages at top)
                 // We want to scroll so that the old highest index is at the bottom of the view
                 // Since new events were added, the old highest index is still valid
                 // We scroll to it so it appears at the bottom of the viewport
-                
-                if (BuildConfig.DEBUG) Log.d(
+
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
                     "BubbleTimelineScreen: Pagination completed, restoring scroll. " +
-                    "Old highest visible index: $highestIndex, old size: $oldSize, new size: $newSize"
+                        "Old highest visible index: $highestIndex, old size: $oldSize, new size: $newSize",
                 )
-                
+                }
+
                 // Wait for timelineItems to be rebuilt from timelineEvents
                 // We need to wait for the UI to process the new events
                 var waitCount = 0
@@ -2122,34 +2201,38 @@ fun BubbleTimelineScreen(
                     kotlinx.coroutines.delay(50)
                     waitCount++
                 }
-                
+
                 // Wait for layout to settle after new items are added
                 kotlinx.coroutines.delay(100)
-                
+
                 // Scroll so that the old highest index is at the TOP of the viewport
                 // With reverseLayout, higher indices are at the top, so scrolling to this index
                 // with offset 0 will place it at the top (where it was when pull-to-refresh was triggered)
                 val targetIndex = highestIndex.coerceIn(0, timelineItems.lastIndex)
-                
+
                 // Use animateScrollToItem with smooth animation for smooth UX
                 // scrollOffset = 0 ensures the item is at the top of the viewport
                 // The animation duration is controlled by Compose's default animation
                 animatedScrollTo(targetIndex, 0)
-                
-                if (BuildConfig.DEBUG) Log.d(
+
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
-                    "BubbleTimelineScreen: ✅ Scroll position restored to index $targetIndex (old highest visible index) at top of viewport"
+                    "BubbleTimelineScreen: ✅ Scroll position restored to index $targetIndex (old highest visible index) at top of viewport",
                 )
-                
+                }
+
                 // Wait for animation to complete (default is ~300-500ms) plus a bit more for layout to settle
                 kotlinx.coroutines.delay(600)
             } else {
                 // Fallback: maintain current scroll position
-                if (BuildConfig.DEBUG) Log.d(
+                if (BuildConfig.DEBUG) {
+                    Log.d(
                     "Andromuks",
                     "BubbleTimelineScreen: Pagination completed, but no valid index captured or no new events. " +
-                    "highestIndex=$highestIndex, oldSize=$oldSize, newSize=$newSize"
+                        "highestIndex=$highestIndex, oldSize=$oldSize, newSize=$newSize",
                 )
+                }
                 kotlinx.coroutines.delay(100)
                 val currentFirstIndex = listState.firstVisibleItemIndex
                 if (currentFirstIndex >= 0 && currentFirstIndex < timelineItems.size) {
@@ -2157,7 +2240,7 @@ fun BubbleTimelineScreen(
                 }
                 kotlinx.coroutines.delay(300)
             }
-            
+
             // Clear restoration state AFTER scroll has completed and timeline has settled
             pendingScrollRestoration = false
             highestVisibleIndexBeforePagination = null
@@ -2167,12 +2250,15 @@ fun BubbleTimelineScreen(
             isRefreshingPull = false
         }
     }
-    
+
     LaunchedEffect(isRefreshing) {
         if (isRefreshing) {
             kotlinx.coroutines.delay(2000)
             if (isRefreshing && !appViewModel.hasPendingTimelineRequest(roomId)) {
-                Log.w("Andromuks", "BubbleTimelineScreen: Manual refresh timeout - marking refresh as complete (no pending requests)")
+                Log.w(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Manual refresh timeout - marking refresh as complete (no pending requests)",
+                )
                 isRefreshing = false
             }
         }
@@ -2183,12 +2269,14 @@ fun BubbleTimelineScreen(
         timelineItems,
         isLoading,
         appViewModel.isPaginating,
-        pendingNotificationJumpEventId
+        pendingNotificationJumpEventId,
     ) {
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "BubbleTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
+            "BubbleTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted",
         )
+        }
 
         if (pendingNotificationJumpEventId != null) {
             return@LaunchedEffect
@@ -2224,7 +2312,12 @@ fun BubbleTimelineScreen(
                 previousItemCount = timelineItems.size
                 lastKnownTimelineEventId = lastEventId
 
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items) - reverseLayout")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items) - reverseLayout",
+                )
+                }
             }
             return@LaunchedEffect
         }
@@ -2233,7 +2326,12 @@ fun BubbleTimelineScreen(
 
         // Skip handling new items if we're waiting for scroll restoration after pagination
         if (pendingScrollRestoration) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Skipping new items handling - pending scroll restoration")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Skipping new items handling - pending scroll restoration",
+            )
+            }
             return@LaunchedEffect
         }
 
@@ -2242,7 +2340,7 @@ fun BubbleTimelineScreen(
         if (hasNewItems && isAttachedToBottom && lastEventId != null && lastEventId != lastKnownTimelineEventId) {
             // Wait a moment for layout to settle after new items are added
             kotlinx.coroutines.delay(100)
-            
+
             // Re-check conditions after delay
             if (listState.layoutInfo.totalItemsCount > 0 && timelineItems.isNotEmpty()) {
                 val currentFirstVisible = listState.firstVisibleItemIndex
@@ -2251,10 +2349,12 @@ fun BubbleTimelineScreen(
 
                 if (!actuallyAtBottom) {
                     // We're attached but not actually at bottom - scroll to bottom
-                    if (BuildConfig.DEBUG) Log.d(
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
                         "Andromuks",
-                        "BubbleTimelineScreen: Attached but not at bottom (firstVisible=$currentFirstVisible). animateScrollToItem to bottom (index=0)."
+                        "BubbleTimelineScreen: Attached but not at bottom (firstVisible=$currentFirstVisible). animateScrollToItem to bottom (index=0).",
                     )
+                    }
                     coroutineScope.launch {
                         // New-message scroll is a short hop — don't suppress images for it.
                         listState.animateScrollToItem(0)
@@ -2278,7 +2378,7 @@ fun BubbleTimelineScreen(
             previousItemCount = timelineItems.size
         }
     }
-    
+
     // CRITICAL FIX: Scroll to bottom when keyboard opens (so latest message is visible above keyboard)
     // In chat bubbles, users are typically at the bottom, so we always scroll when keyboard opens
     // PERFORMANCE: Use isKeyboardOpen derived state instead of imeBottom to reduce recomposition
@@ -2288,20 +2388,22 @@ fun BubbleTimelineScreen(
             previousKeyboardOpen = isKeyboardOpen
             return@LaunchedEffect
         }
-        
+
         val keyboardJustOpened = !previousKeyboardOpen && isKeyboardOpen
-        
+
         // When keyboard opens, always scroll to bottom in bubbles (users are typically at bottom)
         if (keyboardJustOpened && hasInitialSnapCompleted) {
             // Check actual scroll position for debugging
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
             val lastTimelineItemIndex = timelineItems.lastIndex
-            
-            if (BuildConfig.DEBUG) Log.d(
+
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "BubbleTimelineScreen: Keyboard opening - lastVisibleIndex=$lastVisibleIndex, lastIndex=$lastTimelineItemIndex, isAttachedToBottom=$isAttachedToBottom"
+                "BubbleTimelineScreen: Keyboard opening - lastVisibleIndex=$lastVisibleIndex, lastIndex=$lastTimelineItemIndex, isAttachedToBottom=$isAttachedToBottom",
             )
-            
+            }
+
             // With reverseLayout, bottom anchor stays fixed automatically when keyboard opens
             // But we can explicitly scroll to 0 to ensure we're at bottom
             // Wait for layout to actually adjust (viewport shrinks due to keyboard)
@@ -2319,21 +2421,26 @@ fun BubbleTimelineScreen(
             }
             // Additional small delay to ensure layout is fully settled
             kotlinx.coroutines.delay(50)
-            
+
             // Animate scroll to bottom for smooth transition
             coroutineScope.launch {
                 animatedScrollTo(0)
                 isAttachedToBottom = true // Update state
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Keyboard opened, animated scroll to bottom (index=0) after layout settled - reverseLayout")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Keyboard opened, animated scroll to bottom (index=0) after layout settled - reverseLayout",
+                )
+                }
             }
         }
-        
+
         previousKeyboardOpen = isKeyboardOpen
     }
 
     // Auto-scroll after each individual message bubble animation completes
     // This ensures we scroll after each message is rendered, not just when all animations finish
-    
+
     // Mark room as read when initial load completes and last message is rendered
     // CRITICAL: Only depend on hasInitialSnapCompleted and roomId - NOT timelineItems.size
     // Including timelineItems.size causes the effect to restart on every timeline change,
@@ -2344,18 +2451,24 @@ fun BubbleTimelineScreen(
             val lastEvent = timelineItems.lastOrNull() as? BubbleTimelineItem.Event
                 ?: timelineItems.reversed().firstOrNull { it is BubbleTimelineItem.Event } as? BubbleTimelineItem.Event
             val lastEventId = lastEvent?.event?.eventId
-            
+
             if (lastEventId != null) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Marking room $roomId as read with last event: $lastEventId")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Marking room $roomId as read with last event: $lastEventId",
+                )
+                }
                 appViewModel.markRoomAsRead(roomId, lastEventId)
                 hasMarkedAsRead = true
             }
         }
     }
-    
+
     LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll) {
         if (pendingInitialScroll && readinessCheckComplete && timelineItems.isNotEmpty() &&
-            timelineItems.size != lastInitialScrollSize) {
+            timelineItems.size != lastInitialScrollSize
+        ) {
             coroutineScope.launch {
                 // With reverseLayout, index 0 is bottom
                 listState.scrollToItem(0)
@@ -2375,25 +2488,41 @@ fun BubbleTimelineScreen(
         highlightRequestId = 0
         hasMarkedAsRead = false // Reset mark as read state when room changes
         appViewModel.promoteToPrimaryIfNeeded("bubble_timeline_$roomId")
-        
+
         // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded
         // RoomListScreen already calls it when user clicks, so we skip duplicate processing
         val isAlreadyLoaded = appViewModel.currentRoomId == roomId && appViewModel.timelineEvents.isNotEmpty()
         if (!isAlreadyLoaded) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache",
+            )
+            }
             appViewModel.navigateToRoomWithCache(roomId)
         } else {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Room $roomId already loaded (${appViewModel.timelineEvents.size} events), skipping navigateToRoomWithCache")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Room $roomId already loaded (${appViewModel.timelineEvents.size} events), skipping navigateToRoomWithCache",
+            )
+            }
         }
-        
+
         // CRITICAL: Add room to opened rooms (exempt from cache clearing on WebSocket reconnect)
         RoomTimelineCache.addOpenedRoom(roomId)
-        
+
         val requireInitComplete = !appViewModel.isWebSocketConnected()
-        val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete, roomId = roomId)
+        val readinessResult = appViewModel.awaitRoomDataReadiness(
+            requireInitComplete = requireInitComplete,
+            roomId = roomId,
+        )
         readinessCheckComplete = true
         if (!readinessResult && BuildConfig.DEBUG) {
-            Log.w("Andromuks", "BubbleTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
+            Log.w(
+                "Andromuks",
+                "BubbleTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data",
+            )
         }
         if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Loading timeline for room: $roomId")
         if (appViewModel.isAppVisible) {
@@ -2407,40 +2536,51 @@ fun BubbleTimelineScreen(
         isAttachedToBottom = true
         isInitialLoad = true
         hasInitialSnapCompleted = false
-        
+
         // Request room state
         // NOTE: navigateToRoomWithCache() already calls requestRoomTimeline() if cache is empty,
         // so we don't need to call it again here to avoid duplicate paginate requests
         // BubbleTimelineScreen: Don't use LRU cache since bubbles manage their own state independently
         appViewModel.requestRoomState(roomId)
     }
-    
+
     // CRITICAL: Remove room from opened rooms when bubble closes
     DisposableEffect(roomId) {
         onDispose {
             RoomTimelineCache.removeOpenedRoom(roomId)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Removed room $roomId from opened rooms (bubble closed)")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Removed room $roomId from opened rooms (bubble closed)",
+            )
+            }
         }
     }
-    
+
     // Track last known refresh trigger to detect when app resumes
     var lastKnownRefreshTrigger by remember { mutableStateOf(appViewModel.timelineRefreshTrigger) }
     var isInitialLoadComplete by remember(roomId) { mutableStateOf(false) }
-    
+
     // Mark initial load as complete after a short delay to distinguish from app resume
     LaunchedEffect(roomId) {
         kotlinx.coroutines.delay(500) // Wait 500ms after room opens
         isInitialLoadComplete = true
     }
-    
+
     // Refresh timeline when app resumes (to show new events received while suspended)
     // Only refresh if initial load is complete (not during initial room opening)
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
-        if (appViewModel.timelineRefreshTrigger > 0 && 
-            appViewModel.currentRoomId == roomId && 
+        if (appViewModel.timelineRefreshTrigger > 0 &&
+            appViewModel.currentRoomId == roomId &&
             isInitialLoadComplete &&
-            appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: App resumed, refreshing timeline for room: $roomId")
+            appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger
+        ) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: App resumed, refreshing timeline for room: $roomId",
+            )
+            }
             // Don't reset state flags - this is just a refresh, not a new room load
             appViewModel.requestRoomTimeline(roomId, useLruCache = false)
             lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
@@ -2452,21 +2592,36 @@ fun BubbleTimelineScreen(
         val foregroundRefreshReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Received FOREGROUND_REFRESH broadcast, refreshing timeline UI from cache for room: $roomId")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "BubbleTimelineScreen: Received FOREGROUND_REFRESH broadcast, refreshing timeline UI from cache for room: $roomId",
+                    )
+                    }
                     // Lightweight timeline refresh from cached data (no network requests)
                     appViewModel.refreshTimelineUI()
                 }
             }
         }
-        
+
         val filter = IntentFilter("net.vrkknn.andromuks.FOREGROUND_REFRESH")
         context.registerReceiver(foregroundRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Registered FOREGROUND_REFRESH broadcast receiver")
-        
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            "Andromuks",
+            "BubbleTimelineScreen: Registered FOREGROUND_REFRESH broadcast receiver",
+        )
+        }
+
         onDispose {
             try {
                 context.unregisterReceiver(foregroundRefreshReceiver)
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Unregistered FOREGROUND_REFRESH broadcast receiver")
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Unregistered FOREGROUND_REFRESH broadcast receiver",
+                )
+                }
             } catch (e: Exception) {
                 Log.w("Andromuks", "BubbleTimelineScreen: Error unregistering foreground refresh receiver", e)
             }
@@ -2487,10 +2642,12 @@ fun BubbleTimelineScreen(
     // Missing profiles are automatically requested from the server
     LaunchedEffect(sortedEvents) {
         if (sortedEvents.isNotEmpty()) {
-            if (BuildConfig.DEBUG) Log.d(
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "BubbleTimelineScreen: Validating user profiles for ${sortedEvents.size} events"
+                "BubbleTimelineScreen: Validating user profiles for ${sortedEvents.size} events",
             )
+            }
             appViewModel.validateAndRequestMissingProfiles(roomId, sortedEvents)
         }
     }
@@ -2498,11 +2655,13 @@ fun BubbleTimelineScreen(
     // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
     // This prevents loading 15,000+ profiles upfront for large rooms
     LaunchedEffect(sortedEvents, roomId) {
-        if (BuildConfig.DEBUG) Log.d(
+        if (BuildConfig.DEBUG) {
+            Log.d(
             "Andromuks",
-            "BubbleTimelineScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
+            "BubbleTimelineScreen: Using opportunistic profile loading for $roomId (no bulk loading)",
         )
-        
+        }
+
         // Only request profiles for users that are actually visible in the timeline
         // This dramatically reduces memory usage for large rooms
         if (sortedEvents.isNotEmpty()) {
@@ -2510,12 +2669,14 @@ fun BubbleTimelineScreen(
                 sortedEvents.take(50).forEach { add(it.sender) }
                 sortedEvents.takeLast(50).forEach { add(it.sender) }
             }
-            
-            if (BuildConfig.DEBUG) Log.d(
+
+            if (BuildConfig.DEBUG) {
+                Log.d(
                 "Andromuks",
-                "BubbleTimelineScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)"
+                "BubbleTimelineScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)",
             )
-            
+            }
+
             // Request profiles one by one as needed (including current user if missing)
             visibleUsers.forEach { userId ->
                 // Check if profile is missing (including for current user)
@@ -2538,10 +2699,12 @@ fun BubbleTimelineScreen(
             val memberMap = appViewModel.getMemberMap(roomId)
             val profilesToSave = usersInTimeline.filter { memberMap.containsKey(it) }
             if (profilesToSave.isNotEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d(
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
                     "Andromuks",
-                    "BubbleTimelineScreen: Saving ${profilesToSave.size} profiles to disk for users in timeline"
+                    "BubbleTimelineScreen: Saving ${profilesToSave.size} profiles to disk for users in timeline",
                 )
+                }
                 // Profiles are cached in-memory only - no DB persistence needed
             }
         }
@@ -2550,17 +2713,27 @@ fun BubbleTimelineScreen(
     // Ensure timeline reactively updates when new events arrive from sync
     // OPTIMIZED: Only track timelineEvents changes directly, updateCounter is handled by receipt updates
     LaunchedEffect(timelineEvents) {
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId")
-        
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            "Andromuks",
+            "BubbleTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId",
+        )
+        }
+
         // Only react to changes for the current room
         if (appViewModel.currentRoomId == roomId) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events")
-            
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events",
+            )
+            }
+
             // Force recomposition when timeline events change
             // This ensures the UI updates even when battery optimization might skip updates
         }
     }
-    
+
     // CRITICAL FIX: Observe timeline changes reactively using state flows
     // This detects new events that were persisted to DB but might not have triggered timeline updates
     // (e.g., due to race conditions, timing issues, or if events weren't in sync batch)
@@ -2570,7 +2743,7 @@ fun BubbleTimelineScreen(
         if (appViewModel.currentRoomId != roomId || isLoading) {
             return@LaunchedEffect
         }
-        
+
         // Events are in-memory cache only - no DB observation needed
         // Timeline updates come from sync_complete and pagination
     }
@@ -2595,2079 +2768,2311 @@ fun BubbleTimelineScreen(
     CompositionLocalProvider(
         LocalScrollHighlightState provides ScrollHighlightState(
             eventId = highlightedEventId,
-            requestId = highlightRequestId
+            requestId = highlightRequestId,
         ),
         LocalActiveMessageMenuEventId provides messageMenuConfig?.event?.eventId,
-        net.vrkknn.andromuks.ui.components.LocalIsScrollingFast provides isAnimatedScrolling
+        net.vrkknn.andromuks.ui.components.LocalIsScrollingFast provides isAnimatedScrolling,
     ) {
         AndromuksTheme {
             Surface {
                 Box(modifier = modifier.fillMaxSize()) {
-                Column(
-                    modifier =
+                    Column(
+                        modifier =
                         Modifier.fillMaxSize()
-                            .imePadding()  // Handle keyboard padding at Column level
+                            .imePadding() // Handle keyboard padding at Column level
                             .then(
                                 if (showDeleteDialog) {
                                     Modifier.blur(10.dp)
                                 } else {
                                     Modifier
-                                }
-                            )
-                ) {
-                    // 1. Room Header (always visible at the top, below status bar)
-                    BubbleRoomHeader(
-                        roomState = appViewModel.currentRoomState,
-                        fallbackName = displayRoomName,
-                        fallbackAvatarUrl = displayAvatarUrl,
-                        homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = appViewModel.authToken,
-                        roomId = roomId,
-                        onHeaderClick = {
-                            // CRITICAL FIX: Disable header click in chat bubbles - room_info route doesn't exist
-                            // in the bubble navigation graph. Users can open the full app to access room info.
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Header click disabled - room info not available in bubble navigation")
-                        },
-                        onOpenInApp = onOpenInApp,
-                        onCloseBubble = onCloseBubble,
-                        onMinimizeBubble = onMinimizeBubble,
-                        onRefreshClick = {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Full refresh button clicked for room $roomId")
-                            isRefreshing = true
-                            appViewModel.setAutoPaginationEnabled(false, "bubble_manual_refresh_ui_$roomId")
-                            appViewModel.fullRefreshRoomTimeline(roomId)
-                        }
-                    )
-
-                    if (appViewModel.notificationActionInProgress) {
-                        ExpressiveStatusRow(
-                            text = "Completing notification action...",
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            indicatorColor = MaterialTheme.colorScheme.primary,
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
-                        )
-                    }
-                    
-                    // Show upload status when uploads are in progress
-                    if (appViewModel.hasUploadInProgress(roomId)) {
-                        val uploadType = appViewModel.getUploadType(roomId)
-                        val retryCount = appViewModel.getUploadRetryCount(roomId)
-                        val retrySuffix = if (retryCount > 0) " (Retrying $retryCount/3)" else ""
-                        val statusText = when (uploadType) {
-                            "video" -> "Uploading video$retrySuffix..."
-                            "audio" -> "Uploading audio$retrySuffix..."
-                            "file" -> "Uploading file$retrySuffix..."
-                            "image" -> "Uploading image$retrySuffix..."
-                            else -> "Uploading media$retrySuffix..."
-                        }
-                        val uploadProgress = appViewModel.getUploadProgress(roomId)
-                        ExpressiveStatusRow(
-                            text = statusText,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            indicatorColor = MaterialTheme.colorScheme.primary,
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
-                            progress = uploadProgress
-                        )
-                    }
-
-                    // Pagination indicator: visible while older messages are being fetched/merged
-                    AnimatedVisibility(visible = appViewModel.isPaginating, enter = scaledColumnEnter(), exit = scaledColumnExit()) {
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-                    }
-                    // 2. Timeline (compressible, scrollable content)
-                    Box(
-                        modifier = Modifier.weight(1f).fillMaxWidth()
-                            .then(
-                                if (showAttachmentMenu || messageMenuConfig != null) {
-                                    Modifier.clickable {
-                                        // Close attachment menu or message menu when tapping outside
-                                        showAttachmentMenu = false
-                                        messageMenuConfig = null
-                                    }
-                                } else {
-                                    Modifier
-                                }
-                            )
+                                },
+                            ),
                     ) {
-                        if (!readinessCheckComplete || isLoading) {
-                            Box(
-                                modifier = Modifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
+                        // 1. Room Header (always visible at the top, below status bar)
+                        BubbleRoomHeader(
+                            roomState = appViewModel.currentRoomState,
+                            fallbackName = displayRoomName,
+                            fallbackAvatarUrl = displayAvatarUrl,
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = appViewModel.authToken,
+                            roomId = roomId,
+                            onHeaderClick = {
+                                // CRITICAL FIX: Disable header click in chat bubbles - room_info route doesn't exist
+                                // in the bubble navigation graph. Users can open the full app to access room info.
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "BubbleTimelineScreen: Header click disabled - room info not available in bubble navigation",
+                                )
+                                }
+                            },
+                            onOpenInApp = onOpenInApp,
+                            onCloseBubble = onCloseBubble,
+                            onMinimizeBubble = onMinimizeBubble,
+                            onRefreshClick = {
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                    "Andromuks",
+                                    "BubbleTimelineScreen: Full refresh button clicked for room $roomId",
+                                )
+                                }
+                                isRefreshing = true
+                                appViewModel.setAutoPaginationEnabled(false, "bubble_manual_refresh_ui_$roomId")
+                                appViewModel.fullRefreshRoomTimeline(roomId)
+                            },
+                        )
+
+                        if (appViewModel.notificationActionInProgress) {
+                            ExpressiveStatusRow(
+                                text = "Completing notification action...",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                            )
+                        }
+
+                        // Show upload status when uploads are in progress
+                        if (appViewModel.hasUploadInProgress(roomId)) {
+                            val uploadType = appViewModel.getUploadType(roomId)
+                            val retryCount = appViewModel.getUploadRetryCount(roomId)
+                            val retrySuffix = if (retryCount > 0) " (Retrying $retryCount/3)" else ""
+                            val statusText = when (uploadType) {
+                                "video" -> "Uploading video$retrySuffix..."
+                                "audio" -> "Uploading audio$retrySuffix..."
+                                "file" -> "Uploading file$retrySuffix..."
+                                "image" -> "Uploading image$retrySuffix..."
+                                else -> "Uploading media$retrySuffix..."
+                            }
+                            val uploadProgress = appViewModel.getUploadProgress(roomId)
+                            ExpressiveStatusRow(
+                                text = statusText,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                indicatorColor = MaterialTheme.colorScheme.primary,
+                                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                                progress = uploadProgress,
+                            )
+                        }
+
+                        // Pagination indicator: visible while older messages are being fetched/merged
+                        AnimatedVisibility(
+                            visible = appViewModel.isPaginating,
+                            enter = scaledColumnEnter(),
+                            exit = scaledColumnExit(),
+                        ) {
+                            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+                        // 2. Timeline (compressible, scrollable content)
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth()
+                                .then(
+                                    if (showAttachmentMenu || messageMenuConfig != null) {
+                                        Modifier.clickable {
+                                            // Close attachment menu or message menu when tapping outside
+                                            showAttachmentMenu = false
+                                            messageMenuConfig = null
+                                        }
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                        ) {
+                            if (!readinessCheckComplete || isLoading) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center,
                                 ) {
-                                    ExpressiveLoadingIndicator(modifier = Modifier.size(80.dp))
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        text = if (appViewModel.postJoinLoadingRooms.contains(roomId)) "Waiting for room data" else "Loading timeline...",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                    ) {
+                                        ExpressiveLoadingIndicator(modifier = Modifier.size(80.dp))
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        Text(
+                                            text = if (appViewModel.postJoinLoadingRooms.contains(
+                                                    roomId,
+                                                )
+                                            ) {
+                                                    "Waiting for room data"
+                                                } else {
+                                                    "Loading timeline..."
+                                                },
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            } else {
+                                DisposableEffect(listState, coroutineScope) {
+                                    TimelineMediaLayoutCallback.callback = {
+                                        coroutineScope.launch {
+                                            if (pendingScrollRestoration) return@launch
+                                            if (listState.firstVisibleItemIndex == 0 &&
+                                                listState.firstVisibleItemScrollOffset < 100
+                                            ) {
+                                                animatedScrollTo(0)
+                                            }
+                                        }
+                                    }
+                                    onDispose { TimelineMediaLayoutCallback.callback = null }
+                                }
+                                // clipToBounds ensures the date pill slides from behind the header rather than over it
+                                Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
+                                    // Oldest visible item is at the highest index in the reversed list (top of screen)
+                                    val reversedBubbleItems = remember(timelineItems) { timelineItems.reversed() }
+                                    val oldestVisibleDateBubble by remember(reversedBubbleItems) {
+                                        derivedStateOf {
+                                            val highestIdx = listState.layoutInfo.visibleItemsInfo
+                                                .maxOfOrNull { it.index } ?: return@derivedStateOf null
+                                            when (val item = reversedBubbleItems.getOrNull(highestIdx)) {
+                                                is BubbleTimelineItem.Event -> {
+                                                    java.text.SimpleDateFormat("dd / MM / yyyy", java.util.Locale.getDefault())
+                                                        .format(java.util.Date(item.event.timestamp))
+                                                }
+
+                                                is BubbleTimelineItem.DateDivider -> item.date
+
+                                                else -> null
+                                            }
+                                        }
+                                    }
+                                    val scrollKeyBubble by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .pullRefresh(pullRefreshState),
+                                        state = listState,
+                                        // CRITICAL: Use reverseLayout to anchor list at bottom (like WhatsApp/Google Messages)
+                                        // This makes keyboard handling automatic - viewport shrinks but bottom anchor stays fixed
+                                        reverseLayout = true,
+                                        // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                            start = 8.dp,
+                                            end = 0.dp,
+                                            top = 8.dp,
+                                            bottom = 120.dp, // Extra padding at bottom for better scroll performance
+                                        ),
+                                        // PERFORMANCE: Enable smooth scrolling optimizations
+                                        userScrollEnabled = true,
+                                    ) {
+                                        // PERFORMANCE: Use stable keys and pre-computed consecutive flags
+                                        // CRITICAL: Reverse items list since reverseLayout flips rendering order but not data order
+                                        itemsIndexed(
+                                            items = timelineItems.reversed(),
+                                            key = { _, item -> item.stableKey },
+                                        ) { index, item ->
+                                            when (item) {
+                                                is BubbleTimelineItem.DateDivider -> {
+                                                    BubbleDateDivider(item.date)
+                                                }
+
+                                                is BubbleTimelineItem.Event -> {
+                                                    val event = item.event
+                                                    // PERFORMANCE: Removed logging from item rendering to improve scroll performance
+                                                    val isMine = myUserId.isNotBlank() && event.sender == myUserId
+
+                                                    // PERFORMANCE: Use pre-computed consecutive flag instead of index-based lookup
+                                                    val isConsecutive = item.isConsecutive
+
+                                                    // Add a little extra spacing before non-consecutive messages
+                                                    // (only when the previous timeline item is also an event).
+                                                    val previousItem = if (index > 0) timelineItems[index - 1] else null
+                                                    val addTopSpacing =
+                                                        previousItem is BubbleTimelineItem.Event && !isConsecutive
+
+                                                    Column {
+                                                        if (addTopSpacing) {
+                                                            Spacer(modifier = Modifier.height(6.dp))
+                                                        }
+
+                                                        TimelineEventItem(
+                                                            event = event,
+                                                            timelineEvents = timelineEvents,
+                                                            editsByTargetId = editEventsByTargetId,
+                                                            homeserverUrl = homeserverUrl,
+                                                            authToken = authToken,
+                                                            userProfileCache = memberMap,
+                                                            isMine = isMine,
+                                                            myUserId = myUserId,
+                                                            isConsecutive = isConsecutive,
+                                                            absorbedReceiptEventIds = item.absorbedReceiptEventIds,
+                                                            appViewModel = appViewModel,
+                                                            onScrollToMessage = { eventId ->
+                                                                // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
+                                                                val indexInOriginal = timelineItems.indexOfFirst { item ->
+                                                                    when (item) {
+                                                                        is BubbleTimelineItem.Event -> item.event.eventId == eventId
+                                                                        is BubbleTimelineItem.DateDivider -> false
+                                                                    }
+                                                                }
+                                                                if (indexInOriginal >= 0) {
+                                                                    // Convert to reversed index: if item is at index N in original, it's at (lastIndex - N) in reversed
+                                                                    val lastIndex = timelineItems.lastIndex
+                                                                    val reversedIndex = lastIndex - indexInOriginal
+                                                                    // Save current position so Back can return here
+                                                                    jumpBackStack.addLast(
+                                                                        listState.firstVisibleItemIndex to
+                                                                            listState.firstVisibleItemScrollOffset,
+                                                                    )
+                                                                    coroutineScope.launch {
+                                                                        listState.scrollToItem(reversedIndex)
+                                                                        highlightedEventId = eventId
+                                                                        highlightRequestId++
+                                                                    }
+                                                                } else {
+                                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                                                    val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
+                                                                    pendingEventContextScrollRestore =
+                                                                        listState.firstVisibleItemIndex to
+                                                                        listState.firstVisibleItemScrollOffset
+                                                                    navController.navigate(
+                                                                        "event_context/$encodedRoomId/$encodedEventId",
+                                                                    )
+                                                                }
+                                                            },
+                                                            onReply = { event -> replyingToEvent = event },
+                                                            onReact = { event ->
+                                                                reactingToEvent = event
+                                                                showEmojiSelection = true
+                                                            },
+                                                            onEdit = { event -> editingEvent = event },
+                                                            onDelete = { event ->
+                                                                deletingEvent = event
+                                                                showDeleteDialog = true
+                                                            },
+                                                            onUserClick = { userId ->
+                                                                // CRITICAL FIX: Disable user info navigation in chat bubbles - user_info route doesn't exist
+                                                                // in the bubble navigation graph. Users can open the full app to access user info.
+                                                                if (BuildConfig.DEBUG) {
+                                                                    Log.d(
+                                                                    "Andromuks",
+                                                                    "BubbleTimelineScreen: User click disabled - user info not available in bubble navigation",
+                                                                )
+                                                                }
+                                                                android.widget.Toast.makeText(
+                                                                    context,
+                                                                    "Open in full app to view user profile",
+                                                                    android.widget.Toast.LENGTH_SHORT,
+                                                                ).show()
+                                                            },
+                                                            onRoomLinkClick = { roomLink ->
+                                                                if (BuildConfig.DEBUG) {
+                                                                    Log.d(
+                                                                    "Andromuks",
+                                                                    "BubbleTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}",
+                                                                )
+                                                                }
+
+                                                                // Extract server from message sender (format: @user:server.com)
+                                                                val senderServer = try {
+                                                                    if (event.sender.contains(":")) {
+                                                                        event.sender.substringAfter(":")
+                                                                    } else {
+                                                                        null
+                                                                    }
+                                                                } catch (e: Exception) {
+                                                                    null
+                                                                }
+
+                                                                // Add sender's server to viaServers if available
+                                                                val enhancedViaServers = if (senderServer != null &&
+                                                                    !roomLink.viaServers.contains(
+                                                                        senderServer,
+                                                                    )
+                                                                ) {
+                                                                    roomLink.viaServers + senderServer
+                                                                } else {
+                                                                    roomLink.viaServers
+                                                                }
+
+                                                                val enhancedRoomLink = roomLink.copy(viaServers = enhancedViaServers)
+
+                                                                // If it's a room ID, check if we're already joined
+                                                                val existingRoom = if (enhancedRoomLink.roomIdOrAlias.startsWith("!")) {
+                                                                    val room = appViewModel.getRoomById(enhancedRoomLink.roomIdOrAlias)
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                        "Andromuks",
+                                                                        "BubbleTimelineScreen: Checked for existing room ${enhancedRoomLink.roomIdOrAlias}, found: ${room != null}",
+                                                                    )
+                                                                    }
+                                                                    room
+                                                                } else {
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                        "Andromuks",
+                                                                        "BubbleTimelineScreen: Room link is an alias, showing joiner",
+                                                                    )
+                                                                    }
+                                                                    null
+                                                                }
+
+                                                                if (existingRoom != null) {
+                                                                    // Already joined, navigate directly
+                                                                    val targetRoomId = enhancedRoomLink.roomIdOrAlias
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                        "Andromuks",
+                                                                        "BubbleTimelineScreen: Already joined, navigating to $targetRoomId",
+                                                                    )
+                                                                    }
+                                                                    // If this is an event permalink, stash the jump so the opened room lands on it.
+                                                                    enhancedRoomLink.eventId?.let {
+                                                                        appViewModel.setPendingInterRoomJump(
+                                                                            targetRoomId,
+                                                                            it,
+                                                                        )
+                                                                    }
+                                                                    // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
+                                                                    // and navigate via room_list, letting RoomListScreen handle the final navigation.
+                                                                    // This matches the pattern used by notifications/shortcuts and ensures proper state management.
+                                                                    appViewModel.setCurrentRoomIdForTimeline(targetRoomId)
+                                                                    appViewModel.setDirectRoomNavigation(targetRoomId)
+                                                                    navController.navigate("room_list")
+                                                                } else {
+                                                                    // For aliases or non-joined rooms, show room joiner
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                        "Andromuks",
+                                                                        "BubbleTimelineScreen: Not joined, showing room joiner with via servers: $enhancedViaServers",
+                                                                    )
+                                                                    }
+                                                                    roomLinkToJoin = enhancedRoomLink
+                                                                    showRoomJoiner = true
+                                                                }
+                                                            },
+                                                            onThreadClick = { threadEvent ->
+                                                                // Navigate to thread viewer
+                                                                val threadInfo = threadEvent.getThreadInfo()
+                                                                if (threadInfo != null) {
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                        "Andromuks",
+                                                                        "BubbleTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}",
+                                                                    )
+                                                                    }
+                                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                                                    val encodedThreadRoot = java.net.URLEncoder.encode(
+                                                                        threadInfo.threadRootEventId,
+                                                                        "UTF-8",
+                                                                    )
+                                                                    navController.navigate(
+                                                                        "thread_viewer/$encodedRoomId/$encodedThreadRoot",
+                                                                    )
+                                                                }
+                                                            },
+                                                            onCodeBlockClick = { code ->
+                                                                codeViewerContent = code
+                                                                showCodeViewer = true
+                                                            },
+                                                            onShowMenu = { menuConfig ->
+                                                                // Close attach menu if open
+                                                                showAttachmentMenu = false
+                                                                messageMenuConfig = menuConfig.copy(
+                                                                    onViewSource = { code ->
+                                                                        codeViewerContent = code
+                                                                        showCodeViewer = true
+                                                                    },
+                                                                    onViewRenderedText = { text ->
+                                                                        codeViewerContent = text
+                                                                        showCodeViewer = true
+                                                                    },
+                                                                    onShowReactions = {
+                                                                        reactionsEventId = menuConfig.event.eventId
+                                                                        showReactionsDialog = true
+                                                                    },
+                                                                    onViewInThread = if (menuConfig.event.isThreadMessage()) {
+                                                                        {
+                                                                            val threadInfo = menuConfig.event.getThreadInfo()
+                                                                            if (threadInfo != null) {
+                                                                                val encodedRoomId = java.net.URLEncoder.encode(
+                                                                                    roomId,
+                                                                                    "UTF-8",
+                                                                                )
+                                                                                val encodedThreadRoot = java.net.URLEncoder.encode(
+                                                                                    threadInfo.threadRootEventId,
+                                                                                    "UTF-8",
+                                                                                )
+                                                                                navController.navigate(
+                                                                                    "thread_viewer/$encodedRoomId/$encodedThreadRoot",
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        null
+                                                                    },
+                                                                    onShowBridgeDeliveryInfo = if (appViewModel.messageBridgeSendStatus.containsKey(
+                                                                            menuConfig.event.eventId,
+                                                                        )
+                                                                    ) {
+                                                                        {
+                                                                            bridgeDeliveryEventId = menuConfig.event.eventId
+                                                                            showBridgeDeliveryDialog = true
+                                                                        }
+                                                                    } else {
+                                                                        null
+                                                                    },
+                                                                )
+                                                            },
+                                                            onShowReactions = {
+                                                                reactionsEventId = event.eventId
+                                                                showReactionsDialog = true
+                                                            },
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Sticky date pill — shows date of oldest visible event while scrolling up
+                                    net.vrkknn.andromuks.utils.StickyDateIndicator(
+                                        oldestVisibleDate = oldestVisibleDateBubble,
+                                        scrollPositionKey = scrollKeyBubble,
+                                        modifier = Modifier
+                                            .align(Alignment.TopCenter)
+                                            .padding(top = 8.dp)
+                                            .zIndex(1f),
+                                    )
+
+                                    // Pull-to-refresh indicator (outside LazyColumn, inside Box)
+                                    PullRefreshIndicator(
+                                        refreshing = isRefreshingPull,
+                                        state = pullRefreshState,
+                                        modifier = Modifier.align(Alignment.TopCenter),
                                     )
                                 }
                             }
-                        } else {
-                            DisposableEffect(listState, coroutineScope) {
-                                TimelineMediaLayoutCallback.callback = {
-                                    coroutineScope.launch {
-                                        if (pendingScrollRestoration) return@launch
-                                        if (listState.firstVisibleItemIndex == 0 &&
-                                            listState.firstVisibleItemScrollOffset < 100
-                                        ) {
-                                            animatedScrollTo(0)
-                                        }
-                                    }
-                                }
-                                onDispose { TimelineMediaLayoutCallback.callback = null }
-                            }
-                            // clipToBounds ensures the date pill slides from behind the header rather than over it
-                            Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
-                            // Oldest visible item is at the highest index in the reversed list (top of screen)
-                            val reversedBubbleItems = remember(timelineItems) { timelineItems.reversed() }
-                            val oldestVisibleDateBubble by remember(reversedBubbleItems) {
-                                derivedStateOf {
-                                    val highestIdx = listState.layoutInfo.visibleItemsInfo
-                                        .maxOfOrNull { it.index } ?: return@derivedStateOf null
-                                    when (val item = reversedBubbleItems.getOrNull(highestIdx)) {
-                                        is BubbleTimelineItem.Event -> {
-                                            java.text.SimpleDateFormat("dd / MM / yyyy", java.util.Locale.getDefault())
-                                                .format(java.util.Date(item.event.timestamp))
-                                        }
-                                        is BubbleTimelineItem.DateDivider -> item.date
-                                        else -> null
-                                    }
-                                }
-                            }
-                            val scrollKeyBubble by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+                        }
 
-                            LazyColumn(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .pullRefresh(pullRefreshState),
-                                state = listState,
-                            // CRITICAL: Use reverseLayout to anchor list at bottom (like WhatsApp/Google Messages)
-                            // This makes keyboard handling automatic - viewport shrinks but bottom anchor stays fixed
-                            reverseLayout = true,
-                            // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                start = 8.dp,
-                                end = 0.dp,
-                                top = 8.dp,
-                                bottom = 120.dp // Extra padding at bottom for better scroll performance
-                            ),
-                            // PERFORMANCE: Enable smooth scrolling optimizations
-                            userScrollEnabled = true
+                        // 4. Typing notification area (stacks naturally above text box)
+                        TypingNotificationArea(
+                            typingUsers = appViewModel.getTypingUsersForRoom(roomId),
+                            roomId = roomId,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            userProfileCache = appViewModel.getMemberMap(roomId),
+                            appViewModel = appViewModel,
+                        )
+
+                        // 5. Text box (always at the bottom, above keyboard/nav bar)
+                        Surface(
+                            color = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 0.dp,
+                            modifier =
+                            Modifier.fillMaxWidth()
+                                .navigationBarsPadding(),
+                            // .imePadding() removed - Column handles it now
                         ) {
-                            // PERFORMANCE: Use stable keys and pre-computed consecutive flags
-                            // CRITICAL: Reverse items list since reverseLayout flips rendering order but not data order
-                            itemsIndexed(
-                                items = timelineItems.reversed(),
-                                key = { _, item -> item.stableKey }
-                            ) { index, item ->
-                                when (item) {
-                                    is BubbleTimelineItem.DateDivider -> {
-                                        BubbleDateDivider(item.date)
-                                    }
-                                    is BubbleTimelineItem.Event -> {
-                                        val event = item.event
-                                        // PERFORMANCE: Removed logging from item rendering to improve scroll performance
-                                        val isMine = myUserId.isNotBlank() && event.sender == myUserId
-
-                                        // PERFORMANCE: Use pre-computed consecutive flag instead of index-based lookup
-                                        val isConsecutive = item.isConsecutive
-
-                                        // Add a little extra spacing before non-consecutive messages
-                                        // (only when the previous timeline item is also an event).
-                                        val previousItem = if (index > 0) timelineItems[index - 1] else null
-                                        val addTopSpacing =
-                                            previousItem is BubbleTimelineItem.Event && !isConsecutive
-
-                                        Column {
-                                            if (addTopSpacing) {
-                                                Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier =
+                                Modifier.fillMaxWidth().padding(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 8.dp),
+                                verticalAlignment = Alignment.Bottom,
+                            ) {
+                                // Main attach button
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.width(48.dp).height(buttonHeight),
+                                ) {
+                                    IconButton(
+                                        enabled = isInputEnabled,
+                                        onClick = {
+                                            if (isInputEnabled) {
+                                                // Close message menu if open
+                                                messageMenuConfig = null
+                                                showAttachmentMenu = !showAttachmentMenu
                                             }
+                                        },
+                                        modifier = Modifier.fillMaxSize(),
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.AttachFile,
+                                            contentDescription = "Attach",
+                                            tint = if (isInputEnabled) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                alpha = 0.38f,
+                                            )
+                                            },
+                                        )
+                                    }
+                                }
 
-                                            TimelineEventItem(
-                                                event = event,
-                                                timelineEvents = timelineEvents,
-                                                editsByTargetId = editEventsByTargetId,
+                                Spacer(modifier = Modifier.width(8.dp))
+
+                                // Pill-shaped text input with optional reply preview inside
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape =
+                                    RoundedCornerShape(
+                                        16.dp,
+                                    ), // Rounded rectangle that works both as pill and expanded
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.weight(1f),
+                                ) {
+                                    Column {
+                                        // Edit preview inside the text input (if editing)
+                                        if (editingEvent != null) {
+                                            EditPreviewInput(
+                                                event = editingEvent!!,
+                                                onCancel = {
+                                                    editingEvent = null
+                                                    draft = "" // Clear draft when canceling edit
+                                                },
+                                            )
+                                        }
+
+                                        // Reply preview inside the text input (if replying)
+                                        if (replyingToEvent != null) {
+                                            ReplyPreviewInput(
+                                                event = replyingToEvent!!,
+                                                userProfileCache = memberMap, // Use reactive memberMap instead of static userProfileCache
+                                                onCancel = { replyingToEvent = null },
+                                                appViewModel = appViewModel,
+                                                roomId = roomId,
+                                            )
+                                        }
+
+                                        // URL preview composition bar
+                                        if (appViewModel.resolveSendBundledUrlPreviews(roomId)) {
+                                            UrlPreviewCompositionBar(
+                                                text = draft,
+                                                controller = urlPreviewController,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
-                                                userProfileCache = memberMap,
-                                                isMine = isMine,
-                                                myUserId = myUserId,
-                                                isConsecutive = isConsecutive,
-                                                absorbedReceiptEventIds = item.absorbedReceiptEventIds,
-                                                appViewModel = appViewModel,
-                                                onScrollToMessage = { eventId ->
-                                                // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
-                                                val indexInOriginal = timelineItems.indexOfFirst { item ->
-                                                    when (item) {
-                                                        is BubbleTimelineItem.Event -> item.event.eventId == eventId
-                                                        is BubbleTimelineItem.DateDivider -> false
-                                                    }
-                                                }
-                                                if (indexInOriginal >= 0) {
-                                                    // Convert to reversed index: if item is at index N in original, it's at (lastIndex - N) in reversed
-                                                    val lastIndex = timelineItems.lastIndex
-                                                    val reversedIndex = lastIndex - indexInOriginal
-                                                    // Save current position so Back can return here
-                                                    jumpBackStack.addLast(
-                                                        listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-                                                    )
-                                                    coroutineScope.launch {
-                                                        listState.scrollToItem(reversedIndex)
-                                                        highlightedEventId = eventId
-                                                        highlightRequestId++
-                                                    }
-                                                } else {
-                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                                    val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
-                                                    pendingEventContextScrollRestore = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-                                                    navController.navigate("event_context/$encodedRoomId/$encodedEventId")
-                                                }
-                                            },
-                                            onReply = { event -> replyingToEvent = event },
-                                            onReact = { event ->
-                                                reactingToEvent = event
-                                                showEmojiSelection = true
-                                            },
-                                            onEdit = { event -> editingEvent = event },
-                                            onDelete = { event ->
-                                                deletingEvent = event
-                                                showDeleteDialog = true
-                                            },
-                                            onUserClick = { userId ->
-                                                // CRITICAL FIX: Disable user info navigation in chat bubbles - user_info route doesn't exist
-                                                // in the bubble navigation graph. Users can open the full app to access user info.
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: User click disabled - user info not available in bubble navigation")
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Open in full app to view user profile",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            },
-                                            onRoomLinkClick = { roomLink ->
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")
-                                                
-                                                // Extract server from message sender (format: @user:server.com)
-                                                val senderServer = try {
-                                                    if (event.sender.contains(":")) {
-                                                        event.sender.substringAfter(":")
-                                                    } else {
-                                                        null
-                                                    }
-                                                } catch (e: Exception) {
-                                                    null
-                                                }
-                                                
-                                                // Add sender's server to viaServers if available
-                                                val enhancedViaServers = if (senderServer != null && !roomLink.viaServers.contains(senderServer)) {
-                                                    roomLink.viaServers + senderServer
-                                                } else {
-                                                    roomLink.viaServers
-                                                }
-                                                
-                                                val enhancedRoomLink = roomLink.copy(viaServers = enhancedViaServers)
-                                                
-                                                // If it's a room ID, check if we're already joined
-                                                val existingRoom = if (enhancedRoomLink.roomIdOrAlias.startsWith("!")) {
-                                                    val room = appViewModel.getRoomById(enhancedRoomLink.roomIdOrAlias)
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Checked for existing room ${enhancedRoomLink.roomIdOrAlias}, found: ${room != null}")
-                                                    room
-                                                } else {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Room link is an alias, showing joiner")
-                                                    null
-                                                }
-                                                
-                                                if (existingRoom != null) {
-                                                    // Already joined, navigate directly
-                                                    val targetRoomId = enhancedRoomLink.roomIdOrAlias
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Already joined, navigating to $targetRoomId")
-                                                    // If this is an event permalink, stash the jump so the opened room lands on it.
-                                                    enhancedRoomLink.eventId?.let { appViewModel.setPendingInterRoomJump(targetRoomId, it) }
-                                                    // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
-                                                    // and navigate via room_list, letting RoomListScreen handle the final navigation.
-                                                    // This matches the pattern used by notifications/shortcuts and ensures proper state management.
-                                                    appViewModel.setCurrentRoomIdForTimeline(targetRoomId)
-                                                    appViewModel.setDirectRoomNavigation(targetRoomId)
-                                                    navController.navigate("room_list")
-                                                } else {
-                                                    // For aliases or non-joined rooms, show room joiner
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Not joined, showing room joiner with via servers: $enhancedViaServers")
-                                                    roomLinkToJoin = enhancedRoomLink
-                                                    showRoomJoiner = true
-                                                }
-                                            },
-                                            onThreadClick = { threadEvent ->
-                                                // Navigate to thread viewer
-                                                val threadInfo = threadEvent.getThreadInfo()
-                                                if (threadInfo != null) {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}")
-                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                                    val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
-                                                    navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
-                                                }
-                                            },
-                                            onCodeBlockClick = { code ->
-                                                codeViewerContent = code
-                                                showCodeViewer = true
-                                            },
-                                            onShowMenu = { menuConfig ->
-                                                // Close attach menu if open
-                                                showAttachmentMenu = false
-                                                messageMenuConfig = menuConfig.copy(
-                                                    onViewSource = { code ->
-                                                        codeViewerContent = code
-                                                        showCodeViewer = true
-                                                    },
-                                                    onViewRenderedText = { text ->
-                                                        codeViewerContent = text
-                                                        showCodeViewer = true
-                                                    },
-                                                    onShowReactions = {
-                                                        reactionsEventId = menuConfig.event.eventId
-                                                        showReactionsDialog = true
-                                                    },
-                                                    onViewInThread = if (menuConfig.event.isThreadMessage()) {
-                                                        {
-                                                            val threadInfo = menuConfig.event.getThreadInfo()
-                                                            if (threadInfo != null) {
-                                                                val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                                                val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
-                                                                navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
-                                                            }
-                                                        }
-                                                    } else null,
-                                                    onShowBridgeDeliveryInfo = if (appViewModel.messageBridgeSendStatus.containsKey(menuConfig.event.eventId)) {
-                                                        {
-                                                            bridgeDeliveryEventId = menuConfig.event.eventId
-                                                            showBridgeDeliveryDialog = true
-                                                        }
-                                                    } else null
+                                                isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false,
+                                            )
+                                        }
+
+                                        // Create combined transformation for mentions and custom emojis
+                                        val colorScheme = MaterialTheme.colorScheme
+                                        val customEmojiPacks = appViewModel.customEmojiPacks
+                                        val mentionAndEmojiTransformation = remember(colorScheme, customEmojiPacks) {
+                                            VisualTransformation { text ->
+                                                val mentionRegex = Regex(
+                                                    """\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""",
                                                 )
-                                            },
-                                            onShowReactions = {
-                                                reactionsEventId = event.eventId
-                                                showReactionsDialog = true
-                                            }
-                                        )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                            
-                            // Sticky date pill — shows date of oldest visible event while scrolling up
-                            net.vrkknn.andromuks.utils.StickyDateIndicator(
-                                oldestVisibleDate = oldestVisibleDateBubble,
-                                scrollPositionKey = scrollKeyBubble,
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = 8.dp)
-                                    .zIndex(1f)
-                            )
+                                                // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
+                                                val customEmojiRegex =
+                                                    Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
 
-                            // Pull-to-refresh indicator (outside LazyColumn, inside Box)
-                            PullRefreshIndicator(
-                                refreshing = isRefreshingPull,
-                                state = pullRefreshState,
-                                modifier = Modifier.align(Alignment.TopCenter)
-                            )
-                        }
-                    }
-                    }
+                                                val annotatedString = buildAnnotatedString {
+                                                    var lastIndex = 0
 
-                    // 4. Typing notification area (stacks naturally above text box)
-                    TypingNotificationArea(
-                        typingUsers = appViewModel.getTypingUsersForRoom(roomId),
-                        roomId = roomId,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        userProfileCache = appViewModel.getMemberMap(roomId),
-                        appViewModel = appViewModel
-                    )
-
-                    // 5. Text box (always at the bottom, above keyboard/nav bar)
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp,
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .navigationBarsPadding()
-                        // .imePadding() removed - Column handles it now
-                    ) {
-                    Row(
-                        modifier =
-                            Modifier.fillMaxWidth().padding(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.Bottom
-                    ) {
-                        // Main attach button
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                            shape = RoundedCornerShape(16.dp),
-                            tonalElevation = 1.dp,
-                            modifier = Modifier.width(48.dp).height(buttonHeight)
-                        ) {
-                            IconButton(
-                                enabled = isInputEnabled,
-                                onClick = { 
-                                    if (isInputEnabled) {
-                                        // Close message menu if open
-                                        messageMenuConfig = null
-                                        showAttachmentMenu = !showAttachmentMenu
-                                    }
-                                },
-                                modifier = Modifier.fillMaxSize()
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.AttachFile,
-                                    contentDescription = "Attach",
-                                    tint = if (isInputEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        // Pill-shaped text input with optional reply preview inside
-                        Surface(
-                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                            shape =
-                                RoundedCornerShape(
-                                    16.dp
-                                ), // Rounded rectangle that works both as pill and expanded
-                            tonalElevation = 1.dp,
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Column {
-                                // Edit preview inside the text input (if editing)
-                                if (editingEvent != null) {
-                                    EditPreviewInput(
-                                        event = editingEvent!!,
-                                        onCancel = {
-                                            editingEvent = null
-                                            draft = "" // Clear draft when canceling edit
-                                        }
-                                    )
-                                }
-
-                                // Reply preview inside the text input (if replying)
-                                if (replyingToEvent != null) {
-                                    ReplyPreviewInput(
-                                        event = replyingToEvent!!,
-                                        userProfileCache = memberMap, // Use reactive memberMap instead of static userProfileCache
-                                        onCancel = { replyingToEvent = null },
-                                        appViewModel = appViewModel,
-                                        roomId = roomId
-                                    )
-                                }
-
-                                // URL preview composition bar
-                                if (appViewModel.resolveSendBundledUrlPreviews(roomId)) {
-                                    UrlPreviewCompositionBar(
-                                        text = draft,
-                                        controller = urlPreviewController,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
-                                    )
-                                }
-
-                                // Create combined transformation for mentions and custom emojis
-                                val colorScheme = MaterialTheme.colorScheme
-                                val customEmojiPacks = appViewModel.customEmojiPacks
-                                val mentionAndEmojiTransformation = remember(colorScheme, customEmojiPacks) {
-                                    VisualTransformation { text ->
-                                        val mentionRegex = Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
-                                        // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
-                                        val customEmojiRegex = Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
-                                        
-                                        val annotatedString = buildAnnotatedString {
-                                            var lastIndex = 0
-                                            
-                                            // Collect all matches (mentions and custom emojis) and sort by position
-                                            val allMatches = mutableListOf<Pair<Int, MatchResult>>()
-                                            mentionRegex.findAll(text.text).forEach { 
-                                                allMatches.add(Pair(0, it)) // 0 = mention
-                                            }
-                                            customEmojiRegex.findAll(text.text).forEach { 
-                                                allMatches.add(Pair(1, it)) // 1 = custom emoji
-                                            }
-                                            allMatches.sortBy { it.second.range.first }
-                                            
-                                            for ((type, match) in allMatches) {
-                                                // Add text before match
-                                                if (match.range.first > lastIndex) {
-                                                    append(text.text.substring(lastIndex, match.range.first))
-                                                }
-                                                
-                                                if (type == 0) {
-                                                    // Handle mention
-                                                    val escapedDisplayName = match.groupValues[1]
-                                                    val displayName = escapedDisplayName
-                                                        .replace("\\[", "[")
-                                                        .replace("\\]", "]")
-                                                    withStyle(
-                                                        style = SpanStyle(
-                                                            color = colorScheme.onPrimaryContainer,
-                                                            background = colorScheme.primaryContainer
-                                                        )
-                                                    ) {
-                                                        append(" $displayName ")
+                                                    // Collect all matches (mentions and custom emojis) and sort by position
+                                                    val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                    mentionRegex.findAll(text.text).forEach {
+                                                        allMatches.add(Pair(0, it)) // 0 = mention
                                                     }
-                                                } else {
-                                                    // Handle custom emoji - replace markdown with just the emoji name
-                                                    val emojiName = match.groupValues[1]
-                                                    append(":$emojiName:")
+                                                    customEmojiRegex.findAll(text.text).forEach {
+                                                        allMatches.add(Pair(1, it)) // 1 = custom emoji
+                                                    }
+                                                    allMatches.sortBy { it.second.range.first }
+
+                                                    for ((type, match) in allMatches) {
+                                                        // Add text before match
+                                                        if (match.range.first > lastIndex) {
+                                                            append(text.text.substring(lastIndex, match.range.first))
+                                                        }
+
+                                                        if (type == 0) {
+                                                            // Handle mention
+                                                            val escapedDisplayName = match.groupValues[1]
+                                                            val displayName = escapedDisplayName
+                                                                .replace("\\[", "[")
+                                                                .replace("\\]", "]")
+                                                            withStyle(
+                                                                style = SpanStyle(
+                                                                    color = colorScheme.onPrimaryContainer,
+                                                                    background = colorScheme.primaryContainer,
+                                                                ),
+                                                            ) {
+                                                                append(" $displayName ")
+                                                            }
+                                                        } else {
+                                                            // Handle custom emoji - replace markdown with just the emoji name
+                                                            val emojiName = match.groupValues[1]
+                                                            append(":$emojiName:")
+                                                        }
+
+                                                        lastIndex = match.range.last + 1
+                                                    }
+
+                                                    // Add remaining text
+                                                    if (lastIndex < text.text.length) {
+                                                        append(text.text.substring(lastIndex))
+                                                    }
                                                 }
-                                                
-                                                lastIndex = match.range.last + 1
-                                            }
-                                            
-                                            // Add remaining text
-                                            if (lastIndex < text.text.length) {
-                                                append(text.text.substring(lastIndex))
-                                            }
-                                        }
-                                        
-                                        // Create proper offset mapping to handle the text length changes
-                                        val offsetMapping = object : OffsetMapping {
-                                            override fun originalToTransformed(offset: Int): Int {
-                                                // Clamp offset to valid range
-                                                val clampedOffset = offset.coerceIn(0, text.text.length)
-                                                var transformedOffset = 0
-                                                var originalOffset = 0
-                                                
-                                                // Collect all matches (mentions and custom emojis) and sort by position
-                                                val allMatches = mutableListOf<Pair<Int, MatchResult>>()
-                                                mentionRegex.findAll(text.text).forEach { 
-                                                    allMatches.add(Pair(0, it)) // 0 = mention
-                                                }
-                                                customEmojiRegex.findAll(text.text).forEach { 
-                                                    allMatches.add(Pair(1, it)) // 1 = custom emoji
-                                                }
-                                                allMatches.sortBy { it.second.range.first }
-                                                
-                                                for ((type, match) in allMatches) {
-                                                    val beforeLength = match.range.first - originalOffset
-                                                    if (clampedOffset <= match.range.first) {
+
+                                                // Create proper offset mapping to handle the text length changes
+                                                val offsetMapping = object : OffsetMapping {
+                                                    override fun originalToTransformed(offset: Int): Int {
+                                                        // Clamp offset to valid range
+                                                        val clampedOffset = offset.coerceIn(0, text.text.length)
+                                                        var transformedOffset = 0
+                                                        var originalOffset = 0
+
+                                                        // Collect all matches (mentions and custom emojis) and sort by position
+                                                        val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                        mentionRegex.findAll(text.text).forEach {
+                                                            allMatches.add(Pair(0, it)) // 0 = mention
+                                                        }
+                                                        customEmojiRegex.findAll(text.text).forEach {
+                                                            allMatches.add(Pair(1, it)) // 1 = custom emoji
+                                                        }
+                                                        allMatches.sortBy { it.second.range.first }
+
+                                                        for ((type, match) in allMatches) {
+                                                            val beforeLength = match.range.first - originalOffset
+                                                            if (clampedOffset <= match.range.first) {
+                                                                val result =
+                                                                    transformedOffset + (clampedOffset - originalOffset)
+                                                                return result.coerceIn(0, annotatedString.length)
+                                                            }
+                                                            transformedOffset += beforeLength
+                                                            originalOffset = match.range.first
+
+                                                            val transformedLength = if (type == 0) {
+                                                                // Mention
+                                                                val escapedDisplayName = match.groupValues[1]
+                                                                val displayName = escapedDisplayName
+                                                                    .replace("\\[", "[")
+                                                                    .replace("\\]", "]")
+                                                                " $displayName ".length
+                                                            } else {
+                                                                // Custom emoji
+                                                                val emojiName = match.groupValues[1]
+                                                                ":$emojiName:".length
+                                                            }
+
+                                                            if (clampedOffset <= match.range.last + 1) {
+                                                                val result = transformedOffset + transformedLength
+                                                                return result.coerceIn(0, annotatedString.length)
+                                                            }
+
+                                                            transformedOffset += transformedLength
+                                                            originalOffset = match.range.last + 1
+                                                        }
+
+                                                        // Handle remaining text
                                                         val result = transformedOffset + (clampedOffset - originalOffset)
                                                         return result.coerceIn(0, annotatedString.length)
                                                     }
-                                                    transformedOffset += beforeLength
-                                                    originalOffset = match.range.first
-                                                    
-                                                    val transformedLength = if (type == 0) {
-                                                        // Mention
-                                                        val escapedDisplayName = match.groupValues[1]
-                                                        val displayName = escapedDisplayName
-                                                            .replace("\\[", "[")
-                                                            .replace("\\]", "]")
-                                                        " $displayName ".length
-                                                    } else {
-                                                        // Custom emoji
-                                                        val emojiName = match.groupValues[1]
-                                                        ":$emojiName:".length
-                                                    }
-                                                    
-                                                    if (clampedOffset <= match.range.last + 1) {
-                                                        val result = transformedOffset + transformedLength
-                                                        return result.coerceIn(0, annotatedString.length)
-                                                    }
-                                                    
-                                                    transformedOffset += transformedLength
-                                                    originalOffset = match.range.last + 1
-                                                }
-                                                
-                                                // Handle remaining text
-                                                val result = transformedOffset + (clampedOffset - originalOffset)
-                                                return result.coerceIn(0, annotatedString.length)
-                                            }
-                                            
-                                            override fun transformedToOriginal(offset: Int): Int {
-                                                // Clamp offset to valid range
-                                                val clampedOffset = offset.coerceIn(0, annotatedString.length)
-                                                var transformedOffset = 0
-                                                var originalOffset = 0
-                                                
-                                                // Collect all matches (mentions and custom emojis) and sort by position
-                                                val allMatches = mutableListOf<Pair<Int, MatchResult>>()
-                                                mentionRegex.findAll(text.text).forEach { 
-                                                    allMatches.add(Pair(0, it)) // 0 = mention
-                                                }
-                                                customEmojiRegex.findAll(text.text).forEach { 
-                                                    allMatches.add(Pair(1, it)) // 1 = custom emoji
-                                                }
-                                                allMatches.sortBy { it.second.range.first }
-                                                
-                                                for ((type, match) in allMatches) {
-                                                    val beforeLength = match.range.first - originalOffset
-                                                    if (clampedOffset <= transformedOffset + beforeLength) {
+
+                                                    override fun transformedToOriginal(offset: Int): Int {
+                                                        // Clamp offset to valid range
+                                                        val clampedOffset = offset.coerceIn(0, annotatedString.length)
+                                                        var transformedOffset = 0
+                                                        var originalOffset = 0
+
+                                                        // Collect all matches (mentions and custom emojis) and sort by position
+                                                        val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                        mentionRegex.findAll(text.text).forEach {
+                                                            allMatches.add(Pair(0, it)) // 0 = mention
+                                                        }
+                                                        customEmojiRegex.findAll(text.text).forEach {
+                                                            allMatches.add(Pair(1, it)) // 1 = custom emoji
+                                                        }
+                                                        allMatches.sortBy { it.second.range.first }
+
+                                                        for ((type, match) in allMatches) {
+                                                            val beforeLength = match.range.first - originalOffset
+                                                            if (clampedOffset <= transformedOffset + beforeLength) {
+                                                                val result =
+                                                                    originalOffset + (clampedOffset - transformedOffset)
+                                                                return result.coerceIn(0, text.text.length)
+                                                            }
+                                                            transformedOffset += beforeLength
+                                                            originalOffset = match.range.first
+
+                                                            val transformedLength = if (type == 0) {
+                                                                // Mention
+                                                                val escapedDisplayName = match.groupValues[1]
+                                                                val displayName = escapedDisplayName
+                                                                    .replace("\\[", "[")
+                                                                    .replace("\\]", "]")
+                                                                " $displayName ".length
+                                                            } else {
+                                                                // Custom emoji
+                                                                val emojiName = match.groupValues[1]
+                                                                ":$emojiName:".length
+                                                            }
+
+                                                            if (clampedOffset <= transformedOffset + transformedLength) {
+                                                                return match.range.last + 1
+                                                            }
+
+                                                            transformedOffset += transformedLength
+                                                            originalOffset = match.range.last + 1
+                                                        }
+
+                                                        // Handle remaining text
                                                         val result = originalOffset + (clampedOffset - transformedOffset)
                                                         return result.coerceIn(0, text.text.length)
                                                     }
-                                                    transformedOffset += beforeLength
-                                                    originalOffset = match.range.first
-                                                    
-                                                    val transformedLength = if (type == 0) {
-                                                        // Mention
-                                                        val escapedDisplayName = match.groupValues[1]
-                                                        val displayName = escapedDisplayName
-                                                            .replace("\\[", "[")
-                                                            .replace("\\]", "]")
-                                                        " $displayName ".length
-                                                    } else {
-                                                        // Custom emoji
-                                                        val emojiName = match.groupValues[1]
-                                                        ":$emojiName:".length
-                                                    }
-                                                    
-                                                    if (clampedOffset <= transformedOffset + transformedLength) {
-                                                        return match.range.last + 1
-                                                    }
-                                                    
-                                                    transformedOffset += transformedLength
-                                                    originalOffset = match.range.last + 1
                                                 }
-                                                
-                                                // Handle remaining text
-                                                val result = originalOffset + (clampedOffset - transformedOffset)
-                                                return result.coerceIn(0, text.text.length)
+
+                                                TransformedText(annotatedString, offsetMapping)
                                             }
                                         }
-                                        
-                                        TransformedText(annotatedString, offsetMapping)
-                                    }
-                                }
 
-                                // Text input field with mention + emoji shortcode support
-                                CustomBubbleTextField(
-                                    value = textFieldValue,
-                                    enabled = isInputEnabled,
-                                    onValueChange = { newValue: TextFieldValue ->
-                                        if (!isInputEnabled) return@CustomBubbleTextField
-                                        // First, handle custom emoji deletion (backspace on :name:)
-                                        val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
-                                        
-                                        // Then, apply any completed :shortcode: replacement
-                                        val replacedValue = applyCompletedEmojiShortcode(afterDeletion)
-                                        textFieldValue = replacedValue
-                                        draft = replacedValue.text
-                                        
-                                        // Detect commands first ( /command ) - check before everything else
-                                        val commandResult = detectCommand(
-                                            replacedValue.text,
-                                            replacedValue.selection.start
-                                        )
-                                        val trimmedForPmp = replacedValue.text.trimEnd()
-                                        showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
-                                            trimmedForPmp.equals("/profile", ignoreCase = true) ||
-                                            (trimmedForPmp.startsWith("/pmp ", ignoreCase = true) && trimmedForPmp.drop(5).isBlank()) ||
-                                            (trimmedForPmp.startsWith("/profile ", ignoreCase = true) && trimmedForPmp.drop(9).isBlank())
+                                        // Text input field with mention + emoji shortcode support
+                                        CustomBubbleTextField(
+                                            value = textFieldValue,
+                                            enabled = isInputEnabled,
+                                            onValueChange = { newValue: TextFieldValue ->
+                                                if (!isInputEnabled) return@CustomBubbleTextField
+                                                // First, handle custom emoji deletion (backspace on :name:)
+                                                val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
 
-                                        if (commandResult != null) {
-                                            val (query, startIndex) = commandResult
-                                            commandQuery = query
-                                            commandStartIndex = startIndex
-                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: / detected, query='$query'")
-                                            showCommandSuggestionList = !showPmpProfilePicker
-                                            // Hide other suggestion lists when command is active
-                                            showMentionList = false
-                                            showEmojiSuggestionList = false
-                                            showRoomSuggestionList = false
-                                        } else {
-                                            showCommandSuggestionList = false
-                                            
-                                            // Detect mentions
-                                            val mentionResult = detectMention(
-                                                replacedValue.text,
-                                                replacedValue.selection.start
-                                            )
-                                            if (mentionResult != null) {
-                                                val (query, startIndex) = mentionResult
-                                                mentionQuery = query
-                                                mentionStartIndex = startIndex
-                                                
-                                                // CRITICAL FIX: Load cached members immediately, then request fresh data
-                                                if (!isWaitingForFullMemberList && !showMentionList) {
-                                                    // Check if we already have members in memory cache
-                                                    val memberMap = appViewModel.getMemberMap(roomId)
-                                                    if (memberMap.isEmpty() || memberMap.size < 10) {
-                                                        // Profiles are loaded opportunistically when rendering events
-                                                        // Request full member list to populate cache
-                                                        // Request fresh data from server (will update when it arrives)
-                                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: @ detected, requesting fresh member list for room $roomId")
-                                                        isWaitingForFullMemberList = true
-                                                        lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
-                                                        appViewModel.requestFullMemberList(roomId)
-                                                    } else {
-                                                        // We already have members in memory, show list immediately
-                                                        showMentionList = true
+                                                // Then, apply any completed :shortcode: replacement
+                                                val replacedValue = applyCompletedEmojiShortcode(afterDeletion)
+                                                textFieldValue = replacedValue
+                                                draft = replacedValue.text
+
+                                                // Detect commands first ( /command ) - check before everything else
+                                                val commandResult = detectCommand(
+                                                    replacedValue.text,
+                                                    replacedValue.selection.start,
+                                                )
+                                                val trimmedForPmp = replacedValue.text.trimEnd()
+                                                showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
+                                                    trimmedForPmp.equals("/profile", ignoreCase = true) ||
+                                                    (
+                                                        trimmedForPmp.startsWith(
+                                                        "/pmp ",
+                                                        ignoreCase = true,
+                                                    ) && trimmedForPmp.drop(5).isBlank()
+                                                    ) ||
+                                                    (
+                                                        trimmedForPmp.startsWith(
+                                                        "/profile ",
+                                                        ignoreCase = true,
+                                                    ) && trimmedForPmp.drop(9).isBlank()
+                                                    )
+
+                                                if (commandResult != null) {
+                                                    val (query, startIndex) = commandResult
+                                                    commandQuery = query
+                                                    commandStartIndex = startIndex
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: / detected, query='$query'",
+                                                    )
                                                     }
-                                                }
-                                            } else {
-                                                showMentionList = false
-                                                isWaitingForFullMemberList = false
-                                            }
+                                                    showCommandSuggestionList = !showPmpProfilePicker
+                                                    // Hide other suggestion lists when command is active
+                                                    showMentionList = false
+                                                    showEmojiSuggestionList = false
+                                                    showRoomSuggestionList = false
+                                                } else {
+                                                    showCommandSuggestionList = false
 
-                                            // Detect emoji shortcodes ( :shortname )
-                                            val emojiResult = detectEmojiShortcode(
-                                                replacedValue.text,
-                                                replacedValue.selection.start
-                                            )
-                                            if (emojiResult != null) {
-                                                val (query, startIndex) = emojiResult
-                                                emojiQuery = query
-                                                emojiStartIndex = startIndex
-                                                showEmojiSuggestionList = true
-                                            } else {
-                                                showEmojiSuggestionList = false
-                                            }
+                                                    // Detect mentions
+                                                    val mentionResult = detectMention(
+                                                        replacedValue.text,
+                                                        replacedValue.selection.start,
+                                                    )
+                                                    if (mentionResult != null) {
+                                                        val (query, startIndex) = mentionResult
+                                                        mentionQuery = query
+                                                        mentionStartIndex = startIndex
 
-                                            // Detect room mentions ( #roomalias )
-                                            val roomResult = detectRoomMention(
-                                                replacedValue.text,
-                                                replacedValue.selection.start
-                                            )
-                                            if (roomResult != null) {
-                                                val (query, startIndex) = roomResult
-                                                roomQuery = query
-                                                roomStartIndex = startIndex
-                                                showRoomSuggestionList = true
-                                            } else {
-                                                showRoomSuggestionList = false
-                                            }
-                                        }
-                                    },
-                                    placeholder = {
-                                        Text(
-                                            text = when {
-                                                !canSendMessage -> "You don't have permission to send messages"
-                                                else -> {
-                                                    val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
-                                                    if (networkName != null && networkName.isNotBlank()) {
-                                                        "Type a $networkName message..."
+                                                        // CRITICAL FIX: Load cached members immediately, then request fresh data
+                                                        if (!isWaitingForFullMemberList && !showMentionList) {
+                                                            // Check if we already have members in memory cache
+                                                            val memberMap = appViewModel.getMemberMap(roomId)
+                                                            if (memberMap.isEmpty() || memberMap.size < 10) {
+                                                                // Profiles are loaded opportunistically when rendering events
+                                                                // Request full member list to populate cache
+                                                                // Request fresh data from server (will update when it arrives)
+                                                                if (BuildConfig.DEBUG) {
+                                                                    Log.d(
+                                                                    "Andromuks",
+                                                                    "BubbleTimelineScreen: @ detected, requesting fresh member list for room $roomId",
+                                                                )
+                                                                }
+                                                                isWaitingForFullMemberList = true
+                                                                lastMemberUpdateCounterBeforeMention =
+                                                                    appViewModel.memberUpdateCounter
+                                                                appViewModel.requestFullMemberList(roomId)
+                                                            } else {
+                                                                // We already have members in memory, show list immediately
+                                                                showMentionList = true
+                                                            }
+                                                        }
                                                     } else {
-                                                        "Type a message..."
+                                                        showMentionList = false
+                                                        isWaitingForFullMemberList = false
+                                                    }
+
+                                                    // Detect emoji shortcodes ( :shortname )
+                                                    val emojiResult = detectEmojiShortcode(
+                                                        replacedValue.text,
+                                                        replacedValue.selection.start,
+                                                    )
+                                                    if (emojiResult != null) {
+                                                        val (query, startIndex) = emojiResult
+                                                        emojiQuery = query
+                                                        emojiStartIndex = startIndex
+                                                        showEmojiSuggestionList = true
+                                                    } else {
+                                                        showEmojiSuggestionList = false
+                                                    }
+
+                                                    // Detect room mentions ( #roomalias )
+                                                    val roomResult = detectRoomMention(
+                                                        replacedValue.text,
+                                                        replacedValue.selection.start,
+                                                    )
+                                                    if (roomResult != null) {
+                                                        val (query, startIndex) = roomResult
+                                                        roomQuery = query
+                                                        roomStartIndex = startIndex
+                                                        showRoomSuggestionList = true
+                                                    } else {
+                                                        showRoomSuggestionList = false
                                                     }
                                                 }
                                             },
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontStyle = FontStyle.Italic,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .focusRequester(textFieldFocusRequester),
-                                    minLines = 1,
-                                    maxLines = 5,
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
-                                    onHeightChanged = { height ->
-                                        // Only update if text is empty or single-line (to get the minimum height)
-                                        val lineCount = draft.lines().size.coerceAtLeast(1)
-                                        if (lineCount == 1 && (textFieldHeight == 0 || height < textFieldHeight)) {
-                                            textFieldHeight = height
-                                        }
-                                    },
-                                    trailingIcon = {
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            // Sticker button
-                                            IconButton(
-                                                enabled = isInputEnabled,
-                                                onClick = { if (isInputEnabled) showStickerPickerForText = true },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                @Suppress("DEPRECATION")
-                                                Icon(
-                                                    imageVector = Icons.Outlined.StickyNote2,
-                                                    contentDescription = "Stickers",
-                                                    tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                                )
-                                            }
-                                            // Emoji button
-                                            IconButton(
-                                                enabled = isInputEnabled,
-                                                onClick = { if (isInputEnabled) showEmojiPickerForText = true },
-                                                modifier = Modifier.size(32.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Mood,
-                                                    contentDescription = "Emoji",
-                                                    tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                                                )
-                                            }
-                                        }
-                                    },
-                                    keyboardOptions = KeyboardOptions(
-                                        capitalization = KeyboardCapitalization.Sentences,
-                                        keyboardType = KeyboardType.Text,
-                                        autoCorrectEnabled = true,
-                                        imeAction = ImeAction.Default // Enter always creates newline, send button always sends
-                                    ),
-                                    keyboardActions = KeyboardActions(
-                                        onSend = {
-                                            if (!isInputEnabled) {
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "You don't have permission to send messages",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                                return@KeyboardActions
-                                            }
-                                            if (draft.isNotBlank()) {
-                                                // Check if this is a command first
-                                                val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
-                                                if (isCommand) {
-                                                    // Command was executed, clear draft
-                                                    draft = ""
-                                                    textFieldValue = TextFieldValue("")
-                                                    return@KeyboardActions
-                                                } else if (draft.trim().startsWith("/")) {
-                                                    // Check if it's an avatar command that needs image picker
-                                                    val command = draft.trim().lowercase()
-                                                    when {
-                                                        command == "/myroomavatar" || command == "/myroomavatar " -> {
-                                                            pendingAvatarCommand = "myroomavatar"
-                                                            avatarImagePickerLauncher.launch(
-                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                            )
-                                                            draft = ""
-                                                            textFieldValue = TextFieldValue("")
-                                                            return@KeyboardActions
-                                                        }
-                                                        command == "/globalavatar" || command == "/globalavatar " -> {
-                                                            pendingAvatarCommand = "globalavatar"
-                                                            avatarImagePickerLauncher.launch(
-                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                            )
-                                                            draft = ""
-                                                            textFieldValue = TextFieldValue("")
-                                                            return@KeyboardActions
-                                                        }
-                                                        command == "/roomavatar" || command == "/roomavatar " -> {
-                                                            pendingAvatarCommand = "roomavatar"
-                                                            avatarImagePickerLauncher.launch(
-                                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                            )
-                                                            draft = ""
-                                                            textFieldValue = TextFieldValue("")
-                                                            return@KeyboardActions
-                                                        }
-                                                    }
-                                                }
-                                                
-                                                // Send edit if editing a message
-                                                if (editingEvent != null) {
-                                                    appViewModel.sendEdit(roomId, draft, editingEvent!!)
-                                                    editingEvent = null // Clear edit state
-                                                }
-                                                // Send reply if replying to a message
-                                                else if (replyingToEvent != null) {
-                                                    // Check if replying to a thread message
-                                                    val threadInfo = replyingToEvent!!.getThreadInfo()
-                                                    if (threadInfo != null) {
-                                                        // Send thread reply
-                                                        appViewModel.sendThreadReply(
-                                                            roomId = roomId,
-                                                            text = draft,
-                                                            threadRootEventId = threadInfo.threadRootEventId,
-                                                            fallbackReplyToEventId = replyingToEvent!!.eventId
-                                                        )
-                                                    } else {
-                                                        // Send normal reply
-                                                        appViewModel.sendReply(roomId, draft, replyingToEvent!!)
-                                                    }
-                                                    replyingToEvent = null // Clear reply state
-                                                    messageSoundPlayer.play() // Play sound when sending reply
-                                                }
-                                                // Otherwise send regular message
-                                                else {
-                                                    appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
-                                                    messageSoundPlayer.play() // Play sound when sending message
-                                                }
-                                                urlPreviewController.clearAll()
-                                                draft = "" // Clear the input after sending
-                                            }
-                                        }
-                                    ),
-                                    visualTransformation = mentionAndEmojiTransformation
-                                )
-                            }
-                        }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        // Show expressive indicator only when an upload is in progress.
-                        // Message sends use local echo in the timeline instead of a button spinner.
-                        val showSendIndicator = isUploading
+                                            placeholder = {
+                                                Text(
+                                                    text = when {
+                                                        !canSendMessage -> "You don't have permission to send messages"
 
-                        Button(
-                            onClick = {
-                                if (!isInputEnabled) {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "You don't have permission to send messages",
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                    return@Button
+                                                        else -> {
+                                                            val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
+                                                            if (networkName != null && networkName.isNotBlank()) {
+                                                                "Type a $networkName message..."
+                                                            } else {
+                                                                "Type a message..."
+                                                            }
+                                                        }
+                                                    },
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    fontStyle = FontStyle.Italic,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                )
+                                            },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .focusRequester(textFieldFocusRequester),
+                                            minLines = 1,
+                                            maxLines = 5,
+                                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 12.dp),
+                                            onHeightChanged = { height ->
+                                                // Only update if text is empty or single-line (to get the minimum height)
+                                                val lineCount = draft.lines().size.coerceAtLeast(1)
+                                                if (lineCount == 1 && (textFieldHeight == 0 || height < textFieldHeight)) {
+                                                    textFieldHeight = height
+                                                }
+                                            },
+                                            trailingIcon = {
+                                                Row(
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                ) {
+                                                    // Sticker button
+                                                    IconButton(
+                                                        enabled = isInputEnabled,
+                                                        onClick = { if (isInputEnabled) showStickerPickerForText = true },
+                                                        modifier = Modifier.size(32.dp),
+                                                    ) {
+                                                        @Suppress("DEPRECATION")
+                                                        Icon(
+                                                            imageVector = Icons.Outlined.StickyNote2,
+                                                            contentDescription = "Stickers",
+                                                            tint = if (isInputEnabled) {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                            } else {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                                alpha = 0.38f,
+                                                            )
+                                                            },
+                                                        )
+                                                    }
+                                                    // Emoji button
+                                                    IconButton(
+                                                        enabled = isInputEnabled,
+                                                        onClick = { if (isInputEnabled) showEmojiPickerForText = true },
+                                                        modifier = Modifier.size(32.dp),
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Filled.Mood,
+                                                            contentDescription = "Emoji",
+                                                            tint = if (isInputEnabled) {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                                            } else {
+                                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(
+                                                                alpha = 0.38f,
+                                                            )
+                                                            },
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                            keyboardOptions = KeyboardOptions(
+                                                capitalization = KeyboardCapitalization.Sentences,
+                                                keyboardType = KeyboardType.Text,
+                                                autoCorrectEnabled = true,
+                                                imeAction = ImeAction.Default, // Enter always creates newline, send button always sends
+                                            ),
+                                            keyboardActions = KeyboardActions(
+                                                onSend = {
+                                                    if (!isInputEnabled) {
+                                                        android.widget.Toast.makeText(
+                                                            context,
+                                                            "You don't have permission to send messages",
+                                                            android.widget.Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                        return@KeyboardActions
+                                                    }
+                                                    if (draft.isNotBlank()) {
+                                                        // Check if this is a command first
+                                                        val isCommand = appViewModel.executeCommand(
+                                                            roomId,
+                                                            draft,
+                                                            context,
+                                                            navController,
+                                                        )
+                                                        if (isCommand) {
+                                                            // Command was executed, clear draft
+                                                            draft = ""
+                                                            textFieldValue = TextFieldValue("")
+                                                            return@KeyboardActions
+                                                        } else if (draft.trim().startsWith("/")) {
+                                                            // Check if it's an avatar command that needs image picker
+                                                            val command = draft.trim().lowercase()
+                                                            when {
+                                                                command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                                    pendingAvatarCommand = "myroomavatar"
+                                                                    avatarImagePickerLauncher.launch(
+                                                                        PickVisualMediaRequest(
+                                                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                                        ),
+                                                                    )
+                                                                    draft = ""
+                                                                    textFieldValue = TextFieldValue("")
+                                                                    return@KeyboardActions
+                                                                }
+
+                                                                command == "/globalavatar" || command == "/globalavatar " -> {
+                                                                    pendingAvatarCommand = "globalavatar"
+                                                                    avatarImagePickerLauncher.launch(
+                                                                        PickVisualMediaRequest(
+                                                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                                        ),
+                                                                    )
+                                                                    draft = ""
+                                                                    textFieldValue = TextFieldValue("")
+                                                                    return@KeyboardActions
+                                                                }
+
+                                                                command == "/roomavatar" || command == "/roomavatar " -> {
+                                                                    pendingAvatarCommand = "roomavatar"
+                                                                    avatarImagePickerLauncher.launch(
+                                                                        PickVisualMediaRequest(
+                                                                            ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                                        ),
+                                                                    )
+                                                                    draft = ""
+                                                                    textFieldValue = TextFieldValue("")
+                                                                    return@KeyboardActions
+                                                                }
+                                                            }
+                                                        }
+
+                                                        // Send edit if editing a message
+                                                        if (editingEvent != null) {
+                                                            appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                                            editingEvent = null // Clear edit state
+                                                        }
+                                                        // Send reply if replying to a message
+                                                        else if (replyingToEvent != null) {
+                                                            // Check if replying to a thread message
+                                                            val threadInfo = replyingToEvent!!.getThreadInfo()
+                                                            if (threadInfo != null) {
+                                                                // Send thread reply
+                                                                appViewModel.sendThreadReply(
+                                                                    roomId = roomId,
+                                                                    text = draft,
+                                                                    threadRootEventId = threadInfo.threadRootEventId,
+                                                                    fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                                )
+                                                            } else {
+                                                                // Send normal reply
+                                                                appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                                            }
+                                                            replyingToEvent = null // Clear reply state
+                                                            messageSoundPlayer.play() // Play sound when sending reply
+                                                        }
+                                                        // Otherwise send regular message
+                                                        else {
+                                                            appViewModel.sendMessage(
+                                                                roomId,
+                                                                draft,
+                                                                urlPreviewController.getReadyPreviews(),
+                                                            )
+                                                            messageSoundPlayer.play() // Play sound when sending message
+                                                        }
+                                                        urlPreviewController.clearAll()
+                                                        draft = "" // Clear the input after sending
+                                                    }
+                                                },
+                                            ),
+                                            visualTransformation = mentionAndEmojiTransformation,
+                                        )
+                                    }
                                 }
-                                if (draft.isNotBlank()) {
-                                    // Check if this is a command first
-                                    val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
-                                    if (isCommand) {
-                                        // Command was executed, clear draft
-                                        draft = ""
-                                        textFieldValue = TextFieldValue("")
-                                        return@Button
-                                    } else if (draft.trim().startsWith("/")) {
-                                        // Check if it's an avatar command that needs image picker
-                                        val command = draft.trim().lowercase()
-                                        when {
-                                            command == "/myroomavatar" || command == "/myroomavatar " -> {
-                                                pendingAvatarCommand = "myroomavatar"
-                                                avatarImagePickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                                draft = ""
-                                                textFieldValue = TextFieldValue("")
-                                                return@Button
-                                            }
-                                            command == "/globalavatar" || command == "/globalavatar " -> {
-                                                pendingAvatarCommand = "globalavatar"
-                                                avatarImagePickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                                draft = ""
-                                                textFieldValue = TextFieldValue("")
-                                                return@Button
-                                            }
-                                            command == "/roomavatar" || command == "/roomavatar " -> {
-                                                pendingAvatarCommand = "roomavatar"
-                                                avatarImagePickerLauncher.launch(
-                                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                                                )
-                                                draft = ""
-                                                textFieldValue = TextFieldValue("")
-                                                return@Button
-                                            }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                // Show expressive indicator only when an upload is in progress.
+                                // Message sends use local echo in the timeline instead of a button spinner.
+                                val showSendIndicator = isUploading
+
+                                Button(
+                                    onClick = {
+                                        if (!isInputEnabled) {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "You don't have permission to send messages",
+                                                android.widget.Toast.LENGTH_SHORT,
+                                            ).show()
+                                            return@Button
                                         }
-                                    }
-                                    
-                                    // Send edit if editing a message
-                                    if (editingEvent != null) {
-                                        appViewModel.sendEdit(roomId, draft, editingEvent!!)
-                                        editingEvent = null // Clear edit state
-                                    }
-                                    // Send reply if replying to a message
-                                    else if (replyingToEvent != null) {
-                                        // Check if replying to a thread message
-                                        val threadInfo = replyingToEvent!!.getThreadInfo()
-                                        if (threadInfo != null) {
-                                            // Send thread reply
-                                            appViewModel.sendThreadReply(
-                                                roomId = roomId,
-                                                text = draft,
-                                                threadRootEventId = threadInfo.threadRootEventId,
-                                                fallbackReplyToEventId = replyingToEvent!!.eventId
-                                            )
+                                        if (draft.isNotBlank()) {
+                                            // Check if this is a command first
+                                            val isCommand = appViewModel.executeCommand(roomId, draft, context, navController)
+                                            if (isCommand) {
+                                                // Command was executed, clear draft
+                                                draft = ""
+                                                textFieldValue = TextFieldValue("")
+                                                return@Button
+                                            } else if (draft.trim().startsWith("/")) {
+                                                // Check if it's an avatar command that needs image picker
+                                                val command = draft.trim().lowercase()
+                                                when {
+                                                    command == "/myroomavatar" || command == "/myroomavatar " -> {
+                                                        pendingAvatarCommand = "myroomavatar"
+                                                        avatarImagePickerLauncher.launch(
+                                                            PickVisualMediaRequest(
+                                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                            ),
+                                                        )
+                                                        draft = ""
+                                                        textFieldValue = TextFieldValue("")
+                                                        return@Button
+                                                    }
+
+                                                    command == "/globalavatar" || command == "/globalavatar " -> {
+                                                        pendingAvatarCommand = "globalavatar"
+                                                        avatarImagePickerLauncher.launch(
+                                                            PickVisualMediaRequest(
+                                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                            ),
+                                                        )
+                                                        draft = ""
+                                                        textFieldValue = TextFieldValue("")
+                                                        return@Button
+                                                    }
+
+                                                    command == "/roomavatar" || command == "/roomavatar " -> {
+                                                        pendingAvatarCommand = "roomavatar"
+                                                        avatarImagePickerLauncher.launch(
+                                                            PickVisualMediaRequest(
+                                                                ActivityResultContracts.PickVisualMedia.ImageOnly,
+                                                            ),
+                                                        )
+                                                        draft = ""
+                                                        textFieldValue = TextFieldValue("")
+                                                        return@Button
+                                                    }
+                                                }
+                                            }
+
+                                            // Send edit if editing a message
+                                            if (editingEvent != null) {
+                                                appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                                editingEvent = null // Clear edit state
+                                            }
+                                            // Send reply if replying to a message
+                                            else if (replyingToEvent != null) {
+                                                // Check if replying to a thread message
+                                                val threadInfo = replyingToEvent!!.getThreadInfo()
+                                                if (threadInfo != null) {
+                                                    // Send thread reply
+                                                    appViewModel.sendThreadReply(
+                                                        roomId = roomId,
+                                                        text = draft,
+                                                        threadRootEventId = threadInfo.threadRootEventId,
+                                                        fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                    )
+                                                } else {
+                                                    // Send normal reply
+                                                    appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                                }
+                                                replyingToEvent = null // Clear reply state
+                                                messageSoundPlayer.play() // Play sound when sending reply
+                                            }
+                                            // Otherwise send regular message
+                                            else {
+                                                appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
+                                                messageSoundPlayer.play() // Play sound when sending message
+                                            }
+                                            urlPreviewController.clearAll()
+                                            draft = "" // Clear the input after sending
+                                        }
+                                    },
+                                    enabled = draft.isNotBlank() && isInputEnabled,
+                                    shape = CircleShape, // Perfect circle
+                                    colors =
+                                    ButtonDefaults.buttonColors(
+                                        containerColor =
+                                        if (draft.isNotBlank()) {
+                                            MaterialTheme.colorScheme.primary
                                         } else {
-                                            // Send normal reply
-                                            appViewModel.sendReply(roomId, draft, replyingToEvent!!)
-                                        }
-                                        replyingToEvent = null // Clear reply state
-                                        messageSoundPlayer.play() // Play sound when sending reply
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                        },
+                                    ),
+                                    modifier = Modifier.size(buttonHeight), // Fixed height matching single-line text field
+                                    contentPadding = PaddingValues(0.dp), // No padding for perfect circle
+                                ) {
+                                    if (showSendIndicator) {
+                                        ContainedExpressiveLoadingIndicator(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(6.dp),
+                                            shape = CircleShape,
+                                            containerColor =
+                                            if (draft.isNotBlank()) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.surfaceVariant
+                                            },
+                                            indicatorColor =
+                                            if (draft.isNotBlank()) {
+                                                MaterialTheme.colorScheme.onPrimary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                            contentPadding = 4.dp,
+                                        )
+                                    } else {
+                                        @Suppress("DEPRECATION")
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.Send,
+                                            contentDescription = "Send",
+                                            tint =
+                                            if (draft.isNotBlank()) {
+                                                MaterialTheme.colorScheme.onPrimary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurfaceVariant
+                                            },
+                                        )
                                     }
-                                    // Otherwise send regular message
-                                    else {
-                                        appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
-                                        messageSoundPlayer.play() // Play sound when sending message
-                                    }
-                                    urlPreviewController.clearAll()
-                                    draft = "" // Clear the input after sending
                                 }
-                            },
-                            enabled = draft.isNotBlank() && isInputEnabled,
-                            shape = CircleShape, // Perfect circle
-                            colors =
-                                ButtonDefaults.buttonColors(
-                                    containerColor =
-                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.surfaceVariant
-                                ),
-                            modifier = Modifier.size(buttonHeight), // Fixed height matching single-line text field
-                            contentPadding = PaddingValues(0.dp) // No padding for perfect circle
-                        ) {
-                            if (showSendIndicator) {
-                                ContainedExpressiveLoadingIndicator(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(6.dp),
-                                    shape = CircleShape,
-                                    containerColor =
-                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.surfaceVariant,
-                                    indicatorColor =
-                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    contentPadding = 4.dp
-                                )
-                            } else {
-                                @Suppress("DEPRECATION")
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = "Send",
-                                    tint =
-                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
-                                        else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     }
-                }
-                }
-                
-                // Floating action button to scroll to bottom (only shown when detached)
-                // Keep this in the Box so it can overlay the content
-                if (!isAttachedToBottom) {
-                    // Push FAB up when attach menu or message menu is open
-                    val menuOpen = showAttachmentMenu || messageMenuConfig != null
-                    val fabBottomPadding = if (menuOpen) 170.dp else 60.dp // Higher when menu is open to avoid clipping
-                    FloatingActionButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                listState.scrollToItem(0)
-                                isAttachedToBottom = true
-                            }
-                        },
-                        modifier =
+
+                    // Floating action button to scroll to bottom (only shown when detached)
+                    // Keep this in the Box so it can overlay the content
+                    if (!isAttachedToBottom) {
+                        // Push FAB up when attach menu or message menu is open
+                        val menuOpen = showAttachmentMenu || messageMenuConfig != null
+                        val fabBottomPadding = if (menuOpen) 170.dp else 60.dp // Higher when menu is open to avoid clipping
+                        FloatingActionButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    listState.scrollToItem(0)
+                                    isAttachedToBottom = true
+                                }
+                            },
+                            modifier =
                             Modifier.align(Alignment.BottomEnd)
                                 .padding(
                                     end = 16.dp,
-                                    bottom = fabBottomPadding
+                                    bottom = fabBottomPadding,
                                 )
                                 .navigationBarsPadding(),
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.KeyboardArrowDown,
-                            contentDescription = "Scroll to bottom"
-                        )
-                    }
-                }
-                
-                // Emoji shortcode suggestion list
-                if (showEmojiSuggestionList) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(
-                                start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 60.dp  // Closer to text input
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowDown,
+                                contentDescription = "Scroll to bottom",
                             )
-                            .navigationBarsPadding()
-                            .zIndex(9f)
-                    ) {
-                        EmojiSuggestionList(
-                            query = emojiQuery,
-                            customEmojiPacks = appViewModel.customEmojiPacks,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            onSuggestionSelected = { suggestion ->
-                                val currentText = draft
-                                val cursorPos = textFieldValue.selection.start
-                                val endIndex = cursorPos
-                                
-                                val baseReplacement =
-                                    suggestion.emoji
-                                        ?: suggestion.customEmoji?.let { custom ->
-                                            "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
-                                        }
-                                        ?: ""
-                                
-                                if (baseReplacement.isNotEmpty() && emojiStartIndex >= 0 && emojiStartIndex < endIndex) {
-                                    val newText =
-                                        currentText.substring(0, emojiStartIndex) +
-                                            baseReplacement +
-                                            currentText.substring(endIndex)
-                                    val newCursor = emojiStartIndex + baseReplacement.length
-                                    
-                                    draft = newText
-                                    textFieldValue = TextFieldValue(
-                                        text = newText,
-                                        selection = TextRange(newCursor)
-                                    )
-                                    
-                                    // Update recent emojis (same logic as main screen)
-                                    val emojiForRecent =
-                                        if (baseReplacement.startsWith("![:") && baseReplacement.contains("mxc://")) {
-                                            val mxcStart = baseReplacement.indexOf("mxc://")
-                                            if (mxcStart >= 0) {
-                                                val mxcEnd = baseReplacement.indexOf("\"", mxcStart)
-                                                if (mxcEnd > mxcStart) {
-                                                    baseReplacement.substring(mxcStart, mxcEnd).trimEnd()
+                        }
+                    }
+
+                    // Emoji shortcode suggestion list
+                    if (showEmojiSuggestionList) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(
+                                    start = 72.dp, // Align with text input (attach button width + spacing)
+                                    bottom = 60.dp, // Closer to text input
+                                )
+                                .navigationBarsPadding()
+                                .zIndex(9f),
+                        ) {
+                            EmojiSuggestionList(
+                                query = emojiQuery,
+                                customEmojiPacks = appViewModel.customEmojiPacks,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                onSuggestionSelected = { suggestion ->
+                                    val currentText = draft
+                                    val cursorPos = textFieldValue.selection.start
+                                    val endIndex = cursorPos
+
+                                    val baseReplacement =
+                                        suggestion.emoji
+                                            ?: suggestion.customEmoji?.let { custom ->
+                                                "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
+                                            }
+                                            ?: ""
+
+                                    if (baseReplacement.isNotEmpty() && emojiStartIndex >= 0 && emojiStartIndex < endIndex) {
+                                        val newText =
+                                            currentText.substring(0, emojiStartIndex) +
+                                                baseReplacement +
+                                                currentText.substring(endIndex)
+                                        val newCursor = emojiStartIndex + baseReplacement.length
+
+                                        draft = newText
+                                        textFieldValue = TextFieldValue(
+                                            text = newText,
+                                            selection = TextRange(newCursor),
+                                        )
+
+                                        // Update recent emojis (same logic as main screen)
+                                        val emojiForRecent =
+                                            if (baseReplacement.startsWith("![:") && baseReplacement.contains("mxc://")) {
+                                                val mxcStart = baseReplacement.indexOf("mxc://")
+                                                if (mxcStart >= 0) {
+                                                    val mxcEnd = baseReplacement.indexOf("\"", mxcStart)
+                                                    if (mxcEnd > mxcStart) {
+                                                        baseReplacement.substring(mxcStart, mxcEnd).trimEnd()
+                                                    } else {
+                                                        baseReplacement.substring(mxcStart)
+                                                    }
                                                 } else {
-                                                    baseReplacement.substring(mxcStart)
+                                                    baseReplacement
                                                 }
                                             } else {
                                                 baseReplacement
                                             }
-                                        } else {
-                                            baseReplacement
-                                        }
-                                    appViewModel.updateRecentEmojis(emojiForRecent)
-                                }
-                                
-                                showEmojiSuggestionList = false
-                                emojiQuery = ""
-                            },
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-                
-                // Floating per-message profile picker
-                if (showPmpProfilePicker) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(start = 72.dp, bottom = 60.dp)
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f)
-                    ) {
-                        net.vrkknn.andromuks.utils.PerMessageProfilePicker(
-                            appViewModel = appViewModel,
-                            onProfileSelected = { profile ->
-                                val newText = "/pmp ${profile.shortcode} "
-                                draft = newText
-                                textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
-                                showPmpProfilePicker = false
-                            },
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
+                                        appViewModel.updateRecentEmojis(emojiForRecent)
+                                    }
 
-                // Floating room suggestion list for room mentions
-                // Floating command suggestion list
-                if (showCommandSuggestionList) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(
-                                start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 60.dp  // Closer to text input
+                                    showEmojiSuggestionList = false
+                                    emojiQuery = ""
+                                },
+                                modifier = Modifier.zIndex(10f),
                             )
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(9f)
-                    ) {
-                        CommandSuggestionList(
-                            query = commandQuery,
-                            onCommandSelected = { command ->
-                                // Replace the command text with the selected command
-                                val commandEndIndex = commandStartIndex + 1 + commandQuery.length
-                                val newText = draft.substring(0, commandStartIndex) + command.command + " " + draft.substring(commandEndIndex)
-                                val newCursorPosition = commandStartIndex + command.command.length + 1
-                                
-                                draft = newText
-                                textFieldValue = TextFieldValue(
-                                    text = newText,
-                                    selection = TextRange(newCursorPosition)
-                                )
-                                
-                                // Hide the command suggestion list
-                                showCommandSuggestionList = false
-                                commandQuery = ""
-                            },
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-                
-                if (showRoomSuggestionList) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(
-                                start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 60.dp  // Closer to text input
-                            )
-                            .navigationBarsPadding()
-                            .zIndex(9f)
-                    ) {
-                        BubbleRoomSuggestionList(
-                            rooms = roomsWithAliases,
-                            query = roomQuery,
-                            onRoomSelect = { selectedRoomId, canonicalAlias ->
-                                // Replace the room mention text with a markdown link
-                                // Format: [#room:server.com](https://matrix.to/#/%23room%3Aserver.com)
-                                val roomEndIndex = roomStartIndex + 1 + roomQuery.length
-                                val encodedAlias = java.net.URLEncoder.encode(canonicalAlias, "UTF-8")
-                                val roomMentionText = "[$canonicalAlias](https://matrix.to/#/$encodedAlias) "
-                                val newText = draft.substring(0, roomStartIndex) + roomMentionText + draft.substring(roomEndIndex)
-                                val newCursorPosition = roomStartIndex + roomMentionText.length
-                                
-                                draft = newText
-                                textFieldValue = TextFieldValue(
-                                    text = newText,
-                                    selection = TextRange(newCursorPosition)
-                                )
-                                
-                                // Hide the room suggestion list
-                                showRoomSuggestionList = false
-                                roomQuery = ""
-                            },
-                            homeserverUrl = appViewModel.homeserverUrl,
-                            authToken = authToken,
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-                
-                // Message menu bar (slides from bottom, same position as attach menu)
-                AnimatedVisibility(
-                    visible = messageMenuConfig != null,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth(),
-                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
-                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))
-                ) {
-                    val messageBarSlideOffsetPx = transition.animateFloat(
-                        transitionSpec = {
-                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                // ENTER: slide in first
-                                tween(durationMillis = scaledTweenMs(120))
-                            } else {
-                                // EXIT: wait for buttons to fade out, then slide down
-                                tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
-                            }
-                        },
-                        label = "messageBarSlideOffset"
-                    ) { state ->
-                        if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
-                    }
-                    val messageButtonsAlpha = transition.animateFloat(
-                        transitionSpec = {
-                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                // ENTER: buttons fade in after bar has slid in
-                                tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
-                            } else {
-                                // EXIT: buttons fade out immediately
-                                tween(durationMillis = scaledTweenMs(500))
-                            }
-                        },
-                        label = "messageButtonsAlpha"
-                    ) { state ->
-                        if (state == EnterExitState.Visible) 1f else 0f
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .graphicsLayer {
-                                // Position menu right above footer (same as attach menu)
-                                // Footer height = buttonHeight + 24.dp padding
-                                translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
-                            }
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(5f) // Ensure it's above other content
-                    ) {
-                        net.vrkknn.andromuks.utils.MessageMenuBar(
-                            menuConfig = messageMenuConfig ?: retainedMessageMenuConfig,
-                            onDismiss = { messageMenuConfig = null },
-                            buttonsAlpha = messageButtonsAlpha.value,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-                
-                // Attachment menu overlay - horizontal floating action bar above footer
-                AnimatedVisibility(
-                    visible = showAttachmentMenu,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth(),
-                    enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
-                    exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))
-                ) {
-                    val attachmentBarSlideOffsetPx = transition.animateFloat(
-                        transitionSpec = {
-                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                // ENTER: slide in first
-                                tween(durationMillis = scaledTweenMs(120))
-                            } else {
-                                // EXIT: wait for buttons to fade out, then slide down
-                                tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
-                            }
-                        },
-                        label = "attachmentBarSlideOffset"
-                    ) { state ->
-                        if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
-                    }
-                    val attachmentButtonsAlpha = transition.animateFloat(
-                        transitionSpec = {
-                            if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                // ENTER: buttons fade in after bar has slid in
-                                tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
-                            } else {
-                                // EXIT: buttons fade out immediately
-                                tween(durationMillis = scaledTweenMs(500))
-                            }
-                        },
-                        label = "attachmentButtonsAlpha"
-                    ) { state ->
-                        if (state == EnterExitState.Visible) 1f else 0f
-                    }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                        .graphicsLayer {
-                            // Position menu right above footer (footer height = buttonHeight + 24.dp padding)
-                            translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + attachmentBarSlideOffsetPx.value
                         }
-                        .navigationBarsPadding()
-                        .imePadding()
-                        .zIndex(5f) // Ensure it's above other content
-                ) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp,
-                        modifier = Modifier.fillMaxWidth()
+                    }
+
+                    // Floating per-message profile picker
+                    if (showPmpProfilePicker) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(start = 72.dp, bottom = 60.dp)
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                        ) {
+                            net.vrkknn.andromuks.utils.PerMessageProfilePicker(
+                                appViewModel = appViewModel,
+                                onProfileSelected = { profile ->
+                                    val newText = "/pmp ${profile.shortcode} "
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
+                                    showPmpProfilePicker = false
+                                },
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    // Floating room suggestion list for room mentions
+                    // Floating command suggestion list
+                    if (showCommandSuggestionList) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(
+                                    start = 72.dp, // Align with text input (attach button width + spacing)
+                                    bottom = 60.dp, // Closer to text input
+                                )
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(9f),
+                        ) {
+                            CommandSuggestionList(
+                                query = commandQuery,
+                                onCommandSelected = { command ->
+                                    // Replace the command text with the selected command
+                                    val commandEndIndex = commandStartIndex + 1 + commandQuery.length
+                                    val newText = draft.substring(
+                                        0,
+                                        commandStartIndex,
+                                    ) + command.command + " " + draft.substring(commandEndIndex)
+                                    val newCursorPosition = commandStartIndex + command.command.length + 1
+
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursorPosition),
+                                    )
+
+                                    // Hide the command suggestion list
+                                    showCommandSuggestionList = false
+                                    commandQuery = ""
+                                },
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    if (showRoomSuggestionList) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(
+                                    start = 72.dp, // Align with text input (attach button width + spacing)
+                                    bottom = 60.dp, // Closer to text input
+                                )
+                                .navigationBarsPadding()
+                                .zIndex(9f),
+                        ) {
+                            BubbleRoomSuggestionList(
+                                rooms = roomsWithAliases,
+                                query = roomQuery,
+                                onRoomSelect = { selectedRoomId, canonicalAlias ->
+                                    // Replace the room mention text with a markdown link
+                                    // Format: [#room:server.com](https://matrix.to/#/%23room%3Aserver.com)
+                                    val roomEndIndex = roomStartIndex + 1 + roomQuery.length
+                                    val encodedAlias = java.net.URLEncoder.encode(canonicalAlias, "UTF-8")
+                                    val roomMentionText = "[$canonicalAlias](https://matrix.to/#/$encodedAlias) "
+                                    val newText = draft.substring(
+                                        0,
+                                        roomStartIndex,
+                                    ) + roomMentionText + draft.substring(roomEndIndex)
+                                    val newCursorPosition = roomStartIndex + roomMentionText.length
+
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursorPosition),
+                                    )
+
+                                    // Hide the room suggestion list
+                                    showRoomSuggestionList = false
+                                    roomQuery = ""
+                                },
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = authToken,
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    // Message menu bar (slides from bottom, same position as attach menu)
+                    AnimatedVisibility(
+                        visible = messageMenuConfig != null,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth(),
+                        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
+                        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
                     ) {
-                        Row(
+                        val messageBarSlideOffsetPx = transition.animateFloat(
+                            transitionSpec = {
+                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                    // ENTER: slide in first
+                                    tween(durationMillis = scaledTweenMs(120))
+                                } else {
+                                    // EXIT: wait for buttons to fade out, then slide down
+                                    tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
+                                }
+                            },
+                            label = "messageBarSlideOffset",
+                        ) { state ->
+                            if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
+                        }
+                        val messageButtonsAlpha = transition.animateFloat(
+                            transitionSpec = {
+                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                    // ENTER: buttons fade in after bar has slid in
+                                    tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
+                                } else {
+                                    // EXIT: buttons fade out immediately
+                                    tween(durationMillis = scaledTweenMs(500))
+                                }
+                            },
+                            label = "messageButtonsAlpha",
+                        ) { state ->
+                            if (state == EnterExitState.Visible) 1f else 0f
+                        }
+                        Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .graphicsLayer {
+                                    // Position menu right above footer (same as attach menu)
+                                    // Footer height = buttonHeight + 24.dp padding
+                                    translationY = -with(
+                                        density,
+                                    ) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
+                                }
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(5f), // Ensure it's above other content
                         ) {
-                            // Files option
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    tonalElevation = 1.dp,
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            showAttachmentMenu = false
-                                            // SAF document picker — per-URI read grant, no permission needed.
-                                            filePickerLauncher.launch("*/*")
-                                        },
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Folder,
-                                            contentDescription = "Files",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "File",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            
-                            // Audio option
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    tonalElevation = 1.dp,
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            showAttachmentMenu = false
-                                            // SAF picker — per-URI read grant, no permission needed.
-                                            audioPickerLauncher.launch("audio/*")
-                                        },
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.AudioFile,
-                                            contentDescription = "Audio",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Audio",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            
-                            // Image/Video option
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    tonalElevation = 1.dp,
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            showAttachmentMenu = false
-                                            // Android Photo Picker — no permission, consistent Photo/Album sheet.
-                                            mediaPickerLauncher.launch(
-                                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)
-                                            )
-                                        },
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Image,
-                                            contentDescription = "Images & Videos",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Image/Video",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1
-                                )
-                            }
-                            
-                            // Photo option
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    tonalElevation = 1.dp,
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            showAttachmentMenu = false
-                                            // Camera capture opens a fullscreen camera activity, which Android
-                                            // refuses to launch inside the constrained chat-bubble window
-                                            // ("Camera can't use split screen"). Button kept for menu parity
-                                            // with RoomTimelineScreen, but blocked here.
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "Android cannot use camera in Chat Bubbles",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
-                                        },
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.CameraAlt,
-                                            contentDescription = "Photo",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Photo",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                            
-                            // Video option
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    tonalElevation = 1.dp,
-                                    modifier = Modifier
-                                        .size(56.dp)
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            showAttachmentMenu = false
-                                            // See Photo button above — camera capture can't run in a bubble window.
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "Android cannot use camera in Chat Bubbles",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
-                                        },
-                                        modifier = Modifier.fillMaxSize()
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Videocam,
-                                            contentDescription = "Video",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Video",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
+                            net.vrkknn.andromuks.utils.MessageMenuBar(
+                                menuConfig = messageMenuConfig ?: retainedMessageMenuConfig,
+                                onDismiss = { messageMenuConfig = null },
+                                buttonsAlpha = messageButtonsAlpha.value,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    }
 
-                            // Location option
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.weight(1f)
+                    // Attachment menu overlay - horizontal floating action bar above footer
+                    AnimatedVisibility(
+                        visible = showAttachmentMenu,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth(),
+                        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
+                        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
+                    ) {
+                        val attachmentBarSlideOffsetPx = transition.animateFloat(
+                            transitionSpec = {
+                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                    // ENTER: slide in first
+                                    tween(durationMillis = scaledTweenMs(120))
+                                } else {
+                                    // EXIT: wait for buttons to fade out, then slide down
+                                    tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
+                                }
+                            },
+                            label = "attachmentBarSlideOffset",
+                        ) { state ->
+                            if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
+                        }
+                        val attachmentButtonsAlpha = transition.animateFloat(
+                            transitionSpec = {
+                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
+                                    // ENTER: buttons fade in after bar has slid in
+                                    tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
+                                } else {
+                                    // EXIT: buttons fade out immediately
+                                    tween(durationMillis = scaledTweenMs(500))
+                                }
+                            },
+                            label = "attachmentButtonsAlpha",
+                        ) { state ->
+                            if (state == EnterExitState.Visible) 1f else 0f
+                        }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .graphicsLayer {
+                                    // Position menu right above footer (footer height = buttonHeight + 24.dp padding)
+                                    translationY = -with(
+                                        density,
+                                    ) { (buttonHeight + 24.dp).toPx() } + attachmentBarSlideOffsetPx.value
+                                }
+                                .navigationBarsPadding()
+                                .imePadding()
+                                .zIndex(5f), // Ensure it's above other content
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surface,
+                                tonalElevation = 0.dp,
+                                modifier = Modifier.fillMaxWidth(),
                             ) {
-                                Surface(
-                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                    shape = RoundedCornerShape(16.dp),
-                                    tonalElevation = 1.dp,
-                                    modifier = Modifier.size(56.dp)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    IconButton(
-                                        onClick = {
-                                            showAttachmentMenu = false
-                                            showLocationPickerOverlay = true
-                                        },
-                                        modifier = Modifier.fillMaxSize()
+                                    // Files option
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.weight(1f),
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.LocationOn,
-                                            contentDescription = "Location",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.alpha(attachmentButtonsAlpha.value)
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            tonalElevation = 1.dp,
+                                            modifier = Modifier
+                                                .size(56.dp),
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    showAttachmentMenu = false
+                                                    // SAF document picker — per-URI read grant, no permission needed.
+                                                    filePickerLauncher.launch("*/*")
+                                                },
+                                                modifier = Modifier.fillMaxSize(),
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Folder,
+                                                    contentDescription = "Files",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "File",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+
+                                    // Audio option
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            tonalElevation = 1.dp,
+                                            modifier = Modifier
+                                                .size(56.dp),
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    showAttachmentMenu = false
+                                                    // SAF picker — per-URI read grant, no permission needed.
+                                                    audioPickerLauncher.launch("audio/*")
+                                                },
+                                                modifier = Modifier.fillMaxSize(),
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.AudioFile,
+                                                    contentDescription = "Audio",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Audio",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+
+                                    // Image/Video option
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            tonalElevation = 1.dp,
+                                            modifier = Modifier
+                                                .size(56.dp),
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    showAttachmentMenu = false
+                                                    // Android Photo Picker — no permission, consistent Photo/Album sheet.
+                                                    mediaPickerLauncher.launch(
+                                                        PickVisualMediaRequest(
+                                                            ActivityResultContracts.PickVisualMedia.ImageAndVideo,
+                                                        ),
+                                                    )
+                                                },
+                                                modifier = Modifier.fillMaxSize(),
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Image,
+                                                    contentDescription = "Images & Videos",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Image/Video",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                        )
+                                    }
+
+                                    // Photo option
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            tonalElevation = 1.dp,
+                                            modifier = Modifier
+                                                .size(56.dp),
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    showAttachmentMenu = false
+                                                    // Camera capture opens a fullscreen camera activity, which Android
+                                                    // refuses to launch inside the constrained chat-bubble window
+                                                    // ("Camera can't use split screen"). Button kept for menu parity
+                                                    // with RoomTimelineScreen, but blocked here.
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Android cannot use camera in Chat Bubbles",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                },
+                                                modifier = Modifier.fillMaxSize(),
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.CameraAlt,
+                                                    contentDescription = "Photo",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Photo",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+
+                                    // Video option
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            tonalElevation = 1.dp,
+                                            modifier = Modifier
+                                                .size(56.dp),
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    showAttachmentMenu = false
+                                                    // See Photo button above — camera capture can't run in a bubble window.
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Android cannot use camera in Chat Bubbles",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                },
+                                                modifier = Modifier.fillMaxSize(),
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Videocam,
+                                                    contentDescription = "Video",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Video",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+
+                                    // Location option
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                            shape = RoundedCornerShape(16.dp),
+                                            tonalElevation = 1.dp,
+                                            modifier = Modifier.size(56.dp),
+                                        ) {
+                                            IconButton(
+                                                onClick = {
+                                                    showAttachmentMenu = false
+                                                    showLocationPickerOverlay = true
+                                                },
+                                                modifier = Modifier.fillMaxSize(),
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.LocationOn,
+                                                    contentDescription = "Location",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "Location",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
                                     }
                                 }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = "Location",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
                             }
                         }
                     }
-                    }
-                }
 
-                // Location picker overlay
-                if (showLocationPickerOverlay) {
-                    Box(modifier = Modifier.fillMaxSize()) {
-                        LocationPickerOverlay(
-                            onDismiss = { showLocationPickerOverlay = false },
-                            onSendLocation = { lat, lon, caption ->
-                                appViewModel.sendLocationMessage(roomId, lat, lon, description = caption)
-                                showLocationPickerOverlay = false
-                            }
+                    // Location picker overlay
+                    if (showLocationPickerOverlay) {
+                        Box(modifier = Modifier.fillMaxSize()) {
+                            LocationPickerOverlay(
+                                onDismiss = { showLocationPickerOverlay = false },
+                                onSendLocation = { lat, lon, caption ->
+                                    appViewModel.sendLocationMessage(roomId, lat, lon, description = caption)
+                                    showLocationPickerOverlay = false
+                                },
+                            )
+                        }
+                    }
+
+                    // Floating member list for mentions
+                    if (showMentionList) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(
+                                    start = 72.dp, // Align with text input (attach button width + spacing)
+                                    bottom = 60.dp, // Closer to text input
+                                )
+                                .navigationBarsPadding(),
+                        ) {
+                            BubbleMentionMemberList(
+                                members = roomMembers,
+                                query = mentionQuery,
+                                onMemberSelect = { userId, displayName ->
+                                    // Replace the mention text with the selected user
+                                    val mentionEndIndex = mentionStartIndex + 1 + mentionQuery.length
+                                    val newText = handleMentionSelection(
+                                        userId,
+                                        displayName,
+                                        draft,
+                                        mentionStartIndex,
+                                        mentionEndIndex,
+                                    )
+
+                                    // Calculate the new cursor position after the inserted mention
+                                    // The cursor should be positioned right after the inserted mention text
+                                    val escapedDisplayName = (
+                                        displayName?.takeIf { it.isNotBlank() }
+                                        ?: userId.removePrefix(
+                                            "@",
+                                        ).substringBefore(":")
+                                    )
+                                        .replace("[", "\\[")
+                                        .replace("]", "\\]")
+                                    val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
+                                    val newCursorPosition = mentionStartIndex + mentionText.length
+
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursorPosition),
+                                    )
+
+                                    // Hide the mention list
+                                    showMentionList = false
+                                    mentionQuery = ""
+                                },
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = authToken,
+                                modifier = Modifier.zIndex(10f),
+                            )
+                        }
+                    }
+
+                    // Delete confirmation dialog (with optional reason)
+                    if (showDeleteDialog && deletingEvent != null) {
+                        DeleteMessageDialog(
+                            onDismiss = {
+                                showDeleteDialog = false
+                                deletingEvent = null
+                            },
+                            onConfirm = { reason ->
+                                // Send delete request with optional reason
+                                appViewModel.sendDelete(roomId, deletingEvent!!, reason)
+                                showDeleteDialog = false
+                                deletingEvent = null
+                            },
                         )
                     }
-                }
 
-                // Floating member list for mentions
-                if (showMentionList) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(
-                                start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 60.dp  // Closer to text input
-                            )
-                            .navigationBarsPadding()
-                    ) {
-                        BubbleMentionMemberList(
-                            members = roomMembers,
-                            query = mentionQuery,
-                            onMemberSelect = { userId, displayName ->
-                                // Replace the mention text with the selected user
-                                val mentionEndIndex = mentionStartIndex + 1 + mentionQuery.length
-                                val newText = handleMentionSelection(userId, displayName, draft, mentionStartIndex, mentionEndIndex)
-                                
-                                // Calculate the new cursor position after the inserted mention
-                                // The cursor should be positioned right after the inserted mention text
-                                val escapedDisplayName = (displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix("@").substringBefore(":"))
-                                    .replace("[", "\\[")
-                                    .replace("]", "\\]")
-                                val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
-                                val newCursorPosition = mentionStartIndex + mentionText.length
-                                
+                    // Room joiner screen
+                    if (showRoomJoiner && roomLinkToJoin != null) {
+                        RoomJoinerScreen(
+                            roomLink = roomLinkToJoin!!,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            appViewModel = appViewModel,
+                            onDismiss = {
+                                showRoomJoiner = false
+                                roomLinkToJoin = null
+                            },
+                            onJoinSuccess = { joinedRoomId ->
+                                showRoomJoiner = false
+                                roomLinkToJoin = null
+                                // Navigate to the joined room
+                                appViewModel.joinRoomAndNavigate(joinedRoomId, navController)
+                            },
+                        )
+                    }
+
+                    // Emoji selection dialog for reactions
+                    if (showEmojiSelection && reactingToEvent != null) {
+                        EmojiSelectionDialog(
+                            recentEmojis = appViewModel.recentEmojis,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onEmojiSelected = { emoji ->
+                                // Send reaction
+                                appViewModel.sendReaction(roomId, reactingToEvent!!.eventId, emoji)
+                                showEmojiSelection = false
+                                reactingToEvent = null
+                            },
+                            onDismiss = {
+                                showEmojiSelection = false
+                                reactingToEvent = null
+                            },
+                            customEmojiPacks = appViewModel.customEmojiPacks,
+                        )
+                    }
+
+                    // Emoji selection dialog for text input
+                    if (showEmojiPickerForText) {
+                        EmojiSelectionDialog(
+                            recentEmojis = appViewModel.recentEmojis,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onEmojiSelected = { emoji ->
+                                // Insert emoji at cursor position
+                                val currentText = textFieldValue.text
+                                val cursorPosition = textFieldValue.selection.start
+                                val newText = currentText.substring(0, cursorPosition) +
+                                    emoji +
+                                    currentText.substring(cursorPosition)
+                                val newCursorPosition = cursorPosition + emoji.length
+
+                                // Update both draft and textFieldValue
                                 draft = newText
                                 textFieldValue = TextFieldValue(
                                     text = newText,
-                                    selection = TextRange(newCursorPosition)
+                                    selection = TextRange(newCursorPosition),
                                 )
-                                
-                                // Hide the mention list
-                                showMentionList = false
-                                mentionQuery = ""
-                            },
-                            homeserverUrl = appViewModel.homeserverUrl,
-                            authToken = authToken,
-                            modifier = Modifier.zIndex(10f)
-                        )
-                    }
-                }
-                
-                // Delete confirmation dialog (with optional reason)
-                if (showDeleteDialog && deletingEvent != null) {
-                    DeleteMessageDialog(
-                        onDismiss = {
-                            showDeleteDialog = false
-                            deletingEvent = null
-                        },
-                        onConfirm = { reason ->
-                            // Send delete request with optional reason
-                            appViewModel.sendDelete(roomId, deletingEvent!!, reason)
-                            showDeleteDialog = false
-                            deletingEvent = null
-                        }
-                    )
-                }
-                
-                // Room joiner screen
-                if (showRoomJoiner && roomLinkToJoin != null) {
-                    RoomJoinerScreen(
-                        roomLink = roomLinkToJoin!!,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        appViewModel = appViewModel,
-                        onDismiss = {
-                            showRoomJoiner = false
-                            roomLinkToJoin = null
-                        },
-                        onJoinSuccess = { joinedRoomId ->
-                            showRoomJoiner = false
-                            roomLinkToJoin = null
-                            // Navigate to the joined room
-                            appViewModel.joinRoomAndNavigate(joinedRoomId, navController)
-                        }
-                    )
-                }
-                
-                // Emoji selection dialog for reactions
-                if (showEmojiSelection && reactingToEvent != null) {
-                    EmojiSelectionDialog(
-                        recentEmojis = appViewModel.recentEmojis,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onEmojiSelected = { emoji ->
-                            // Send reaction
-                            appViewModel.sendReaction(roomId, reactingToEvent!!.eventId, emoji)
-                            showEmojiSelection = false
-                            reactingToEvent = null
-                        },
-                        onDismiss = {
-                            showEmojiSelection = false
-                            reactingToEvent = null
-                        },
-                        customEmojiPacks = appViewModel.customEmojiPacks
-                    )
-                }
-                
-                // Emoji selection dialog for text input
-                if (showEmojiPickerForText) {
-                    EmojiSelectionDialog(
-                        recentEmojis = appViewModel.recentEmojis,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onEmojiSelected = { emoji ->
-                            // Insert emoji at cursor position
-                            val currentText = textFieldValue.text
-                            val cursorPosition = textFieldValue.selection.start
-                            val newText = currentText.substring(0, cursorPosition) + 
-                                         emoji + 
-                                         currentText.substring(cursorPosition)
-                            val newCursorPosition = cursorPosition + emoji.length
-                            
-                            // Update both draft and textFieldValue
-                            draft = newText
-                            textFieldValue = TextFieldValue(
-                                text = newText,
-                                selection = TextRange(newCursorPosition)
-                            )
-                            
-                            // Update recent emojis (updates in-memory state and sends to backend)
-                            // This will persist via account_data and update the recent emoji tab
-                            // For custom emojis, extract MXC URL from formatted string
-                            val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
-                                // Extract MXC URL from format: ![:name:](mxc://url "Emoji: :name:")
-                                val mxcStart = emoji.indexOf("mxc://")
-                                if (mxcStart >= 0) {
-                                    val mxcEnd = emoji.indexOf("\"", mxcStart)
-                                    if (mxcEnd > mxcStart) {
-                                        emoji.substring(mxcStart, mxcEnd).trimEnd()
+
+                                // Update recent emojis (updates in-memory state and sends to backend)
+                                // This will persist via account_data and update the recent emoji tab
+                                // For custom emojis, extract MXC URL from formatted string
+                                val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
+                                    // Extract MXC URL from format: ![:name:](mxc://url "Emoji: :name:")
+                                    val mxcStart = emoji.indexOf("mxc://")
+                                    if (mxcStart >= 0) {
+                                        val mxcEnd = emoji.indexOf("\"", mxcStart)
+                                        if (mxcEnd > mxcStart) {
+                                            emoji.substring(mxcStart, mxcEnd).trimEnd()
+                                        } else {
+                                            emoji.substring(mxcStart)
+                                        }
                                     } else {
-                                        emoji.substring(mxcStart)
+                                        emoji
                                     }
                                 } else {
                                     emoji
                                 }
-                            } else {
-                                emoji
-                            }
-                            appViewModel.updateRecentEmojis(emojiForRecent)
-                            
-                            // Don't close the picker - user might want to add more emojis
-                        },
-                        onDismiss = {
-                            showEmojiPickerForText = false
-                        },
-                        customEmojiPacks = appViewModel.customEmojiPacks,
-                        allowCustomReactions = false
-                    )
-                }
-                
-                // Sticker selection dialog for text input
-                if (showStickerPickerForText) {
-                    StickerSelectionDialog(
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onStickerSelected = { sticker ->
-                            // Send sticker message
-                            val mimeType = sticker.info?.optString("mimetype") ?: "image/png"
-                            val size = sticker.info?.optLong("size") ?: 0L
-                            val width = sticker.info?.optInt("w", 0) ?: 0
-                            val height = sticker.info?.optInt("h", 0) ?: 0
-                            val body = sticker.body ?: sticker.name
-                            
-                            appViewModel.sendStickerMessage(
-                                roomId = roomId,
-                                mxcUrl = sticker.mxcUrl,
-                                body = body,
-                                mimeType = mimeType,
-                                size = size,
-                                width = width,
-                                height = height
-                            )
-                            
-                            showStickerPickerForText = false
-                        },
-                        onDismiss = {
-                            showStickerPickerForText = false
-                        },
-                        stickerPacks = appViewModel.stickerPacks
-                    )
-                }
-                
-                // Media preview dialog (shows selected media with caption input)
-                if (showMediaPreview && (selectedMediaUri != null || selectedAudioUri != null || selectedFileUri != null)) {
-                    val currentUri = selectedMediaUri ?: selectedAudioUri ?: selectedFileUri!!
-                    val isAudio = selectedAudioUri != null
-                    val isFile = selectedFileUri != null
-                    
-                    MediaPreviewDialog(
-                        uri = currentUri,
-                        isVideo = selectedMediaIsVideo,
-                        isAudio = isAudio,
-                        isFile = isFile,
-                        onDismiss = {
-                            showMediaPreview = false
-                            selectedMediaUri = null
-                            selectedAudioUri = null
-                            selectedFileUri = null
-                            selectedMediaIsVideo = false
-                        },
-                        onSend = { caption, compressOriginal ->
-                            // Close dialog immediately - upload will continue in background
-                            showMediaPreview = false
-                            
-                            // Clear media selection state immediately so user can select new media
-                            val mediaUriToUpload = selectedMediaUri
-                            val audioUriToUpload = selectedAudioUri
-                            val fileUriToUpload = selectedFileUri
-                            val isVideoToUpload = selectedMediaIsVideo
-                            
-                            // Clear state immediately
-                            selectedMediaUri = null
-                            selectedAudioUri = null
-                            selectedFileUri = null
-                            selectedMediaIsVideo = false
-                            
-                            // Upload and send in background
-                            coroutineScope.launch {
-                                // Local helper for uploads with retry
-                                suspend fun <T> performUpload(
-                                    type: String,
-                                    uploadBlock: suspend () -> T?
-                                ): T? {
-                                    appViewModel.beginUpload(roomId, type)
+                                appViewModel.updateRecentEmojis(emojiForRecent)
+
+                                // Don't close the picker - user might want to add more emojis
+                            },
+                            onDismiss = {
+                                showEmojiPickerForText = false
+                            },
+                            customEmojiPacks = appViewModel.customEmojiPacks,
+                            allowCustomReactions = false,
+                        )
+                    }
+
+                    // Sticker selection dialog for text input
+                    if (showStickerPickerForText) {
+                        StickerSelectionDialog(
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onStickerSelected = { sticker ->
+                                // Send sticker message
+                                val mimeType = sticker.info?.optString("mimetype") ?: "image/png"
+                                val size = sticker.info?.optLong("size") ?: 0L
+                                val width = sticker.info?.optInt("w", 0) ?: 0
+                                val height = sticker.info?.optInt("h", 0) ?: 0
+                                val body = sticker.body ?: sticker.name
+
+                                appViewModel.sendStickerMessage(
+                                    roomId = roomId,
+                                    mxcUrl = sticker.mxcUrl,
+                                    body = body,
+                                    mimeType = mimeType,
+                                    size = size,
+                                    width = width,
+                                    height = height,
+                                )
+
+                                showStickerPickerForText = false
+                            },
+                            onDismiss = {
+                                showStickerPickerForText = false
+                            },
+                            stickerPacks = appViewModel.stickerPacks,
+                        )
+                    }
+
+                    // Media preview dialog (shows selected media with caption input)
+                    if (showMediaPreview &&
+                        (selectedMediaUri != null || selectedAudioUri != null || selectedFileUri != null)
+                    ) {
+                        val currentUri = selectedMediaUri ?: selectedAudioUri ?: selectedFileUri!!
+                        val isAudio = selectedAudioUri != null
+                        val isFile = selectedFileUri != null
+
+                        MediaPreviewDialog(
+                            uri = currentUri,
+                            isVideo = selectedMediaIsVideo,
+                            isAudio = isAudio,
+                            isFile = isFile,
+                            onDismiss = {
+                                showMediaPreview = false
+                                selectedMediaUri = null
+                                selectedAudioUri = null
+                                selectedFileUri = null
+                                selectedMediaIsVideo = false
+                            },
+                            onSend = { caption, compressOriginal ->
+                                // Close dialog immediately - upload will continue in background
+                                showMediaPreview = false
+
+                                // Clear media selection state immediately so user can select new media
+                                val mediaUriToUpload = selectedMediaUri
+                                val audioUriToUpload = selectedAudioUri
+                                val fileUriToUpload = selectedFileUri
+                                val isVideoToUpload = selectedMediaIsVideo
+
+                                // Clear state immediately
+                                selectedMediaUri = null
+                                selectedAudioUri = null
+                                selectedFileUri = null
+                                selectedMediaIsVideo = false
+
+                                // Upload and send in background
+                                coroutineScope.launch {
+                                    // Local helper for uploads with retry
+                                    suspend fun <T> performUpload(type: String, uploadBlock: suspend () -> T?): T? {
+                                        appViewModel.beginUpload(roomId, type)
+                                        try {
+                                            var result: T? = null
+                                            for (attempt in 0..3) {
+                                                if (attempt > 0) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: Retrying $type upload (attempt $attempt/3)",
+                                                    )
+                                                    }
+                                                    appViewModel.setUploadRetryCount(roomId, attempt)
+                                                    kotlinx.coroutines.delay(1000L * attempt)
+                                                }
+                                                result = uploadBlock()
+                                                if (result != null) break
+                                            }
+                                            appViewModel.setUploadRetryCount(roomId, 0)
+                                            return result
+                                        } finally {
+                                            appViewModel.endUpload(roomId, type)
+                                        }
+                                    }
+
                                     try {
-                                        var result: T? = null
-                                        for (attempt in 0..3) {
-                                            if (attempt > 0) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Retrying $type upload (attempt $attempt/3)")
-                                                appViewModel.setUploadRetryCount(roomId, attempt)
-                                                kotlinx.coroutines.delay(1000L * attempt)
+                                        when {
+                                            isVideoToUpload && mediaUriToUpload != null -> {
+                                                // Upload video with thumbnail
+                                                val videoResult = performUpload("video") {
+                                                    VideoUploadUtils.uploadVideo(
+                                                        context = context,
+                                                        uri = mediaUriToUpload,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        },
+                                                    )
+                                                }
+
+                                                if (videoResult != null) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: Video upload successful, sending message",
+                                                    )
+                                                    }
+                                                    // Send video message with metadata
+                                                    appViewModel.sendVideoMessage(
+                                                        roomId = roomId,
+                                                        videoMxcUrl = videoResult.videoMxcUrl,
+                                                        thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
+                                                        width = videoResult.width,
+                                                        height = videoResult.height,
+                                                        duration = videoResult.duration,
+                                                        size = videoResult.size,
+                                                        mimeType = videoResult.mimeType,
+                                                        thumbnailBlurHash = videoResult.thumbnailBlurHash,
+                                                        thumbnailWidth = videoResult.thumbnailWidth,
+                                                        thumbnailHeight = videoResult.thumbnailHeight,
+                                                        thumbnailSize = videoResult.thumbnailSize,
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                    )
+                                                } else {
+                                                    Log.e(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: Video upload failed after retries",
+                                                    )
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Failed to upload video after 3 attempts",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
                                             }
-                                            result = uploadBlock()
-                                            if (result != null) break
+
+                                            audioUriToUpload != null -> {
+                                                // Upload audio
+                                                val audioResult = performUpload("audio") {
+                                                    MediaUploadUtils.uploadAudio(
+                                                        context = context,
+                                                        uri = audioUriToUpload,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        },
+                                                    )
+                                                }
+
+                                                if (audioResult != null) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: Audio upload successful, sending message",
+                                                    )
+                                                    }
+                                                    // Send audio message with metadata
+                                                    appViewModel.sendAudioMessage(
+                                                        roomId = roomId,
+                                                        mxcUrl = audioResult.mxcUrl,
+                                                        filename = audioResult.filename,
+                                                        duration = audioResult.duration,
+                                                        size = audioResult.size,
+                                                        mimeType = audioResult.mimeType,
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                    )
+                                                } else {
+                                                    Log.e(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: Audio upload failed after retries",
+                                                    )
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Failed to upload audio after 3 attempts",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            }
+
+                                            fileUriToUpload != null -> {
+                                                // Upload file
+                                                val fileResult = performUpload("file") {
+                                                    MediaUploadUtils.uploadFile(
+                                                        context = context,
+                                                        uri = fileUriToUpload,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        },
+                                                    )
+                                                }
+
+                                                if (fileResult != null) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: File upload successful, sending message",
+                                                    )
+                                                    }
+                                                    // Send file message with metadata
+                                                    appViewModel.sendFileMessage(
+                                                        roomId = roomId,
+                                                        mxcUrl = fileResult.mxcUrl,
+                                                        filename = fileResult.filename,
+                                                        size = fileResult.size,
+                                                        mimeType = fileResult.mimeType,
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                    )
+                                                } else {
+                                                    Log.e(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: File upload failed after retries",
+                                                    )
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Failed to upload file after 3 attempts",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            }
+
+                                            mediaUriToUpload != null -> {
+                                                // Upload image
+                                                val uploadResult = performUpload("image") {
+                                                    MediaUploadUtils.uploadMedia(
+                                                        context = context,
+                                                        uri = mediaUriToUpload,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        isEncrypted = false,
+                                                        compressOriginal = compressOriginal,
+                                                        onProgress = { key, p ->
+                                                            appViewModel.setUploadProgress(roomId, key, p)
+                                                        },
+                                                    )
+                                                }
+
+                                                if (uploadResult != null) {
+                                                    if (BuildConfig.DEBUG) {
+                                                        Log.d(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: Image upload successful, sending message",
+                                                    )
+                                                    }
+                                                    // Send image message with metadata
+                                                    appViewModel.sendImageMessage(
+                                                        roomId = roomId,
+                                                        mxcUrl = uploadResult.mxcUrl,
+                                                        width = uploadResult.width,
+                                                        height = uploadResult.height,
+                                                        size = uploadResult.size,
+                                                        mimeType = uploadResult.mimeType,
+                                                        blurHash = uploadResult.blurHash,
+                                                        caption = caption.takeIf { it.isNotBlank() },
+                                                        thumbnailUrl = uploadResult.thumbnailUrl,
+                                                        thumbnailWidth = uploadResult.thumbnailWidth,
+                                                        thumbnailHeight = uploadResult.thumbnailHeight,
+                                                        thumbnailMimeType = uploadResult.thumbnailMimeType,
+                                                        thumbnailSize = uploadResult.thumbnailSize,
+                                                    )
+                                                } else {
+                                                    Log.e(
+                                                        "Andromuks",
+                                                        "BubbleTimelineScreen: Image upload failed after retries",
+                                                    )
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Failed to upload image after 3 attempts",
+                                                        android.widget.Toast.LENGTH_SHORT,
+                                                    ).show()
+                                                }
+                                            }
                                         }
+                                    } catch (e: Exception) {
+                                        Log.e("Andromuks", "BubbleTimelineScreen: Upload error", e)
+                                        // Try to clean up upload state
                                         appViewModel.setUploadRetryCount(roomId, 0)
-                                        return result
-                                    } finally {
-                                        appViewModel.endUpload(roomId, type)
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Error uploading media: ${e.message}",
+                                            android.widget.Toast.LENGTH_SHORT,
+                                        ).show()
                                     }
                                 }
+                            },
+                        )
+                    }
 
-                                try {
-                                    when {
-                                        isVideoToUpload && mediaUriToUpload != null -> {
-                                            // Upload video with thumbnail
-                                            val videoResult = performUpload("video") {
-                                                VideoUploadUtils.uploadVideo(
-                                                    context = context,
-                                                    uri = mediaUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            
-                                            if (videoResult != null) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Video upload successful, sending message")
-                                                // Send video message with metadata
-                                                appViewModel.sendVideoMessage(
-                                                    roomId = roomId,
-                                                    videoMxcUrl = videoResult.videoMxcUrl,
-                                                    thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
-                                                    width = videoResult.width,
-                                                    height = videoResult.height,
-                                                    duration = videoResult.duration,
-                                                    size = videoResult.size,
-                                                    mimeType = videoResult.mimeType,
-                                                    thumbnailBlurHash = videoResult.thumbnailBlurHash,
-                                                    thumbnailWidth = videoResult.thumbnailWidth,
-                                                    thumbnailHeight = videoResult.thumbnailHeight,
-                                                    thumbnailSize = videoResult.thumbnailSize,
-                                                    caption = caption.takeIf { it.isNotBlank() }
-                                                )
-                                            } else {
-                                                Log.e("Andromuks", "BubbleTimelineScreen: Video upload failed after retries")
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Failed to upload video after 3 attempts",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                        audioUriToUpload != null -> {
-                                            // Upload audio
-                                            val audioResult = performUpload("audio") {
-                                                MediaUploadUtils.uploadAudio(
-                                                    context = context,
-                                                    uri = audioUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            
-                                            if (audioResult != null) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Audio upload successful, sending message")
-                                                // Send audio message with metadata
-                                                appViewModel.sendAudioMessage(
-                                                    roomId = roomId,
-                                                    mxcUrl = audioResult.mxcUrl,
-                                                    filename = audioResult.filename,
-                                                    duration = audioResult.duration,
-                                                    size = audioResult.size,
-                                                    mimeType = audioResult.mimeType,
-                                                    caption = caption.takeIf { it.isNotBlank() }
-                                                )
-                                            } else {
-                                                Log.e("Andromuks", "BubbleTimelineScreen: Audio upload failed after retries")
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Failed to upload audio after 3 attempts",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                        fileUriToUpload != null -> {
-                                            // Upload file
-                                            val fileResult = performUpload("file") {
-                                                MediaUploadUtils.uploadFile(
-                                                    context = context,
-                                                    uri = fileUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            
-                                            if (fileResult != null) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: File upload successful, sending message")
-                                                // Send file message with metadata
-                                                appViewModel.sendFileMessage(
-                                                    roomId = roomId,
-                                                    mxcUrl = fileResult.mxcUrl,
-                                                    filename = fileResult.filename,
-                                                    size = fileResult.size,
-                                                    mimeType = fileResult.mimeType,
-                                                    caption = caption.takeIf { it.isNotBlank() }
-                                                )
-                                            } else {
-                                                Log.e("Andromuks", "BubbleTimelineScreen: File upload failed after retries")
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Failed to upload file after 3 attempts",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                        mediaUriToUpload != null -> {
-                                            // Upload image
-                                            val uploadResult = performUpload("image") {
-                                                MediaUploadUtils.uploadMedia(
-                                                    context = context,
-                                                    uri = mediaUriToUpload,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    isEncrypted = false,
-                                                    compressOriginal = compressOriginal,
-                                                    onProgress = { key, p ->
-                                                        appViewModel.setUploadProgress(roomId, key, p)
-                                                    }
-                                                )
-                                            }
-                                            
-                                            if (uploadResult != null) {
-                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Image upload successful, sending message")
-                                                // Send image message with metadata
-                                                appViewModel.sendImageMessage(
-                                                    roomId = roomId,
-                                                    mxcUrl = uploadResult.mxcUrl,
-                                                    width = uploadResult.width,
-                                                    height = uploadResult.height,
-                                                    size = uploadResult.size,
-                                                    mimeType = uploadResult.mimeType,
-                                                    blurHash = uploadResult.blurHash,
-                                                    caption = caption.takeIf { it.isNotBlank() },
-                                                    thumbnailUrl = uploadResult.thumbnailUrl,
-                                                    thumbnailWidth = uploadResult.thumbnailWidth,
-                                                    thumbnailHeight = uploadResult.thumbnailHeight,
-                                                    thumbnailMimeType = uploadResult.thumbnailMimeType,
-                                                    thumbnailSize = uploadResult.thumbnailSize
-                                                )
-                                            } else {
-                                                Log.e("Andromuks", "BubbleTimelineScreen: Image upload failed after retries")
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Failed to upload image after 3 attempts",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                    }
-                                } catch (e: Exception) {
-                                    Log.e("Andromuks", "BubbleTimelineScreen: Upload error", e)
-                                    // Try to clean up upload state
-                                    appViewModel.setUploadRetryCount(roomId, 0)
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        "Error uploading media: ${e.message}",
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
-                                }
-                            }
-                        }
-                    )
-                }
-                
-                // Uploading dialog removed - uploads now happen in background with status row indicator
-                
-                // Code viewer dialog
-                if (showCodeViewer) {
-                    CodeViewer(
-                        code = codeViewerContent,
-                        onDismiss = {
-                            showCodeViewer = false
-                            codeViewerContent = ""
-                        }
-                    )
-                }
+                    // Uploading dialog removed - uploads now happen in background with status row indicator
 
-                if (showReactionsDialog && reactionsEventId != null) {
-                    val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
-                    net.vrkknn.andromuks.utils.ReactionDetailsDialog(
-                        reactions = reactions,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onDismiss = { showReactionsDialog = false },
-                        appViewModel = appViewModel,
-                        roomId = roomId
-                    )
-                }
+                    // Code viewer dialog
+                    if (showCodeViewer) {
+                        CodeViewer(
+                            code = codeViewerContent,
+                            onDismiss = {
+                                showCodeViewer = false
+                                codeViewerContent = ""
+                            },
+                        )
+                    }
 
-                if (showBridgeDeliveryDialog && bridgeDeliveryEventId != null) {
-                    val eventId = bridgeDeliveryEventId!!
-                    val deliveryInfo = appViewModel.messageBridgeDeliveryInfo[eventId] ?: net.vrkknn.andromuks.BridgeDeliveryInfo()
-                    val deliveryStatus = appViewModel.messageBridgeSendStatus[eventId] ?: "sent"
-                    val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
-                    net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog(
-                        deliveryInfo = deliveryInfo,
-                        status = deliveryStatus,
-                        networkName = networkName,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        onDismiss = { showBridgeDeliveryDialog = false },
-                        appViewModel = appViewModel,
-                        roomId = roomId
-                    )
-                }
+                    if (showReactionsDialog && reactionsEventId != null) {
+                        val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
+                        net.vrkknn.andromuks.utils.ReactionDetailsDialog(
+                            reactions = reactions,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onDismiss = { showReactionsDialog = false },
+                            appViewModel = appViewModel,
+                            roomId = roomId,
+                        )
+                    }
+
+                    if (showBridgeDeliveryDialog && bridgeDeliveryEventId != null) {
+                        val eventId = bridgeDeliveryEventId!!
+                        val deliveryInfo =
+                            appViewModel.messageBridgeDeliveryInfo[eventId] ?: net.vrkknn.andromuks.BridgeDeliveryInfo()
+                        val deliveryStatus = appViewModel.messageBridgeSendStatus[eventId] ?: "sent"
+                        val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
+                        net.vrkknn.andromuks.utils.BridgeDeliveryInfoDialog(
+                            deliveryInfo = deliveryInfo,
+                            status = deliveryStatus,
+                            networkName = networkName,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onDismiss = { showBridgeDeliveryDialog = false },
+                            appViewModel = appViewModel,
+                            roomId = roomId,
+                        )
+                    }
                 }
             }
         }
     }
 }
-
-
-
-
-
-
 
 @Composable
 fun BubbleRoomHeader(
@@ -4681,7 +5086,7 @@ fun BubbleRoomHeader(
     onOpenInApp: () -> Unit = {},
     onCloseBubble: () -> Unit = {},
     onMinimizeBubble: () -> Unit = {},
-    onRefreshClick: () -> Unit = {}
+    onRefreshClick: () -> Unit = {},
 ) {
     // Debug logging
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BubbleRoomHeader: roomState = $roomState")
@@ -4691,14 +5096,14 @@ fun BubbleRoomHeader(
     val connectionState by SyncRepository.connectionState.collectAsState()
     Surface(
         modifier =
-            Modifier.fillMaxWidth()
-                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+        Modifier.fillMaxWidth()
+            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(10.dp),
-        shadowElevation = 12.dp
+        shadowElevation = 12.dp,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             // Room avatar (clickable for room info)
             Box(modifier = Modifier.clickable(onClick = onHeaderClick)) {
@@ -4710,7 +5115,7 @@ fun BubbleRoomHeader(
                     size = 48.dp,
                     userId = roomId ?: roomState?.roomId,
                     displayName = roomState?.name ?: fallbackName,
-                    isVisible = true // Always visible for room header
+                    isVisible = true, // Always visible for room header
                 )
             }
 
@@ -4718,7 +5123,7 @@ fun BubbleRoomHeader(
 
             // Room info (clickable for room info)
             Column(
-                modifier = Modifier.weight(1f).clickable(onClick = onHeaderClick)
+                modifier = Modifier.weight(1f).clickable(onClick = onHeaderClick),
             ) {
                 // Room name (prefer room state name, fallback to fallback name)
                 val displayName = roomState?.name ?: fallbackName
@@ -4728,7 +5133,7 @@ fun BubbleRoomHeader(
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    softWrap = false
+                    softWrap = false,
                 )
 
                 // Room topic / encryption indicator (below display name)
@@ -4737,13 +5142,13 @@ fun BubbleRoomHeader(
                 val iconSize = with(LocalDensity.current) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 2.dp)
+                    modifier = Modifier.padding(top = 2.dp),
                 ) {
                     Icon(
                         imageVector = if (isRoomEncrypted) Icons.Filled.Lock else Icons.Filled.LockOpen,
                         contentDescription = if (isRoomEncrypted) "Encrypted room" else "Unencrypted room",
                         modifier = Modifier.size(iconSize),
-                        tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                     )
                     if (roomTopic != null && roomTopic.isNotBlank()) {
                         Spacer(modifier = Modifier.width(4.dp))
@@ -4752,20 +5157,20 @@ fun BubbleRoomHeader(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            overflow = TextOverflow.Ellipsis,
                         )
                     }
                 }
             }
-            
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 AnimatedVisibility(
                     visible = !connectionState.isReady(),
                     enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
-                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300)))
+                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
                 ) {
                     val offlinePulse = rememberInfiniteTransition(label = "offline_pulse")
                     val offlineAlpha by offlinePulse.animateFloat(
@@ -4773,22 +5178,22 @@ fun BubbleRoomHeader(
                         targetValue = 1f,
                         animationSpec = infiniteRepeatable(
                             animation = tween(800, easing = FastOutSlowInEasing),
-                            repeatMode = RepeatMode.Reverse
+                            repeatMode = RepeatMode.Reverse,
                         ),
-                        label = "offline_alpha"
+                        label = "offline_alpha",
                     )
                     Icon(
                         imageVector = Icons.Filled.CloudOff,
                         contentDescription = "No server connection",
                         tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(20.dp),
                     )
                 }
                 IconButton(onClick = onOpenInApp) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Launch,
                         contentDescription = "Open in app",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 val bridgeInfo = roomState?.bridgeInfo
@@ -4797,29 +5202,34 @@ fun BubbleRoomHeader(
                         bridgeInfo = bridgeInfo,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
-                        onClick = onRefreshClick
+                        onClick = onRefreshClick,
                     )
                 } else {
                     IconButton(onClick = onRefreshClick) {
                         Icon(
                             imageVector = Icons.Filled.Refresh,
                             contentDescription = "Refresh timeline",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
                 IconButton(onClick = {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleRoomHeader: X button clicked - calling onMinimizeBubble")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        "Andromuks",
+                        "BubbleRoomHeader: X button clicked - calling onMinimizeBubble",
+                    )
+                    }
                     onMinimizeBubble()
                 }) {
                     Icon(
                         imageVector = Icons.Filled.Close,
                         contentDescription = "Minimize bubble",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
         }
     }
 }
-                // With reverseLayout, new events are added at higher indices (older messages at top)
+// With reverseLayout, new events are added at higher indices (older messages at top)

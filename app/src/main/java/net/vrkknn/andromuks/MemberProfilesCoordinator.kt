@@ -52,11 +52,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                             ProfileCache.updateGlobalProfileAccess(sender)
                             memberMap[sender] = globalProfile
                             ProfileCache.addToRoomIndex(roomId, sender)
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "AppViewModel: Added global profile fallback for $sender in room $roomId via getMemberMap()",
                                 )
+                            }
                         }
                     }
                 }
@@ -80,11 +81,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                         if (globalProfile != null) {
                             ProfileCache.updateGlobalProfileAccess(sender)
                             memberMap[sender] = globalProfile
-                            if (BuildConfig.DEBUG)
+                            if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
                                     "AppViewModel: Added global profile fallback for $sender in room $roomId",
                                 )
+                            }
                         }
                     }
                 }
@@ -121,11 +123,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
         ProfileCache.cleanupGlobalProfiles(AppViewModel.MAX_MEMBER_CACHE_SIZE)
         ProfileCache.cleanupFlattenedProfiles(AppViewModel.MAX_MEMBER_CACHE_SIZE)
 
-        if (BuildConfig.DEBUG)
+        if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
                 "AppViewModel: Performed member cache cleanup - flattened: ${ProfileCache.getFlattenedCacheSize()}, global: ${ProfileCache.getGlobalCacheSize()}",
             )
+        }
     }
 
     fun manageRoomMemberCacheSize(roomId: String) {
@@ -147,11 +150,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
             val roomId = fullMemberListRequests.remove(requestId) ?: return
 
             pendingFullMemberListRequests.remove(roomId)
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Handling full member list response for room: $roomId",
                 )
+            }
 
             val currentState =
                 navigationCache[roomId] ?: AppViewModel.RoomNavigationState(roomId)
@@ -165,12 +169,14 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 is JSONArray -> {
                     this@MemberProfilesCoordinator.parseFullMemberListFromRoomState(roomId, data)
                 }
+
                 else -> {
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Unhandled data type in handleFullMemberListResponse: ${data::class.java.simpleName}",
                         )
+                    }
                 }
             }
         }
@@ -179,19 +185,21 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
     private fun parseFullMemberListFromRoomState(roomId: String, events: JSONArray) {
         with(vm) {
             val startTime = System.currentTimeMillis()
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Parsing full member list from ${events.length()} room state events for room: $roomId",
                 )
+            }
 
             val previousSize = RoomMemberCache.getRoomMembers(roomId).size
             RoomMemberCache.clearRoom(roomId)
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Cleared $previousSize existing members from cache for fresh member list",
                 )
+            }
 
             val memberMap = mutableMapOf<String, MemberProfile>()
 
@@ -249,10 +257,11 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                                     cacheCleared = true
                                     android.util.Log.w(
                                         "Andromuks",
-                                        "AppViewModel: Cleared all caches due to large member list (${updatedMembers}+ members)",
+                                        "AppViewModel: Cleared all caches due to large member list ($updatedMembers+ members)",
                                     )
                                 }
                             }
+
                             "leave", "ban" -> {
                                 val wasRemoved = memberMap.remove(stateKey) != null
                                 RoomMemberCache.removeMember(roomId, stateKey)
@@ -265,11 +274,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                                 ProfileCache.removeFromRoomIndex(roomId, stateKey)
 
                                 if (wasRemoved || wasRemovedFromFlattened) {
-                                    if (BuildConfig.DEBUG)
+                                    if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
                                             "Andromuks",
                                             "AppViewModel: Removed $stateKey from room $roomId (membership: $membership)",
                                         )
+                                    }
                                     updatedMembers++
                                 }
                             }
@@ -280,11 +290,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
 
             if (updatedMembers > 0) {
                 val duration = System.currentTimeMillis() - startTime
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Updated $updatedMembers members in full member list for room $roomId in ${duration}ms",
                     )
+                }
                 vm.viewModelScope.launch(Dispatchers.Main) {
                     memberUpdateCounter++
                 }
@@ -304,8 +315,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
         }
         // roomId == null: no room context available, fall back to global profile.
         // This path should be rare; callers should always pass a roomId.
-        if (BuildConfig.DEBUG)
-            android.util.Log.w("Andromuks", "MemberProfilesCoordinator: requestUserProfile called without roomId for $userId — falling back to get_profile")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.w(
+                "Andromuks",
+                "MemberProfilesCoordinator: requestUserProfile called without roomId for $userId — falling back to get_profile",
+            )
+        }
         with(vm) {
             if (pendingProfileRequests.contains(userId)) return
 
@@ -350,29 +365,32 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
             val requestingRoomId = profileRequestRooms.remove(requestId)
 
             pendingProfileRequests.remove(userId)
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Profile lookup failed for $userId: $errorMessage",
                 )
+            }
 
             val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
             if (fullUserInfoCallback != null) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Profile error for full user info request (requestId: $requestId, userId: $userId), invoking callback with null",
                     )
+                }
                 fullUserInfoCallback(null)
             }
 
             val existingProfile = getUserProfile(userId, requestingRoomId)
             if (existingProfile != null && !existingProfile.displayName.isNullOrBlank()) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Global profile lookup failed for $userId, but we already have a profile from room state. Skipping fallback.",
                     )
+                }
                 return
             }
 
@@ -385,11 +403,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                     userId,
                     memberProfile,
                 )
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Added fallback profile for $userId to room $requestingRoomId",
                     )
+                }
             }
 
             RoomMemberCache.getAllMembers().forEach { (roomId, _) ->
@@ -397,11 +416,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 if (existingMembers.containsKey(userId)) {
                     this@MemberProfilesCoordinator.storeMemberProfile(roomId, userId, memberProfile)
                     RoomMemberCache.updateMember(roomId, userId, memberProfile)
-                    if (BuildConfig.DEBUG)
+                    if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "AppViewModel: Updated member cache with username '$username' for $userId in room $roomId",
                         )
+                    }
                 }
             }
 
@@ -414,11 +434,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
         with(vm) {
             val userId = profileRequests.remove(requestId)
             if (userId == null) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.w(
                         "Andromuks",
                         "AppViewModel: handleProfileResponse called for unknown requestId=$requestId",
                     )
+                }
                 return
             }
             val requestingRoomId = profileRequestRooms.remove(requestId)
@@ -433,11 +454,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
             val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
             val display = obj.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
 
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: handleProfileResponse processing - userId: $userId, displayName: $display, avatarUrl: $avatar",
                 )
+            }
 
             val memberProfile = MemberProfile(display, avatar)
 
@@ -465,11 +487,12 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
                 persistCurrentUserAvatarMxcIfChanged(avatar)
                 persistCurrentUserDisplayNameIfChanged(display)
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Updated currentUserProfile - userId: $userId, displayName: $display, avatarUrl: $avatar",
                     )
+                }
                 // Profile was the last missing condition for startup — re-check now that it's set.
                 checkStartupComplete()
             }
@@ -478,18 +501,20 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
 
             val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
             if (fullUserInfoCallback != null) {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Invoking full user info callback for profile (requestId: $requestId, userId: $userId)",
                     )
+                }
                 fullUserInfoCallback(obj)
             } else {
-                if (BuildConfig.DEBUG)
+                if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
                         "AppViewModel: Profile response received but no full user info callback found (requestId: $requestId)",
                     )
+                }
             }
 
             needsMemberUpdate = true

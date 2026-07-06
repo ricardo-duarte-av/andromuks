@@ -14,11 +14,11 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object PendingInvitesCache {
     private const val TAG = "PendingInvitesCache"
-    
+
     // Thread-safe map storing invites: roomId -> RoomInvite
     private val invitesCache = ConcurrentHashMap<String, RoomInvite>()
     private val cacheLock = Any()
-    
+
     /**
      * Update or add an invite to the cache
      */
@@ -27,7 +27,7 @@ object PendingInvitesCache {
             invitesCache[invite.roomId] = invite
         }
     }
-    
+
     /**
      * Update multiple invites
      */
@@ -36,7 +36,7 @@ object PendingInvitesCache {
             invitesCache.putAll(invites)
         }
     }
-    
+
     /**
      * Remove an invite from the cache
      */
@@ -45,34 +45,28 @@ object PendingInvitesCache {
             invitesCache.remove(roomId)
         }
     }
-    
+
     /**
      * Get an invite from the cache
      */
-    fun getInvite(roomId: String): RoomInvite? {
-        return synchronized(cacheLock) {
-            invitesCache[roomId]
-        }
+    fun getInvite(roomId: String): RoomInvite? = synchronized(cacheLock) {
+        invitesCache[roomId]
     }
-    
+
     /**
      * Get all invites from the cache
      */
-    fun getAllInvites(): Map<String, RoomInvite> {
-        return synchronized(cacheLock) {
-            HashMap(invitesCache) // Return a copy to avoid concurrent modification
-        }
+    fun getAllInvites(): Map<String, RoomInvite> = synchronized(cacheLock) {
+        HashMap(invitesCache) // Return a copy to avoid concurrent modification
     }
-    
+
     /**
      * Get the number of invites in the cache
      */
-    fun getInviteCount(): Int {
-        return synchronized(cacheLock) {
-            invitesCache.size
-        }
+    fun getInviteCount(): Int = synchronized(cacheLock) {
+        invitesCache.size
     }
-    
+
     /**
      * Clear all invites from the cache
      */
@@ -83,4 +77,3 @@ object PendingInvitesCache {
         }
     }
 }
-

@@ -8,9 +8,7 @@ import org.json.JSONObject
  * and acknowledgment tracking. Keeps [AppViewModel] smaller; state lives on the ViewModel, this
  * class only orchestrates sends.
  */
-internal class WebSocketCommandSender(
-    private val vm: AppViewModel
-) {
+internal class WebSocketCommandSender(private val vm: AppViewModel) {
 
     /**
      * Low-level send (Map, JSONObject, or legacy direct JSON). Prefer [send] for normal commands.
@@ -18,10 +16,12 @@ internal class WebSocketCommandSender(
     fun sendRaw(command: String, requestId: Int, data: Any?): WebSocketResult {
         val dataMap = when (data) {
             null -> emptyMap<String, Any>()
+
             is Map<*, *> -> {
                 @Suppress("UNCHECKED_CAST")
                 data as Map<String, Any>
             }
+
             is JSONObject -> {
                 val map = mutableMapOf<String, Any>()
                 val keys = data.keys()
@@ -31,10 +31,11 @@ internal class WebSocketCommandSender(
                 }
                 map
             }
+
             else -> {
                 android.util.Log.w(
                     "Andromuks",
-                    "sendRawWebSocketCommand: Complex data type, using legacy path: ${data::class.simpleName}"
+                    "sendRawWebSocketCommand: Complex data type, using legacy path: ${data::class.simpleName}",
                 )
                 return try {
                     val json = JSONObject()
@@ -44,7 +45,10 @@ internal class WebSocketCommandSender(
                     val jsonString = json.toString()
                     val ws = WebSocketService.getWebSocket()
                     if (ws == null) {
-                        android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
+                        android.util.Log.w(
+                            "Andromuks",
+                            "AppViewModel: WebSocket is not connected, cannot send command: $command",
+                        )
                         return WebSocketResult.NOT_CONNECTED
                     }
                     ws.send(jsonString)
@@ -103,22 +107,24 @@ internal class WebSocketCommandSender(
                     // "fails red, then sends anyway on reconnect" duplicate.
                     android.util.Log.w(
                         "Andromuks",
-                        "AppViewModel: WebSocket not connected — send_message NOT queued (placeholder will fail), requestId=$requestId"
+                        "AppViewModel: WebSocket not connected — send_message NOT queued (placeholder will fail), requestId=$requestId",
                     )
                 }
+
                 "mark_read" -> {
                     // Idempotent — safe to replay on reconnect.
                     android.util.Log.w(
                         "Andromuks",
-                        "AppViewModel: WebSocket is not connected, queuing mark_read (requestId: $requestId)"
+                        "AppViewModel: WebSocket is not connected, queuing mark_read (requestId: $requestId)",
                     )
                     queueOfflineRetry(command, requestId, data)
                 }
+
                 else -> {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: WebSocket is not connected, skipping automatic command: $command (will be re-requested when online)"
+                            "AppViewModel: WebSocket is not connected, skipping automatic command: $command (will be re-requested when online)",
                         )
                     }
                 }
@@ -136,7 +142,7 @@ internal class WebSocketCommandSender(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Command $command (requestId: $requestId) queued - waiting for init_complete + sync_complete processing (${vm.pendingCommandsQueue.size} commands queued)"
+                    "AppViewModel: Command $command (requestId: $requestId) queued - waiting for init_complete + sync_complete processing (${vm.pendingCommandsQueue.size} commands queued)",
                 )
             }
             return WebSocketResult.NOT_CONNECTED
@@ -146,12 +152,16 @@ internal class WebSocketCommandSender(
         if (command == "paginate" && BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "🟠 sendWebSocketCommand: SENDING paginate - requestId=$requestId, roomId=$roomId, data=${org.json.JSONObject(data).toString().take(200)}"
+                "🟠 sendWebSocketCommand: SENDING paginate - requestId=$requestId, roomId=$roomId, data=${org.json.JSONObject(
+                    data,
+                ).toString().take(200)}",
             )
         } else if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}"
+                "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(
+                    data,
+                ).toString().take(200)}",
             )
         }
 
@@ -159,14 +169,14 @@ internal class WebSocketCommandSender(
             if (command == "paginate" && BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "🟠 sendWebSocketCommand: paginate SENT successfully - requestId=$requestId, roomId=$roomId"
+                    "🟠 sendWebSocketCommand: paginate SENT successfully - requestId=$requestId, roomId=$roomId",
                 )
             }
             WebSocketResult.SUCCESS
         } else {
             android.util.Log.w(
                 "Andromuks",
-                "🟠 sendWebSocketCommand: FAILED to send $command - requestId=$requestId, roomId=$roomId (service returned false)"
+                "🟠 sendWebSocketCommand: FAILED to send $command - requestId=$requestId, roomId=$roomId (service returned false)",
             )
             WebSocketResult.CONNECTION_ERROR
         }
@@ -180,13 +190,13 @@ internal class WebSocketCommandSender(
                 data = mapOf(
                     "command" to command,
                     "requestId" to requestId,
-                    "data" to data
+                    "data" to data,
                 ),
                 retryCount = 0,
                 messageId = messageId,
                 timestamp = System.currentTimeMillis(),
                 acknowledged = false,
-                acknowledgmentTimeout = acknowledgmentTimeout
+                acknowledgmentTimeout = acknowledgmentTimeout,
             )
 
             synchronized(vm.pendingOperationsLock) {
@@ -197,7 +207,7 @@ internal class WebSocketCommandSender(
                         if (BuildConfig.DEBUG) {
                             android.util.Log.w(
                                 "Andromuks",
-                                "AppViewModel: Queue full (${AppViewModel.MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}"
+                                "AppViewModel: Queue full (${AppViewModel.MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}",
                             )
                         }
                     }
@@ -220,17 +230,19 @@ internal class WebSocketCommandSender(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Flushing ${commandsToFlush.size} queued commands after init_complete + sync_complete processing"
+                    "AppViewModel: Flushing ${commandsToFlush.size} queued commands after init_complete + sync_complete processing",
                 )
             }
             for ((command, requestId, data) in commandsToFlush) {
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Flushing queued command: $command (requestId: $requestId)")
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Flushing queued command: $command (requestId: $requestId)",
+                    )
                 }
                 send(command, requestId, data)
             }
         }
-
     }
 
     fun queueOfflineRetry(command: String, requestId: Int, data: Map<String, Any>) {
@@ -247,7 +259,7 @@ internal class WebSocketCommandSender(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Skipping offline storage for $command (not offline-replayable; will be re-requested or resent manually)"
+                    "AppViewModel: Skipping offline storage for $command (not offline-replayable; will be re-requested or resent manually)",
                 )
             }
             return
@@ -259,21 +271,22 @@ internal class WebSocketCommandSender(
                 data = mapOf(
                     "command" to command,
                     "requestId" to requestId,
-                    "data" to data
+                    "data" to data,
                 ),
-                retryCount = 0
+                retryCount = 0,
             ),
-            saveToStorage = true
+            saveToStorage = true,
         )
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Queued offline command: $command (user-initiated)")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: NETWORK OPTIMIZATION - Queued offline command: $command (user-initiated)",
+            )
         }
     }
 
-    private fun isOfflineCapableCommand(command: String): Boolean {
-        return when (command) {
-            "get_profile", "get_room_state" -> true
-            else -> false
-        }
+    private fun isOfflineCapableCommand(command: String): Boolean = when (command) {
+        "get_profile", "get_room_state" -> true
+        else -> false
     }
 }

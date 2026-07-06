@@ -1,8 +1,8 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,7 +32,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +42,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.BridgeDeliveryInfo
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -76,7 +76,7 @@ fun BridgeDeliveryInfoDialog(
     onDismiss: () -> Unit,
     onUserClick: (String) -> Unit = {},
     appViewModel: AppViewModel? = null,
-    roomId: String? = null
+    roomId: String? = null,
 ) {
     // Sort deliveries by timestamp ascending so earliest recipient is first
     val sortedDeliveries = remember(deliveryInfo.deliveries) {
@@ -120,43 +120,43 @@ fun BridgeDeliveryInfoDialog(
         onDismissRequest = { dismissWithAnimation() },
         properties = androidx.compose.ui.window.DialogProperties(
             dismissOnBackPress = true,
-            dismissOnClickOutside = true
-        )
+            dismissOnClickOutside = true,
+        ),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clickable(enabled = true) { dismissWithAnimation() },
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             androidx.compose.animation.AnimatedVisibility(
                 visible = isVisible,
                 enter = androidx.compose.animation.fadeIn(
                     animationSpec = androidx.compose.animation.core.tween(
                         durationMillis = scaledTweenMs(enterDuration),
-                        easing = androidx.compose.animation.core.FastOutSlowInEasing
-                    )
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                    ),
                 ) + androidx.compose.animation.scaleIn(
                     initialScale = 0.85f,
                     animationSpec = androidx.compose.animation.core.tween(
                         durationMillis = scaledTweenMs(enterDuration),
-                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
                     ),
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center,
                 ),
                 exit = androidx.compose.animation.fadeOut(
                     animationSpec = androidx.compose.animation.core.tween(
                         durationMillis = scaledTweenMs(exitDuration),
-                        easing = androidx.compose.animation.core.FastOutSlowInEasing
-                    )
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                    ),
                 ) + androidx.compose.animation.scaleOut(
                     targetScale = 0.85f,
                     animationSpec = androidx.compose.animation.core.tween(
                         durationMillis = scaledTweenMs(exitDuration),
-                        easing = androidx.compose.animation.core.FastOutSlowInEasing
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
                     ),
-                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
-                )
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center,
+                ),
             ) {
                 Surface(
                     modifier = Modifier
@@ -165,7 +165,7 @@ fun BridgeDeliveryInfoDialog(
                         .clickable { }, // consume clicks to prevent dismissal
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp
+                    tonalElevation = 8.dp,
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         // Title
@@ -173,16 +173,16 @@ fun BridgeDeliveryInfoDialog(
                             text = "Delivery Info",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 16.dp)
+                            modifier = Modifier.padding(bottom = 16.dp),
                         )
 
                         // --- Sent row ---
                         val networkLabel = if (!networkName.isNullOrBlank()) networkName else "other network"
                         val sentIcon = when (status) {
-                            "delivered"       -> Icons.Filled.DoneAll
-                            "sent"            -> Icons.Filled.Check
+                            "delivered" -> Icons.Filled.DoneAll
+                            "sent" -> Icons.Filled.Check
                             "error_retriable" -> Icons.Filled.Warning
-                            else              -> Icons.Filled.Error
+                            else -> Icons.Filled.Error
                         }
                         val sentIconTint = when (status) {
                             "error_retriable", "error_permanent" -> MaterialTheme.colorScheme.error
@@ -191,29 +191,29 @@ fun BridgeDeliveryInfoDialog(
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
                             Icon(
                                 imageVector = sentIcon,
                                 contentDescription = null,
                                 tint = sentIconTint,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(20.dp),
                             )
                             Column {
                                 Text(
                                     text = when (status) {
                                         "error_retriable" -> "Failed to reach $networkLabel (will retry)"
                                         "error_permanent" -> "Failed to reach $networkLabel"
-                                        else              -> "Sent to $networkLabel"
+                                        else -> "Sent to $networkLabel"
                                     },
                                     style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
                                 )
                                 if (deliveryInfo.sentAt != null) {
                                     Text(
                                         text = formatDeliveryTime(deliveryInfo.sentAt),
                                         style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
                             }
@@ -229,18 +229,18 @@ fun BridgeDeliveryInfoDialog(
                                 text = "Received by",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(bottom = 8.dp)
+                                modifier = Modifier.padding(bottom = 8.dp),
                             )
 
                             LazyColumn(
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .heightIn(max = 320.dp)
+                                    .heightIn(max = 320.dp),
                             ) {
                                 items(
                                     items = sortedDeliveries,
-                                    key = { it.key }
+                                    key = { it.key },
                                 ) { (userId, timestamp) ->
                                     val userProfile = remember(userId, appViewModel?.memberUpdateCounter) {
                                         appViewModel?.getUserProfile(userId, roomId)
@@ -253,7 +253,7 @@ fun BridgeDeliveryInfoDialog(
                                         authToken = authToken,
                                         onUserClick = { uid ->
                                             dismissWithAnimation { onUserClick(uid) }
-                                        }
+                                        },
                                     )
                                 }
                             }
@@ -263,7 +263,7 @@ fun BridgeDeliveryInfoDialog(
                             Text(
                                 text = "No delivery confirmation yet",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
                     }
@@ -280,13 +280,13 @@ private fun DeliveryUserRow(
     userProfile: net.vrkknn.andromuks.MemberProfile?,
     homeserverUrl: String,
     authToken: String,
-    onUserClick: (String) -> Unit
+    onUserClick: (String) -> Unit,
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onUserClick(userId) },
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         net.vrkknn.andromuks.ui.components.AvatarImage(
             mxcUrl = userProfile?.avatarUrl,
@@ -295,14 +295,14 @@ private fun DeliveryUserRow(
             fallbackText = (userProfile?.displayName ?: userId).take(1),
             size = 40.dp,
             userId = userId,
-            displayName = userProfile?.displayName
+            displayName = userProfile?.displayName,
         )
 
         Row(
             modifier = Modifier
                 .padding(start = 12.dp)
                 .weight(1f),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = userProfile?.displayName ?: userId,
@@ -310,14 +310,14 @@ private fun DeliveryUserRow(
                 fontWeight = FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.weight(1f),
             )
             Text(
                 text = formatDeliveryTime(timestamp),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
-                modifier = Modifier.padding(start = 8.dp)
+                modifier = Modifier.padding(start = 8.dp),
             )
         }
     }

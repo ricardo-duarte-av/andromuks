@@ -2,7 +2,6 @@ package net.vrkknn.andromuks.utils
 
 import android.graphics.Bitmap
 import android.graphics.pdf.PdfRenderer
-import android.media.MediaPlayer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.provider.OpenableColumns
@@ -21,13 +20,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayCircle
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearWavyProgressIndicator
@@ -50,8 +49,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import coil3.compose.AsyncImage
-import coil3.request.crossfade
 import coil3.request.ImageRequest
+import coil3.request.crossfade
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.SharedMediaItem
@@ -60,11 +59,7 @@ import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
 /**
  * Per-item state when sending multiple media (caption and compress option for images).
  */
-data class MediaPreviewItemSendState(
-    val item: SharedMediaItem,
-    val caption: String,
-    val compressOriginal: Boolean
-)
+data class MediaPreviewItemSendState(val item: SharedMediaItem, val caption: String, val compressOriginal: Boolean)
 
 /**
  * Dialog to preview multiple selected media: swipe left/right, caption per item, then send all in queue.
@@ -74,7 +69,7 @@ data class MediaPreviewItemSendState(
 fun MediaPreviewDialogMultiple(
     items: List<SharedMediaItem>,
     onDismiss: () -> Unit,
-    onSendAll: (List<MediaPreviewItemSendState>) -> Unit
+    onSendAll: (List<MediaPreviewItemSendState>) -> Unit,
 ) {
     val context = LocalContext.current
     val pagerState = rememberPagerState(pageCount = { items.size })
@@ -94,7 +89,7 @@ fun MediaPreviewDialogMultiple(
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
+        properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         val dialogWindowProvider = LocalView.current.parent as? DialogWindowProvider
         LaunchedEffect(Unit) {
@@ -107,114 +102,120 @@ fun MediaPreviewDialogMultiple(
                 .fillMaxWidth()
                 .fillMaxHeight(0.9f)
                 .imePadding(),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
+            Surface(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
+                    .fillMaxWidth()
+                    .fillMaxHeight(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Send ${items.size} items",
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.Filled.Close, contentDescription = "Close")
-                    }
-                }
-                Text(
-                    text = "${currentPage + 1} of ${items.size}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
-                    val item = items[page]
-                    val mime = item.mimeType ?: context.contentResolver.getType(item.uri)
-                    val kind = classifyMime(mime)
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            when (kind) {
-                                "video" -> VideoPlayerPreview(uri = item.uri)
-                                "image" -> AsyncImage(
-                                    model = ImageRequest.Builder(context).data(item.uri).crossfade(true).build(),
-                                    contentDescription = "Image ${page + 1}",
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentScale = ContentScale.Fit
-                                )
-                                else -> FilePreview(uri = item.uri, mimeType = mime)
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        if (kind == "image") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Checkbox(
-                                    checked = compressByIndex[page] ?: false,
-                                    onCheckedChange = { compressByIndex = compressByIndex + (page to it) }
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Compress image", style = MaterialTheme.typography.bodyMedium)
-                            }
-                        }
-                        OutlinedTextField(
-                            value = captionsByIndex[page] ?: "",
-                            onValueChange = { captionsByIndex = captionsByIndex + (page to it) },
-                            modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Caption (optional)") },
-                            placeholder = { Text("Write a caption...") },
-                            maxLines = 2
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        val list = items.mapIndexed { index, item ->
-                            val kind = classifyMime(item.mimeType ?: context.contentResolver.getType(item.uri))
-                            MediaPreviewItemSendState(
-                                item = item,
-                                caption = captionsByIndex[index] ?: "",
-                                compressOriginal = kind == "image" && (compressByIndex[index] ?: false)
-                            )
-                        }
-                        onSendAll(list)
-                    },
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = RoundedCornerShape(28.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp),
                 ) {
                     Row(
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send", modifier = Modifier.size(20.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Send all (${items.size})")
+                        Text(
+                            text = "Send ${items.size} items",
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                        IconButton(onClick = onDismiss) {
+                            Icon(Icons.Filled.Close, contentDescription = "Close")
+                        }
+                    }
+                    Text(
+                        text = "${currentPage + 1} of ${items.size}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    HorizontalPager(state = pagerState, modifier = Modifier.weight(1f)) { page ->
+                        val item = items[page]
+                        val mime = item.mimeType ?: context.contentResolver.getType(item.uri)
+                        val kind = classifyMime(mime)
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                when (kind) {
+                                    "video" -> VideoPlayerPreview(uri = item.uri)
+
+                                    "image" -> AsyncImage(
+                                        model = ImageRequest.Builder(context).data(item.uri).crossfade(true).build(),
+                                        contentDescription = "Image ${page + 1}",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Fit,
+                                    )
+
+                                    else -> FilePreview(uri = item.uri, mimeType = mime)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            if (kind == "image") {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Checkbox(
+                                        checked = compressByIndex[page] ?: false,
+                                        onCheckedChange = { compressByIndex = compressByIndex + (page to it) },
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("Compress image", style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                            OutlinedTextField(
+                                value = captionsByIndex[page] ?: "",
+                                onValueChange = { captionsByIndex = captionsByIndex + (page to it) },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Caption (optional)") },
+                                placeholder = { Text("Write a caption...") },
+                                maxLines = 2,
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = {
+                            val list = items.mapIndexed { index, item ->
+                                val kind = classifyMime(item.mimeType ?: context.contentResolver.getType(item.uri))
+                                MediaPreviewItemSendState(
+                                    item = item,
+                                    caption = captionsByIndex[index] ?: "",
+                                    compressOriginal = kind == "image" && (compressByIndex[index] ?: false),
+                                )
+                            }
+                            onSendAll(list)
+                        },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Send all (${items.size})")
+                        }
                     }
                 }
             }
-        }
         } // Box
     }
 }
@@ -230,13 +231,13 @@ fun MediaPreviewDialog(
     isAudio: Boolean = false,
     isFile: Boolean = false,
     onDismiss: () -> Unit,
-    onSend: (caption: String, compressOriginal: Boolean) -> Unit
+    onSend: (caption: String, compressOriginal: Boolean) -> Unit,
 ) {
     var caption by remember { mutableStateOf("") }
     var compressOriginal by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val isImage = !isVideo && !isAudio && !isFile
-    
+
     // Determine the appropriate title based on media type
     val title = when {
         isAudio -> "Send Audio"
@@ -244,12 +245,12 @@ fun MediaPreviewDialog(
         isVideo -> "Send Video"
         else -> "Send Image"
     }
-    
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
-            usePlatformDefaultWidth = false
-        )
+            usePlatformDefaultWidth = false,
+        ),
     ) {
         val dialogWindowProvider = LocalView.current.parent as? DialogWindowProvider
         LaunchedEffect(Unit) {
@@ -262,127 +263,127 @@ fun MediaPreviewDialog(
                 .fillMaxWidth()
                 .fillMaxHeight(0.9f)
                 .imePadding(),
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .fillMaxHeight(),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface
-        ) {
-            Column(
+            Surface(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp)
+                    .fillMaxWidth()
+                    .fillMaxHeight(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
             ) {
-                // Top bar with close button
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleLarge
-                    )
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = "Close"
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // Media preview
-                Box(
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    contentAlignment = Alignment.Center
+                        .fillMaxSize()
+                        .padding(16.dp),
                 ) {
-                    if (isVideo) {
-                        // Video player preview
-                        VideoPlayerPreview(uri = uri)
-                    } else if (isFile) {
-                        // File preview (pdf thumbnail / text excerpt / chip fallback)
-                        FilePreview(
-                            uri = uri,
-                            mimeType = context.contentResolver.getType(uri)
-                        )
-                    } else {
-                        // Image preview
-                        AsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(uri)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = "Selected image",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit
-                        )
-                    }
-                }
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // Compression checkbox (only for images)
-                if (isImage) {
+                    // Top bar with close button
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Checkbox(
-                            checked = compressOriginal,
-                            onCheckedChange = { compressOriginal = it }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "Compress image",
-                            style = MaterialTheme.typography.bodyMedium
+                            text = title,
+                            style = MaterialTheme.typography.titleLarge,
                         )
+                        IconButton(onClick = onDismiss) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Close",
+                            )
+                        }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                }
-                
-                // Caption input
-                OutlinedTextField(
-                    value = caption,
-                    onValueChange = { caption = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Add a caption (optional)") },
-                    placeholder = { Text("Write a caption...") },
-                    maxLines = 3
-                )
-                
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                // Send button
-                Button(
-                    onClick = { onSend(caption, compressOriginal) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(28.dp)
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Media preview
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        @Suppress("DEPRECATION")
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Send")
+                        if (isVideo) {
+                            // Video player preview
+                            VideoPlayerPreview(uri = uri)
+                        } else if (isFile) {
+                            // File preview (pdf thumbnail / text excerpt / chip fallback)
+                            FilePreview(
+                                uri = uri,
+                                mimeType = context.contentResolver.getType(uri),
+                            )
+                        } else {
+                            // Image preview
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(uri)
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = "Selected image",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Compression checkbox (only for images)
+                    if (isImage) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Checkbox(
+                                checked = compressOriginal,
+                                onCheckedChange = { compressOriginal = it },
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Compress image",
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+
+                    // Caption input
+                    OutlinedTextField(
+                        value = caption,
+                        onValueChange = { caption = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Add a caption (optional)") },
+                        placeholder = { Text("Write a caption...") },
+                        maxLines = 3,
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Send button
+                    Button(
+                        onClick = { onSend(caption, compressOriginal) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp),
+                        shape = RoundedCornerShape(28.dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            @Suppress("DEPRECATION")
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Send")
+                        }
                     }
                 }
             }
-        }
         } // Box
     }
 }
@@ -397,7 +398,9 @@ private fun resolveFileMeta(context: android.content.Context, uri: Uri): FileMet
         context.contentResolver.query(
             uri,
             arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE),
-            null, null, null
+            null,
+            null,
+            null,
         )?.use { cursor ->
             if (cursor.moveToFirst()) {
                 val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -417,8 +420,10 @@ private fun fileIconFor(mimeType: String?): ImageVector {
     val m = mimeType?.lowercase() ?: return Icons.Filled.InsertDriveFile
     return when {
         m == "application/pdf" -> Icons.Filled.PictureAsPdf
+
         m.startsWith("text/") || m == "application/json" || m == "application/xml" ->
             Icons.Filled.Description
+
         else -> Icons.Filled.InsertDriveFile
     }
 }
@@ -457,13 +462,13 @@ fun FilePreview(uri: Uri, mimeType: String?) {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
                 imageVector = fileIconFor(mimeType),
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(40.dp)
+                modifier = Modifier.size(40.dp),
             )
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -471,7 +476,7 @@ fun FilePreview(uri: Uri, mimeType: String?) {
                     text = meta.name ?: "Unknown file",
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
                 )
                 val sub = buildString {
                     meta.size?.let { append(Formatter.formatShortFileSize(context, it)) }
@@ -486,7 +491,7 @@ fun FilePreview(uri: Uri, mimeType: String?) {
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -496,6 +501,7 @@ fun FilePreview(uri: Uri, mimeType: String?) {
         when {
             mimeType?.lowercase() == "application/pdf" ->
                 PdfThumbnailPreview(uri = uri, modifier = Modifier.fillMaxSize())
+
             isTextMime(mimeType) ->
                 TextFilePreview(uri = uri, modifier = Modifier.fillMaxSize())
         }
@@ -531,8 +537,12 @@ private fun PdfThumbnailPreview(uri: Uri, modifier: Modifier = Modifier) {
             } catch (_: Exception) {
                 null
             } finally {
-                try { renderer?.close() } catch (_: Exception) {}
-                try { pfd?.close() } catch (_: Exception) {}
+                try {
+                    renderer?.close()
+                } catch (_: Exception) {}
+                try {
+                    pfd?.close()
+                } catch (_: Exception) {}
             }
         }
         if (bitmap == null) failed = true
@@ -545,13 +555,15 @@ private fun PdfThumbnailPreview(uri: Uri, modifier: Modifier = Modifier) {
                 bitmap = bmp.asImageBitmap(),
                 contentDescription = "PDF preview",
                 modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Fit
+                contentScale = ContentScale.Fit,
             )
+
             failed -> Text(
                 text = "Preview unavailable",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
             else -> CircularProgressIndicator()
         }
     }
@@ -599,31 +611,33 @@ private fun TextFilePreview(uri: Uri, modifier: Modifier = Modifier) {
                     .fillMaxSize()
                     .background(
                         MaterialTheme.colorScheme.surfaceVariant,
-                        RoundedCornerShape(8.dp)
+                        RoundedCornerShape(8.dp),
                     )
                     .padding(12.dp)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()),
             ) {
                 Text(
                     text = content,
                     style = MaterialTheme.typography.bodySmall,
                     fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
                 )
                 if (truncated) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "… preview truncated",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
+
             failed -> Text(
                 text = "Preview unavailable",
                 style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
             else -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator()
             }
@@ -639,17 +653,17 @@ fun VideoPlayerPreview(uri: Uri) {
     val context = LocalContext.current
     val colorScheme = MaterialTheme.colorScheme
     val primaryColor = colorScheme.primary
-    
+
     var isPlaying by remember { mutableStateOf(false) }
     var videoView by remember { mutableStateOf<VideoView?>(null) }
     var currentPosition by remember { mutableStateOf(0) }
     var duration by remember { mutableStateOf(0) }
     var isUserSeeking by remember { mutableStateOf(false) }
     var isPrepared by remember { mutableStateOf(false) }
-    
+
     // Progress state for wavy indicator
     val progressState = remember { mutableStateOf(0f) }
-    
+
     // Update current position while playing
     LaunchedEffect(isPlaying) {
         while (isPlaying) {
@@ -664,7 +678,7 @@ fun VideoPlayerPreview(uri: Uri) {
             kotlinx.coroutines.delay(100) // Update every 100ms
         }
     }
-    
+
     // Update progress state
     LaunchedEffect(currentPosition, duration) {
         progressState.value = if (duration > 0) {
@@ -673,7 +687,7 @@ fun VideoPlayerPreview(uri: Uri) {
             0f
         }
     }
-    
+
     // Clean up when composable is disposed
     DisposableEffect(uri) {
         onDispose {
@@ -681,9 +695,9 @@ fun VideoPlayerPreview(uri: Uri) {
             videoView = null
         }
     }
-    
+
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
     ) {
         // Video player
         AndroidView(
@@ -691,7 +705,7 @@ fun VideoPlayerPreview(uri: Uri) {
                 VideoView(ctx).apply {
                     videoView = this
                     setVideoURI(uri)
-                    
+
                     // Get duration when prepared and auto-start
                     setOnPreparedListener { mp ->
                         duration = mp.duration
@@ -700,14 +714,14 @@ fun VideoPlayerPreview(uri: Uri) {
                         start()
                         isPlaying = true
                     }
-                    
+
                     // Set up completion listener to reset play state
                     setOnCompletionListener {
                         isPlaying = false
                         currentPosition = 0
                         seekTo(0) // Reset to start
                     }
-                    
+
                     // Set up error listener
                     setOnErrorListener { _, _, _ ->
                         isPlaying = false
@@ -715,9 +729,9 @@ fun VideoPlayerPreview(uri: Uri) {
                     }
                 }
             },
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier.fillMaxSize(),
         )
-        
+
         // Play/Pause overlay button (centered, always visible but more transparent when playing)
         Box(
             modifier = Modifier
@@ -733,12 +747,12 @@ fun VideoPlayerPreview(uri: Uri) {
                         }
                     }
                 },
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             Surface(
                 modifier = Modifier.size(64.dp),
                 shape = CircleShape,
-                color = Color.Black.copy(alpha = if (isPlaying) 0.3f else 0.5f)
+                color = Color.Black.copy(alpha = if (isPlaying) 0.3f else 0.5f),
             ) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Filled.PauseCircle else Icons.Filled.PlayCircle,
@@ -746,18 +760,18 @@ fun VideoPlayerPreview(uri: Uri) {
                     tint = Color.White,
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(8.dp)
+                        .padding(8.dp),
                 )
             }
         }
-        
+
         // Wavy progress bar and duration at bottom
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .background(Color.Black.copy(alpha = 0.6f))
-                .padding(horizontal = 16.dp, vertical = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
         ) {
             // Wavy progress indicator
             @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -769,30 +783,30 @@ fun VideoPlayerPreview(uri: Uri) {
                 color = primaryColor,
                 trackColor = primaryColor.copy(alpha = 0.3f),
                 // Flatten wave when paused or ended, animate when playing
-                amplitude = { 
+                amplitude = {
                     if (isPlaying && isPrepared) {
                         1.0f // Maximum waviness when playing
                     } else {
                         0.0f // Flat when paused or ended
                     }
                 },
-                wavelength = WavyProgressIndicatorDefaults.LinearIndeterminateWavelength
+                wavelength = WavyProgressIndicatorDefaults.LinearIndeterminateWavelength,
             )
-            
+
             // Time display (current / total)
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
                     text = formatMillis(currentPosition),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White
+                    color = Color.White,
                 )
                 Text(
                     text = formatMillis(duration),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color.White
+                    color = Color.White,
                 )
             }
         }
@@ -813,25 +827,22 @@ private fun formatMillis(millis: Int): String {
  * Loading dialog shown during upload
  */
 @Composable
-fun UploadingDialog(
-    isVideo: Boolean = false,
-    onDismiss: () -> Unit = {}
-) {
+fun UploadingDialog(isVideo: Boolean = false, onDismiss: () -> Unit = {}) {
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
             dismissOnBackPress = false,
-            dismissOnClickOutside = false
-        )
+            dismissOnClickOutside = false,
+        ),
     ) {
         Surface(
             shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface
+            color = MaterialTheme.colorScheme.surface,
         ) {
             Column(
                 modifier = Modifier
                     .padding(32.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 ContainedExpressiveLoadingIndicator(
                     modifier = Modifier
@@ -839,15 +850,14 @@ fun UploadingDialog(
                     shape = CircleShape,
                     containerColor = MaterialTheme.colorScheme.primaryContainer,
                     indicatorColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    contentPadding = 12.dp
+                    contentPadding = 12.dp,
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = if (isVideo) "Uploading video..." else "Uploading image...",
-                    style = MaterialTheme.typography.bodyLarge
+                    style = MaterialTheme.typography.bodyLarge,
                 )
             }
         }
     }
 }
-

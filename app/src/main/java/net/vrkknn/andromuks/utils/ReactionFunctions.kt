@@ -1,22 +1,26 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.ui.theme.scaledTweenMs
-import net.vrkknn.andromuks.BuildConfig
-import android.os.Build
-import androidx.compose.foundation.Image
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.ui.layout.SubcomposeLayout
-import androidx.compose.ui.unit.Constraints
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.contentColorFor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -27,37 +31,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
-import coil3.gif.GifDecoder
-import coil3.gif.AnimatedImageDecoder
-import coil3.request.ImageRequest
 import coil3.request.CachePolicy
-import coil3.ImageLoader
+import coil3.request.ImageRequest
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.MessageReaction
 import net.vrkknn.andromuks.ReactionEvent
 import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.MediaUtils
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-
-
 
 /**
  * Displays a single reaction badge showing either an emoji or an image.
@@ -77,11 +68,16 @@ fun ReactionBadge(
     backgroundColor: Color,
     contentColor: Color,
     onClick: () -> Unit = {},
-    shape: RoundedCornerShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 12.dp, bottomEnd = 12.dp)
+    shape: RoundedCornerShape = RoundedCornerShape(
+        topStart = 0.dp,
+        topEnd = 0.dp,
+        bottomStart = 12.dp,
+        bottomEnd = 12.dp,
+    ),
 ) {
     // Detect dark mode for custom shadow/glow
     val isDarkMode = isSystemInDarkTheme()
-    
+
     Surface(
         shape = shape,
         color = backgroundColor,
@@ -95,19 +91,19 @@ fun ReactionBadge(
                         elevation = 3.dp,
                         shape = shape,
                         ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
-                        spotColor = Color.White.copy(alpha = 0.2f)
+                        spotColor = Color.White.copy(alpha = 0.2f),
                     )
                 } else {
                     Modifier
-                }
+                },
             ),
-        tonalElevation = 3.dp,  // Provides color changes for elevation
-        shadowElevation = if (isDarkMode) 0.dp else 3.dp  // Shadows in light mode only
+        tonalElevation = 3.dp, // Provides color changes for elevation
+        shadowElevation = if (isDarkMode) 0.dp else 3.dp, // Shadows in light mode only
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(2.dp)
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             if (emoji.startsWith("mxc://")) {
                 // Handle image reactions — adaptive width so non-square images aren't squished
@@ -118,21 +114,21 @@ fun ReactionBadge(
                 Text(
                     text = emoji,
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.8f
+                        fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.8f,
                     ),
                     color = contentColor,
                     maxLines = 1,
                     softWrap = false,
                 )
             }
-            
+
             if (count > 1) {
                 Text(
                     text = count.toString(),
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.7f
+                        fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.7f,
                     ),
-                    color = contentColor
+                    color = contentColor,
                 )
             }
         }
@@ -202,7 +198,12 @@ fun ImageReaction(
             modifier = resolvedModifier,
             contentScale = ContentScale.Crop,
             onSuccess = { state ->
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ImageReaction: Successfully loaded image for $mxcUrl")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "ImageReaction: Successfully loaded image for $mxcUrl",
+                )
+                }
                 if (adaptiveWidth && aspectRatio == null) {
                     val iSize = state.painter.intrinsicSize
                     if (iSize.width.isFinite() && iSize.height.isFinite() && iSize.height > 0f) {
@@ -212,15 +213,15 @@ fun ImageReaction(
             },
             onError = {
                 bypassCoilCache = true
-            }
+            },
         )
     } else {
         android.util.Log.e("Andromuks", "ImageReaction: Failed to convert MXC URL to HTTP URL: $mxcUrl")
         Text(
             text = "❌",
             style = MaterialTheme.typography.bodySmall.copy(
-                fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.8f
-            )
+                fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.8f,
+            ),
         )
     }
 }
@@ -254,7 +255,7 @@ fun ReactionBadges(
      */
     bubbleWidthPx: Int = 0,
     onReactionClick: (String) -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     if (reactions.isEmpty()) return
 
@@ -274,8 +275,10 @@ fun ReactionBadges(
     // Row 1: flat-top badges that visually "hang" from the bubble bottom.
     // Rows 2+: fully-rounded pills for overflow reactions.
     val badgeShape = RoundedCornerShape(
-        topStart = 0.dp, topEnd = 0.dp,
-        bottomStart = 12.dp, bottomEnd = 12.dp
+        topStart = 0.dp,
+        topEnd = 0.dp,
+        bottomStart = 12.dp,
+        bottomEnd = 12.dp,
     )
     val pillShape = RoundedCornerShape(12.dp)
 
@@ -391,26 +394,26 @@ fun ReactionBadges(
 fun processReactionEvent(
     reactionEvent: ReactionEvent,
     currentRoomId: String?,
-    messageReactions: Map<String, List<MessageReaction>>
+    messageReactions: Map<String, List<MessageReaction>>,
 ): Map<String, List<MessageReaction>> {
-    //android.util.Log.d("Andromuks", "ReactionFunctions: processReactionEvent called - currentRoomId: $currentRoomId, relatesToEventId: ${reactionEvent.relatesToEventId}, emoji: ${reactionEvent.emoji}, sender: ${reactionEvent.sender}")
-    
+    // android.util.Log.d("Andromuks", "ReactionFunctions: processReactionEvent called - currentRoomId: $currentRoomId, relatesToEventId: ${reactionEvent.relatesToEventId}, emoji: ${reactionEvent.emoji}, sender: ${reactionEvent.sender}")
+
     // Only process reactions for the current room
     if (currentRoomId != null) {
         val currentReactions = messageReactions.toMutableMap()
         val eventReactions = currentReactions[reactionEvent.relatesToEventId]?.toMutableList() ?: mutableListOf()
-        
+
         // Find existing reaction with same emoji
         val existingReactionIndex = eventReactions.indexOfFirst { it.emoji == reactionEvent.emoji }
-        
+
         if (existingReactionIndex >= 0) {
             // Update existing reaction
             val existingReaction = eventReactions[existingReactionIndex]
             val updatedUsers = existingReaction.users.toMutableList()
             val updatedUserReactions = existingReaction.userReactions.toMutableList()
-            
+
             val existingUserIndex = updatedUserReactions.indexOfFirst { it.userId == reactionEvent.sender }
-            
+
             if (existingUserIndex >= 0) {
                 // Remove user from reaction
                 updatedUsers.remove(reactionEvent.sender)
@@ -421,35 +424,39 @@ fun processReactionEvent(
                     eventReactions[existingReactionIndex] = existingReaction.copy(
                         count = updatedUserReactions.size,
                         users = updatedUsers,
-                        userReactions = updatedUserReactions
+                        userReactions = updatedUserReactions,
                     )
                 }
             } else {
                 // Add user to reaction
                 updatedUsers.add(reactionEvent.sender)
-                updatedUserReactions.add(net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp))
+                updatedUserReactions.add(
+                    net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp),
+                )
                 eventReactions[existingReactionIndex] = existingReaction.copy(
                     count = updatedUserReactions.size,
                     users = updatedUsers,
-                    userReactions = updatedUserReactions
+                    userReactions = updatedUserReactions,
                 )
             }
         } else {
             // Add new reaction
-            eventReactions.add(MessageReaction(
+            eventReactions.add(
+                MessageReaction(
                 emoji = reactionEvent.emoji,
                 count = 1,
                 users = listOf(reactionEvent.sender),
-                userReactions = listOf(net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp))
-            ))
+                userReactions = listOf(net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp)),
+            )
+            )
         }
-        
+
         currentReactions[reactionEvent.relatesToEventId] = eventReactions
-        //android.util.Log.d("Andromuks", "ReactionFunctions: Updated reactions for event ${reactionEvent.relatesToEventId}, new count: ${eventReactions.size}")
+        // android.util.Log.d("Andromuks", "ReactionFunctions: Updated reactions for event ${reactionEvent.relatesToEventId}, new count: ${eventReactions.size}")
         return currentReactions
     }
-    
-    //android.util.Log.d("Andromuks", "ReactionFunctions: Skipping reaction processing - currentRoomId is null")
+
+    // android.util.Log.d("Andromuks", "ReactionFunctions: Skipping reaction processing - currentRoomId is null")
     return messageReactions
 }
 
@@ -481,8 +488,8 @@ fun extractReactionEventFromTimeline(event: TimelineEvent): ReactionEvent? {
             relatesToEventId = relatesToEventId,
             timestamp = normalizeReactionTimestamp(
                 event.timestamp,
-                event.unsigned?.optLong("age_ts") ?: 0L
-            )
+                event.unsigned?.optLong("age_ts") ?: 0L,
+            ),
         )
     } else {
         null
@@ -494,11 +501,7 @@ fun extractReactionEventFromTimeline(event: TimelineEvent): ReactionEvent? {
 /**
  * Data class representing a flattened reaction with user info and timestamp for the list view
  */
-data class FlattenedReaction(
-    val userId: String,
-    val emoji: String,
-    val timestamp: Long
-)
+data class FlattenedReaction(val userId: String, val emoji: String, val timestamp: Long)
 
 /**
  * Composable for showing reaction details in a floating dialog (similar to read receipts)
@@ -511,7 +514,7 @@ fun ReactionDetailsDialog(
     onDismiss: () -> Unit,
     onUserClick: (String) -> Unit = {},
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-    roomId: String? = null
+    roomId: String? = null,
 ) {
     val flattenedReactions = remember(reactions) {
         reactions.flatMap { reaction ->
@@ -522,7 +525,11 @@ fun ReactionDetailsDialog(
     }
 
     // OPPORTUNISTIC PROFILE LOADING: Request profiles for reaction users when dialog opens
-    androidx.compose.runtime.LaunchedEffect(flattenedReactions.map { it.userId }, roomId, appViewModel?.memberUpdateCounter) {
+    androidx.compose.runtime.LaunchedEffect(
+        flattenedReactions.map { it.userId },
+        roomId,
+        appViewModel?.memberUpdateCounter,
+    ) {
         if (appViewModel != null && roomId != null && flattenedReactions.isNotEmpty()) {
             flattenedReactions.forEach { reaction ->
                 val existingProfile = appViewModel.getUserProfile(reaction.userId, roomId)
@@ -559,29 +566,45 @@ fun ReactionDetailsDialog(
         onDismissRequest = { dismissWithAnimation() },
         properties = androidx.compose.ui.window.DialogProperties(
             dismissOnBackPress = true,
-            dismissOnClickOutside = true
-        )
+            dismissOnClickOutside = true,
+        ),
     ) {
         androidx.compose.foundation.layout.Box(
             modifier = Modifier
                 .fillMaxSize()
                 .clickable(enabled = true) { dismissWithAnimation() },
-            contentAlignment = Alignment.Center
+            contentAlignment = Alignment.Center,
         ) {
             androidx.compose.animation.AnimatedVisibility(
                 visible = isVisible,
-                enter = androidx.compose.animation.fadeIn(animationSpec = androidx.compose.animation.core.tween(durationMillis = scaledTweenMs(enterDuration), easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                enter = androidx.compose.animation.fadeIn(
+                    animationSpec = androidx.compose.animation.core.tween(
+                        durationMillis = scaledTweenMs(enterDuration),
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                    ),
+                ) +
                     androidx.compose.animation.scaleIn(
                         initialScale = 0.85f,
-                        animationSpec = androidx.compose.animation.core.tween(durationMillis = scaledTweenMs(enterDuration), easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
+                        animationSpec = androidx.compose.animation.core.tween(
+                            durationMillis = scaledTweenMs(enterDuration),
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                        ),
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center,
                     ),
-                exit = androidx.compose.animation.fadeOut(animationSpec = androidx.compose.animation.core.tween(durationMillis = scaledTweenMs(exitDuration), easing = androidx.compose.animation.core.FastOutSlowInEasing)) +
+                exit = androidx.compose.animation.fadeOut(
+                    animationSpec = androidx.compose.animation.core.tween(
+                        durationMillis = scaledTweenMs(exitDuration),
+                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                    ),
+                ) +
                     androidx.compose.animation.scaleOut(
                         targetScale = 0.85f,
-                        animationSpec = androidx.compose.animation.core.tween(durationMillis = scaledTweenMs(exitDuration), easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center
-                    )
+                        animationSpec = androidx.compose.animation.core.tween(
+                            durationMillis = scaledTweenMs(exitDuration),
+                            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                        ),
+                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin.Center,
+                    ),
             ) {
                 Surface(
                     modifier = Modifier
@@ -590,27 +613,27 @@ fun ReactionDetailsDialog(
                         .clickable { }, // Consume clicks on content to prevent dismissal
                     shape = RoundedCornerShape(16.dp),
                     color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 8.dp
+                    tonalElevation = 8.dp,
                 ) {
                     Column(
-                        modifier = Modifier.padding(16.dp)
+                        modifier = Modifier.padding(16.dp),
                     ) {
                         Text(
                             text = "Reactions",
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 16.dp)
+                            modifier = Modifier.padding(bottom = 16.dp),
                         )
-                        
+
                         androidx.compose.foundation.lazy.LazyColumn(
                             verticalArrangement = Arrangement.spacedBy(12.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(max = 400.dp)
+                                .heightIn(max = 400.dp),
                         ) {
                             items(
                                 items = flattenedReactions,
-                                key = { "${it.userId}_${it.emoji}_${it.timestamp}" }
+                                key = { "${it.userId}_${it.emoji}_${it.timestamp}" },
                             ) { reaction ->
                                 val userProfile = appViewModel?.getUserProfile(reaction.userId, roomId)
                                 ReactionListItem(
@@ -622,7 +645,7 @@ fun ReactionDetailsDialog(
                                         dismissWithAnimation {
                                             onUserClick(userId)
                                         }
-                                    }
+                                    },
                                 )
                             }
                         }
@@ -639,13 +662,13 @@ private fun ReactionListItem(
     userProfile: net.vrkknn.andromuks.MemberProfile?,
     homeserverUrl: String,
     authToken: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onUserClick(reaction.userId) },
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         net.vrkknn.andromuks.ui.components.AvatarImage(
             mxcUrl = userProfile?.avatarUrl,
@@ -654,18 +677,18 @@ private fun ReactionListItem(
             fallbackText = (userProfile?.displayName ?: reaction.userId).take(1),
             size = 40.dp,
             userId = reaction.userId,
-            displayName = userProfile?.displayName
+            displayName = userProfile?.displayName,
         )
 
         // Main text area: name + timestamp on first row, reaction content on second row.
         Column(
             modifier = Modifier
                 .padding(start = 12.dp)
-                .weight(1f)
+                .weight(1f),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = userProfile?.displayName ?: reaction.userId,
@@ -673,7 +696,7 @@ private fun ReactionListItem(
                     fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                     maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.weight(1f),
                 )
 
                 Text(
@@ -681,7 +704,7 @@ private fun ReactionListItem(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 12.sp,
-                    modifier = Modifier.padding(start = 8.dp)
+                    modifier = Modifier.padding(start = 8.dp),
                 )
             }
 
@@ -694,13 +717,13 @@ private fun ReactionListItem(
                     modifier = Modifier
                         .padding(top = 4.dp)
                         .size(24.dp)
-                        .clip(RoundedCornerShape(4.dp))
+                        .clip(RoundedCornerShape(4.dp)),
                 )
             } else {
                 Text(
                     text = reaction.emoji,
                     style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 2.dp)
+                    modifier = Modifier.padding(top = 2.dp),
                 )
             }
         }

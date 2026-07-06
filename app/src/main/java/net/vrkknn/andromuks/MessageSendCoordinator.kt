@@ -14,9 +14,7 @@ import org.json.JSONObject
  *
  * Reactions remain in [ReactionCoordinator]; account-data emoji sync stays on the ViewModel.
  */
-internal class MessageSendCoordinator(
-    private val vm: AppViewModel
-) {
+internal class MessageSendCoordinator(private val vm: AppViewModel) {
 
     private val lastTypingSent = mutableMapOf<String, Long>()
     private val typingSendIntervalMs = 3000L
@@ -27,7 +25,7 @@ internal class MessageSendCoordinator(
         roomId: String,
         text: String,
         mentions: List<String> = emptyList(),
-        urlPreviews: JSONArray = JSONArray()
+        urlPreviews: JSONArray = JSONArray(),
     ) {
         notifyUserSentTo(roomId)
         val reqId = vm.getAndIncrementRequestId()
@@ -35,7 +33,7 @@ internal class MessageSendCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendMessage called with roomId=$roomId, text='$text', reqId=$reqId"
+                "AppViewModel: sendMessage called with roomId=$roomId, text='$text', reqId=$reqId",
             )
         }
 
@@ -44,7 +42,7 @@ internal class MessageSendCoordinator(
 
         val mentionsData = mapOf(
             "user_ids" to mentions,
-            "room" to false
+            "room" to false,
         )
         val urlPreviewsList = mutableListOf<Any>()
         for (i in 0 until urlPreviews.length()) {
@@ -57,8 +55,8 @@ internal class MessageSendCoordinator(
                 "room_id" to roomId,
                 "text" to text,
                 "mentions" to mentionsData,
-                "url_previews" to urlPreviewsList
-            )
+                "url_previews" to urlPreviewsList,
+            ),
         )
     }
 
@@ -81,14 +79,17 @@ internal class MessageSendCoordinator(
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w(
                 "Andromuks",
-                "AppViewModel: sendMessage not sent immediately (result: $result) — placeholder will fail if offline, or flush once if pre-init"
+                "AppViewModel: sendMessage not sent immediately (result: $result) — placeholder will fail if offline, or flush once if pre-init",
             )
         }
     }
 
     fun sendMessage(roomId: String, text: String, urlPreviews: JSONArray) {
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: sendMessage called with roomId: '$roomId', text: '$text', urlPreviews=${urlPreviews.length()}")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: sendMessage called with roomId: '$roomId', text: '$text', urlPreviews=${urlPreviews.length()}",
+            )
         }
 
         notifyUserSentTo(roomId)
@@ -97,12 +98,16 @@ internal class MessageSendCoordinator(
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w(
                 "Andromuks",
-                "AppViewModel: sendMessage not sent immediately (result: $result) — will be retried via offline queue or pendingCommandsQueue"
+                "AppViewModel: sendMessage not sent immediately (result: $result) — will be retried via offline queue or pendingCommandsQueue",
             )
         }
     }
 
-    internal fun sendMessageInternal(roomId: String, text: String, urlPreviews: JSONArray = JSONArray()): WebSocketResult {
+    internal fun sendMessageInternal(
+        roomId: String,
+        text: String,
+        urlPreviews: JSONArray = JSONArray(),
+    ): WebSocketResult {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageInternal called")
         val messageRequestId = vm.getAndIncrementRequestId()
 
@@ -121,10 +126,10 @@ internal class MessageSendCoordinator(
                 "text" to text,
                 "mentions" to mapOf(
                     "user_ids" to emptyList<String>(),
-                    "room" to false
+                    "room" to false,
                 ),
-                "url_previews" to urlPreviewsList
-            )
+                "url_previews" to urlPreviewsList,
+            ),
         )
 
         if (result == WebSocketResult.SUCCESS) {
@@ -133,7 +138,7 @@ internal class MessageSendCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Message send queued with request_id: $messageRequestId"
+                    "AppViewModel: Message send queued with request_id: $messageRequestId",
                 )
             }
         } else {
@@ -145,7 +150,12 @@ internal class MessageSendCoordinator(
 
     fun sendTyping(roomId: String) {
         if (!vm.resolveSendTypingNotifications(roomId)) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendTyping suppressed for $roomId (send_typing_notifications disabled)")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: sendTyping suppressed for $roomId (send_typing_notifications disabled)",
+            )
+            }
             return
         }
 
@@ -155,21 +165,26 @@ internal class MessageSendCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Typing indicator rate limited for room: $roomId (last sent ${currentTime - lastSent}ms ago)"
+                    "AppViewModel: Typing indicator rate limited for room: $roomId (last sent ${currentTime - lastSent}ms ago)",
                 )
             }
             return
         }
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending typing indicator for room: $roomId")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Sending typing indicator for room: $roomId",
+        )
+        }
         val typingRequestId = vm.getAndIncrementRequestId()
         val result = vm.sendWebSocketCommand(
             "set_typing",
             typingRequestId,
             mapOf(
                 "room_id" to roomId,
-                "timeout" to 10000
-            )
+                "timeout" to 10000,
+            ),
         )
 
         if (result == WebSocketResult.SUCCESS) {
@@ -185,7 +200,7 @@ internal class MessageSendCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendMessageFromNotification called for room $roomId, text: '$text'"
+                "AppViewModel: sendMessageFromNotification called for room $roomId, text: '$text'",
             )
         }
 
@@ -197,25 +212,30 @@ internal class MessageSendCoordinator(
                 roomId = roomId,
                 text = text,
                 timestamp = now,
-                onComplete = onComplete
+                onComplete = onComplete,
             )
             vm.pendingNotificationMessages.add(pendingMessage)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Added message to FIFO buffer (queue size: ${vm.pendingNotificationMessages.size})"
+                    "AppViewModel: Added message to FIFO buffer (queue size: ${vm.pendingNotificationMessages.size})",
                 )
             }
         }
 
         if (vm.isWebSocketHealthy()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket is healthy, processing message immediately")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: WebSocket is healthy, processing message immediately",
+            )
+            }
             processNextPendingNotificationMessage()
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: WebSocket is unhealthy, message stored in buffer (will process when healthy)"
+                    "AppViewModel: WebSocket is unhealthy, message stored in buffer (will process when healthy)",
                 )
             }
             onComplete?.invoke()
@@ -245,7 +265,7 @@ internal class MessageSendCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Processing pending notification message (roomId: ${message.roomId}, text: '${message.text}', queue size: ${vm.pendingNotificationMessages.size})"
+                "AppViewModel: Processing pending notification message (roomId: ${message.roomId}, text: '${message.text}', queue size: ${vm.pendingNotificationMessages.size})",
             )
         }
 
@@ -267,7 +287,7 @@ internal class MessageSendCoordinator(
                 if (vm.notificationActionCompletionCallbacks.containsKey(messageRequestId)) {
                     android.util.Log.w(
                         "Andromuks",
-                        "AppViewModel: Message send timeout after ${timeoutMs}ms for requestId=$messageRequestId"
+                        "AppViewModel: Message send timeout after ${timeoutMs}ms for requestId=$messageRequestId",
                     )
                     vm.notificationActionCompletionCallbacks.remove(messageRequestId)?.invoke()
                     vm.messageRequests.remove(messageRequestId)
@@ -283,15 +303,18 @@ internal class MessageSendCoordinator(
             "text" to message.text,
             "mentions" to mapOf(
                 "user_ids" to emptyList<String>(),
-                "room" to false
+                "room" to false,
             ),
-            "url_previews" to emptyList<String>()
+            "url_previews" to emptyList<String>(),
         )
 
         val result = vm.sendWebSocketCommand("send_message", messageRequestId, commandData)
 
         if (result != WebSocketResult.SUCCESS) {
-            android.util.Log.w("Andromuks", "AppViewModel: Failed to send pending notification message, result: $result")
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Failed to send pending notification message, result: $result",
+            )
 
             if (result == WebSocketResult.NOT_CONNECTED) {
                 synchronized(vm.pendingNotificationMessagesLock) {
@@ -299,7 +322,7 @@ internal class MessageSendCoordinator(
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "AppViewModel: Re-added message to FIFO buffer for retry (queue size: ${vm.pendingNotificationMessages.size})"
+                            "AppViewModel: Re-added message to FIFO buffer for retry (queue size: ${vm.pendingNotificationMessages.size})",
                         )
                     }
                 }
@@ -327,7 +350,7 @@ internal class MessageSendCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: WebSocket not healthy, skipping pending notification messages processing"
+                    "AppViewModel: WebSocket not healthy, skipping pending notification messages processing",
                 )
             }
             return
@@ -347,7 +370,7 @@ internal class MessageSendCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Processing $messageCount pending notification messages from FIFO buffer"
+                "AppViewModel: Processing $messageCount pending notification messages from FIFO buffer",
             )
         }
 
@@ -358,7 +381,7 @@ internal class MessageSendCoordinator(
                     if (BuildConfig.DEBUG) {
                         android.util.Log.w(
                             "Andromuks",
-                            "AppViewModel: WebSocket became unhealthy during processing, stopping (processed $processed/$messageCount)"
+                            "AppViewModel: WebSocket became unhealthy during processing, stopping (processed $processed/$messageCount)",
                         )
                     }
                     break
@@ -386,7 +409,7 @@ internal class MessageSendCoordinator(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Finished processing pending notification messages ($processed/$messageCount processed)"
+                    "AppViewModel: Finished processing pending notification messages ($processed/$messageCount processed)",
                 )
             }
         }
@@ -396,7 +419,7 @@ internal class MessageSendCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendReply called with roomId: '$roomId', text: '$text', originalEvent: ${originalEvent.eventId}"
+                "AppViewModel: sendReply called with roomId: '$roomId', text: '$text', originalEvent: ${originalEvent.eventId}",
             )
         }
 
@@ -406,20 +429,21 @@ internal class MessageSendCoordinator(
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w(
                 "Andromuks",
-                "AppViewModel: sendReply failed with result: $result - health monitor will handle reconnection"
+                "AppViewModel: sendReply failed with result: $result - health monitor will handle reconnection",
             )
         }
     }
 
-    private fun sendReplyInternal(
-        roomId: String,
-        text: String,
-        originalEvent: TimelineEvent
-    ): WebSocketResult {
+    private fun sendReplyInternal(roomId: String, text: String, originalEvent: TimelineEvent): WebSocketResult {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendReplyInternal called")
         val messageRequestId = vm.getAndIncrementRequestId()
 
-        vm.localEchoCoordinator.insert(roomId, messageRequestId, "m.room.message", textContent(text, originalEvent.eventId))
+        vm.localEchoCoordinator.insert(
+            roomId,
+            messageRequestId,
+            "m.room.message",
+            textContent(text, originalEvent.eventId),
+        )
 
         val mentions = mutableListOf<String>()
         if (originalEvent.sender.isNotBlank()) {
@@ -431,14 +455,14 @@ internal class MessageSendCoordinator(
             "text" to text,
             "relates_to" to mapOf(
                 "m.in_reply_to" to mapOf(
-                    "event_id" to originalEvent.eventId
-                )
+                    "event_id" to originalEvent.eventId,
+                ),
             ),
             "mentions" to mapOf(
                 "user_ids" to mentions,
-                "room" to false
+                "room" to false,
             ),
-            "url_previews" to emptyList<String>()
+            "url_previews" to emptyList<String>(),
         )
 
         val result = vm.sendWebSocketCommand("send_message", messageRequestId, commandData)
@@ -460,7 +484,7 @@ internal class MessageSendCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendEdit called with roomId: '$roomId', text: '$text', originalEvent: ${originalEvent.eventId}"
+                "AppViewModel: sendEdit called with roomId: '$roomId', text: '$text', originalEvent: ${originalEvent.eventId}",
             )
         }
 
@@ -474,17 +498,17 @@ internal class MessageSendCoordinator(
 
         val relatesTo = mutableMapOf<String, Any>(
             "rel_type" to "m.replace",
-            "event_id" to originalEvent.eventId
+            "event_id" to originalEvent.eventId,
         )
 
         if (replyInfo != null) {
             relatesTo["m.in_reply_to"] = mapOf(
-                "event_id" to replyInfo.eventId
+                "event_id" to replyInfo.eventId,
             )
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Preserving reply relationship to event: ${replyInfo.eventId} when editing ${originalEvent.eventId}"
+                    "AppViewModel: Preserving reply relationship to event: ${replyInfo.eventId} when editing ${originalEvent.eventId}",
                 )
             }
         }
@@ -495,13 +519,16 @@ internal class MessageSendCoordinator(
             "relates_to" to relatesTo,
             "mentions" to mapOf(
                 "user_ids" to emptyList<String>(),
-                "room" to false
+                "room" to false,
             ),
-            "url_previews" to emptyList<String>()
+            "url_previews" to emptyList<String>(),
         )
 
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with edit data: $commandData")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: About to send WebSocket command: send_message with edit data: $commandData",
+            )
         }
         vm.sendWebSocketCommand("send_message", editRequestId, commandData)
         if (BuildConfig.DEBUG) {
@@ -523,7 +550,7 @@ internal class MessageSendCoordinator(
     private fun buildMediaRelatesTo(
         roomId: String,
         threadRootEventId: String?,
-        replyToEventId: String?
+        replyToEventId: String?,
     ): Map<String, Any>? = when {
         threadRootEventId != null -> {
             val resolvedReplyTarget = replyToEventId
@@ -531,16 +558,18 @@ internal class MessageSendCoordinator(
             val relatesTo = mutableMapOf<String, Any>(
                 "rel_type" to "m.thread",
                 "event_id" to threadRootEventId,
-                "is_falling_back" to (resolvedReplyTarget == null)
+                "is_falling_back" to (resolvedReplyTarget == null),
             )
             if (resolvedReplyTarget != null) {
                 relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
             }
             relatesTo
         }
+
         replyToEventId != null -> mapOf(
-            "m.in_reply_to" to mapOf("event_id" to replyToEventId)
+            "m.in_reply_to" to mapOf("event_id" to replyToEventId),
         )
+
         else -> null
     }
 
@@ -563,12 +592,12 @@ internal class MessageSendCoordinator(
         thumbnailWidth: Int? = null,
         thumbnailHeight: Int? = null,
         thumbnailMimeType: String? = null,
-        thumbnailSize: Long? = null
+        thumbnailSize: Long? = null,
     ) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendMediaMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', thumbnailUrl: '$thumbnailUrl'"
+                "AppViewModel: sendMediaMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', thumbnailUrl: '$thumbnailUrl'",
             )
         }
 
@@ -587,7 +616,7 @@ internal class MessageSendCoordinator(
             "xyz.amorgan.blurhash" to blurHash,
             "w" to width,
             "h" to height,
-            "size" to size
+            "size" to size,
         )
 
         if (thumbnailUrl != null) {
@@ -606,7 +635,7 @@ internal class MessageSendCoordinator(
             "body" to body,
             "url" to mxcUrl,
             "info" to infoMap,
-            "filename" to filename
+            "filename" to filename,
         )
 
         val commandData = mutableMapOf<String, Any>(
@@ -615,9 +644,9 @@ internal class MessageSendCoordinator(
             "text" to "",
             "mentions" to mapOf(
                 "user_ids" to mentions,
-                "room" to false
+                "room" to false,
             ),
-            "url_previews" to emptyList<String>()
+            "url_previews" to emptyList<String>(),
         )
         buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
             commandData["relates_to"] = it
@@ -625,11 +654,17 @@ internal class MessageSendCoordinator(
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with media data: $commandData")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: About to send WebSocket command: send_message with media data: $commandData",
+            )
         }
         vm.sendWebSocketCommand("send_message", messageRequestId, commandData)
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Media message command sent with request_id: $messageRequestId")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Media message command sent with request_id: $messageRequestId",
+            )
         }
     }
 
@@ -650,7 +685,7 @@ internal class MessageSendCoordinator(
         thumbnailWidth: Int? = null,
         thumbnailHeight: Int? = null,
         thumbnailMimeType: String? = null,
-        thumbnailSize: Long? = null
+        thumbnailSize: Long? = null,
     ) {
         val filename = mxcUrl.substringAfterLast("/").let { mediaId ->
             val extension = when {
@@ -682,7 +717,7 @@ internal class MessageSendCoordinator(
             thumbnailWidth = thumbnailWidth,
             thumbnailHeight = thumbnailHeight,
             thumbnailMimeType = thumbnailMimeType,
-            thumbnailSize = thumbnailSize
+            thumbnailSize = thumbnailSize,
         )
     }
 
@@ -697,12 +732,12 @@ internal class MessageSendCoordinator(
         threadRootEventId: String? = null,
         replyToEventId: String? = null,
         isThreadFallback: Boolean = true,
-        mentions: List<String> = emptyList()
+        mentions: List<String> = emptyList(),
     ) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendStickerMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', body: '$body', width: $width, height: $height"
+                "AppViewModel: sendStickerMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', body: '$body', width: $width, height: $height",
             )
         }
 
@@ -714,11 +749,11 @@ internal class MessageSendCoordinator(
         val baseContent = mutableMapOf<String, Any>(
             "msgtype" to "m.sticker",
             "body" to body,
-            "url" to mxcUrl
+            "url" to mxcUrl,
         )
         val info = mutableMapOf<String, Any>(
             "mimetype" to mimeType,
-            "size" to size
+            "size" to size,
         )
         if (width > 0 && height > 0) {
             info["w"] = width
@@ -728,7 +763,7 @@ internal class MessageSendCoordinator(
 
         val mentionsData = mapOf(
             "user_ids" to mentions,
-            "room" to false
+            "room" to false,
         )
 
         val dataMap = mutableMapOf<String, Any>(
@@ -736,7 +771,7 @@ internal class MessageSendCoordinator(
             "text" to "",
             "base_content" to baseContent,
             "mentions" to mentionsData,
-            "url_previews" to emptyList<Any>()
+            "url_previews" to emptyList<Any>(),
         )
 
         buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
@@ -749,7 +784,10 @@ internal class MessageSendCoordinator(
         vm.messageRequests[messageRequestId] = roomId
         vm.pendingSendCount++
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Sticker message send queued with request_id: $messageRequestId")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Sticker message send queued with request_id: $messageRequestId",
+            )
         }
     }
 
@@ -759,7 +797,7 @@ internal class MessageSendCoordinator(
         longitude: Double,
         description: String = "",
         threadRootEventId: String? = null,
-        replyToEventId: String? = null
+        replyToEventId: String? = null,
     ) {
         notifyUserSentTo(roomId)
         val messageRequestId = vm.getAndIncrementRequestId()
@@ -770,15 +808,15 @@ internal class MessageSendCoordinator(
         val baseContent = mapOf(
             "msgtype" to "m.location",
             "body" to if (description.isNotBlank()) description else "Location",
-            "geo_uri" to geoUri
+            "geo_uri" to geoUri,
         )
 
         val extra = mapOf(
             "org.matrix.msc3488.asset" to mapOf("type" to "m.pin"),
             "org.matrix.msc3488.location" to mapOf(
                 "uri" to geoUri,
-                "description" to description
-            )
+                "description" to description,
+            ),
         )
 
         val dataMap = mutableMapOf<String, Any>(
@@ -787,7 +825,7 @@ internal class MessageSendCoordinator(
             "extra" to extra,
             "text" to "",
             "mentions" to mapOf("user_ids" to emptyList<String>(), "room" to false),
-            "url_previews" to emptyList<Any>()
+            "url_previews" to emptyList<Any>(),
         )
 
         buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
@@ -817,12 +855,12 @@ internal class MessageSendCoordinator(
         threadRootEventId: String? = null,
         replyToEventId: String? = null,
         isThreadFallback: Boolean = true,
-        mentions: List<String> = emptyList()
+        mentions: List<String> = emptyList(),
     ) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendVideoMessage called with roomId: '$roomId', videoMxcUrl: '$videoMxcUrl'"
+                "AppViewModel: sendVideoMessage called with roomId: '$roomId', videoMxcUrl: '$videoMxcUrl'",
             )
         }
 
@@ -856,15 +894,15 @@ internal class MessageSendCoordinator(
                     "xyz.amorgan.blurhash" to thumbnailBlurHash,
                     "w" to thumbnailWidth,
                     "h" to thumbnailHeight,
-                    "size" to thumbnailSize
+                    "size" to thumbnailSize,
                 ),
                 "thumbnail_url" to thumbnailMxcUrl,
                 "w" to width,
                 "h" to height,
                 "duration" to duration,
-                "size" to size
+                "size" to size,
             ),
-            "filename" to filename
+            "filename" to filename,
         )
 
         val commandData = mutableMapOf<String, Any>(
@@ -873,9 +911,9 @@ internal class MessageSendCoordinator(
             "text" to (caption ?: ""),
             "mentions" to mapOf(
                 "user_ids" to mentions,
-                "room" to false
+                "room" to false,
             ),
-            "url_previews" to emptyList<String>()
+            "url_previews" to emptyList<String>(),
         )
         buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
             commandData["relates_to"] = it
@@ -883,11 +921,17 @@ internal class MessageSendCoordinator(
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with video data: $commandData")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: About to send WebSocket command: send_message with video data: $commandData",
+            )
         }
         vm.sendWebSocketCommand("send_message", messageRequestId, commandData)
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Video message command sent with request_id: $messageRequestId")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Video message command sent with request_id: $messageRequestId",
+            )
         }
     }
 
@@ -895,7 +939,7 @@ internal class MessageSendCoordinator(
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendDelete called with roomId: '$roomId', eventId: ${originalEvent.eventId}, reason: '$reason'"
+                "AppViewModel: sendDelete called with roomId: '$roomId', eventId: ${originalEvent.eventId}, reason: '$reason'",
             )
         }
 
@@ -905,7 +949,7 @@ internal class MessageSendCoordinator(
 
         val commandData = mutableMapOf(
             "room_id" to roomId,
-            "event_id" to originalEvent.eventId
+            "event_id" to originalEvent.eventId,
         )
 
         if (reason.isNotBlank()) {
@@ -913,7 +957,10 @@ internal class MessageSendCoordinator(
         }
 
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: redact_event with data: $commandData")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: About to send WebSocket command: redact_event with data: $commandData",
+            )
         }
         vm.sendWebSocketCommand("redact_event", deleteRequestId, commandData)
         if (BuildConfig.DEBUG) {
@@ -932,12 +979,12 @@ internal class MessageSendCoordinator(
         threadRootEventId: String? = null,
         replyToEventId: String? = null,
         isThreadFallback: Boolean = true,
-        mentions: List<String> = emptyList()
+        mentions: List<String> = emptyList(),
     ) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendAudioMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', duration: ${duration}ms"
+                "AppViewModel: sendAudioMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', duration: ${duration}ms",
             )
         }
 
@@ -955,9 +1002,9 @@ internal class MessageSendCoordinator(
             "info" to mapOf(
                 "mimetype" to mimeType,
                 "duration" to duration,
-                "size" to size
+                "size" to size,
             ),
-            "filename" to filename
+            "filename" to filename,
         )
 
         val commandData = mutableMapOf<String, Any>(
@@ -966,9 +1013,9 @@ internal class MessageSendCoordinator(
             "text" to (caption ?: ""),
             "mentions" to mapOf(
                 "user_ids" to mentions,
-                "room" to false
+                "room" to false,
             ),
-            "url_previews" to emptyList<String>()
+            "url_previews" to emptyList<String>(),
         )
         buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
             commandData["relates_to"] = it
@@ -976,11 +1023,17 @@ internal class MessageSendCoordinator(
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with audio data: $commandData")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: About to send WebSocket command: send_message with audio data: $commandData",
+            )
         }
         vm.sendWebSocketCommand("send_message", messageRequestId, commandData)
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Audio message command sent with request_id: $messageRequestId")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Audio message command sent with request_id: $messageRequestId",
+            )
         }
     }
 
@@ -994,12 +1047,12 @@ internal class MessageSendCoordinator(
         threadRootEventId: String? = null,
         replyToEventId: String? = null,
         isThreadFallback: Boolean = true,
-        mentions: List<String> = emptyList()
+        mentions: List<String> = emptyList(),
     ) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendFileMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', filename: '$filename'"
+                "AppViewModel: sendFileMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', filename: '$filename'",
             )
         }
 
@@ -1017,9 +1070,9 @@ internal class MessageSendCoordinator(
             "url" to mxcUrl,
             "info" to mapOf(
                 "mimetype" to mimeType,
-                "size" to size
+                "size" to size,
             ),
-            "filename" to filename
+            "filename" to filename,
         )
 
         val commandData = mutableMapOf<String, Any>(
@@ -1028,9 +1081,9 @@ internal class MessageSendCoordinator(
             "text" to (caption ?: ""),
             "mentions" to mapOf(
                 "user_ids" to mentions,
-                "room" to false
+                "room" to false,
             ),
-            "url_previews" to emptyList<String>()
+            "url_previews" to emptyList<String>(),
         )
         buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
             commandData["relates_to"] = it
@@ -1038,11 +1091,17 @@ internal class MessageSendCoordinator(
 
         insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with file data: $commandData")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: About to send WebSocket command: send_message with file data: $commandData",
+            )
         }
         vm.sendWebSocketCommand("send_message", messageRequestId, commandData)
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: File message command sent with request_id: $messageRequestId")
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: File message command sent with request_id: $messageRequestId",
+            )
         }
     }
 
@@ -1051,19 +1110,19 @@ internal class MessageSendCoordinator(
         text: String,
         threadRootEventId: String,
         fallbackReplyToEventId: String? = null,
-        urlPreviews: JSONArray = JSONArray()
+        urlPreviews: JSONArray = JSONArray(),
     ) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: sendThreadReply called - roomId: $roomId, text: '$text', threadRoot: $threadRootEventId, fallbackReply: $fallbackReplyToEventId"
+                "AppViewModel: sendThreadReply called - roomId: $roomId, text: '$text', threadRoot: $threadRootEventId, fallbackReply: $fallbackReplyToEventId",
             )
         }
 
         if (!vm.isWebSocketConnected()) {
             android.util.Log.w(
                 "Andromuks",
-                "AppViewModel: WebSocket not connected - cannot send thread reply, health monitor will handle reconnection"
+                "AppViewModel: WebSocket not connected - cannot send thread reply, health monitor will handle reconnection",
             )
             return
         }
@@ -1089,7 +1148,7 @@ internal class MessageSendCoordinator(
         val relatesTo = mutableMapOf<String, Any>(
             "rel_type" to "m.thread",
             "event_id" to threadRootEventId,
-            "is_falling_back" to isFallingBack
+            "is_falling_back" to isFallingBack,
         )
 
         if (resolvedReplyTarget != null) {
@@ -1106,9 +1165,9 @@ internal class MessageSendCoordinator(
             "relates_to" to relatesTo,
             "mentions" to mapOf(
                 "user_ids" to mentionUserIds,
-                "room" to false
+                "room" to false,
             ),
-            "url_previews" to urlPreviewsList
+            "url_previews" to urlPreviewsList,
         )
 
         vm.localEchoCoordinator.insert(
@@ -1117,7 +1176,7 @@ internal class MessageSendCoordinator(
             type = "m.room.message",
             content = textContent(text, resolvedReplyTarget),
             relationType = "m.thread",
-            relatesTo = threadRootEventId
+            relatesTo = threadRootEventId,
         )
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: Sending thread reply with data: $commandData")
@@ -1139,7 +1198,7 @@ internal class MessageSendCoordinator(
         if (replyToEventId != null) {
             content.put(
                 "m.relates_to",
-                JSONObject().put("m.in_reply_to", JSONObject().put("event_id", replyToEventId))
+                JSONObject().put("m.in_reply_to", JSONObject().put("event_id", replyToEventId)),
             )
         }
         return content
@@ -1155,7 +1214,7 @@ internal class MessageSendCoordinator(
         requestId: Int,
         baseContent: Map<String, Any>,
         threadRootEventId: String?,
-        replyToEventId: String? = null
+        replyToEventId: String? = null,
     ) {
         val content = JSONObject(baseContent)
         // Embed the same relates_to we send to the server so the optimistic bubble renders the
@@ -1170,7 +1229,7 @@ internal class MessageSendCoordinator(
             type = "m.room.message",
             content = content,
             relationType = if (threadRootEventId != null) "m.thread" else null,
-            relatesTo = threadRootEventId
+            relatesTo = threadRootEventId,
         )
     }
 }

@@ -48,4 +48,3 @@ class MessageSoundPlayer(context: Context) {
         soundPool.release()
     }
 }
-

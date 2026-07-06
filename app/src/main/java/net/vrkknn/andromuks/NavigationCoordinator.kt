@@ -9,11 +9,7 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
-data class RoomNavigationRequest(
-    val roomId: String,
-    val timestamp: Long?,
-    val source: Source,
-) {
+data class RoomNavigationRequest(val roomId: String, val timestamp: Long?, val source: Source) {
     enum class Source { NOTIFICATION, SHORTCUT, BUBBLE, RESTORE }
 }
 
@@ -27,30 +23,28 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
 
     fun setPendingRoomNavigation(roomId: String, fromNotification: Boolean) {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Set pending room navigation to: $roomId (fromNotification: $fromNotification)",
                 )
+            }
             pendingRoomNavigation = roomId
             isPendingNavigationFromNotification = fromNotification
             _roomNavigationRequests.trySend(
-                RoomNavigationRequest(roomId = roomId, timestamp = null, source = RoomNavigationRequest.Source.SHORTCUT)
+                RoomNavigationRequest(roomId = roomId, timestamp = null, source = RoomNavigationRequest.Source.SHORTCUT),
             )
         }
     }
 
-    fun setDirectRoomNavigation(
-        roomId: String,
-        notificationTimestamp: Long?,
-        targetEventId: String?,
-    ) {
+    fun setDirectRoomNavigation(roomId: String, notificationTimestamp: Long?, targetEventId: String?) {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: OPTIMIZATION #1 - Set direct room navigation to: $roomId (timestamp: $notificationTimestamp, targetEventId: $targetEventId)",
                 )
+            }
             directRoomNavigation = roomId
             directRoomNavigationTimestamp = notificationTimestamp
             directRoomNavigationTrigger++
@@ -58,7 +52,11 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                 this@NavigationCoordinator.setPendingHighlightEvent(roomId, targetEventId)
             }
             _roomNavigationRequests.trySend(
-                RoomNavigationRequest(roomId = roomId, timestamp = notificationTimestamp, source = RoomNavigationRequest.Source.NOTIFICATION)
+                RoomNavigationRequest(
+                    roomId = roomId,
+                    timestamp = notificationTimestamp,
+                    source = RoomNavigationRequest.Source.NOTIFICATION,
+                ),
             )
         }
     }
@@ -66,22 +64,24 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
     fun getDirectRoomNavigation(): String? {
         with(vm) {
             val roomId = directRoomNavigation
-            if (roomId != null && BuildConfig.DEBUG)
+            if (roomId != null && BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: OPTIMIZATION #1 - Getting direct room navigation: $roomId",
                 )
+            }
             return roomId
         }
     }
 
     fun clearDirectRoomNavigation() {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: OPTIMIZATION #1 - Clearing direct room navigation",
                 )
+            }
             directRoomNavigation = null
             directRoomNavigationTimestamp = null
         }
@@ -92,19 +92,21 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
     fun getPendingRoomNavigation(): String? {
         with(vm) {
             val roomId = pendingRoomNavigation
-            if (roomId != null && BuildConfig.DEBUG)
+            if (roomId != null && BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Getting pending room navigation: $roomId",
                 )
+            }
             return roomId
         }
     }
 
     fun clearPendingRoomNavigation() {
         with(vm) {
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: Clearing pending room navigation")
+            }
             pendingRoomNavigation = null
             isPendingNavigationFromNotification = false
         }
@@ -114,11 +116,12 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
         with(vm) {
             if (eventId.isNullOrBlank()) return
             pendingHighlightEvents[roomId] = eventId
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Stored pending highlight event for $roomId -> $eventId",
                 )
+            }
         }
     }
 
@@ -139,11 +142,12 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
         with(vm) {
             if (eventId.isNullOrBlank()) return
             pendingInterRoomJumpEvents[roomId] = eventId
-            if (BuildConfig.DEBUG)
+            if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Stored pending inter-room jump for $roomId -> $eventId",
                 )
+            }
         }
     }
 
@@ -183,7 +187,9 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                         val cachedRoomIds = RoomTimelineCache.getActivelyCachedRoomIds()
                         android.util.Log.d(
                             "Andromuks",
-                            "🔵 navigateToRoomWithCache: Set currentRoomId=$roomId and marked as actively cached before batch flush (activelyCachedRooms: ${cachedRoomIds.size} rooms, includes target: ${cachedRoomIds.contains(roomId)})",
+                            "🔵 navigateToRoomWithCache: Set currentRoomId=$roomId and marked as actively cached before batch flush (activelyCachedRooms: ${cachedRoomIds.size} rooms, includes target: ${cachedRoomIds.contains(
+                                roomId,
+                            )})",
                         )
                     }
 
@@ -233,7 +239,9 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                 var cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
                 android.util.Log.d(
                     "Andromuks",
-                    "🔵 navigateToRoomWithCache: Cache check - roomId=$roomId, cachedEventCount=$cachedEventCount, isActivelyCached=${RoomTimelineCache.isRoomActivelyCached(roomId)}",
+                    "🔵 navigateToRoomWithCache: Cache check - roomId=$roomId, cachedEventCount=$cachedEventCount, isActivelyCached=${RoomTimelineCache.isRoomActivelyCached(
+                        roomId,
+                    )}",
                 )
 
                 val mustFetchFreshTimeline = needsFreshTimelinePaginate()
@@ -255,7 +263,7 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                 if (cachedEventCount >= cacheSufficientThreshold) {
                     android.util.Log.d(
                         "Andromuks",
-                        "🔵 navigateToRoomWithCache: Using cache (>=${cacheSufficientThreshold} events) - roomId=$roomId, cachedEventCount=$cachedEventCount",
+                        "🔵 navigateToRoomWithCache: Using cache (>=$cacheSufficientThreshold events) - roomId=$roomId, cachedEventCount=$cachedEventCount",
                     )
                     val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
 
@@ -478,7 +486,9 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                 }
                 android.util.Log.d(
                     "Andromuks",
-                    "🔵 navigateToRoomWithCache: Calling requestRoomTimeline - roomId=$roomId, cachedEvents=${RoomTimelineCache.getCachedEventCount(roomId)}, isTimelineLoading=$isTimelineLoading",
+                    "🔵 navigateToRoomWithCache: Calling requestRoomTimeline - roomId=$roomId, cachedEvents=${RoomTimelineCache.getCachedEventCount(
+                        roomId,
+                    )}, isTimelineLoading=$isTimelineLoading",
                 )
                 requestRoomTimeline(roomId)
                 android.util.Log.d(
