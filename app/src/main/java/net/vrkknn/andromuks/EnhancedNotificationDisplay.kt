@@ -1715,8 +1715,12 @@ class EnhancedNotificationDisplay(
      * Convert a bitmap to a circular shape
      */
     private fun createCircularBitmap(bitmap: Bitmap): Bitmap {
-        // Convert hardware bitmap to software bitmap if needed
-        val softwareBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
+        // Convert hardware bitmap to software bitmap if needed. Bitmap.Config.HARDWARE only exists on
+        // API 26+; the SDK_INT guard short-circuits so the constant is never referenced on 24/25
+        // (where it would throw NoSuchFieldError), and no bitmap can be HARDWARE there anyway.
+        val isHardwareBitmap = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            bitmap.config == Bitmap.Config.HARDWARE
+        val softwareBitmap = if (isHardwareBitmap) {
             if (BuildConfig.DEBUG) Log.d(TAG, "Converting hardware bitmap to software bitmap")
             bitmap.copy(Bitmap.Config.ARGB_8888, false)
         } else {
