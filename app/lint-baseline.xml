@@ -1685,17 +1685,6 @@
 
     <issue
         id="UnsafeImplicitIntentLaunch"
-        message="The intent action `net.vrkknn.andromuks.FOREGROUND_REFRESH (used to send a broadcast)` matches the intent filter of a non-exported receiver, registered via a call to `Context.registerReceiver`, or similar. If you are trying to invoke this specific receiver via the action then you should use `Intent.setPackage(&lt;APPLICATION_ID>)`."
-        errorLine1="        val foregroundRefreshIntent = Intent(&quot;net.vrkknn.andromuks.FOREGROUND_REFRESH&quot;)"
-        errorLine2="                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/MainActivity.kt"
-            line="1375"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="UnsafeImplicitIntentLaunch"
         message="The intent action `android.intent.action.VIEW (used to start an activity)` matches the intent filter of a non-exported component `net.vrkknn.andromuks.ChatBubbleActivity` from a manifest. If you are trying to invoke this specific component via the action then you should make the intent explicit by calling `Intent.set{Component,Class,ClassName}`."
         errorLine1="                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(matchedUrl))"
         errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
@@ -1911,28 +1900,6 @@
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
             line="509"
-            column="5"/>
-    </issue>
-
-    <issue
-        id="StaticFieldLeak"
-        message="Do not place Android context classes in static fields (static reference to `CrashHandler` which has field `context` pointing to `Context`); this is a memory leak"
-        errorLine1="/**"
-        errorLine2="^">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/CrashHandler.kt"
-            line="23"
-            column="1"/>
-    </issue>
-
-    <issue
-        id="StaticFieldLeak"
-        message="Do not place Android context classes in static fields; this is a memory leak"
-        errorLine1="    private var context: Context? = null"
-        errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/CrashHandler.kt"
-            line="37"
             column="5"/>
     </issue>
 
@@ -3307,7 +3274,7 @@
         errorLine2="                        ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/CrashHandler.kt"
-            line="102"
+            line="106"
             column="25"/>
     </issue>
 
@@ -3318,7 +3285,7 @@
         errorLine2="                ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/CrashHandler.kt"
-            line="212"
+            line="216"
             column="17"/>
     </issue>
 
@@ -3329,7 +3296,7 @@
         errorLine2="        ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/CrashHandler.kt"
-            line="221"
+            line="225"
             column="9"/>
     </issue>
 
@@ -3725,7 +3692,7 @@
         errorLine2="                                                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/MainActivity.kt"
-            line="1467"
+            line="1471"
             column="63"/>
     </issue>
 
