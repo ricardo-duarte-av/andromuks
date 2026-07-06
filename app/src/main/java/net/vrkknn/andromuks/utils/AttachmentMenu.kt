@@ -74,6 +74,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -572,7 +574,7 @@ fun InAppVideoOverlay(visible: Boolean, onDismiss: () -> Unit, onCaptured: (uri:
     var videoCaptureState by remember { mutableStateOf<VideoCapture<Recorder>?>(null) }
     var activeRecording by remember { mutableStateOf<Recording?>(null) }
     var recordingStartTime by remember { mutableStateOf<Long?>(null) }
-    var recordingElapsedSeconds by remember { mutableStateOf(0) }
+    var recordingElapsedSeconds by remember { mutableIntStateOf(0) }
 
     // Safety net: if the overlay is disposed (e.g. nav away) mid-recording, stop it.
     DisposableEffect(Unit) {
@@ -935,8 +937,8 @@ private data class CameraOrientation(val surfaceRotation: Int, val iconAngle: Fl
 @Composable
 private fun rememberCameraOrientation(): CameraOrientation {
     val context = LocalContext.current
-    var surfaceRotation by rememberSaveable { mutableStateOf(Surface.ROTATION_0) }
-    var iconAngle by rememberSaveable { mutableStateOf(0f) }
+    var surfaceRotation by rememberSaveable { mutableIntStateOf(Surface.ROTATION_0) }
+    var iconAngle by rememberSaveable { mutableFloatStateOf(0f) }
 
     DisposableEffect(context) {
         val listener = object : OrientationEventListener(context) {

@@ -92,6 +92,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -366,7 +367,7 @@ fun MediaMessage(
     var fullscreenInitialPosition by remember { mutableLongStateOf(0L) }
     var fullscreenShouldAutoPlay by remember { mutableStateOf(false) }
     // Shared state to trigger menu from image long press
-    var triggerMenuFromImage by remember { mutableStateOf(0) }
+    var triggerMenuFromImage by remember { mutableIntStateOf(0) }
 
     // Show image viewer dialog when image or sticker is tapped
     if (showImageViewer && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.sticker")) {
@@ -2226,8 +2227,8 @@ private fun AudioPlayer(
 
     // State for play/pause and progress
     var isPlaying by remember { mutableStateOf(false) }
-    var duration by remember { mutableStateOf(0L) }
-    var currentPosition by remember { mutableStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
+    var currentPosition by remember { mutableLongStateOf(0L) }
 
     // Listen to player state changes
     LaunchedEffect(exoPlayer) {
@@ -3671,7 +3672,7 @@ fun VideoPlayerDialog(
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var isPlaying by remember { mutableStateOf(false) }
-    var playbackState by remember { mutableStateOf(androidx.media3.common.Player.STATE_IDLE) }
+    var playbackState by remember { mutableIntStateOf(androidx.media3.common.Player.STATE_IDLE) }
 
     val coroutineScope = rememberCoroutineScope()
 
@@ -4592,7 +4593,7 @@ fun VideoPlayerDialog(
 
             // Wavy progress bar overlay at bottom
             val progressState = remember {
-                mutableStateOf(0f)
+                mutableFloatStateOf(0f)
             }
 
             // Update progress state

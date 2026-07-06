@@ -103,7 +103,7 @@ fun EmojiSelectionDialog(
     customEmojiPacks: List<net.vrkknn.andromuks.AppViewModel.EmojiPack> = emptyList(),
     allowCustomReactions: Boolean = true,
 ) {
-    var selectedCategory by remember { mutableStateOf(0) }
+    var selectedCategory by remember { mutableIntStateOf(0) }
     var searchText by remember { mutableStateOf("") }
     val allEmojis = remember { EmojiData.getAllEmojis() }
 

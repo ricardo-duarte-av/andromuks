@@ -115,6 +115,8 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -276,7 +278,7 @@ fun RoomListScreen(
     //   - Every 1 day for yesterday and older messages (transitions happen daily)
     // This dramatically reduces recompositions while keeping timestamps reasonably fresh.
     // Declared early so it can be used in LaunchedEffect blocks below
-    var smartTimestampUpdateCounter by remember { mutableStateOf(0) }
+    var smartTimestampUpdateCounter by remember { mutableIntStateOf(0) }
 
     // Ensure cached data is applied after cold start/activity recreation.
     // CRITICAL FIX: Don't call refreshUIFromCache() here - it rebuilds allRooms from roomMap
@@ -385,7 +387,7 @@ fun RoomListScreen(
     // animationGeneration increments on each type-change so the guard LaunchedEffect restarts,
     // correctly handling rapid tab switches (previous delay is cancelled, new one starts).
     var isAnimationInProgress by remember { mutableStateOf(false) }
-    var animationGeneration by remember { mutableStateOf(0) }
+    var animationGeneration by remember { mutableIntStateOf(0) }
     var pendingSectionUpdate by remember { mutableStateOf<RoomSection?>(null) }
     // Room summaries are now in-memory only - no need for separate summary tracking
     var lastRoomSectionSignature by remember { mutableStateOf("") }
@@ -3086,8 +3088,8 @@ fun RoomListContent(
     // During fast scrolling, images would be out of view before loading anyway
     // This prevents wasted decoding work and crashes from too many simultaneous loads
     var isScrollingFast by remember { mutableStateOf(false) }
-    var lastScrollIndex by remember { mutableStateOf(0) }
-    var lastScrollTime by remember { mutableStateOf(0L) }
+    var lastScrollIndex by remember { mutableIntStateOf(0) }
+    var lastScrollTime by remember { mutableLongStateOf(0L) }
 
     LaunchedEffect(listState.isScrollInProgress, listState.firstVisibleItemIndex) {
         val currentIndex = listState.firstVisibleItemIndex

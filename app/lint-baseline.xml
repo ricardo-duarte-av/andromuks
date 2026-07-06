@@ -63,7 +63,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="225"
+            line="226"
             column="9"/>
     </issue>
 
@@ -74,7 +74,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="227"
+            line="228"
             column="9"/>
     </issue>
 
@@ -85,7 +85,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="2828"
+            line="2829"
             column="24"/>
     </issue>
 
@@ -96,7 +96,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="2829"
+            line="2830"
             column="24"/>
     </issue>
 
@@ -107,7 +107,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="2830"
+            line="2831"
             column="24"/>
     </issue>
 
@@ -118,7 +118,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="2845"
+            line="2846"
             column="9"/>
     </issue>
 
@@ -129,7 +129,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="2847"
+            line="2848"
             column="9"/>
     </issue>
 
@@ -184,7 +184,7 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="13403"
+            line="13404"
             column="21"/>
     </issue>
 
@@ -195,7 +195,7 @@
         errorLine2="                ~">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="13415"
+            line="13416"
             column="17"/>
     </issue>
 
@@ -888,7 +888,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="1870"
+            line="1871"
             column="13"/>
     </issue>
 
@@ -899,7 +899,7 @@
         errorLine2="                                                                                      ~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="1870"
+            line="1871"
             column="87"/>
     </issue>
 
@@ -910,7 +910,7 @@
         errorLine2="             ~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="1871"
+            line="1872"
             column="14"/>
     </issue>
 
@@ -921,7 +921,7 @@
         errorLine2="             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="1872"
+            line="1873"
             column="14"/>
     </issue>
 
@@ -932,7 +932,7 @@
         errorLine2="             ~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="1873"
+            line="1874"
             column="14"/>
     </issue>
 
@@ -943,7 +943,7 @@
         errorLine2="                                                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="1873"
+            line="1874"
             column="72"/>
     </issue>
 
@@ -954,7 +954,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3748"
+            line="3749"
             column="25"/>
     </issue>
 
@@ -965,7 +965,7 @@
         errorLine2="                                                                                                  ~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3748"
+            line="3749"
             column="99"/>
     </issue>
 
@@ -976,7 +976,7 @@
         errorLine2="                         ~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3749"
+            line="3750"
             column="26"/>
     </issue>
 
@@ -987,7 +987,7 @@
         errorLine2="                         ~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3750"
+            line="3751"
             column="26"/>
     </issue>
 
@@ -998,7 +998,7 @@
         errorLine2="                         ~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3751"
+            line="3752"
             column="26"/>
     </issue>
 
@@ -1009,7 +1009,7 @@
         errorLine2="                                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3751"
+            line="3752"
             column="84"/>
     </issue>
 
@@ -1020,7 +1020,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3869"
+            line="3870"
             column="25"/>
     </issue>
 
@@ -1031,7 +1031,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3870"
+            line="3871"
             column="25"/>
     </issue>
 
@@ -1042,7 +1042,7 @@
         errorLine2="                            ~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3876"
+            line="3877"
             column="29"/>
     </issue>
 
@@ -1053,7 +1053,7 @@
         errorLine2="                            ~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="4488"
+            line="4489"
             column="29"/>
     </issue>
 
@@ -1195,7 +1195,7 @@
         errorLine2="                     ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/TimelineEventItem.kt"
-            line="1421"
+            line="1423"
             column="22"/>
     </issue>
 
@@ -1206,7 +1206,7 @@
         errorLine2="                                                                         ~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/TimelineEventItem.kt"
-            line="880"
+            line="882"
             column="74"/>
     </issue>
 
@@ -1250,7 +1250,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="338"
+            line="339"
             column="5"/>
     </issue>
 
@@ -1261,7 +1261,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="1822"
+            line="1823"
             column="5"/>
     </issue>
 
@@ -1316,7 +1316,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/RoomListScreen.kt"
-            line="1886"
+            line="1888"
             column="5"/>
     </issue>
 
@@ -1327,7 +1327,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/StickerFunctions.kt"
-            line="197"
+            line="198"
             column="5"/>
     </issue>
 
@@ -1349,7 +1349,7 @@
         errorLine2="    ~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/TimelineEventItem.kt"
-            line="350"
+            line="352"
             column="5"/>
     </issue>
 
@@ -1404,7 +1404,7 @@
         errorLine2="                       ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/StickerFunctions.kt"
-            line="351"
+            line="352"
             column="24"/>
     </issue>
 
@@ -1470,7 +1470,7 @@
         errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/TimelineEventItem.kt"
-            line="833"
+            line="835"
             column="34"/>
     </issue>
 
@@ -1679,7 +1679,7 @@
         errorLine2="    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="509"
+            line="510"
             column="5"/>
     </issue>
 
@@ -1690,7 +1690,7 @@
         errorLine2="                                                           ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/RoomListScreen.kt"
-            line="3092"
+            line="3094"
             column="60"/>
     </issue>
 
@@ -1728,927 +1728,47 @@
     </issue>
 
     <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var refreshTick by remember { mutableStateOf(0) }"
-        errorLine2="                                  ~~~~~~~~~~~~~~">
+        id="AutoboxingStateValueProperty"
+        message="Assigning `value` will cause an autoboxing operation. Use `floatValue` to avoid unnecessary allocations."
+        errorLine1="                progressState.value = if (duration > 0) {"
+        errorLine2="                              ~~~~~">
         <location
-            file="src/main/java/net/vrkknn/andromuks/AccountDataVisualizerScreen.kt"
-            line="72"
-            column="35"/>
+            file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
+            line="4601"
+            column="31"/>
     </issue>
 
     <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var refreshTrigger by remember { mutableStateOf(0) }"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
+        id="AutoboxingStateValueProperty"
+        message="Reading `value` will cause an autoboxing operation. Use `floatValue` to avoid unnecessary allocations."
+        errorLine1="                    targetValue = progressState.value,"
+        errorLine2="                                                ~~~~~">
         <location
-            file="src/main/java/net/vrkknn/andromuks/AndrologScreen.kt"
-            line="29"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var gomuksRoomPrefsVersion by mutableStateOf(0)"
-        errorLine2="                                  ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="629"
-            column="35"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var backgroundPurgeIntervalMinutes by mutableStateOf("
-        errorLine2="                                          ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="633"
-            column="43"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var backgroundPurgeMessageThreshold by mutableStateOf("
-        errorLine2="                                           ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="637"
-            column="44"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var pendingShareUpdateCounter by mutableStateOf(0)"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="646"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    internal var cachedDirectChatsUnreadCount by mutableStateOf(0)"
-        errorLine2="                                                 ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="758"
-            column="50"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    internal var cachedUnreadCount by mutableStateOf(0)"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="762"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    internal var cachedFavouritesUnreadCount by mutableStateOf(0)"
-        errorLine2="                                                ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="764"
+            file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
+            line="4651"
             column="49"/>
     </issue>
 
     <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var pendingSendCount by mutableStateOf(0)"
-        errorLine2="                            ~~~~~~~~~~~~~~">
+        id="AutoboxingStateValueProperty"
+        message="Assigning `value` will cause an autoboxing operation. Use `floatValue` to avoid unnecessary allocations."
+        errorLine1="        progressState.value = if (duration > 0) {"
+        errorLine2="                      ~~~~~">
         <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="984"
-            column="29"/>
+            file="src/main/java/net/vrkknn/andromuks/utils/MediaPickerDialog.kt"
+            line="684"
+            column="23"/>
     </issue>
 
     <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var roomListUpdateCounter by mutableStateOf(0)"
-        errorLine2="                                 ~~~~~~~~~~~~~~">
+        id="AutoboxingStateValueProperty"
+        message="Reading `value` will cause an autoboxing operation. Use `floatValue` to avoid unnecessary allocations."
+        errorLine1="                progress = { progressState.value },"
+        errorLine2="                                           ~~~~~">
         <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1106"
-            column="34"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var timelineUpdateCounter by mutableStateOf(0)"
-        errorLine2="                                 ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1111"
-            column="34"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var reactionUpdateCounter by mutableStateOf(0)"
-        errorLine2="                                 ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1114"
-            column="34"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var memberUpdateCounter by mutableStateOf(0)"
-        errorLine2="                               ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1117"
-            column="32"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var roomStateUpdateCounter by mutableStateOf(0)"
-        errorLine2="                                  ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1126"
-            column="35"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var roomSummaryUpdateCounter by mutableStateOf(0)"
-        errorLine2="                                    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1130"
-            column="37"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var readReceiptsUpdateCounter by mutableStateOf(0)"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1161"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var timestampUpdateCounter by mutableStateOf(0)"
-        errorLine2="                                  ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1165"
-            column="35"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var pendingSyncCompleteCount by mutableStateOf(0)"
-        errorLine2="                                    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1314"
-            column="37"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var processedSyncCompleteCount by mutableStateOf(0)"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1316"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var timelineRefreshTrigger by mutableStateOf(0)"
-        errorLine2="                                  ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="5465"
-            column="35"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
-        errorLine1="    var receiptAnimationTrigger by mutableStateOf(0L)"
-        errorLine2="                                   ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="5589"
-            column="36"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var recordingElapsedSeconds by remember { mutableStateOf(0) }"
-        errorLine2="                                              ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/AttachmentMenu.kt"
-            line="575"
-            column="47"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var surfaceRotation by rememberSaveable { mutableStateOf(Surface.ROTATION_0) }"
-        errorLine2="                                              ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/AttachmentMenu.kt"
-            line="938"
-            column="47"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
-        errorLine1="    var iconAngle by rememberSaveable { mutableStateOf(0f) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/AttachmentMenu.kt"
-            line="939"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var mentionStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="742"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }"
-        errorLine2="                                                           ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="744"
-            column="60"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var emojiStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="749"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var roomStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="754"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var commandStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="759"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var highlightRequestId by remember(roomId) { mutableStateOf(0) }"
-        errorLine2="                                                 ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="771"
-            column="50"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastTypingTime by remember { mutableStateOf(0L) }"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="793"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var textFieldHeight by remember { mutableStateOf(0) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="801"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastInitialScrollSize by remember(roomId) { mutableStateOf(0) }"
-        errorLine2="                                                    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="1641"
-            column="53"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var anchorScrollOffsetForRestore by remember { mutableStateOf(0) }"
-        errorLine2="                                                   ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="1796"
-            column="52"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var refillRoundCount by remember(roomId) { mutableStateOf(0) }"
-        errorLine2="                                               ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="1805"
-            column="48"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var prevItemsAbove by remember(roomId) { mutableStateOf(Int.MAX_VALUE) }"
-        errorLine2="                                             ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="1806"
-            column="46"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var previousItemCount by remember { mutableStateOf(timelineItems.size) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="1927"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastKnownRefreshTrigger by remember { mutableStateOf(appViewModel.timelineRefreshTrigger) }"
-        errorLine2="                                              ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/BubbleTimelineScreen.kt"
-            line="2561"
-            column="47"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var selectedCategory by remember { mutableStateOf(0) }"
-        errorLine2="                                       ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/EmojiSelection.kt"
-            line="106"
-            column="40"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var triggerMenuFromImage by remember { mutableStateOf(0) }"
-        errorLine2="                                           ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="369"
+            file="src/main/java/net/vrkknn/andromuks/utils/MediaPickerDialog.kt"
+            line="779"
             column="44"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
-        errorLine1="    var duration by remember { mutableStateOf(0L) }"
-        errorLine2="                               ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="2229"
-            column="32"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
-        errorLine1="    var currentPosition by remember { mutableStateOf(0L) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="2230"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var playbackState by remember { mutableStateOf(androidx.media3.common.Player.STATE_IDLE) }"
-        errorLine2="                                    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="3674"
-            column="37"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
-        errorLine1="                mutableStateOf(0f)"
-        errorLine2="                ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="4595"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var currentPosition by remember { mutableStateOf(0) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/MediaPickerDialog.kt"
-            line="659"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var duration by remember { mutableStateOf(0) }"
-        errorLine2="                               ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/MediaPickerDialog.kt"
-            line="660"
-            column="32"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
-        errorLine1="    val progressState = remember { mutableStateOf(0f) }"
-        errorLine2="                                   ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/MediaPickerDialog.kt"
-            line="665"
-            column="36"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var smartTimestampUpdateCounter by remember { mutableStateOf(0) }"
-        errorLine2="                                                  ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomListScreen.kt"
-            line="279"
-            column="51"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var animationGeneration by remember { mutableStateOf(0) }"
-        errorLine2="                                          ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomListScreen.kt"
-            line="388"
-            column="43"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastScrollIndex by remember { mutableStateOf(0) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomListScreen.kt"
-            line="3089"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastScrollTime by remember { mutableStateOf(0L) }"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomListScreen.kt"
-            line="3090"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
-        errorLine1="    var nextMaxTimelineId by remember { mutableStateOf(0L) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/RoomMediaGallery.kt"
-            line="218"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var columns by rememberSaveable { mutableStateOf(GALLERY_DEFAULT_COLUMNS) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/RoomMediaGallery.kt"
-            line="223"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var previousSize by remember { mutableStateOf(-1) }"
-        errorLine2="                                   ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="775"
-            column="36"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var highlightRequestId by remember(roomId) { mutableStateOf(0) }"
-        errorLine2="                                                 ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="818"
-            column="50"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastTypingTime by remember { mutableStateOf(0L) }"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="972"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var textFieldHeight by remember { mutableStateOf(0) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="984"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var mentionStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="1078"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }"
-        errorLine2="                                                           ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="1080"
-            column="60"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var emojiStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="1085"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var roomStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="1090"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var commandStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="1095"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var localMemberRefreshTrigger by remember(roomId) { mutableStateOf(0) }"
-        errorLine2="                                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="1880"
-            column="57"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastInitialScrollSize by remember(roomId) { mutableStateOf(0) }"
-        errorLine2="                                                    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="2048"
-            column="53"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var anchorScrollOffsetForRestore by remember { mutableStateOf(0) }"
-        errorLine2="                                                   ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="2208"
-            column="52"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var refillRoundCount by remember(roomId) { mutableStateOf(0) }"
-        errorLine2="                                               ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="2217"
-            column="48"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var prevItemsAbove by remember(roomId) { mutableStateOf(Int.MAX_VALUE) }"
-        errorLine2="                                             ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="2218"
-            column="46"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var previousItemCount by remember { mutableStateOf(timelineItems.size) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="2346"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastKnownRefreshTrigger by remember { mutableStateOf(appViewModel.timelineRefreshTrigger) }"
-        errorLine2="                                              ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="3105"
-            column="47"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastReceivedRequestId by remember { mutableStateOf(0) }"
-        errorLine2="                                            ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsScreen.kt"
-            line="993"
-            column="45"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastRegistration by remember { mutableStateOf(0L) }"
-        errorLine2="                                       ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsScreen.kt"
-            line="994"
-            column="40"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var refreshTrigger by remember { mutableStateOf(0) }"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsScreen.kt"
-            line="995"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="        var triggerMenuFromSticker by remember { mutableStateOf(0) }"
-        errorLine2="                                                 ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/StickerFunctions.kt"
-            line="263"
-            column="50"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var selectedPackIndex by remember { mutableStateOf(0) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/utils/StickerSelection.kt"
-            line="44"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var mentionStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ThreadViewerScreen.kt"
-            line="554"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }"
-        errorLine2="                                                           ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ThreadViewerScreen.kt"
-            line="556"
-            column="60"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var emojiStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ThreadViewerScreen.kt"
-            line="561"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var roomStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ThreadViewerScreen.kt"
-            line="566"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var commandStartIndex by remember { mutableStateOf(-1) }"
-        errorLine2="                                        ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ThreadViewerScreen.kt"
-            line="571"
-            column="41"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableLongStateOf` instead of `mutableStateOf`"
-        errorLine1="    var lastTypingTime by remember { mutableStateOf(0L) }"
-        errorLine2="                                     ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ThreadViewerScreen.kt"
-            line="602"
-            column="38"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var textFieldHeight by remember { mutableStateOf(0) }"
-        errorLine2="                                      ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ThreadViewerScreen.kt"
-            line="610"
-            column="39"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableIntStateOf` instead of `mutableStateOf`"
-        errorLine1="    var bubbleWidthPx by remember { mutableStateOf(0) }"
-        errorLine2="                                    ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/TimelineEventItem.kt"
-            line="2021"
-            column="37"/>
-    </issue>
-
-    <issue
-        id="AutoboxingStateCreation"
-        message="Prefer `mutableFloatStateOf` instead of `mutableStateOf`"
-        errorLine1="    var dragOffsetPx by remember { mutableStateOf(0f) } // Use mutable state for immediate updates during drag"
-        errorLine2="                                   ~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/TimelineEventItem.kt"
-            line="4023"
-            column="36"/>
     </issue>
 
     <issue
@@ -2801,7 +1921,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="1984"
+            line="1985"
             column="13"/>
     </issue>
 
@@ -2812,7 +1932,7 @@
         errorLine2="            ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="2148"
+            line="2149"
             column="13"/>
     </issue>
 
@@ -2823,7 +1943,7 @@
         errorLine2="        ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="2180"
+            line="2181"
             column="9"/>
     </issue>
 
@@ -2834,7 +1954,7 @@
         errorLine2="                ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="4303"
+            line="4304"
             column="17"/>
     </issue>
 
@@ -2845,7 +1965,7 @@
         errorLine2="            ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="6160"
+            line="6161"
             column="13"/>
     </issue>
 
@@ -2856,7 +1976,7 @@
         errorLine2="                ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="6176"
+            line="6177"
             column="17"/>
     </issue>
 
@@ -2867,7 +1987,7 @@
         errorLine2="            ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="6262"
+            line="6263"
             column="13"/>
     </issue>
 
@@ -2878,7 +1998,7 @@
         errorLine2="            ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="6280"
+            line="6281"
             column="13"/>
     </issue>
 
@@ -2889,7 +2009,7 @@
         errorLine2="                ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="6296"
+            line="6297"
             column="17"/>
     </issue>
 
@@ -2900,7 +2020,7 @@
         errorLine2="                    ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="6329"
+            line="6330"
             column="21"/>
     </issue>
 
@@ -2911,7 +2031,7 @@
         errorLine2="                    ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="6337"
+            line="6338"
             column="21"/>
     </issue>
 
@@ -2922,7 +2042,7 @@
         errorLine2="        ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="8383"
+            line="8384"
             column="9"/>
     </issue>
 
@@ -2933,7 +2053,7 @@
         errorLine2="        ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/AppViewModel.kt"
-            line="8391"
+            line="8392"
             column="9"/>
     </issue>
 
@@ -3483,7 +2603,7 @@
         errorLine2="                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="2482"
+            line="2483"
             column="31"/>
     </issue>
 
@@ -3494,7 +2614,7 @@
         errorLine2="                                              ~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="2723"
+            line="2724"
             column="47"/>
     </issue>
 
@@ -3505,7 +2625,7 @@
         errorLine2="                                            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/utils/MediaFunctions.kt"
-            line="4134"
+            line="4135"
             column="45"/>
     </issue>
 
@@ -4165,7 +3285,7 @@
         errorLine2="                                                            ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/TimelineEventItem.kt"
-            line="833"
+            line="835"
             column="61"/>
     </issue>
 
@@ -4176,7 +3296,7 @@
         errorLine2="                                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/TimelineEventItem.kt"
-            line="880"
+            line="882"
             column="33"/>
     </issue>
 
@@ -4781,7 +3901,7 @@
         errorLine2="                                                               ~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/RoomTimelineScreen.kt"
-            line="267"
+            line="269"
             column="64"/>
     </issue>
 

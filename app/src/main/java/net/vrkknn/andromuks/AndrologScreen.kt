@@ -26,7 +26,7 @@ import java.util.*
 @Composable
 fun AndrologScreen(navController: NavController) {
     // refreshTrigger forces re-read of the in-memory log (e.g. after clearing).
-    var refreshTrigger by remember { mutableStateOf(0) }
+    var refreshTrigger by remember { mutableIntStateOf(0) }
     val entries = remember(refreshTrigger) { Androlog.getEntries() }
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }

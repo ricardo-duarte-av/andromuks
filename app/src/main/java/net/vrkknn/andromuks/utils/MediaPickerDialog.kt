@@ -656,13 +656,13 @@ fun VideoPlayerPreview(uri: Uri) {
 
     var isPlaying by remember { mutableStateOf(false) }
     var videoView by remember { mutableStateOf<VideoView?>(null) }
-    var currentPosition by remember { mutableStateOf(0) }
-    var duration by remember { mutableStateOf(0) }
+    var currentPosition by remember { mutableIntStateOf(0) }
+    var duration by remember { mutableIntStateOf(0) }
     var isUserSeeking by remember { mutableStateOf(false) }
     var isPrepared by remember { mutableStateOf(false) }
 
     // Progress state for wavy indicator
-    val progressState = remember { mutableStateOf(0f) }
+    val progressState = remember { mutableFloatStateOf(0f) }
 
     // Update current position while playing
     LaunchedEffect(isPlaying) {

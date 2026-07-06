@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -626,15 +627,15 @@ class AppViewModel : ViewModel() {
         internal set
 
     // Bumped whenever room-level gomuks prefs change so composables recompose
-    var gomuksRoomPrefsVersion by mutableStateOf(0)
+    var gomuksRoomPrefsVersion by mutableIntStateOf(0)
         internal set
 
     // ── Background purge settings (exposed for SettingsScreen) ──────────────
-    var backgroundPurgeIntervalMinutes by mutableStateOf(
+    var backgroundPurgeIntervalMinutes by mutableIntStateOf(
         (SyncBatchProcessor.DEFAULT_BATCH_INTERVAL_MS / 60_000L).toInt(),
     )
         internal set
-    var backgroundPurgeMessageThreshold by mutableStateOf(
+    var backgroundPurgeMessageThreshold by mutableIntStateOf(
         SyncBatchProcessor.DEFAULT_MAX_BATCH_SIZE,
     )
         internal set
@@ -643,7 +644,7 @@ class AppViewModel : ViewModel() {
         private set
     var pendingShareNavigationRequested by mutableStateOf(false)
         private set
-    var pendingShareUpdateCounter by mutableStateOf(0)
+    var pendingShareUpdateCounter by mutableIntStateOf(0)
         private set
     var pendingShareTargetRoomId by mutableStateOf<String?>(null)
         private set
@@ -755,13 +756,13 @@ class AppViewModel : ViewModel() {
         internal set
 
     // PERFORMANCE: Pre-computed badge counts (always computed for immediate tab bar display)
-    internal var cachedDirectChatsUnreadCount by mutableStateOf(0)
+    internal var cachedDirectChatsUnreadCount by mutableIntStateOf(0)
         internal set
     internal var cachedDirectChatsHasHighlights by mutableStateOf(false)
         internal set
-    internal var cachedUnreadCount by mutableStateOf(0)
+    internal var cachedUnreadCount by mutableIntStateOf(0)
         internal set
-    internal var cachedFavouritesUnreadCount by mutableStateOf(0)
+    internal var cachedFavouritesUnreadCount by mutableIntStateOf(0)
         internal set
     internal var cachedFavouritesHasHighlights by mutableStateOf(false)
         internal set
@@ -981,7 +982,7 @@ class AppViewModel : ViewModel() {
     }
 
     // Track pending message sends for send button animation
-    var pendingSendCount by mutableStateOf(0)
+    var pendingSendCount by mutableIntStateOf(0)
         internal set
 
     // Flag to force the next connection to be a resume (true) or cold start (false).
@@ -1103,18 +1104,18 @@ class AppViewModel : ViewModel() {
     fun isDirectMessageFromAccountData(roomId: String): Boolean = directMessageRoomIds.contains(roomId)
 
     // Granular update counters to reduce unnecessary recompositions
-    var roomListUpdateCounter by mutableStateOf(0)
+    var roomListUpdateCounter by mutableIntStateOf(0)
         internal set
 
     // Incremented by executeTimelineRebuild and reply-fetch paths so TimelineEventItem
     // remember() blocks that read MessageVersionsCache / RoomTimelineCache know to recompute.
-    var timelineUpdateCounter by mutableStateOf(0)
+    var timelineUpdateCounter by mutableIntStateOf(0)
         internal set
 
-    var reactionUpdateCounter by mutableStateOf(0)
+    var reactionUpdateCounter by mutableIntStateOf(0)
         internal set
 
-    var memberUpdateCounter by mutableStateOf(0)
+    var memberUpdateCounter by mutableIntStateOf(0)
         internal set
 
     // Parsed m.push_rules ruleset — single source of truth for the Push Rules editor. Re-parsed from
@@ -1123,11 +1124,11 @@ class AppViewModel : ViewModel() {
     var pushRuleset by mutableStateOf(net.vrkknn.andromuks.utils.PushRuleset.EMPTY)
         internal set
 
-    var roomStateUpdateCounter by mutableStateOf(0)
+    var roomStateUpdateCounter by mutableIntStateOf(0)
         private set
 
     // Room summary update counter - triggers RoomListScreen to refresh message previews/senders
-    var roomSummaryUpdateCounter by mutableStateOf(0)
+    var roomSummaryUpdateCounter by mutableIntStateOf(0)
         internal set
 
     // SYNC OPTIMIZATION: Batched update mechanism
@@ -1158,11 +1159,11 @@ class AppViewModel : ViewModel() {
     internal val navigationCache: MutableMap<String, RoomNavigationState> = ConcurrentHashMap()
 
     // Read receipts update counter - separate from main updateCounter to reduce unnecessary UI updates
-    var readReceiptsUpdateCounter by mutableStateOf(0)
+    var readReceiptsUpdateCounter by mutableIntStateOf(0)
         internal set
 
     // Timestamp update counter for dynamic time displays
-    var timestampUpdateCounter by mutableStateOf(0)
+    var timestampUpdateCounter by mutableIntStateOf(0)
         private set
 
     // FCM notification manager
@@ -1311,9 +1312,9 @@ class AppViewModel : ViewModel() {
     private var shortcutsRefreshedOnStartup = false
 
     // Track sync_complete progress for UI display
-    var pendingSyncCompleteCount by mutableStateOf(0)
+    var pendingSyncCompleteCount by mutableIntStateOf(0)
         internal set
-    var processedSyncCompleteCount by mutableStateOf(0)
+    var processedSyncCompleteCount by mutableIntStateOf(0)
         internal set
 
     // CRITICAL FIX: Track loading of all room states (for bridge badges) after init_complete
@@ -5462,7 +5463,7 @@ class AppViewModel : ViewModel() {
     }
 
     // Trigger for timeline refresh when app resumes (incremented when app becomes visible)
-    var timelineRefreshTrigger by mutableStateOf(0)
+    var timelineRefreshTrigger by mutableIntStateOf(0)
         internal set
 
     // Edit chain tracking system
@@ -5586,7 +5587,7 @@ class AppViewModel : ViewModel() {
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
     // THREAD SAFETY: Protected by readReceiptsLock since it's accessed from background threads
     internal val receiptMovements = mutableMapOf<String, Triple<String?, String, Long>>()
-    var receiptAnimationTrigger by mutableStateOf(0L)
+    var receiptAnimationTrigger by mutableLongStateOf(0L)
         internal set
 
     // PERFORMANCE: Track new messages for sound notifications only (animations removed)
