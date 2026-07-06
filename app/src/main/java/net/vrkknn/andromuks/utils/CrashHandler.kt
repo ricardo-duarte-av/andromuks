@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -24,6 +25,9 @@ import java.util.*
  * Global crash handler that catches uncaught exceptions and saves them to a file.
  * On app restart, shows a dialog asking the user if they want to email the crash log.
  */
+// Process-lifetime singleton; initialize() only stores applicationContext (never an Activity), so
+// the Context field is not a leak. Suppress the StaticFieldLeak false positive (object + field).
+@SuppressLint("StaticFieldLeak")
 object CrashHandler : Thread.UncaughtExceptionHandler {
     private const val TAG = "CrashHandler"
     private const val CRASH_LOG_DIR = "crash_logs"

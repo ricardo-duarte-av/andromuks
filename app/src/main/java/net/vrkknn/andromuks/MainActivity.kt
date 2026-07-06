@@ -1371,8 +1371,12 @@ class MainActivity : FragmentActivity() {
             appViewModel.onAppBecameVisible()
         }
 
-        // Broadcast that app is now in foreground so screens can refresh
-        val foregroundRefreshIntent = Intent("net.vrkknn.andromuks.FOREGROUND_REFRESH")
+        // Broadcast that app is now in foreground so screens can refresh. setPackage keeps this
+        // custom-action broadcast internal to the app — Android 14+ won't deliver implicit
+        // broadcasts, and the receivers are registered RECEIVER_NOT_EXPORTED.
+        val foregroundRefreshIntent = Intent("net.vrkknn.andromuks.FOREGROUND_REFRESH").apply {
+            setPackage(packageName)
+        }
         sendBroadcast(foregroundRefreshIntent)
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Sent FOREGROUND_REFRESH broadcast")
     }
