@@ -396,8 +396,18 @@ class NotificationImageWorker(
             return Result.success()
         }
 
-        // 4. Extract the live MessagingStyle to patch in-place.
-        val existingStyle = MessagingStyle.extractMessagingStyleFromNotification(existing.notification)
+        // 4. Extract the live MessagingStyle to patch in-place. Re-read the CURRENT active
+        //    notification here rather than reusing the `existing` snapshot captured at the top of
+        //    doWork(): the event fetch (step 2) and media downloads (step 3) above take multiple
+        //    seconds, during which a newer message's Phase-1 post can land for this room. Rebuilding
+        //    the style from the stale snapshot would drop that newer message ENTIRELY on re-post —
+        //    two image FCMs racing in the same room then wipe each other (only one survives). This
+        //    mirrors the re-read the no-op and second-re-post paths already do. `existing` is still
+        //    fine for the stable per-room metadata below (contentIntent, actions, channel, large
+        //    icon, LocusId, bubble) — those don't differ between two messages in the same room.
+        val currentForStyle = systemNm.activeNotifications.firstOrNull { it.id == notifId }?.notification
+            ?: existing.notification
+        val existingStyle = MessagingStyle.extractMessagingStyleFromNotification(currentForStyle)
         if (existingStyle == null) {
             Log.w(TAG, "Could not extract MessagingStyle for room $roomId")
             return Result.failure()
