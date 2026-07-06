@@ -6,15 +6,16 @@
 # (default: Error), not a `build:` block here. If a deliberately-introduced style violation does not
 # fail CI during verification, set `failOnSeverity = FailOnSeverity.Warning` in root build.gradle.kts.
 
-# ktlint formatting rules come from the detekt-rules-ktlint-wrapper plugin and are driven by the
-# repo-root .editorconfig; they use their packaged defaults, so no formatting section is needed here.
+# ktlint formatting rules come from the detekt-rules-ktlint-wrapper plugin. NOTE: the wrapper does
+# NOT read `.editorconfig`'s max_line_length — line length is configured per-rule below (see ktlint:).
+# Other formatting rules use their packaged defaults.
 
 # --- Noise / duplicate-rule suppression (keeps the baseline meaningful) --------------------------
 # These turn off detekt rules that either duplicate a ktlint-wrapper rule (double-counting the same
 # lines) or are pervasive low-signal checks. Disabling them here means they never enter the baseline.
 style:
-  # Duplicate of the ktlint-wrapper `MaximumLineLength` rule, which is the one driven by
-  # .editorconfig (max_line_length = 120). Keeping both flags every long line twice.
+  # Duplicate of the ktlint-wrapper `MaximumLineLength` rule (the one we keep, configured under
+  # ktlint: below). Keeping both would flag every long line twice.
   MaxLineLength:
     active: false
   # Duplicate of the ktlint-wrapper `NoWildcardImports` rule (kept active). Disable detekt's copy.
@@ -29,6 +30,46 @@ naming:
   # exempted via .editorconfig; detekt's own FunctionNaming needs this explicit ignore.
   FunctionNaming:
     ignoreAnnotated: ['Composable']
+
+# --- ktlint-wrapper line length ------------------------------------------------------------------
+# The ktlint-wrapper does NOT read `.editorconfig`'s max_line_length; each rule uses its own
+# `maxLineLength` (default 120 for code_style intellij_idea). We raise the ceiling to 160 — this
+# Compose-heavy codebase is naturally wide (nested lambdas + modifier chains). ALL 16 rules that
+# consult maxLineLength are set together so the wrapping rules don't try to wrap 120–160 lines that
+# MaximumLineLength permits. (.editorconfig is also set to 160 for IDEs / standalone ktlint.)
+ktlint:
+  ArgumentListWrapping:
+    maxLineLength: 160
+  BinaryExpressionWrapping:
+    maxLineLength: 160
+  ChainMethodContinuation:
+    maxLineLength: 160
+  ClassSignature:
+    maxLineLength: 160
+  ContextReceiverListWrapping:
+    maxLineLength: 160
+  ContextReceiverMapping:
+    maxLineLength: 160
+  FunctionExpressionBody:
+    maxLineLength: 160
+  FunctionLiteral:
+    maxLineLength: 160
+  FunctionReturnTypeSpacing:
+    maxLineLength: 160
+  FunctionSignature:
+    maxLineLength: 160
+  MaximumLineLength:
+    maxLineLength: 160
+  ParameterListSpacing:
+    maxLineLength: 160
+  ParameterListWrapping:
+    maxLineLength: 160
+  ParameterWrapping:
+    maxLineLength: 160
+  PropertyWrapping:
+    maxLineLength: 160
+  Wrapping:
+    maxLineLength: 160
 
 # Jetpack Compose rules from io.nlopez.compose.rules:detekt. Individual rules use the plugin's
 # packaged defaults; toggle or configure specific ones below as the team decides.

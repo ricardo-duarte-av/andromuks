@@ -15,7 +15,11 @@ indent_size = 4
 # `intellij_idea` matches Android Studio's default formatter; switch to `android_studio` only if the
 # team standardises on the stricter AOSP style.
 ktlint_code_style = intellij_idea
-max_line_length = 120
+# 160 rather than the usual 120: this Compose-heavy codebase is naturally wide (nested lambdas +
+# modifier chains) and never followed a 120 column rule, so 120 flagged everyday code on every edit.
+# 160 keeps a sanity ceiling that catches genuinely runaway lines. The remaining >160 lines are
+# baselined and burned down opportunistically.
+max_line_length = 160
 # Compose @Composable functions are PascalCase; exempt them from the function-naming rule so the
 # ktlint-wrapper doesn't fight compose-rules' ComposableNaming.
 ktlint_function_naming_ignore_when_annotated_with = Composable

@@ -22,145 +22,32 @@
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$( "set_state", requestId, mapOf( "room_id" to roomId, "type" to "m.room.member", "state_key" to currentUserId, "content" to mapOf( "avatar_url" to mxcUrl, "membership" to "join", ), ) )</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$( "set_state", requestId, mapOf( "room_id" to roomId, "type" to "m.room.pinned_events", "state_key" to "", "content" to mapOf("pinned" to currentPinned), ) )</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: ${if (pin) "Pinned" else "Unpinned"} event $eventId in room $roomId (${currentPinned.size} total pinned events)")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: About to send WebSocket command: get_event with data: $commandData")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: About to send WebSocket command: get_event_context with data: $commandData")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: All timeline caches cleared - all rooms marked as needing pagination")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Background space edge processing - Completed processing")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Background space edge processing - Created mock data for ${allRooms.size} rooms")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Credentials cleared due to 401 Unauthorized - navigating to login (commit success: $commitSuccess)")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: DNS failure #$nextDnsFailureCount - scheduling reconnection in ${delayMs}ms")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Delegating reconnection scheduling to service ($trigger)")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Executing ${pendingNotificationActions.size} pending notification actions")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Full user info progress - profile: $profileCompleted, encryption: $encryptionCompleted, mutualRooms: $mutualRoomsCompleted (expected: $expectedRequests, completed: $completedCount)")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Handling freshness check response for room: $roomId, requestId: $requestId")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Handling mentions list response for requestId: $requestId")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Parsed ${events.size} mention events from response")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}, arbitraryFields: ${arbitraryFieldsMap.size}")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Rebuilt timeline after processing sync events for current room $roomId: before=$timelineCountBefore, after=$timelineCountAfter")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Refreshing UI with ${sortedRooms.size} rooms")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Requesting profile on-demand (network) for $userId in room $roomId")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Requesting profile updates for ${userIdList.size} users (senders + mentions + reply targets)")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Returning ${entries.size} memory cached media entries")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Sending get_mentions command with request_id=$mentionsRequestId, data=$commandData")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Sent paginate request for room: $roomId (${INITIAL_ROOM_PAGINATE_LIMIT} events) - awaiting response to rebuild timeline")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Sent per-room member state request with ID $requestId for $userId in room $roomId")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Starting background space edge processing for ${allSpaces.size} spaces")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: TLS failure #$nextTlsFailureCount - scheduling reconnection in ${delayMs}ms")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: UI refreshed, roomListUpdateCounter: $roomListUpdateCounter")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Updated global profile for $userId and cleaned up matching room-specific entries")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Updated low priority rooms set: ${lowPriorityRoomIds.size} rooms (changed)")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'")</ID>
     <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: getBridgeDisplayNameFromRoomState - No bridge event found in cached state for room $roomId (${roomStateEvents.length()} events)")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "AppViewModel: initializeWebSocketConnection - isReconnection: $finalIsReconnection")</ID>
-    <ID>ArgumentListWrapping:AppViewModel.kt:AppViewModel$("Andromuks", "buildTimelineFromChain: Created snapshot with ${eventChainSnapshot.size} entries")</ID>
-    <ID>ArgumentListWrapping:AttachmentMenu.kt:(density)</ID>
     <ID>ArgumentListWrapping:AuthCheck.kt:("Andromuks", "AuthCheckScreen: WebSocket connection check - isPrimary: $isPrimary, isAlreadyConnected: $isAlreadyConnected")</ID>
-    <ID>ArgumentListWrapping:AuthCheck.kt:("AuthCheckScreen", "Navigating to room_list (currentRoute=$currentRoute)")</ID>
-    <ID>ArgumentListWrapping:AuthCheck.kt:("AuthCheckScreen", "Notification permission granted. Attempting auto WebSocket connect.")</ID>
-    <ID>ArgumentListWrapping:AuthCheck.kt:("AuthCheckScreen", "Permissions check - notifications: $hasNotificationPermission, battery: $hasBatteryOptimization")</ID>
-    <ID>ArgumentListWrapping:AutoRestartWorker.kt:AutoRestartWorker.Companion$("AutoRestartWorker", "Scheduled periodic auto-restart checks (every $REPEAT_INTERVAL_MINUTES minutes)")</ID>
     <ID>ArgumentListWrapping:BiometricLock.kt:( activity, executor, object : BiometricPrompt.AuthenticationCallback() { override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess() override fun onAuthenticationError(errorCode: Int, errString: CharSequence) { Log.w(TAG, "Biometric error $errorCode: $errString") onFail() } // onAuthenticationFailed (a single non-matching attempt) is intentionally ignored — the // prompt stays up and the user can retry. } )</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:("!")</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:("![:")</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:("/pmp", ignoreCase = true)</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:("dd / MM / yyyy", java.util.Locale.getDefault())</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:("mxc://")</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:(enhancedRoomLink.roomIdOrAlias)</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:(eventId, "UTF-8")</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:(newText.length)</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:(roomId, "UTF-8")</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:(roomId, draft, context, navController)</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:(roomId, draft, urlPreviewController.getReadyPreviews())</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:(targetRoomId)</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:(text = newText, selection = TextRange(newText.length))</ID>
-    <ID>ArgumentListWrapping:BubbleTimelineScreen.kt:(viaServers = enhancedViaServers)</ID>
     <ID>ArgumentListWrapping:ChatBubbleActivity.kt:ChatBubbleActivity$("Andromuks", "ChatBubbleActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, bubbleMode: $bubbleMode, matrixUri: $matrixUri")</ID>
-    <ID>ArgumentListWrapping:ConversationsApi.kt:ConversationsApi$(TAG, "Initialized shortcut cache from Android ShortcutManager: ${shortcutIdsSet.size} existing shortcuts")</ID>
     <ID>ArgumentListWrapping:ConversationsApi.kt:ConversationsApi$(TAG, "Loading conversation shortcut: $shortcutId (label: ${shortcut.shortLabel}, categories: ${shortcut.categories})")</ID>
-    <ID>ArgumentListWrapping:DownloadDeduplicationManager.kt:DownloadDeduplicationManager$(TAG, "Successfully downloaded $mxcUrl (${cachedFile.length() / 1024}KB)")</ID>
-    <ID>ArgumentListWrapping:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$(TAG, "createMarkReadAction: Intent created with room_id: ${data.roomId}, event_id: ${data.eventId}")</ID>
-    <ID>ArgumentListWrapping:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$(TAG, "createReplyAction: Intent created with room_id: ${data.roomId}, event_id: ${data.eventId}")</ID>
-    <ID>ArgumentListWrapping:EventContextScreen.kt:("Andromuks", "EventContextScreen: Requesting profiles for ${uniqueUsers.size} users in context events")</ID>
-    <ID>ArgumentListWrapping:EventContextScreen.kt:(120)</ID>
-    <ID>ArgumentListWrapping:EventContextScreen.kt:(durationMillis = scaledTweenMs(120))</ID>
-    <ID>ArgumentListWrapping:EventContextScreen.kt:(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))</ID>
-    <ID>ArgumentListWrapping:EventContextScreen.kt:(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120)))</ID>
-    <ID>ArgumentListWrapping:FCMService.kt:("Andromuks", "FCMService: Retrieved encrypted key from SharedPreferences: $encryptedKey")</ID>
-    <ID>ArgumentListWrapping:FCMService.kt:FCMService$(TAG, "Showing notification for room: $roomId, sender: $senderDisplayName, text: $text")</ID>
-    <ID>ArgumentListWrapping:IntelligentMediaCache.kt:IntelligentMediaCache$(TAG, "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, evicting...")</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:("current_user_avatar_mxc", null)</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:("user_info_roomId")</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:(160)</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:(220)</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:(300)</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:(animationSpec = tween(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing))</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:(animationSpec = tween(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing))</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:(durationMillis = scaledTweenMs(160), easing = FastOutSlowInEasing)</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:(durationMillis = scaledTweenMs(220), easing = FastOutSlowInEasing)</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:(durationMillis = scaledTweenMs(300), easing = FastOutSlowInEasing)</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:(key = "startup-current-user-avatar")</ID>
     <ID>ArgumentListWrapping:MainActivity.kt:MainActivity$("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:MainActivity$("Andromuks", "MainActivity: onNewIntent - matrix:u/ URI received for userId: $userId")</ID>
     <ID>ArgumentListWrapping:MainActivity.kt:MainActivity$("Andromuks", "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")</ID>
-    <ID>ArgumentListWrapping:MainActivity.kt:MainActivity.&lt;no name provided&gt;$("Andromuks", "MainActivity: Mark read data extracted - roomId: $roomId, eventId: '$eventId'")</ID>
     <ID>ArgumentListWrapping:MainActivity.kt:MainActivity.&lt;no name provided&gt;$("Andromuks", "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'")</ID>
-    <ID>ArgumentListWrapping:MediaFunctions.kt:("Andromuks", "File downloaded successfully: $filename to ${finalFile.absolutePath}")</ID>
-    <ID>ArgumentListWrapping:MediaFunctions.kt:("Andromuks", "✅ Image loaded successfully: $imageUrl")</ID>
-    <ID>ArgumentListWrapping:MediaFunctions.kt:(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)</ID>
-    <ID>ArgumentListWrapping:NarratorFunctions.kt:("NarratorFunctions", "SystemEventNarrator: Long press detected")</ID>
     <ID>ArgumentListWrapping:NarratorFunctions.kt:("NarratorFunctions", "SystemEventNarrator: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth")</ID>
-    <ID>ArgumentListWrapping:NarratorFunctions.kt:(displayName, event.sender, senderDisplayName, roomName, memberMap, userMentionColor)</ID>
-    <ID>ArgumentListWrapping:NavigationCoordinator.kt:NavigationCoordinator$(roomId = roomId, timestamp = null, source = RoomNavigationRequest.Source.SHORTCUT)</ID>
     <ID>ArgumentListWrapping:PermissionsScreen.kt:("PermissionsScreen", "Initial permission check - notifications: $notificationPermissionGranted, battery: $batteryOptimizationDisabled")</ID>
     <ID>ArgumentListWrapping:ProgressiveImageLoader.kt:ProgressiveImageLoader$(TAG, "Optimized image: ${originalSize / 1024}KB -&gt; ${optimizedSize / 1024}KB (${compressionRatio.toInt()}% reduction)")</ID>
-    <ID>ArgumentListWrapping:ReactionFunctions.kt:(net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp))</ID>
-    <ID>ArgumentListWrapping:ReactionFunctions.kt:(reactionEvent.sender, reactionEvent.timestamp)</ID>
-    <ID>ArgumentListWrapping:ReceiptFunctions.kt:("Andromuks", "Read receipt avatar clicked for user: ${receipt.userId}")</ID>
-    <ID>ArgumentListWrapping:ReceiptFunctions.kt:(600)</ID>
-    <ID>ArgumentListWrapping:ReceiptFunctions.kt:(initialScale = 0.5f, animationSpec = tween(scaledTweenMs(600), easing = FastOutSlowInEasing))</ID>
-    <ID>ArgumentListWrapping:ReceiptFunctions.kt:(receipt.userId, roomId)</ID>
-    <ID>ArgumentListWrapping:ReceiptFunctions.kt:(scaledTweenMs(600), easing = FastOutSlowInEasing)</ID>
-    <ID>ArgumentListWrapping:ReceiptFunctions.kt:ReceiptFunctions$("Andromuks", "ReceiptFunctions: removeUserReceipts completed - removed $removedCount total receipts for user: $userId")</ID>
-    <ID>ArgumentListWrapping:ReplyFunctions.kt:("ReplyFunctions", "MessageBubbleMenu: Click detected, showing menu")</ID>
-    <ID>ArgumentListWrapping:ReplyFunctions.kt:("ReplyFunctions", "MessageBubbleMenu: Long press detected")</ID>
-    <ID>ArgumentListWrapping:ReplyFunctions.kt:("body", "")</ID>
-    <ID>ArgumentListWrapping:ReplyFunctions.kt:("m.room.message", "m.room.encrypted", "m.sticker")</ID>
     <ID>ArgumentListWrapping:RoomInfo.kt:("Andromuks", "RoomInfoScreen: Triggering opportunistic profile loading for ${senders.size} pinned event senders")</ID>
     <ID>ArgumentListWrapping:RoomInfo.kt:("Andromuks", "loadPinnedEvents: Completed loading pinned events. Success: ${results.count { it.timelineEvent != null }}/${pinnedIds.size}")</ID>
-    <ID>ArgumentListWrapping:RoomListScreen.kt:("Andromuks", "RoomListScreen: WARNING - No messageSender for room ${room.name}")</ID>
-    <ID>ArgumentListWrapping:RoomListScreen.kt:(360)</ID>
-    <ID>ArgumentListWrapping:RoomListScreen.kt:(420)</ID>
-    <ID>ArgumentListWrapping:RoomListScreen.kt:(durationMillis = scaledTweenMs(360), easing = FastOutSlowInEasing)</ID>
-    <ID>ArgumentListWrapping:RoomListScreen.kt:(durationMillis = scaledTweenMs(420), easing = FastOutSlowInEasing)</ID>
-    <ID>ArgumentListWrapping:RoomListScreen.kt:(showNotificationActionIndicator, enter = scaledColumnEnter(), exit = scaledColumnExit())</ID>
-    <ID>ArgumentListWrapping:RoomTimelineCache.kt:RoomTimelineCache$(TAG, "Cleared all room caches (also cleared all profiles, members, receipts, reactions, versions)")</ID>
     <ID>ArgumentListWrapping:RoomTimelineCache.kt:RoomTimelineCache$(TAG, "Cleared all room caches and marked all rooms as needing pagination (no opened rooms, also cleared all profiles, members, receipts, reactions, versions)")</ID>
     <ID>ArgumentListWrapping:RoomTimelineCache.kt:RoomTimelineCache$(TAG, "Cleared cache for room $roomId and marked as not cached (also cleared profiles, members, receipts, reactions, versions)")</ID>
     <ID>ArgumentListWrapping:RoomTimelineCache.kt:RoomTimelineCache$(TAG, "Room $roomId cache after merge: $cacheAfter events (added $added, was $cacheBefore). OldestRowId: $oldestRowIdBefore -&gt; $oldestRowIdAfter")</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:("!")</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:("![:")</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:("/pmp", ignoreCase = true)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:("Andromuks", "RoomTimelineScreen: Multi-send item ${index + 1} failed", e)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:("mxc://")</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(620)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs)))</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(enhancedRoomLink.roomIdOrAlias)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(newText.length)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(replyPreviewGrowMs)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(roomId, "UTF-8")</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(roomId, draft, context, navController)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(roomId, draft, urlPreviewController.getReadyPreviews())</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(roomId, event.eventId)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(scaledTweenMs(620).toLong())</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(scaledTweenMs(replyPreviewGrowMs))</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(targetRoomId)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(text = newText, selection = TextRange(newText.length))</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(userId, roomId, event.eventId)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(userId, roomId, tappedEventId)</ID>
-    <ID>ArgumentListWrapping:RoomTimelineScreen.kt:(viaServers = enhancedViaServers)</ID>
-    <ID>ArgumentListWrapping:SettingsCoordinator.kt:SettingsCoordinator$("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")</ID>
-    <ID>ArgumentListWrapping:SettingsCoordinator.kt:SettingsCoordinator$("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")</ID>
-    <ID>ArgumentListWrapping:SettingsCoordinator.kt:SettingsCoordinator$(prefs, "gomuks_device_send_typing_notifications")</ID>
     <ID>ArgumentListWrapping:SlashCommandsCoordinator.kt:SlashCommandsCoordinator$( "redact_event", requestId, mapOf( "room_id" to roomId, "event_id" to eventId, "reason" to (reason ?: ""), ) )</ID>
     <ID>ArgumentListWrapping:SlashCommandsCoordinator.kt:SlashCommandsCoordinator$( "send_event", requestId, mapOf( "room_id" to roomId, "type" to eventType, "content" to contentMap, "disable_encryption" to false, ) )</ID>
     <ID>ArgumentListWrapping:SlashCommandsCoordinator.kt:SlashCommandsCoordinator$( "send_event", requestId, mapOf( "room_id" to roomId, "type" to eventType, "content" to contentMap, "disable_encryption" to true, ) )</ID>
@@ -174,105 +61,41 @@
     <ID>ArgumentListWrapping:SlashCommandsCoordinator.kt:SlashCommandsCoordinator$( "set_state", requestId, mapOf( "room_id" to roomId, "type" to "m.room.name", "state_key" to "", "content" to mapOf("name" to name), ) )</ID>
     <ID>ArgumentListWrapping:SlashCommandsCoordinator.kt:SlashCommandsCoordinator$( "set_state", requestId, mapOf( "room_id" to roomId, "type" to eventType, "state_key" to stateKey, "content" to contentMap, ) )</ID>
     <ID>ArgumentListWrapping:StickerFunctions.kt:("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x$finalHeight, mimeType=$mimeType, size=$size, hasEncryptedFile=$hasEncryptedFile")</ID>
-    <ID>ArgumentListWrapping:StickerSelection.kt:("Andromuks", "StickerImage: Starting to load sticker from MXC URL: $mxcUrl")</ID>
-    <ID>ArgumentListWrapping:SyncRepository.kt:SyncRepository$(msg)</ID>
-    <ID>ArgumentListWrapping:SyncRoomsCoordinator.kt:SyncRoomsCoordinator$("Andromuks", "AppViewModel: Removed room (left_rooms): ${removedRoom.name}")</ID>
     <ID>ArgumentListWrapping:SyncRoomsCoordinator.kt:SyncRoomsCoordinator$("Andromuks", "AppViewModel: populateRoomMapFromCache - populated roomMap with ${cachedRooms.size} rooms from cache (new size: ${roomMap.size})")</ID>
     <ID>ArgumentListWrapping:SyncRoomsCoordinator.kt:SyncRoomsCoordinator$("Andromuks", "AppViewModel: populateSpacesFromCache - populated allSpaces with ${cachedSpaces.size} spaces from cache")</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:("![:")</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:("/pmp", ignoreCase = true)</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:("mxc://")</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:(0, it)</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:(Pair(0, it))</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:(eventId, "UTF-8")</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:(newText.length)</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:(roomId)</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:(roomId, "UTF-8")</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:(text = newText, selection = TextRange(newText.length))</ID>
-    <ID>ArgumentListWrapping:ThreadViewerScreen.kt:(text.text)</ID>
-    <ID>ArgumentListWrapping:TimelineEventItem.kt:(bridgeSender, appViewModel)</ID>
-    <ID>ArgumentListWrapping:TimelineEventItem.kt:(fakeSenderId, appViewModel)</ID>
-    <ID>ArgumentListWrapping:UserInfo.kt:(380)</ID>
-    <ID>ArgumentListWrapping:UserInfo.kt:(durationMillis = scaledTweenMs(380), easing = LinearEasing)</ID>
-    <ID>ArgumentListWrapping:WebClientPushIntegration.kt:WebClientPushIntegration$(TAG, "shouldRegisterPush: lastReg=$lastReg, now=$now, timeSinceLastReg=$timeSinceLastReg ms, intervalMs=$intervalMs ms")</ID>
     <ID>ArgumentListWrapping:WebSocketHealthCheckWorker.kt:WebSocketHealthCheckWorker$(TAG, "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected, isReconnectingOrConnecting=$isReconnectingOrConnecting, state=$connectionState")</ID>
-    <ID>ArgumentListWrapping:WebSocketHealthCheckWorker.kt:WebSocketHealthCheckWorker.Companion$("WebSocketHealthCheckWorker", "Scheduled periodic WebSocket health checks (every $REPEAT_INTERVAL_MINUTES minutes)")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService$("WebSocketService", "Network available: $networkType - checking if reconnection needed")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService$("WebSocketService", "Network type changed: $previousType → $newType (previous tracked: $previousNetworkType)")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService$("WebSocketService", "Run ID timeout expired after ${RUN_ID_TIMEOUT_MS}ms - connection broken (run_id not received)")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService$("WebSocketService", "Service created - serviceStartTime: $serviceStartTime")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService$("WebSocketService", "Service onDestroy() called - cleaning up resources")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService$(currentNetworkType)</ID>
     <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService.Companion$("WebSocketService", "Executing reconnection: $reasonLabel (attempt ${serviceInstance.reconnectionAttemptCount}/$MAX_RECONNECTION_ATTEMPTS, last_received_id: $lastReceivedId)")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService.Companion$("WebSocketService", "Running state consistency check (single source: ConnectionState)...")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService.Companion$("WebSocketService", "Service handling reconnection directly: ${trigger.toLogString()}")</ID>
     <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService.Companion$("WebSocketService", "clearWebSocket() called - setting connection state to DISCONNECTED (was: ${serviceInstance.connectionState})")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService.Companion$("WebSocketService", "processPendingReconnections: Processing ${queuedReasons.size} queued reconnection request(s)")</ID>
-    <ID>ArgumentListWrapping:WebSocketService.kt:WebSocketService.Companion$("WebSocketService", "sendCommand: command='$command', requestId=$requestId")</ID>
     <ID>BackingPropertyNaming:AppViewModel.kt:AppViewModel$@Suppress("UNUSED_VARIABLE") val _v = gomuksRoomPrefsVersion</ID>
-    <ID>BinaryExpressionWrapping:AppViewModel.kt:AppViewModel$(currentTime - lastRequestTime) &lt; PROFILE_REQUEST_THROTTLE_MS</ID>
-    <ID>BinaryExpressionWrapping:AppViewModel.kt:AppViewModel$lastRequestTime != null &amp;&amp; (currentTime - lastRequestTime) &lt; PROFILE_REQUEST_THROTTLE_MS</ID>
-    <ID>BinaryExpressionWrapping:AttachmentMenu.kt:-with(density) { (buttonHeight + 24.dp).toPx() } + attachmentBarSlideOffsetPx.value</ID>
-    <ID>BinaryExpressionWrapping:AttachmentMenu.kt:translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + attachmentBarSlideOffsetPx.value</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:&lt;no name provided&gt;$clampedOffset &lt;= transformedOffset + transformedLength</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:&lt;no name provided&gt;$originalOffset + (clampedOffset - transformedOffset)</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:&lt;no name provided&gt;$transformedOffset + (clampedOffset - originalOffset)</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:baseReplacement.isNotEmpty() &amp;&amp; emojiStartIndex &gt;= 0 &amp;&amp; emojiStartIndex &lt; endIndex</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:baseReplacement.startsWith("![:") &amp;&amp; baseReplacement.contains("mxc://")</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:bridgeDeliveryEventId = menuConfig.event.eventId</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:command == "/globalavatar "</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:command == "/globalavatar" || command == "/globalavatar "</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:command == "/myroomavatar "</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:command == "/myroomavatar" || command == "/myroomavatar "</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:emojiStartIndex &lt; endIndex</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:item.event.eventId == eventId</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:lineCount == 1 &amp;&amp; (textFieldHeight == 0 || height &lt; textFieldHeight)</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) || trimmedForPmp.equals("/profile", ignoreCase = true) || ( trimmedForPmp.startsWith( "/pmp ", ignoreCase = true, ) &amp;&amp; trimmedForPmp.drop(5).isBlank() ) || ( trimmedForPmp.startsWith( "/profile ", ignoreCase = true, ) &amp;&amp; trimmedForPmp.drop(9).isBlank() )</ID>
-    <ID>BinaryExpressionWrapping:BubbleTimelineScreen.kt:textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))</ID>
-    <ID>BinaryExpressionWrapping:EventContextScreen.kt:appViewModel.messageBridgeDeliveryInfo[evId] ?: net.vrkknn.andromuks.BridgeDeliveryInfo()</ID>
-    <ID>BinaryExpressionWrapping:MediaFunctions.kt:intrinsicSize.width &gt; 0 &amp;&amp; intrinsicSize.height &gt; 0 &amp;&amp; !hasLoadedDimensions</ID>
-    <ID>BinaryExpressionWrapping:ReceiptFunctions.kt:appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]</ID>
-    <ID>BinaryExpressionWrapping:ReplyFunctions.kt:event.type !in listOf("m.room.message", "m.room.encrypted", "m.sticker") &amp;&amp; content.optString("body", "").isBlank()</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:&lt;no name provided&gt;$clampedOffset &lt;= transformedOffset + transformedMentionLength</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:&lt;no name provided&gt;$originalOffset + (clampedOffset - transformedOffset)</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:&lt;no name provided&gt;$transformedOffset + (clampedOffset - originalOffset)</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:&lt;no name provided&gt;$transformedOffset + transformedMentionLength</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:appViewModel.threadReturnScrollEventId = threadEvent.eventId</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:baseReplacement.isNotEmpty() &amp;&amp; emojiStartIndex &gt;= 0 &amp;&amp; emojiStartIndex &lt; endIndex</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:baseReplacement.startsWith("![:") &amp;&amp; baseReplacement.contains("mxc://")</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:bridgeDeliveryEventId = menuConfig.event.eventId</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:command == "/globalavatar "</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:command == "/globalavatar" || command == "/globalavatar "</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:command == "/myroomavatar "</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:command == "/myroomavatar" || command == "/myroomavatar "</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:emojiStartIndex &lt; endIndex</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:enhancedRoomLink.roomIdOrAlias == roomId</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:jumpEventId != null &amp;&amp; enhancedRoomLink.roomIdOrAlias == roomId</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:lineCount == 1 &amp;&amp; (textFieldHeight == 0 || height &lt; textFieldHeight)</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) || trimmedForPmp.equals("/profile", ignoreCase = true) || ( trimmedForPmp.startsWith( "/pmp ", ignoreCase = true, ) &amp;&amp; trimmedForPmp.drop(5).isBlank() ) || ( trimmedForPmp.startsWith( "/profile ", ignoreCase = true, ) &amp;&amp; trimmedForPmp.drop(9).isBlank() )</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:shrinkVertically(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs))) + fadeOut(animationSpec = tween(scaledTweenMs(replyPreviewGrowMs)))</ID>
-    <ID>BinaryExpressionWrapping:RoomTimelineScreen.kt:textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))</ID>
-    <ID>BinaryExpressionWrapping:SettingsCoordinator.kt:SettingsCoordinator$deviceGlobalSendTypingNotifications = booleanPrefOrNull(prefs, "gomuks_device_send_typing_notifications")</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:&lt;no name provided&gt;$clampedOffset &lt;= transformedOffset + transformedLength</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:&lt;no name provided&gt;$clampedOffset &lt;= transformedOffset + transformedMentionLength</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:&lt;no name provided&gt;$originalOffset + (clampedOffset - transformedOffset)</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:&lt;no name provided&gt;$transformedOffset + (clampedOffset - originalOffset)</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:&lt;no name provided&gt;$transformedOffset + transformedMentionLength</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:baseReplacement.startsWith("![:") &amp;&amp; baseReplacement.contains("mxc://")</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:command == "/globalavatar "</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:command == "/globalavatar" || command == "/globalavatar "</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:command == "/myroomavatar "</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:command == "/myroomavatar" || command == "/myroomavatar "</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:lineCount == 1 &amp;&amp; (textFieldHeight == 0 || height &lt; textFieldHeight)</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:memberMapCurrent.isEmpty() || memberMapCurrent.size &lt; 10</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:replyToEventToUpload?.eventId ?: sortedEvents.lastOrNull()?.eventId</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) || trimmedForPmp.equals("/profile", ignoreCase = true) || ( trimmedForPmp.startsWith( "/pmp ", ignoreCase = true, ) &amp;&amp; trimmedForPmp.drop(5).isBlank() ) || ( trimmedForPmp.startsWith( "/profile ", ignoreCase = true, ) &amp;&amp; trimmedForPmp.drop(9).isBlank() )</ID>
-    <ID>BinaryExpressionWrapping:ThreadViewerScreen.kt:textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))</ID>
-    <ID>BinaryExpressionWrapping:TimelineEventItem.kt:appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl</ID>
-    <ID>BinaryExpressionWrapping:WebSocketService.kt:WebSocketService$connectionStartTime &gt; 0</ID>
-    <ID>BinaryExpressionWrapping:WebSocketService.kt:WebSocketService$isStuckConnecting || isStuckConnectingSimple || isStuckConnectingNoTimeouts || isStuckReconnecting</ID>
     <ID>BlankLineBetweenWhenConditions:LocationPickerScreen.kt:when { showDropdown -&gt; { focusManager.clearFocus(); searchResults = emptyList() } phase == LocationPickerPhase.PREVIEW -&gt; phase = LocationPickerPhase.PICKING else -&gt; onDismiss() }</ID>
     <ID>BlankLineBetweenWhenConditions:RoomInfo.kt:when { hasTimeout &amp;&amp; results.all { it.timelineEvent == null } -&gt; "All pinned events failed to load (timeout or not found)" hasTimeout -&gt; "Some pinned events failed to load (timeout or not found)" else -&gt; null }</ID>
+    <ID>ClassSignature:AppViewModel.kt:AppViewModel$EmojiPack</ID>
+    <ID>ClassSignature:AppViewModel.kt:AppViewModel$EventChainEntry</ID>
+    <ID>ClassSignature:AppViewModel.kt:AppViewModel$PendingNotificationMessage</ID>
+    <ID>ClassSignature:AppViewModel.kt:AppViewModel$ProfileRequestMetadata</ID>
+    <ID>ClassSignature:AppViewModel.kt:AppViewModel$StickerPack</ID>
+    <ID>ClassSignature:AppViewModel.kt:MessageVersion</ID>
+    <ID>ClassSignature:AppViewModel.kt:SingleEventLoadResult</ID>
+    <ID>ClassSignature:BridgeInfo.kt:BridgeProtocolInfo</ID>
+    <ID>ClassSignature:BubbleTimelineScreen.kt:BubblePaginateSnapshot</ID>
+    <ID>ClassSignature:ConnectionState.kt:ConnectionState$Initializing : ConnectionState</ID>
+    <ID>ClassSignature:ContactsIntegrationExample.kt:ContactsIntegrationExample</ID>
+    <ID>ClassSignature:ContactsSyncService.kt:ContactsSyncService</ID>
+    <ID>ClassSignature:DownloadDeduplicationManager.kt:DownloadDeduplicationManager$DownloadInfo</ID>
+    <ID>ClassSignature:EmojiShortcodes.kt:EmojiSuggestion</ID>
+    <ID>ClassSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay</ID>
+    <ID>ClassSignature:MatrixContactsSyncAdapter.kt:MatrixContactsSyncAdapter : AbstractThreadedSyncAdapter</ID>
+    <ID>ClassSignature:NotificationImageWorker.kt:NotificationImageWorker$AudioOutcome</ID>
+    <ID>ClassSignature:ReconnectTrigger.kt:ReconnectTrigger$NetworkTypeChanged : ReconnectTrigger</ID>
+    <ID>ClassSignature:RoomItem.kt:RoomSection</ID>
+    <ID>ClassSignature:RoomItem.kt:SyncUpdateResult</ID>
+    <ID>ClassSignature:RoomMetadataStore.kt:RoomMetadataStore$MetaUpdate</ID>
+    <ID>ClassSignature:RoomTimelineCache.kt:RoomTimelineCache$ProcessedTimelineStateResult</ID>
+    <ID>ClassSignature:RoomTimelineScreen.kt:PaginateSnapshot</ID>
+    <ID>ClassSignature:SyncRepository.kt:SyncEvent$IncomingWebSocketMessage : SyncEvent</ID>
+    <ID>ClassSignature:TimelineEvent.kt:MessageReaction</ID>
+    <ID>ClassSignature:TimelineEvent.kt:ReactionEvent</ID>
+    <ID>ClassSignature:UserInfo.kt:DeviceInfo</ID>
     <ID>CommentWrapping:MediaUploadUtils.kt:MediaUploadUtils$/* Using outgoing progress */</ID>
     <ID>CommentWrapping:VideoUploadUtils.kt:VideoUploadUtils$/* Already handled by local progress */</ID>
     <ID>ComplexCondition:AppViewModel.kt:AppViewModel$!profileCompleted || !encryptionCompleted || (!mutualRoomsCompleted &amp;&amp; userId != currentUserId)</ID>
@@ -637,18 +460,268 @@
     <ID>ForbiddenComment:ContactsIntegrationExample.kt:ContactsIntegrationExample$// TODO: Extract from Matrix account data if available</ID>
     <ID>ForbiddenComment:ContactsIntegrationExample.kt:ContactsIntegrationExample$// TODO: If you have access to phone/email from Matrix account data or 3PIDs,</ID>
     <ID>ForbiddenComment:FCMService.kt:FCMService$// TODO: Implement token registration with Matrix backend</ID>
-    <ID>FunctionLiteral:AttachmentMenu.kt:&lt;anonymous&gt;</ID>
-    <ID>FunctionLiteral:BubbleTimelineScreen.kt:&lt;anonymous&gt;</ID>
-    <ID>FunctionLiteral:MainActivity.kt:&lt;anonymous&gt;</ID>
     <ID>FunctionLiteral:PerMessageProfileEditor.kt:&lt;anonymous&gt;</ID>
     <ID>FunctionLiteral:RoomInfo.kt:&lt;anonymous&gt;</ID>
-    <ID>FunctionLiteral:RoomTimelineScreen.kt:&lt;anonymous&gt;</ID>
-    <ID>FunctionLiteral:ThreadViewerScreen.kt:&lt;anonymous&gt;</ID>
-    <ID>FunctionLiteral:TimelineEventItem.kt:&lt;anonymous&gt;</ID>
     <ID>FunctionOnlyReturningConstant:ConnectionState.kt:fun ConnectionState.isConnectedLegacy: Boolean</ID>
     <ID>FunctionOnlyReturningConstant:RoomTimelineCache.kt:RoomTimelineCache$@Deprecated("No longer used - all cached events are available, paginate if cache is empty") fun hasPartialCache: Boolean</ID>
     <ID>FunctionOnlyReturningConstant:SyncIngestor.kt:SyncIngestor$@Deprecated("Receipts are no longer persisted locally") fun getPendingReceiptsCount: Int</ID>
     <ID>FunctionOnlyReturningConstant:WebSocketService.kt:WebSocketService$private fun shouldIncludeLastReceivedForReconnect: Boolean</ID>
+    <ID>FunctionSignature:AccountDataVisualizerScreen.kt:@Composable private fun AccountDataKeyList</ID>
+    <ID>FunctionSignature:AdvancedExoPlayerManager.kt:AdvancedExoPlayerManager$suspend fun getOrCreatePlayer: ExoPlayer</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun appendEventsToCachedRoom</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun consumePendingHighlightEvent: String?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun deletePushRule</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun executeCommand: Boolean</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getAccountRoomDisplayReadReceipts: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getAccountRoomRenderUrlPreviews: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getAccountRoomSendBundledUrlPreviews: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getAccountRoomSendReadReceipts: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getAccountRoomSendTypingNotifications: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getAccountRoomShowHiddenEvents: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getAccountRoomShowMembershipEvents: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getCacheStatistics: Map&lt;String, String&gt;</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getDeviceRoomDisplayReadReceipts: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getDeviceRoomRenderUrlPreviews: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getDeviceRoomSendBundledUrlPreviews: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getDeviceRoomSendReadReceipts: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getDeviceRoomSendTypingNotifications: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getDeviceRoomShowHiddenEvents: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getDeviceRoomShowMediaPreviews: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getDeviceRoomShowMembershipEvents: Boolean?</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getEventContext</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getMemberMapWithFallback: Map&lt;String, MemberProfile&gt;</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getRoomSummary</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun getTypingUsersForRoom: List&lt;String&gt;</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun handleFCMRegistrationResponse</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun handleTimelineResponse</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun initializeFCM</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun joinRoomWithCallback</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun needsFreshTimelinePaginate: Boolean</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun requestBasicUserProfile</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun requestFullUserInfo</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun requestPerRoomMemberState</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun requestReactionDetails</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun requestRoomStateWithMembers</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun requestRoomTimeline</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun requestUserEncryptionInfo</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun requestUserProfile</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun sendDelete</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun sendEdit</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun sendMessage</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun sendReaction</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun sendReply</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun sendWidgetCommand</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setAccountDataRaw</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceGlobalDisplayReadReceipts</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceGlobalSendBundledUrlPreviews</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceGlobalSendTypingNotifications</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceGlobalShowMembershipEvents</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceRoomDisplayReadReceipts</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceRoomRenderUrlPreviews</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceRoomSendBundledUrlPreviews</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceRoomSendReadReceipts</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceRoomSendTypingNotifications</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceRoomShowHiddenEvents</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceRoomShowMediaPreviews</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDeviceRoomShowMembershipEvents</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setDisplayNameColorMode</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksGlobalDisplayReadReceipts</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksGlobalPrefs</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksGlobalRenderUrlPreviews</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksGlobalSendBundledUrlPreviews</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksGlobalSendTypingNotifications</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksGlobalShowMembershipEvents</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksRoomDisplayReadReceipts</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksRoomPrefs</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksRoomRenderUrlPreviews</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksRoomSendBundledUrlPreviews</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksRoomSendReadReceipts</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksRoomSendTypingNotifications</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksRoomShowHiddenEvents</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setGomuksRoomShowMembershipEvents</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setPendingHighlightEvent</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setPendingInterRoomJump</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setPendingRoomNavigation</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setPushRulePreset</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setSpaces</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun setUploadProgress</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$fun updateTypingUsers</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun buildDirectPersonTargets: List&lt;PersonTarget&gt;</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun buildTimelineFromChain</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun logSkippedPaginate</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun markInitialPaginate</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun processVersionedMessages</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun requestEmojiPackData</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun requestHistoricalReactions</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun requestRoomProfilesForRender</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun scheduleRoomReorder</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$internal fun sendRawWebSocketCommand: WebSocketResult</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$private fun getCertificateErrorState: Boolean</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$private fun handleEditEventInChain</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$private fun handleMessageAcknowledgmentByRequestId</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$private fun isProfileChange: Boolean</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$private fun mergeEditContent</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$private fun processNewEditRelationships</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$suspend fun ensureTimelineCacheIsFresh</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel$suspend fun prefetchRoomSnapshot: Boolean</ID>
+    <ID>FunctionSignature:AppViewModel.kt:AppViewModel.&lt;no name provided&gt;$override fun onEventsForCachedRoom: Boolean</ID>
+    <ID>FunctionSignature:AttachmentMenu.kt:@Composable private fun InAppCameraPreview</ID>
+    <ID>FunctionSignature:AttachmentMenu.kt:@Composable private fun InAppVideoPreview</ID>
+    <ID>FunctionSignature:AutoStartPermissionHelper.kt:AutoStartPermissionHelper$private fun isIntentAvailable: Boolean</ID>
+    <ID>FunctionSignature:AvatarUtils.kt:AvatarUtils$fun getAvatarUrl: String?</ID>
+    <ID>FunctionSignature:AvatarUtils.kt:AvatarUtils$fun mxcToHttpUrl: String?</ID>
+    <ID>FunctionSignature:BiometricLock.kt:fun canAuthenticate: Boolean</ID>
+    <ID>FunctionSignature:BiometricLock.kt:fun runBiometricPrompt</ID>
+    <ID>FunctionSignature:BlurHashDecoder.kt:BlurHashDecoder$private fun composeBitmap: Bitmap</ID>
+    <ID>FunctionSignature:BlurHashUtils.kt:BlurHashUtils$fun blurHashToImageBitmap: ImageBitmap?</ID>
+    <ID>FunctionSignature:BridgeDecorations.kt:@Composable fun BridgeNetworkBadge</ID>
+    <ID>FunctionSignature:BubblePalette.kt:BubblePalette$fun replyPreviewBackground: Color</ID>
+    <ID>FunctionSignature:BubbleTimelineScreen.kt:fun handleMentionSelection: String</ID>
+    <ID>FunctionSignature:CacheUtils.kt:CacheUtils$fun handleImageLoadError</ID>
+    <ID>FunctionSignature:CallOverlay.kt:&lt;no name provided&gt;$override fun onReceivedError</ID>
+    <ID>FunctionSignature:CallOverlay.kt:&lt;no name provided&gt;$override fun shouldInterceptRequest: android.webkit.WebResourceResponse?</ID>
+    <ID>FunctionSignature:ChatBubbleActivity.kt:@Composable private fun ChatBubbleLoadingScreen</ID>
+    <ID>FunctionSignature:CommandSuggestionList.kt:@Composable fun CommandSuggestionList</ID>
+    <ID>FunctionSignature:ContactsSyncService.kt:ContactsSyncService$private suspend fun addContact</ID>
+    <ID>FunctionSignature:ContactsSyncService.kt:ContactsSyncService$private suspend fun updateContact</ID>
+    <ID>FunctionSignature:ContactsSyncService.kt:ContactsSyncService$suspend fun mergeWithExistingContact</ID>
+    <ID>FunctionSignature:ConversationsApi.kt:ConversationsApi$fun createConversationPerson: Person</ID>
+    <ID>FunctionSignature:ConversationsApi.kt:ConversationsApi$private fun createPersonIcon: Icon?</ID>
+    <ID>FunctionSignature:DownloadDeduplicationManager.kt:DownloadDeduplicationManager$fun isDownloadInProgress: Boolean</ID>
+    <ID>FunctionSignature:DownloadDeduplicationManager.kt:DownloadDeduplicationManager$private suspend fun performDownload: File</ID>
+    <ID>FunctionSignature:DownloadDeduplicationManager.kt:DownloadDeduplicationManager$suspend fun downloadMedia: File</ID>
+    <ID>FunctionSignature:EditHistoryDialog.kt:@Composable private fun VersionItem</ID>
+    <ID>FunctionSignature:EditVersionCoordinator.kt:EditVersionCoordinator$fun findChainEndOptimized: AppViewModel.EventChainEntry?</ID>
+    <ID>FunctionSignature:EmojiShortcodes.kt:EmojiShortcodes$fun findByShortcode: EmojiSuggestion?</ID>
+    <ID>FunctionSignature:EmojiShortcodes.kt:EmojiShortcodes$fun getSuggestions: List&lt;EmojiSuggestion&gt;</ID>
+    <ID>FunctionSignature:Encryption.kt:Encryption.EncryptionInstance$fun encrypt: String</ID>
+    <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private fun createBubbleMetadata: NotificationCompat.BubbleMetadata?</ID>
+    <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private suspend fun loadAvatarAsIcon: IconCompat?</ID>
+    <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private suspend fun loadAvatarBitmap: Bitmap?</ID>
+    <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private suspend fun writeBubbleIconToCache: android.net.Uri?</ID>
+    <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$suspend fun showEnhancedNotification</ID>
+    <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay.Companion$internal fun upgradeMessageToImage</ID>
+    <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay.Companion$internal fun upgradePerMessageProfile</ID>
+    <ID>FunctionSignature:EventContextScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun EventContextScreen</ID>
+    <ID>FunctionSignature:FCMNotificationManager.kt:FCMNotificationManager$private suspend fun registerWithBackend: Boolean</ID>
+    <ID>FunctionSignature:FCMNotificationManager.kt:FCMNotificationManager.Companion$fun initializeComponents: FCMComponents</ID>
+    <ID>FunctionSignature:FcmPushCoordinator.kt:FcmPushCoordinator$fun initializeFCM</ID>
+    <ID>FunctionSignature:HtmlTableRenderer.kt:@Composable private fun HtmlTableRow</ID>
+    <ID>FunctionSignature:IntelligentMediaCache.kt:IntelligentMediaCache$fun isCached: Boolean</ID>
+    <ID>FunctionSignature:IntelligentMediaCache.kt:IntelligentMediaCache$suspend fun cacheFile</ID>
+    <ID>FunctionSignature:IntelligentMediaCache.kt:IntelligentMediaCache$suspend fun downloadAndCache: File?</ID>
+    <ID>FunctionSignature:InviteDetailScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun InviteDetailScreen</ID>
+    <ID>FunctionSignature:JsonHighlight.kt:JsonVisualTransformation$override fun filter: TransformedText</ID>
+    <ID>FunctionSignature:LoadingIndicator.kt:@OptIn(ExperimentalMaterial3ExpressiveApi::class) @Composable fun ExpressiveLoadingIndicator</ID>
+    <ID>FunctionSignature:LocalEchoCoordinator.kt:LocalEchoCoordinator$fun insert: String?</ID>
+    <ID>FunctionSignature:LocalEchoCoordinator.kt:LocalEchoCoordinator$private fun isFailed: Boolean</ID>
+    <ID>FunctionSignature:LocationPickerScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun LocationPickerOverlay</ID>
+    <ID>FunctionSignature:LocationPickerScreen.kt:private suspend fun geocodeQuery: List&lt;SearchResult&gt;</ID>
+    <ID>FunctionSignature:MainActivity.kt:MainActivity$private fun getStreamUri: Uri?</ID>
+    <ID>FunctionSignature:MatrixContactsProvider.kt:MatrixContactsProvider$override fun query: Cursor?</ID>
+    <ID>FunctionSignature:MatrixContactsSyncAdapter.kt:MatrixContactsSyncAdapter$override fun onPerformSync</ID>
+    <ID>FunctionSignature:MediaFunctions.kt:@Composable private fun MediaBubbleTimestamp</ID>
+    <ID>FunctionSignature:MediaFunctions.kt:PdfThumbnailCache$private fun fileNameFor: String</ID>
+    <ID>FunctionSignature:MediaFunctions.kt:PdfThumbnailCache$suspend fun render: Bitmap?</ID>
+    <ID>FunctionSignature:MediaFunctions.kt:PdfThumbnailCache.&lt;no name provided&gt;$override fun removeEldestEntry: Boolean</ID>
+    <ID>FunctionSignature:MediaFunctions.kt:fun mediaBubbleColorFor: Color</ID>
+    <ID>FunctionSignature:MediaFunctions.kt:fun normalizeWaveform: List&lt;Float&gt;</ID>
+    <ID>FunctionSignature:MediaFunctions.kt:private suspend fun downloadFileWithOkHttp</ID>
+    <ID>FunctionSignature:MediaFunctions.kt:private suspend fun saveVideoToGallery</ID>
+    <ID>FunctionSignature:MediaPickerDialog.kt:@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class) @Composable fun MediaPreviewDialogMultiple</ID>
+    <ID>FunctionSignature:MediaUploadUtils.kt:MediaUploadUtils$private fun encodeDC: Int</ID>
+    <ID>FunctionSignature:MediaUploadUtils.kt:MediaUploadUtils$private fun multiplyBasisFunction: FloatArray</ID>
+    <ID>FunctionSignature:MediaUtils.kt:MediaUtils$fun mxcToThumbnailUrl: String?</ID>
+    <ID>FunctionSignature:MemberProfilesCoordinator.kt:MemberProfilesCoordinator$fun getMemberMapWithFallback: Map&lt;String, MemberProfile&gt;</ID>
+    <ID>FunctionSignature:MentionsScreen.kt:@Composable private fun MessageContentPreview</ID>
+    <ID>FunctionSignature:MentionsScreen.kt:@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class) @Composable fun MentionsScreen</ID>
+    <ID>FunctionSignature:MessageMenuBar.kt:@Composable fun MessageMenuBar</ID>
+    <ID>FunctionSignature:MessageSendCoordinator.kt:MessageSendCoordinator$fun sendMessage</ID>
+    <ID>FunctionSignature:MessageSendCoordinator.kt:MessageSendCoordinator$internal fun sendMessageInternal: WebSocketResult</ID>
+    <ID>FunctionSignature:MessageSendCoordinator.kt:MessageSendCoordinator$private fun buildMediaRelatesTo: Map&lt;String, Any&gt;?</ID>
+    <ID>FunctionSignature:MessageSendCoordinator.kt:MessageSendCoordinator$private fun insertMediaEcho</ID>
+    <ID>FunctionSignature:NetworkUtils.kt:fun applyIncomingWebSocketMessageForViewModel</ID>
+    <ID>FunctionSignature:NetworkUtils.kt:private fun emitPriorityIncomingWebSocketMessage</ID>
+    <ID>FunctionSignature:NotificationImageWorker.kt:NotificationImageWorker$private fun decryptedContent: JSONObject?</ID>
+    <ID>FunctionSignature:NotificationImageWorker.kt:NotificationImageWorker$private fun resolveImageThumbnail: ImageSource?</ID>
+    <ID>FunctionSignature:NotificationImageWorker.kt:NotificationImageWorker$private suspend fun audioOutcomeFrom: AudioOutcome?</ID>
+    <ID>FunctionSignature:NotificationImageWorker.kt:NotificationImageWorker$private suspend fun downloadAudioFile: File?</ID>
+    <ID>FunctionSignature:NotificationImageWorker.kt:NotificationImageWorker$private suspend fun downloadImageFile: File?</ID>
+    <ID>FunctionSignature:NotificationImageWorker.kt:NotificationImageWorker$private suspend fun loadCircular: Bitmap?</ID>
+    <ID>FunctionSignature:NotificationVisibilityHelper.kt:NotificationVisibilityHelper$fun listenerSettingsIntent: Intent</ID>
+    <ID>FunctionSignature:PerMessageProfileEditor.kt:@Composable fun PerMessageProfilePicker</ID>
+    <ID>FunctionSignature:PerMessageProfileEditor.kt:@Composable private fun PerMessageProfilePickerItem</ID>
+    <ID>FunctionSignature:PerMessageProfileEditor.kt:@Composable private fun ProfileListItem</ID>
+    <ID>FunctionSignature:PerMessageProfileEditor.kt:private fun buildProfilesContentMap: Map&lt;String, Any&gt;</ID>
+    <ID>FunctionSignature:PermissionsScreen.kt:private fun checkAndProceed</ID>
+    <ID>FunctionSignature:PermissionsScreen.kt:private fun checkNotificationPermission: Boolean</ID>
+    <ID>FunctionSignature:PermissionsScreen.kt:private fun requestBatteryOptimizationExemption</ID>
+    <ID>FunctionSignature:PersistenceCoordinator.kt:PersistenceCoordinator$fun addPendingOperation: Boolean</ID>
+    <ID>FunctionSignature:PersonsApi.kt:PersonsApi$private suspend fun loadShortcutIcon: IconCompat</ID>
+    <ID>FunctionSignature:ProfileCache.kt:ProfileCache$fun hasFlattenedProfile: Boolean</ID>
+    <ID>FunctionSignature:ProgressiveImageLoader.kt:ProgressiveImageLoader$fun createProgressiveImageRequest: ImageRequest</ID>
+    <ID>FunctionSignature:ProgressiveImageLoader.kt:ProgressiveImageLoader$suspend fun optimizeImage: File</ID>
+    <ID>FunctionSignature:PushRulesCoordinator.kt:PushRulesCoordinator$fun putRule</ID>
+    <ID>FunctionSignature:PushRulesCoordinator.kt:private fun PushRuleset.copyReplacing: PushRuleset</ID>
+    <ID>FunctionSignature:PushRulesScreen.kt:@Composable private fun PushRuleKindList</ID>
+    <ID>FunctionSignature:PushRulesScreen.kt:@Composable private fun PushRuleKindPicker</ID>
+    <ID>FunctionSignature:ReceiptFunctions.kt:@Composable private fun ReadReceiptItem</ID>
+    <ID>FunctionSignature:RedactionUtils.kt:RedactionUtils$@Deprecated( "Use AppViewModel.getRedactionEvent() for O(1) lookup", ReplaceWith("appViewModel.getRedactionEvent(targetEventId)"), ) fun findLatestRedactionEvent: TimelineEvent?</ID>
+    <ID>FunctionSignature:RedactionUtils.kt:RedactionUtils$fun createDeletionMessageFromEvent: String</ID>
+    <ID>FunctionSignature:ReplyFunctions.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun Modifier.messageBubbleMenu: Modifier</ID>
+    <ID>FunctionSignature:ReplyFunctions.kt:fun formatEventForReplyPreview: String</ID>
+    <ID>FunctionSignature:RoomInfo.kt:@Composable fun RoomMemberItem</ID>
+    <ID>FunctionSignature:RoomInfo.kt:private fun loadPinnedEvents</ID>
+    <ID>FunctionSignature:RoomInvitesCoordinator.kt:RoomInvitesCoordinator$fun joinRoomWithCallback</ID>
+    <ID>FunctionSignature:RoomJoiner.kt:RoomJoinerWebSocket$suspend fun getRoomSummary: Pair&lt;RoomSummary?, String?&gt;</ID>
+    <ID>FunctionSignature:RoomListScreen.kt:@Composable fun SpaceListItem</ID>
+    <ID>FunctionSignature:RoomListScreen.kt:@Composable private fun ConnectionStatusIndicator</ID>
+    <ID>FunctionSignature:RoomMediaGallery.kt:@Composable private fun GalleryThumbnail</ID>
+    <ID>FunctionSignature:RoomTimelineCache.kt:RoomTimelineCache$fun saveProcessedTimelineState</ID>
+    <ID>FunctionSignature:RoomTimelineCache.kt:RoomTimelineCache$private fun parseEventsFromArray: List&lt;TimelineEvent&gt;</ID>
+    <ID>FunctionSignature:RoomTimelineScreen.kt:fun handleMentionSelection: String</ID>
+    <ID>FunctionSignature:SearchResultsScreen.kt:@Composable private fun SearchOptionRow</ID>
+    <ID>FunctionSignature:SearchResultsScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun SearchResultsScreen</ID>
+    <ID>FunctionSignature:SimplerRoomListScreen.kt:@Composable private fun EmptyRoomListPlaceholder</ID>
+    <ID>FunctionSignature:SimplerRoomListScreen.kt:@Composable private fun RoomListRow</ID>
+    <ID>FunctionSignature:SimplerRoomListScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun SimplerRoomListScreen</ID>
+    <ID>FunctionSignature:SlashCommandsCoordinator.kt:SlashCommandsCoordinator$fun executeCommand: Boolean</ID>
+    <ID>FunctionSignature:SpaceRoomParser.kt:SpaceRoomParser$fun updateExistingSpacesWithEdges</ID>
+    <ID>FunctionSignature:SpaceRoomParser.kt:SpaceRoomParser$private fun detectDirectMessage: Boolean</ID>
+    <ID>FunctionSignature:StartupLoadingScreen.kt:@Composable fun StartupLoadingScreen</ID>
+    <ID>FunctionSignature:StickerFunctions.kt:@Composable private fun StickerViewerDialog</ID>
+    <ID>FunctionSignature:StickerFunctions.kt:fun stickerBubbleColorFor: Color</ID>
+    <ID>FunctionSignature:StickyDateIndicator.kt:@Composable fun StickyDateIndicator</ID>
+    <ID>FunctionSignature:StubAuthenticatorService.kt:StubAuthenticatorService.StubAuthenticator$override fun getAuthToken</ID>
+    <ID>FunctionSignature:StubAuthenticatorService.kt:StubAuthenticatorService.StubAuthenticator$override fun updateCredentials</ID>
+    <ID>FunctionSignature:SyncIngestor.kt:SyncIngestor$private suspend fun logUnprocessedEvent</ID>
+    <ID>FunctionSignature:SyncIngestor.kt:SyncIngestor$suspend fun ingestSyncComplete: IngestResult</ID>
+    <ID>FunctionSignature:SyncRepository.kt:SyncRepository$fun emitPriorityIncomingWebSocketMessage</ID>
+    <ID>FunctionSignature:ThreadViewerScreen.kt:fun handleMentionSelection: String</ID>
+    <ID>FunctionSignature:TimelineCacheCoordinator.kt:TimelineCacheCoordinator$fun processCachedEvents</ID>
+    <ID>FunctionSignature:TimelineCacheCoordinator.kt:TimelineCacheCoordinator$internal fun latestRowidEventId: String?</ID>
+    <ID>FunctionSignature:TimelineEventItem.kt:@Composable fun InlineBubbleTimestamp</ID>
+    <ID>FunctionSignature:TimelineEventItem.kt:@Composable private fun LinkPreviewsSection</ID>
+    <ID>FunctionSignature:TimelineEventItem.kt:@Composable private fun rememberReplyTargetEvent: TimelineEvent?</ID>
+    <ID>FunctionSignature:TimelineEventItem.kt:private fun TimelineEvent.containsSpoilerContent: Boolean</ID>
+    <ID>FunctionSignature:UrlPreviewComposition.kt:@Composable fun UrlPreviewCompositionBar</ID>
+    <ID>FunctionSignature:UrlPreviewComposition.kt:@Composable private fun UrlPreviewCard</ID>
+    <ID>FunctionSignature:UserEncryptionCoordinator.kt:UserEncryptionCoordinator$fun requestUserEncryptionInfo</ID>
+    <ID>FunctionSignature:UserEncryptionCoordinator.kt:UserEncryptionCoordinator$fun trackUserDevices</ID>
+    <ID>FunctionSignature:UserInfo.kt:@Composable fun AvatarViewerDialog</ID>
+    <ID>FunctionSignature:UserInfo.kt:@Composable fun IgnoreConfirmationDialog</ID>
+    <ID>FunctionSignature:UserInfo.kt:@Composable fun SharedRoomsDialog</ID>
+    <ID>FunctionSignature:UserInfo.kt:private suspend fun saveAvatarToGallery</ID>
+    <ID>FunctionSignature:UserInfo.kt:suspend fun addMatrixUserToContacts</ID>
+    <ID>FunctionSignature:WebSocketService.kt:WebSocketService.Companion$fun hasPrimaryCallbacks: Boolean</ID>
+    <ID>FunctionSignature:WebSocketService.kt:WebSocketService.Companion$fun isBatterySaverUserDisconnected: Boolean</ID>
+    <ID>FunctionSignature:WebSocketService.kt:WebSocketService.Companion$fun isForceFreshTimelinePaginatePending: Boolean</ID>
+    <ID>FunctionSignature:WebSocketService.kt:WebSocketService.Companion$fun registerWebSocketSendCallback: Boolean</ID>
+    <ID>FunctionSignature:WebSocketService.kt:WebSocketService.Companion$private fun extractReconnectTraceId: String?</ID>
+    <ID>FunctionSignature:WebSocketService.kt:WebSocketService.Companion$private fun withReconnectTrace: String</ID>
+    <ID>FunctionSignature:html.kt:@Composable private fun InlineImage</ID>
+    <ID>FunctionSignature:html.kt:private fun AnnotatedString.Builder.appendImage</ID>
+    <ID>FunctionSignature:html.kt:private fun buildPlainTextAnnotatedStringWithCode: AnnotatedString</ID>
     <ID>Indentation:AccountDataCoordinator.kt:AccountDataCoordinator$ </ID>
     <ID>Indentation:AndromuksApplication.kt:AndromuksApplication$ </ID>
     <ID>Indentation:AppViewModel.kt:AppViewModel$ </ID>
@@ -1192,207 +1265,35 @@
     <ID>MatchingDeclarationName:RoomMaker.kt:RoomPreset</ID>
     <ID>MatchingDeclarationName:RoomTimelineScreen.kt:TimelineItem</ID>
     <ID>MatchingDeclarationName:SearchResultsScreen.kt:SearchResultItem</ID>
-    <ID>MatchingDeclarationName:StickerFunctions.kt:StickerMessage</ID>
-    <ID>MaximumLineLength:AccountDataVisualizerScreen.kt:,</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$&amp;&amp;</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$(</ID>
     <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$)</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$,</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// "roomId:userId" -&gt; timestamp</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// (roomId, packName, stateEventType)</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// Preserve existing encryption state</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// Preserve existing pinned events</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// Queue for commands blocked before init_complete</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// Queue for sync_complete messages before init_complete</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// Set to true when all initial sync_complete messages are processed</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// Track if we've had an initial connection to only vibrate on reconnections</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// Track max_timeline_id used for progress detection</ID>
     <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// global userId and "roomId:userId" keys for pending profile requests</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; (displayName, avatarUrl) callback</ID>
     <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; (roomId, callback(events, errorMessage))</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; (roomId, callback)</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; (roomId?, error?) callback</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; callback</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; callback for direct get_profile consumers</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; list of "roomId:userId" for cleanup</ID>
     <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; max_timeline_id used in request (for progress detection)</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; roomId (for background prefetch)</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; roomId (for get_room_state with include_members requests)</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; roomId (for get_specific_room_state requests)</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; roomId (for pagination)</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; roomId (for profile requests initiated from a specific room)</ID>
     <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// requestId -&gt; roomId (single-event freshness probe sent on warm room open)</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// roomId that have pending full member list requests</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$// true = Enter sends, Shift+Enter newline; false = Enter newline, Shift+Enter sends</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$PROFILE_REQUEST_THROTTLE_MS</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$message</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$oldestTrackedRowId</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel$||</ID>
-    <ID>MaximumLineLength:AppViewModel.kt:AppViewModel.PendingWebSocketOperation$// PHASE 5.1: When to consider message failed (30s default)</ID>
-    <ID>MaximumLineLength:AttachmentMenu.kt:// 50 = circle on press, 29 ~ RoundedCornerShape(16.dp) on 56dp</ID>
-    <ID>MaximumLineLength:AttachmentMenu.kt:value</ID>
     <ID>MaximumLineLength:AuthCheck.kt:)</ID>
-    <ID>MaximumLineLength:AuthCheck.kt:+</ID>
-    <ID>MaximumLineLength:AutoRestartWorker.kt:AutoRestartWorker.Companion$)</ID>
-    <ID>MaximumLineLength:AutoRestartWorker.kt:AutoRestartWorker.Companion$// 30 minutes (WorkManager minimum is 15, but we use 30 to avoid conflicts with health check)</ID>
-    <ID>MaximumLineLength:AutoStartPermissionHelper.kt:AutoStartPermissionHelper$"</ID>
     <ID>MaximumLineLength:AvatarImage.kt:// Caps the requested pixel size at 256px for list/timeline avatars (formerly also selected the now-removed CircleAvatarCache file:// path)</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:(</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:)</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:,</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:-&gt;</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:// Enter always creates newline, send button always sends</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:// Fixed height matching single-line text field</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:// Higher when menu is open to avoid clipping</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:// Use reactive memberMap instead of static userProfileCache</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:&lt;no name provided&gt;$)</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:&lt;no name provided&gt;${</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:displayName</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:eventId</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:{</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:||</ID>
-    <ID>MaximumLineLength:BubbleTimelineScreen.kt:}</ID>
     <ID>MaximumLineLength:CachedMediaScreen.kt:,</ID>
-    <ID>MaximumLineLength:CachedProfilesScreen.kt:,</ID>
     <ID>MaximumLineLength:ChatBubbleActivity.kt:ChatBubbleActivity$)</ID>
     <ID>MaximumLineLength:ConversationsApi.kt:ConversationsApi$)</ID>
-    <ID>MaximumLineLength:ConversationsApi.kt:ConversationsApi$// Default to current time since we can't easily get timestamp from shortcut</ID>
     <ID>MaximumLineLength:ConversationsApi.kt:ConversationsApi.Companion$// 5 minutes: cooldown after actual update to prevent spam (reduced from 1 hour to allow avatar updates)</ID>
-    <ID>MaximumLineLength:CrashHandler.kt:,</ID>
-    <ID>MaximumLineLength:DownloadDeduplicationManager.kt:DownloadDeduplicationManager$)</ID>
     <ID>MaximumLineLength:EmojiData.kt:,</ID>
-    <ID>MaximumLineLength:EmojiSelection.kt:// Offset by recent + standard categories</ID>
-    <ID>MaximumLineLength:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$(</ID>
-    <ID>MaximumLineLength:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$)</ID>
-    <ID>MaximumLineLength:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$// Add 100ms buffer</ID>
-    <ID>MaximumLineLength:EventContextScreen.kt:(</ID>
-    <ID>MaximumLineLength:EventContextScreen.kt:)</ID>
-    <ID>MaximumLineLength:EventContextScreen.kt:,</ID>
-    <ID>MaximumLineLength:EventContextScreen.kt:decrypted</ID>
-    <ID>MaximumLineLength:FCMNotificationManager.kt:FCMNotificationManager$(</ID>
-    <ID>MaximumLineLength:FCMService.kt:)</ID>
-    <ID>MaximumLineLength:FCMService.kt:FCMService$)</ID>
-    <ID>MaximumLineLength:FcmPushCoordinator.kt:FcmPushCoordinator$(</ID>
-    <ID>MaximumLineLength:IntelligentMediaCache.kt:IntelligentMediaCache$)</ID>
-    <ID>MaximumLineLength:IntelligentMediaCache.kt:IntelligentMediaCache$+</ID>
-    <ID>MaximumLineLength:MainActivity.kt:+</ID>
-    <ID>MaximumLineLength:MainActivity.kt:,</ID>
     <ID>MaximumLineLength:MainActivity.kt:MainActivity$)</ID>
-    <ID>MaximumLineLength:MainActivity.kt:MainActivity$+</ID>
     <ID>MaximumLineLength:MainActivity.kt:MainActivity.&lt;no name provided&gt;$)</ID>
-    <ID>MaximumLineLength:MainActivity.kt:}</ID>
-    <ID>MaximumLineLength:MediaFunctions.kt:&amp;&amp;</ID>
-    <ID>MaximumLineLength:MediaFunctions.kt:)</ID>
-    <ID>MaximumLineLength:MediaFunctions.kt:,</ID>
-    <ID>MaximumLineLength:MediaFunctions.kt:// Callback for fullscreen request from inline player</ID>
-    <ID>MaximumLineLength:MediaFunctions.kt:// Fill frame width, maintain aspect ratio</ID>
-    <ID>MaximumLineLength:MediaFunctions.kt:// Slight offset to visually center the play icon</ID>
-    <ID>MaximumLineLength:MediaFunctions.kt:&lt;no name provided&gt;${</ID>
-    <ID>MaximumLineLength:MediaFunctions.kt:{</ID>
-    <ID>MaximumLineLength:MediaUploadUtils.kt:MediaUploadUtils$"</ID>
-    <ID>MaximumLineLength:MessageMenuBar.kt:canPin</ID>
     <ID>MaximumLineLength:NarratorFunctions.kt:)</ID>
-    <ID>MaximumLineLength:NarratorFunctions.kt:// 44dp per button + padding</ID>
-    <ID>MaximumLineLength:NarratorFunctions.kt:{</ID>
     <ID>MaximumLineLength:NavigationCoordinator.kt:NavigationCoordinator$(</ID>
-    <ID>MaximumLineLength:NavigationCoordinator.kt:NavigationCoordinator$,</ID>
-    <ID>MaximumLineLength:NetworkMonitor.kt:NetworkMonitor$// Network identity changed (e.g., WiFi AP Alpha → WiFi AP Beta)</ID>
-    <ID>MaximumLineLength:NotificationImageWorker.kt:NotificationImageWorker$// caption / formatted text replaces the Phase-1 text</ID>
     <ID>MaximumLineLength:PermissionsScreen.kt:)</ID>
     <ID>MaximumLineLength:PermissionsScreen.kt:,</ID>
     <ID>MaximumLineLength:ProgressiveImageLoader.kt:ProgressiveImageLoader$)</ID>
-    <ID>MaximumLineLength:PushRulesScreen.kt:,</ID>
-    <ID>MaximumLineLength:ReactionCoordinator.kt:ReactionCoordinator$(</ID>
-    <ID>MaximumLineLength:ReactionFunctions.kt:,</ID>
-    <ID>MaximumLineLength:ReceiptFunctions.kt:)</ID>
-    <ID>MaximumLineLength:ReceiptFunctions.kt:// (receipt, index) or (null, index) for + indicator</ID>
-    <ID>MaximumLineLength:ReceiptFunctions.kt:// +</ID>
-    <ID>MaximumLineLength:ReceiptFunctions.kt:ReceiptFunctions$)</ID>
-    <ID>MaximumLineLength:ReceiptFunctions.kt:]</ID>
-    <ID>MaximumLineLength:ReplyFunctions.kt:)</ID>
-    <ID>MaximumLineLength:ReplyFunctions.kt:// Optional accent border for mentions (Google Messages style)</ID>
-    <ID>MaximumLineLength:ReplyFunctions.kt:// Temporary debug background</ID>
     <ID>MaximumLineLength:RoomInfo.kt:)</ID>
-    <ID>MaximumLineLength:RoomInfo.kt:,</ID>
-    <ID>MaximumLineLength:RoomInfo.kt:// Match RoomListScreen's avatar size so shared-element transitions hit the same Coil cache key</ID>
-    <ID>MaximumLineLength:RoomJoiner.kt:// Optional: if provided, this is an invite and we should use acceptRoomInvite/refuseRoomInvite</ID>
-    <ID>MaximumLineLength:RoomListScreen.kt:)</ID>
     <ID>MaximumLineLength:RoomListScreen.kt:,</ID>
-    <ID>MaximumLineLength:RoomListScreen.kt:// SHARED TRANSITION: Pass scope for shared element animation</ID>
-    <ID>MaximumLineLength:RoomListScreen.kt:// SHARED TRANSITION: Scope for shared element animation</ID>
-    <ID>MaximumLineLength:RoomListScreen.kt:// Slide down from top (negative offset = from above) when exiting bridge</ID>
-    <ID>MaximumLineLength:RoomListScreen.kt:// Slide down from top (negative offset = from above) when exiting space</ID>
-    <ID>MaximumLineLength:RoomListScreen.kt:// Slide up (negative offset = upward) when entering bridge</ID>
-    <ID>MaximumLineLength:RoomListScreen.kt:// Slide up (negative offset = upward) when entering space</ID>
-    <ID>MaximumLineLength:RoomListScreen.kt:{</ID>
-    <ID>MaximumLineLength:RoomTimelineCache.kt:RoomTimelineCache$(</ID>
     <ID>MaximumLineLength:RoomTimelineCache.kt:RoomTimelineCache$)</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:&amp;&amp;</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:(</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:)</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:+</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:,</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:// CRITICAL: Match RoomListScreen's avatar size so shared-element transitions hit the same Coil cache key</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:// Enter always creates newline, send button always sends</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:// Fixed height matching single-line text field</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:// Higher when menu is open to avoid clipping</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:// Use reactive memberMap with fallback profiles</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:// ← ADD THIS</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:&lt;no name provided&gt;$)</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:&lt;no name provided&gt;$transformedMentionLength</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:&lt;no name provided&gt;${</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:eventId</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:roomIdOrAlias</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:{</ID>
-    <ID>MaximumLineLength:RoomTimelineScreen.kt:||</ID>
-    <ID>MaximumLineLength:SettingsCoordinator.kt:SettingsCoordinator$)</ID>
-    <ID>MaximumLineLength:SettingsScreen.kt:+</ID>
     <ID>MaximumLineLength:SettingsScreen.kt:,</ID>
     <ID>MaximumLineLength:StickerFunctions.kt:)</ID>
-    <ID>MaximumLineLength:StickerSelection.kt:)</ID>
-    <ID>MaximumLineLength:SyncIngestor.kt:SyncIngestor$(</ID>
     <ID>MaximumLineLength:SyncRoomsCoordinator.kt:SyncRoomsCoordinator$(</ID>
     <ID>MaximumLineLength:SyncRoomsCoordinator.kt:SyncRoomsCoordinator$)</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:(</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:)</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:,</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:&lt;no name provided&gt;$)</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:&lt;no name provided&gt;$transformedMentionLength</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:&lt;no name provided&gt;${</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:]</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:displayName</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:eventId</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:{</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:||</ID>
-    <ID>MaximumLineLength:ThreadViewerScreen.kt:}</ID>
-    <ID>MaximumLineLength:TimelineCacheCoordinator.kt:TimelineCacheCoordinator$(</ID>
-    <ID>MaximumLineLength:TimelineCacheCoordinator.kt:TimelineCacheCoordinator$+</ID>
-    <ID>MaximumLineLength:TimelineEvent.kt:MediaInfo$// From MSC4230: true if the original image is animated (GIF, animated PNG, animated WebP)</ID>
-    <ID>MaximumLineLength:TimelineEvent.kt:ThreadInfo$// The specific message being replied to (for clients without thread support)</ID>
     <ID>MaximumLineLength:TimelineEventItem.kt:(</ID>
-    <ID>MaximumLineLength:TimelineEventItem.kt:)</ID>
-    <ID>MaximumLineLength:TimelineEventItem.kt:+</ID>
-    <ID>MaximumLineLength:TimelineEventItem.kt:,</ID>
-    <ID>MaximumLineLength:UserInfo.kt:"</ID>
-    <ID>MaximumLineLength:UserInfo.kt:)</ID>
-    <ID>MaximumLineLength:UserInfo.kt:,</ID>
-    <ID>MaximumLineLength:WebClientPushIntegration.kt:WebClientPushIntegration$)</ID>
-    <ID>MaximumLineLength:WebSocketCommandSender.kt:WebSocketCommandSender$(</ID>
     <ID>MaximumLineLength:WebSocketHealthCheckWorker.kt:WebSocketHealthCheckWorker$)</ID>
-    <ID>MaximumLineLength:WebSocketHealthCheckWorker.kt:WebSocketHealthCheckWorker.Companion$)</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService$"</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService$)</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService$// Correlates one reconnection flow across scheduler/callback/connect/open/init logs</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService$// Protocol hint from URL builder (resume); orthogonal to [ConnectionState]</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService$// Track state changes for release builds (format: "STATE-callbackMissing")</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService$// Track when init_complete timeout will expire (for dynamic extension)</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService$// Unified monitoring for state corruption, primary health, and connection health</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService$0</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService${</ID>
     <ID>MaximumLineLength:WebSocketService.kt:WebSocketService.Companion$)</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService.Companion$// 500ms minimum between notification updates (UI smoothing)</ID>
-    <ID>MaximumLineLength:WebSocketService.kt:WebSocketService.Companion$// init_complete wait before run_id (unified monitoring / timeouts)</ID>
-    <ID>MaximumLineLength:html.kt:(</ID>
     <ID>MaximumLineLength:html.kt:)</ID>
     <ID>MaximumLineLength:html.kt:{</ID>
     <ID>MayBeConstant:PerMessageProfileEditor.kt:private val PRIMARY_KEY = "m.per_message_profiles"</ID>
@@ -1682,7 +1583,6 @@
     <ID>NoWildcardImports:UserInfo.kt:import androidx.compose.material3.*</ID>
     <ID>NoWildcardImports:UserInfo.kt:import androidx.compose.runtime.*</ID>
     <ID>NoWildcardImports:WebSocketService.kt:import kotlinx.coroutines.*</ID>
-    <ID>ParameterListWrapping:PushRulesScreen.kt:(ruleId: String, pattern: String, conditions: List&lt;Map&lt;String, Any&gt;&gt;, preset: NotificationPreset)</ID>
     <ID>ParameterNaming:AttachmentMenu.kt:onCaptured: (uri: Uri, isVideo: Boolean) -&gt; Unit</ID>
     <ID>ParameterNaming:ChatBubbleActivity.kt:onViewModelCreated: (AppViewModel) -&gt; Unit = {}</ID>
     <ID>ParameterNaming:CommandSuggestionList.kt:onCommandSelected: (CommandDefinition) -&gt; Unit</ID>
@@ -1695,7 +1595,6 @@
     <ID>ParameterNaming:PermissionsScreen.kt:onPermissionsGranted: () -&gt; Unit</ID>
     <ID>ParameterNaming:RoomListScreen.kt:onSectionSelected: (RoomSectionType) -&gt; Unit</ID>
     <ID>ParameterNaming:StickerSelection.kt:onStickerSelected: (net.vrkknn.andromuks.AppViewModel.Sticker) -&gt; Unit</ID>
-    <ID>ParameterWrapping:PushRulesScreen.kt:onConfirm: (ruleId: String, pattern: String, conditions: List&lt;Map&lt;String, Any&gt;&gt;, preset: NotificationPreset) -&gt; Unit</ID>
     <ID>PrintStackTrace:AppViewModel.kt:AppViewModel$dumpStack()</ID>
     <ID>PrintStackTrace:ConversationsApi.kt:ConversationsApi$e</ID>
     <ID>PrintStackTrace:FCMNotificationManager.kt:FCMNotificationManager$e</ID>
