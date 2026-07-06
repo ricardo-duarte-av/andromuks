@@ -141,6 +141,17 @@ android {
         // AGP 9 disables resValues by default; flavors set app_name via resValue(...).
         resValues = true
     }
+
+    // Android lint (complements detekt, which covers Kotlin style/Compose). The baseline records
+    // the ~current backlog so CI fails only on NEW lint issues; it is created on the first run of
+    // `:app:lintBaseDebug` (see bootstrap steps). SARIF is emitted for CI artifact upload.
+    lint {
+        abortOnError = true
+        baseline = file("lint-baseline.xml")
+        checkDependencies = false
+        sarifReport = true
+        warningsAsErrors = false
+    }
 }
 
 kotlin {
