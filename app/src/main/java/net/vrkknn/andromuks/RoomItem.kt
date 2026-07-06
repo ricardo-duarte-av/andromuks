@@ -86,6 +86,7 @@ data class PowerLevelsInfo(
     val redact: Int,
     val kick: Int = 50, // Default kick power level
     val ban: Int = 50, // Default ban power level
+    val invite: Int = 50, // Default invite power level (used to accept knocks)
     val events: Map<String, Int> = emptyMap(),
     val eventsDefault: Int = 0,
     val stateDefault: Int = 50, // Per Matrix spec: default PL for state events not in events map

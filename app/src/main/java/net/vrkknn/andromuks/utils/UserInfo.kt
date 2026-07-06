@@ -205,6 +205,7 @@ private fun parsePowerLevelsFromContent(content: JSONObject): net.vrkknn.andromu
         redact = content.optInt("redact", 50),
         kick = content.optInt("kick", 50),
         ban = content.optInt("ban", 50),
+        invite = content.optInt("invite", 50),
         events = eventsMap,
         eventsDefault = content.optInt("events_default", 0),
     )

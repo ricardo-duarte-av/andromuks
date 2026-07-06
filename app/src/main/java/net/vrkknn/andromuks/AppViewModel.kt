@@ -9168,6 +9168,7 @@ class AppViewModel : ViewModel() {
                             redact = content.optInt("redact", 50),
                             kick = content.optInt("kick", 50),
                             ban = content.optInt("ban", 50),
+                            invite = content.optInt("invite", 50),
                             events = eventsMap,
                             eventsDefault = content.optInt("events_default", 0),
                             stateDefault = content.optInt("state_default", 50),
@@ -12153,6 +12154,42 @@ class AppViewModel : ViewModel() {
         )
         )
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting room member avatar: $mxcUrl")
+    }
+
+    /**
+     * Invite a user to a room. Also used to **accept a knock**: inviting the knocking user is the
+     * Matrix way to admit them (see issue #22 / gomuks set_membership action "invite").
+     */
+    fun inviteUser(roomId: String, userId: String, reason: String? = null) {
+        val requestId = WebSocketService.allocateRequestId()
+        sendWebSocketCommand(
+            "set_membership", requestId,
+            mapOf(
+                "room_id" to roomId,
+                "user_id" to userId,
+                "action" to "invite",
+                "reason" to (reason ?: ""),
+            ),
+        )
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Inviting $userId to $roomId")
+    }
+
+    /**
+     * Kick a user from a room. Also used to **reject a knock**: kicking sets the knocker's membership
+     * to "leave", declining their request to join (issue #22 / gomuks set_membership action "kick").
+     */
+    fun kickUser(roomId: String, userId: String, reason: String? = null) {
+        val requestId = WebSocketService.allocateRequestId()
+        sendWebSocketCommand(
+            "set_membership", requestId,
+            mapOf(
+                "room_id" to roomId,
+                "user_id" to userId,
+                "action" to "kick",
+                "reason" to (reason ?: ""),
+            ),
+        )
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Kicking $userId from $roomId")
     }
 
     /**
