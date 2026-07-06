@@ -52,6 +52,22 @@ import net.vrkknn.andromuks.utils.BubblePalette
 import net.vrkknn.andromuks.utils.ImageViewerDialog
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import java.io.File
+import java.io.InputStream
+
+/**
+ * API-24-safe replacement for [InputStream.readNBytes], which requires API 33 and would throw
+ * NoSuchMethodError on older devices. Reads up to [n] bytes (fewer only at end of stream).
+ */
+private fun InputStream.readUpTo(n: Int): ByteArray {
+    val buf = ByteArray(n)
+    var off = 0
+    while (off < n) {
+        val read = read(buf, off, n - off)
+        if (read < 0) break
+        off += read
+    }
+    return if (off == n) buf else buf.copyOf(off)
+}
 
 /**
  * Data class to hold sticker information extracted from a timeline event.
@@ -388,7 +404,7 @@ private fun StickerContent(
                     }
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {
-                        val header = file.inputStream().use { it.readNBytes(4) }
+                        val header = file.inputStream().use { it.readUpTo(4) }
                         val headerHex = header.joinToString("") { "%02x".format(it) }
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: File header (hex): $headerHex")
                     } catch (e: Exception) {
@@ -563,7 +579,7 @@ private fun StickerViewerDialog(
                     }
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {
-                        val header = file.inputStream().use { it.readNBytes(4) }
+                        val header = file.inputStream().use { it.readUpTo(4) }
                         val headerHex = header.joinToString("") { "%02x".format(it) }
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: File header (hex): $headerHex")
                     } catch (e: Exception) {
