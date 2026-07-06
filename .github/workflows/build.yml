@@ -15,6 +15,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Same detekt + Android lint gate as pr-check.yml, enforced on push to master/develop/main too
+  # (we rarely build locally, so CI is the enforcement point). Secret-free; runs once, in parallel
+  # with the per-flavor build matrix. Baselines absorb existing debt so only NEW findings fail.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      # `detekt` is flavor-independent; Android lint is scoped to base debug to avoid the 4-flavor
+      # fan-out. Identical to the pr-check.yml lint job.
+      - name: Run detekt + Android lint
+        run: ./gradlew detekt :app:lintBaseDebug --stacktrace --no-daemon --build-cache
+
+      - name: Upload lint/detekt reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-reports
+          path: |
+            **/build/reports/detekt/**
+            app/build/reports/lint-results-*.*
+          if-no-files-found: ignore
+
   build:
     runs-on: ubuntu-latest
 
