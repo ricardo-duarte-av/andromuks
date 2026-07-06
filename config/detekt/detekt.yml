@@ -9,6 +9,27 @@
 # ktlint formatting rules come from the detekt-rules-ktlint-wrapper plugin and are driven by the
 # repo-root .editorconfig; they use their packaged defaults, so no formatting section is needed here.
 
+# --- Noise / duplicate-rule suppression (keeps the baseline meaningful) --------------------------
+# These turn off detekt rules that either duplicate a ktlint-wrapper rule (double-counting the same
+# lines) or are pervasive low-signal checks. Disabling them here means they never enter the baseline.
+style:
+  # Duplicate of the ktlint-wrapper `MaximumLineLength` rule, which is the one driven by
+  # .editorconfig (max_line_length = 120). Keeping both flags every long line twice.
+  MaxLineLength:
+    active: false
+  # Duplicate of the ktlint-wrapper `NoWildcardImports` rule (kept active). Disable detekt's copy.
+  WildcardImport:
+    active: false
+  # Pervasive and low-signal across this codebase; re-enable with ignore thresholds later if wanted.
+  MagicNumber:
+    active: false
+
+naming:
+  # @Composable functions are intentionally PascalCase. ktlint's function-naming rule is already
+  # exempted via .editorconfig; detekt's own FunctionNaming needs this explicit ignore.
+  FunctionNaming:
+    ignoreAnnotated: ['Composable']
+
 # Jetpack Compose rules from io.nlopez.compose.rules:detekt. Individual rules use the plugin's
 # packaged defaults; toggle or configure specific ones below as the team decides.
 Compose:
