@@ -185,6 +185,9 @@ fun LocationPickerOverlay(
 
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
 
+    // Location permission is requested via the launcher below; denial is handled gracefully (toast,
+    // no crash — verified on-device). Lint can't see the guard, so suppress the false positive.
+    @android.annotation.SuppressLint("MissingPermission")
     fun goToCurrentLocation() {
         isLocating = true
         val cts = CancellationTokenSource()

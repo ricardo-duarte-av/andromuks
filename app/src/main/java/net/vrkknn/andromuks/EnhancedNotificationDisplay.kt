@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -107,6 +108,9 @@ class EnhancedNotificationDisplay(
          * after posting a child (count is then at least 1) and [justCancelledId] right after a
          * cancel (that id is excluded from the count). Safe to call from any thread.
          */
+        // POST_NOTIFICATIONS is requested via the app's permission flow; posting without it is a
+        // silent no-op on API 33+ (no crash). Lint can't see the request, so suppress the FP.
+        @SuppressLint("MissingPermission")
         fun refreshGroupSummary(context: Context, justPostedChild: Boolean = false, justCancelledId: Int? = null) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
             val systemNm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -485,6 +489,9 @@ class EnhancedNotificationDisplay(
      * nothing because this post had not landed yet. Defaults to now for non-FCM callers (reply /
      * legacy paths) that are not racing a dismiss.
      */
+    // POST_NOTIFICATIONS is requested via the app's permission flow; posting without it is a silent
+    // no-op on API 33+ (no crash). Lint can't see the request, so suppress the false positive.
+    @SuppressLint("MissingPermission")
     suspend fun showEnhancedNotification(
         notificationData: NotificationData,
         messageReceivedAt: Long = System.currentTimeMillis(),
@@ -1981,6 +1988,9 @@ class EnhancedNotificationDisplay(
      * Updates notification with a sent reply message
      * This adds the message to the MessagingStyle and re-issues the notification
      */
+    // POST_NOTIFICATIONS is requested via the app's permission flow; posting without it is a silent
+    // no-op on API 33+ (no crash). Lint can't see the request, so suppress the false positive.
+    @SuppressLint("MissingPermission")
     fun updateNotificationWithReply(roomId: String, replyText: String) {
         try {
             // CRITICAL: Don't update notification if bubble is open

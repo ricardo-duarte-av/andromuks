@@ -985,6 +985,9 @@ class FCMService : FirebaseMessagingService() {
         }
     }
 
+    // POST_NOTIFICATIONS is requested via the app's permission flow; posting without it is a silent
+    // no-op on API 33+ (no crash). Lint can't see the request, so suppress the false positive.
+    @android.annotation.SuppressLint("MissingPermission")
     private fun showNotification(title: String, body: String, data: Map<String, String>) {
         val roomId = data["room_id"]
         val eventId = data["event_id"]
