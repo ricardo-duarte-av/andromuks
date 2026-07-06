@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.toPath
@@ -937,7 +938,7 @@ class MainActivity : FragmentActivity() {
             addAction("net.vrkknn.andromuks.MARK_READ")
             addAction("net.vrkknn.andromuks.PREEMPTIVE_PAGINATE")
         }
-        registerReceiver(notificationBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, notificationBroadcastReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         if (BuildConfig.DEBUG) {
             Log.d(
             "Andromuks",
@@ -1131,7 +1132,7 @@ class MainActivity : FragmentActivity() {
             addAction("net.vrkknn.andromuks.ACTION_REPLY")
             addAction("net.vrkknn.andromuks.ACTION_MARK_READ")
         }
-        registerReceiver(notificationActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(this, notificationActionReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
     }
 
     private fun getReplyText(intent: Intent): String? {

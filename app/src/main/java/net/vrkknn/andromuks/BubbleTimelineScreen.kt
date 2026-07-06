@@ -2605,7 +2605,7 @@ fun BubbleTimelineScreen(
         }
 
         val filter = IntentFilter("net.vrkknn.andromuks.FOREGROUND_REFRESH")
-        context.registerReceiver(foregroundRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(context, foregroundRefreshReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         if (BuildConfig.DEBUG) {
             Log.d(
             "Andromuks",

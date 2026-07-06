@@ -136,6 +136,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.withResumed
@@ -934,7 +935,7 @@ fun RoomListScreen(
         }
 
         val filter = IntentFilter("net.vrkknn.andromuks.FOREGROUND_REFRESH")
-        context.registerReceiver(foregroundRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        ContextCompat.registerReceiver(context, foregroundRefreshReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
             "Andromuks",

@@ -134,6 +134,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
+        // Backport java.time (and other JDK APIs) to minSdk 24. Without this, java.time usage
+        // (e.g. ZonedDateTime/DateTimeFormatter in UserInfo) requires API 26 and crashes on 24/25.
+        isCoreLibraryDesugaringEnabled = true
     }
     buildFeatures {
         compose = true
@@ -176,6 +179,8 @@ if (project.hasProperty("compose.metrics")) {
 }
 
 dependencies {
+    // Enables isCoreLibraryDesugaringEnabled above (java.time et al. on API < 26).
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.biometric:biometric:1.1.0")
