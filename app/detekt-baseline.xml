@@ -262,15 +262,15 @@
     <ID>CyclomaticComplexMethod:ElementCallScreen.kt:ElementCallJsBridge$private fun normalizeMatrixEvent: JSONObject</ID>
     <ID>CyclomaticComplexMethod:ElementCallScreen.kt:ElementCallJsBridge$private fun normalizeWidgetResponse: Any?</ID>
     <ID>CyclomaticComplexMethod:EmojiSelection.kt:@Composable fun EmojiSelectionDialog</ID>
-    <ID>CyclomaticComplexMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$fun updateNotificationWithReply</ID>
+    <ID>CyclomaticComplexMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$@SuppressLint("MissingPermission") fun updateNotificationWithReply</ID>
+    <ID>CyclomaticComplexMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$@SuppressLint("MissingPermission") suspend fun showEnhancedNotification</ID>
     <ID>CyclomaticComplexMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private fun formatNotificationBody: CharSequence</ID>
     <ID>CyclomaticComplexMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private suspend fun loadAvatarBitmap: Bitmap?</ID>
-    <ID>CyclomaticComplexMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$suspend fun showEnhancedNotification</ID>
     <ID>CyclomaticComplexMethod:EventContextScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun EventContextScreen</ID>
+    <ID>CyclomaticComplexMethod:FCMService.kt:FCMService$@android.annotation.SuppressLint("MissingPermission") private fun showNotification</ID>
     <ID>CyclomaticComplexMethod:FCMService.kt:FCMService$override fun onMessageReceived</ID>
     <ID>CyclomaticComplexMethod:FCMService.kt:FCMService$private fun handleDismissNotification</ID>
     <ID>CyclomaticComplexMethod:FCMService.kt:FCMService$private fun shouldSuppressNotification: Boolean</ID>
-    <ID>CyclomaticComplexMethod:FCMService.kt:FCMService$private fun showNotification</ID>
     <ID>CyclomaticComplexMethod:FCMService.kt:FCMService$private suspend fun handleMessageNotification</ID>
     <ID>CyclomaticComplexMethod:FcmPushCoordinator.kt:FcmPushCoordinator$fun handleFCMRegistrationResponse</ID>
     <ID>CyclomaticComplexMethod:FcmPushCoordinator.kt:FcmPushCoordinator$fun registerFCMWithGomuksBackend</ID>
@@ -315,7 +315,7 @@
     <ID>CyclomaticComplexMethod:NetworkUtils.kt:fun parseMultipleJsonObjects: List&lt;JSONObject&gt;</ID>
     <ID>CyclomaticComplexMethod:NetworkUtils.kt:private fun dispatchParsedWebSocketMessage</ID>
     <ID>CyclomaticComplexMethod:NetworkUtils.kt:private fun kotlinxJsonElementToOrgJson: Any?</ID>
-    <ID>CyclomaticComplexMethod:NotificationImageWorker.kt:NotificationImageWorker$override suspend fun doWork: Result</ID>
+    <ID>CyclomaticComplexMethod:NotificationImageWorker.kt:NotificationImageWorker$@android.annotation.SuppressLint("MissingPermission") override suspend fun doWork: Result</ID>
     <ID>CyclomaticComplexMethod:NotificationImageWorker.kt:NotificationImageWorker$private fun classifyKind: String</ID>
     <ID>CyclomaticComplexMethod:NotificationImageWorker.kt:NotificationImageWorker$private suspend fun audioOutcomeFrom: AudioOutcome?</ID>
     <ID>CyclomaticComplexMethod:NotificationMarkReadReceiver.kt:NotificationMarkReadReceiver$override fun onReceive</ID>
@@ -592,11 +592,11 @@
     <ID>FunctionSignature:EmojiShortcodes.kt:EmojiShortcodes$fun findByShortcode: EmojiSuggestion?</ID>
     <ID>FunctionSignature:EmojiShortcodes.kt:EmojiShortcodes$fun getSuggestions: List&lt;EmojiSuggestion&gt;</ID>
     <ID>FunctionSignature:Encryption.kt:Encryption.EncryptionInstance$fun encrypt: String</ID>
+    <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$@SuppressLint("MissingPermission") suspend fun showEnhancedNotification</ID>
     <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private fun createBubbleMetadata: NotificationCompat.BubbleMetadata?</ID>
     <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private suspend fun loadAvatarAsIcon: IconCompat?</ID>
     <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private suspend fun loadAvatarBitmap: Bitmap?</ID>
     <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private suspend fun writeBubbleIconToCache: android.net.Uri?</ID>
-    <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$suspend fun showEnhancedNotification</ID>
     <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay.Companion$internal fun upgradeMessageToImage</ID>
     <ID>FunctionSignature:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay.Companion$internal fun upgradePerMessageProfile</ID>
     <ID>FunctionSignature:EventContextScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun EventContextScreen</ID>
@@ -998,10 +998,10 @@
     <ID>LongMethod:EmojiShortcodes.kt:EmojiShortcodes$private fun shortcodeToEmojiChunk7</ID>
     <ID>LongMethod:EmojiShortcodes.kt:EmojiShortcodes$private fun shortcodeToEmojiChunk8</ID>
     <ID>LongMethod:EmojiShortcodes.kt:EmojiShortcodes$private fun shortcodeToEmojiChunk9</ID>
-    <ID>LongMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$fun updateNotificationWithReply</ID>
+    <ID>LongMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$@SuppressLint("MissingPermission") fun updateNotificationWithReply</ID>
+    <ID>LongMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$@SuppressLint("MissingPermission") suspend fun showEnhancedNotification</ID>
     <ID>LongMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private fun createConversationChannel</ID>
     <ID>LongMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private fun formatNotificationBody: CharSequence</ID>
-    <ID>LongMethod:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$suspend fun showEnhancedNotification</ID>
     <ID>LongMethod:EventContextScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun EventContextScreen</ID>
     <ID>LongMethod:FCMService.kt:FCMService$override fun onMessageReceived</ID>
     <ID>LongMethod:FCMService.kt:FCMService$private fun handleDismissNotification</ID>
@@ -1067,7 +1067,7 @@
     <ID>LongMethod:NetworkUtils.kt:fun applyIncomingWebSocketMessageForViewModel</ID>
     <ID>LongMethod:NetworkUtils.kt:fun connectToWebsocket</ID>
     <ID>LongMethod:NetworkUtils.kt:private fun dispatchParsedWebSocketMessage</ID>
-    <ID>LongMethod:NotificationImageWorker.kt:NotificationImageWorker$override suspend fun doWork: Result</ID>
+    <ID>LongMethod:NotificationImageWorker.kt:NotificationImageWorker$@android.annotation.SuppressLint("MissingPermission") override suspend fun doWork: Result</ID>
     <ID>LongMethod:NotificationReplyReceiver.kt:NotificationReplyReceiver$override fun onReceive</ID>
     <ID>LongMethod:PerMessageProfileEditor.kt:@Composable private fun AddEditProfileDialog</ID>
     <ID>LongMethod:PerMessageProfileEditor.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun PerMessageProfileEditorScreen</ID>
@@ -1459,9 +1459,9 @@
     <ID>NestedBlockDepth:EditVersionCoordinator.kt:EditVersionCoordinator$fun processNewEditRelationships</ID>
     <ID>NestedBlockDepth:EditVersionCoordinator.kt:EditVersionCoordinator$fun processVersionedMessages</ID>
     <ID>NestedBlockDepth:ElementCallScreen.kt:ElementCallJsBridge$private fun normalizeWidgetResponse: Any?</ID>
-    <ID>NestedBlockDepth:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$fun updateNotificationWithReply</ID>
+    <ID>NestedBlockDepth:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$@SuppressLint("MissingPermission") fun updateNotificationWithReply</ID>
+    <ID>NestedBlockDepth:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$@SuppressLint("MissingPermission") suspend fun showEnhancedNotification</ID>
     <ID>NestedBlockDepth:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private fun formatNotificationBody: CharSequence</ID>
-    <ID>NestedBlockDepth:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$suspend fun showEnhancedNotification</ID>
     <ID>NestedBlockDepth:FCMService.kt:FCMService$private fun handleDismissNotification</ID>
     <ID>NestedBlockDepth:FCMService.kt:FCMService$private suspend fun handleMessageNotification</ID>
     <ID>NestedBlockDepth:MainActivity.kt:MainActivity$private fun extractRoomIdFromMatrixUri: String?</ID>
@@ -1675,12 +1675,12 @@
     <ID>ReturnCount:ElementCallScreen.kt:internal fun isRoomEncryptedFromState: Boolean?</ID>
     <ID>ReturnCount:EmojiShortcodes.kt:EmojiShortcodes$fun findByShortcode: EmojiSuggestion?</ID>
     <ID>ReturnCount:EncryptedMediaRetryInterceptor.kt:EncryptedMediaRetryInterceptor$override fun intercept: Response</ID>
+    <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$@SuppressLint("MissingPermission") fun updateNotificationWithReply</ID>
+    <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$@SuppressLint("MissingPermission") suspend fun showEnhancedNotification</ID>
     <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$fun updateNotificationAsRead</ID>
-    <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$fun updateNotificationWithReply</ID>
     <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private fun decodeScaledBitmap: Bitmap?</ID>
     <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$private suspend fun loadAvatarAsIcon: IconCompat?</ID>
-    <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay$suspend fun showEnhancedNotification</ID>
-    <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay.Companion$fun refreshGroupSummary</ID>
+    <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay.Companion$@SuppressLint("MissingPermission") fun refreshGroupSummary</ID>
     <ID>ReturnCount:EnhancedNotificationDisplay.kt:EnhancedNotificationDisplay.Companion$internal fun upgradePerMessageProfile</ID>
     <ID>ReturnCount:EventContextScreen.kt:fun enqueueAvatarPrefetch</ID>
     <ID>ReturnCount:EventContextScreen.kt:fun enqueueMediaPrefetch</ID>
@@ -1704,7 +1704,7 @@
     <ID>ReturnCount:MentionsScreen.kt:fun checkMentions: Boolean</ID>
     <ID>ReturnCount:MessageSendCoordinator.kt:MessageSendCoordinator$private fun processNextPendingNotificationMessage</ID>
     <ID>ReturnCount:NotificationDataParser.kt:NotificationDataParser.Companion$fun parseNotificationData: NotificationData?</ID>
-    <ID>ReturnCount:NotificationImageWorker.kt:NotificationImageWorker$override suspend fun doWork: Result</ID>
+    <ID>ReturnCount:NotificationImageWorker.kt:NotificationImageWorker$@android.annotation.SuppressLint("MissingPermission") override suspend fun doWork: Result</ID>
     <ID>ReturnCount:NotificationImageWorker.kt:NotificationImageWorker$private fun classifyKind: String</ID>
     <ID>ReturnCount:NotificationImageWorker.kt:NotificationImageWorker$private fun decodeScaledBitmap: Bitmap?</ID>
     <ID>ReturnCount:NotificationImageWorker.kt:NotificationImageWorker$private fun extractCaption: String?</ID>

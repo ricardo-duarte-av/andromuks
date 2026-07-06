@@ -43,7 +43,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "AppViewModel: Compression setting still incorrect after delay! Expected: $enableCompression, got: $finalValue - retrying save",
                     )
-                    prefs.edit().putBoolean("enable_compression", enableCompression).commit()
+                    prefs.edit().putBoolean("enable_compression", enableCompression).apply()
                 }
 
                 if (BuildConfig.DEBUG) {
@@ -67,7 +67,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("enter_key_sends_message", enterKeySendsMessage)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -84,7 +84,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("load_thumbnails_if_available", loadThumbnailsIfAvailable)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -101,7 +101,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("render_thumbnails_always", renderThumbnailsAlways)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -116,7 +116,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         syncBatchProcessor.batterySaverModeEnabled = useBatterySaverMode
         appContext?.let { context ->
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("use_battery_saver_mode", useBatterySaverMode).commit()
+            prefs.edit().putBoolean("use_battery_saver_mode", useBatterySaverMode).apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -136,7 +136,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("show_all_room_list_tabs", showAllRoomListTabs)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -153,7 +153,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("require_biometric_unlock", enabled)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -170,7 +170,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("move_read_receipts_to_edge", moveReadReceiptsToEdge)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -187,7 +187,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("trim_long_display_names", trimLongDisplayNames)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -204,7 +204,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putString("displayname_color_mode", mode.prefValue)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -221,7 +221,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("show_link_previews", showLinkPreviews)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -238,7 +238,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("send_link_previews", sendLinkPreviews)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -334,7 +334,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("crash_reporting_enabled", enabled)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",
@@ -352,7 +352,7 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit()
                 .putBoolean("performance_monitoring_enabled", enabled)
-                .commit()
+                .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                 "Andromuks",

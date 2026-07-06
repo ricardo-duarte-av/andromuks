@@ -178,6 +178,9 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
         }
     }
 
+    // POST_NOTIFICATIONS is requested via the app's permission flow; posting without it is a silent
+    // no-op on API 33+ (no crash). Lint can't see the request, so suppress the false positive.
+    @android.annotation.SuppressLint("MissingPermission")
     override suspend fun doWork(): Result {
         val roomId = inputData.getString(KEY_ROOM_ID) ?: return Result.failure()
         val roomName = inputData.getString(KEY_ROOM_NAME)

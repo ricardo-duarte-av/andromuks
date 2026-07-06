@@ -2,72 +2,6 @@
 <issues format="6" by="lint 9.2.0" type="baseline" client="gradle" dependencies="false" name="AGP (9.2.0)" variant="all" version="9.2.0">
 
     <issue
-        id="MissingPermission"
-        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
-        errorLine1="            nmc.notify(SUMMARY_NOTIF_ID, summary)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="172"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="MissingPermission"
-        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
-        errorLine1="                notificationManager.notify(notifID, notification)"
-        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1234"
-            column="17"/>
-    </issue>
-
-    <issue
-        id="MissingPermission"
-        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
-        errorLine1="            notificationManagerCompat.notify(notifID, updatedNotification)"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="2205"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="MissingPermission"
-        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
-        errorLine1="        notificationManager.notify(notificationId, notification)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/FCMService.kt"
-            line="1072"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="MissingPermission"
-        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
-        errorLine1="        fusedLocationClient.getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, cts.token)"
-        errorLine2="        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/LocationPickerScreen.kt"
-            line="191"
-            column="9"/>
-    </issue>
-
-    <issue
-        id="MissingPermission"
-        message="Call requires permission which may be rejected by user: code should explicitly check to see if permission is available (with `checkPermission`) or explicitly handle a potential `SecurityException`"
-        errorLine1="                NotificationManagerCompat.from(applicationContext).notify(notifId, builtNotification)"
-        errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/NotificationImageWorker.kt"
-            line="705"
-            column="17"/>
-    </issue>
-
-    <issue
         id="MissingSuperCall"
         message="Overriding method should call `super.onBackPressed`"
         errorLine1="    override fun onBackPressed() {"
@@ -86,160 +20,6 @@
         <location
             file="src/main/java/net/vrkknn/andromuks/ChatBubbleActivity.kt"
             line="353"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                    prefs.edit().putBoolean(&quot;enable_compression&quot;, enableCompression).commit()"
-        errorLine2="                                                                                     ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="46"
-            column="86"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="70"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="87"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="104"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="            prefs.edit().putBoolean(&quot;use_battery_saver_mode&quot;, useBatterySaverMode).commit()"
-        errorLine2="                                                                                   ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="119"
-            column="84"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="139"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="156"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="173"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="190"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="207"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="224"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="241"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="337"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="ApplySharedPref"
-        message="Consider using `apply()` instead; `commit` writes its data to persistent storage immediately, whereas `apply` will handle it in the background"
-        errorLine1="                .commit()"
-        errorLine2="                 ~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
-            line="355"
             column="18"/>
     </issue>
 
@@ -1613,7 +1393,7 @@
         errorLine2="                                        ~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/LocationPickerScreen.kt"
-            line="358"
+            line="361"
             column="41"/>
     </issue>
 
@@ -1811,7 +1591,7 @@
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="111"
+            line="115"
             column="17"/>
     </issue>
 
@@ -1822,7 +1602,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="2144"
+            line="2154"
             column="25"/>
     </issue>
 
@@ -1833,7 +1613,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/NotificationImageWorker.kt"
-            line="1250"
+            line="1253"
             column="13"/>
     </issue>
 
@@ -3384,7 +3164,7 @@
         errorLine2="               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="293"
+            line="297"
             column="16"/>
     </issue>
 
@@ -3395,7 +3175,7 @@
         errorLine2="                        ~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="586"
+            line="593"
             column="25"/>
     </issue>
 
@@ -3406,7 +3186,7 @@
         errorLine2="                   ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1363"
+            line="1370"
             column="20"/>
     </issue>
 
@@ -3417,7 +3197,7 @@
         errorLine2="                   ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1363"
+            line="1370"
             column="20"/>
     </issue>
 
@@ -3428,7 +3208,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1391"
+            line="1398"
             column="24"/>
     </issue>
 
@@ -3439,7 +3219,7 @@
         errorLine2="                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1391"
+            line="1398"
             column="24"/>
     </issue>
 
@@ -3450,7 +3230,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1633"
+            line="1640"
             column="22"/>
     </issue>
 
@@ -3461,7 +3241,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1684"
+            line="1691"
             column="22"/>
     </issue>
 
@@ -3472,7 +3252,7 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1689"
+            line="1696"
             column="21"/>
     </issue>
 
@@ -3483,7 +3263,7 @@
         errorLine2="                    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1689"
+            line="1696"
             column="21"/>
     </issue>
 
@@ -3494,7 +3274,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1731"
+            line="1738"
             column="22"/>
     </issue>
 
@@ -3505,7 +3285,7 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="1800"
+            line="1807"
             column="30"/>
     </issue>
 
@@ -3516,7 +3296,7 @@
         errorLine2="                                             ^">
         <location
             file="src/main/java/net/vrkknn/andromuks/EnhancedNotificationDisplay.kt"
-            line="2147"
+            line="2157"
             column="46"/>
     </issue>
 
@@ -3802,7 +3582,7 @@
         errorLine2="                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/NotificationImageWorker.kt"
-            line="1256"
+            line="1259"
             column="23"/>
     </issue>
 
@@ -3813,7 +3593,7 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/NotificationImageWorker.kt"
-            line="1288"
+            line="1291"
             column="30"/>
     </issue>
 
@@ -3824,7 +3604,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/NotificationImageWorker.kt"
-            line="1311"
+            line="1314"
             column="22"/>
     </issue>
 
@@ -3963,7 +3743,7 @@
     <issue
         id="UseKtx"
         message="Use the KTX extension function `SharedPreferences.edit` instead?"
-        errorLine1="                    prefs.edit().putBoolean(&quot;enable_compression&quot;, enableCompression).commit()"
+        errorLine1="                    prefs.edit().putBoolean(&quot;enable_compression&quot;, enableCompression).apply()"
         errorLine2="                    ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
@@ -4007,7 +3787,7 @@
     <issue
         id="UseKtx"
         message="Use the KTX extension function `SharedPreferences.edit` instead?"
-        errorLine1="            prefs.edit().putBoolean(&quot;use_battery_saver_mode&quot;, useBatterySaverMode).commit()"
+        errorLine1="            prefs.edit().putBoolean(&quot;use_battery_saver_mode&quot;, useBatterySaverMode).apply()"
         errorLine2="            ~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/SettingsCoordinator.kt"
