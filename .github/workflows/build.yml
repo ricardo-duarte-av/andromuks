@@ -14,10 +14,16 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+# Sequential pipeline (each phase gates the next via `needs:`) so an early failure short-circuits the
+# rest instead of wasting parallel cycles:
+#   Phase 1  lint     — detekt + Android lint
+#   Phase 2  base     — build base flavor (debug + release APKs + release AAB), nightly deploy
+#   Phase 3  play     — upload the base AAB to the Play Console internal track
+#   Phase 4  variants — build the a/b/c flavors (release only), nightly deploy
 jobs:
-  # Same detekt + Android lint gate as pr-check.yml, enforced on push to master/develop/main too
-  # (we rarely build locally, so CI is the enforcement point). Secret-free; runs once, in parallel
-  # with the per-flavor build matrix. Baselines absorb existing debt so only NEW findings fail.
+  # ---------------------------------------------------------------------------------------------
+  # Phase 1 — Lint. Same detekt + Android lint gate as pr-check.yml. Secret-free. Gates everything.
+  # ---------------------------------------------------------------------------------------------
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -36,7 +42,8 @@ jobs:
         run: chmod +x ./gradlew
 
       # `detekt` is flavor-independent; Android lint is scoped to base debug to avoid the 4-flavor
-      # fan-out. Identical to the pr-check.yml lint job.
+      # fan-out. Identical to the pr-check.yml lint job. Baselines absorb existing debt so only NEW
+      # findings fail.
       - name: Run detekt + Android lint
         run: ./gradlew detekt :app:lintBaseDebug --stacktrace --no-daemon --build-cache
 
@@ -50,36 +57,13 @@ jobs:
             app/build/reports/lint-results-*.*
           if-no-files-found: ignore
 
-  build:
+  # ---------------------------------------------------------------------------------------------
+  # Phase 2 — Base flavor: debug + release APKs and the release AAB in one Gradle invocation (shared
+  # compile + R8 outputs). Publishes nightly APK assets and hands the AAB to Phase 3 via an artifact.
+  # ---------------------------------------------------------------------------------------------
+  base:
+    needs: lint
     runs-on: ubuntu-latest
-
-    # One job per product flavor (replaces the old build / build-a / build-b / build-c files and
-    # their sed hacks — variant identity now lives in product flavors in app/build.gradle.kts).
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - flavor: base
-            gradleFlavor: Base
-            tag: ''            # asset/artifact suffix; empty for base
-            id_debug: 248878640
-            id_release: 249916670
-          - flavor: a
-            gradleFlavor: A
-            tag: '-A'
-            id_debug: 281695944
-            id_release: 281695559
-          - flavor: b
-            gradleFlavor: B
-            tag: '-B'
-            id_debug: 281696400
-            id_release: 281696024
-          - flavor: c
-            gradleFlavor: C
-            tag: '-C'
-            id_debug: 281696518
-            id_release: 281696449
-
     steps:
       - uses: actions/checkout@v4
 
@@ -102,31 +86,172 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE_BASE64" | base64 -d > app/gomuks.keystore
 
-      # For the base flavor we additionally build the Play Store AAB in the SAME Gradle invocation
-      # so the compile + R8 task outputs are shared with the APKs (no double compilation). Only base
-      # is published to the Play Console, so the other flavors build APKs only.
-      - name: Build ${{ matrix.flavor }} flavor (debug + release APKs, +AAB for base)
+      # Build the base APKs (debug + release) and the Play AAB together so compile + R8 outputs are
+      # shared (no double compilation).
+      - name: Build base flavor (debug + release APKs + release AAB)
         env:
           KEYSTORE_FILE: gomuks.keystore
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          TASKS="assemble${{ matrix.gradleFlavor }}"
-          if [ "${{ matrix.flavor }}" = "base" ]; then
-            TASKS="$TASKS bundleBaseRelease"
-          fi
-          ./gradlew $TASKS --stacktrace --no-daemon --parallel --build-cache
+        run: ./gradlew assembleBase bundleBaseRelease --stacktrace --no-daemon --parallel --build-cache
 
       # Resolve the actual APK paths instead of hardcoding the flavor/ABI/build-type filename order.
       - name: Locate built APKs
         run: |
-          DEBUG_APK=$(find app/build/outputs/apk/${{ matrix.flavor }}/debug -name "*.apk" | head -1)
-          RELEASE_APK=$(find app/build/outputs/apk/${{ matrix.flavor }}/release -name "*.apk" | head -1)
+          DEBUG_APK=$(find app/build/outputs/apk/base/debug -name "*.apk" | head -1)
+          RELEASE_APK=$(find app/build/outputs/apk/base/release -name "*.apk" | head -1)
           echo "DEBUG_APK=$DEBUG_APK" >> $GITHUB_ENV
           echo "RELEASE_APK=$RELEASE_APK" >> $GITHUB_ENV
-          echo "### Built APKs (${{ matrix.flavor }} flavor)" >> $GITHUB_STEP_SUMMARY
+          echo "### Built APKs (base flavor)" >> $GITHUB_STEP_SUMMARY
           echo "- $DEBUG_APK" >> $GITHUB_STEP_SUMMARY
+          echo "- $RELEASE_APK" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload R8 missing rules
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-missing-rules-base
+          path: app/build/outputs/mapping/baseRelease/missing_rules.txt
+          if-no-files-found: ignore
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-debug
+          path: ${{ env.DEBUG_APK }}
+
+      - name: Upload release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-release
+          path: ${{ env.RELEASE_APK }}
+
+      - name: Deploy Nightly Debug
+        uses: WebFreak001/deploy-nightly@v3.1.0
+        with:
+          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/248878640/assets{?name,label}
+          release_id: 248878640
+          asset_path: ${{ env.DEBUG_APK }}
+          asset_name: andromuks.aguiarvieira.pt-debug-$$.apk
+          asset_content_type: application/vnd.android.package-archive
+          max_releases: 1
+
+      - name: Deploy Nightly Release
+        uses: WebFreak001/deploy-nightly@v3.1.0
+        with:
+          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/249916670/assets{?name,label}
+          release_id: 249916670
+          asset_path: ${{ env.RELEASE_APK }}
+          asset_name: andromuks.aguiarvieira.pt-release-$$.apk
+          asset_content_type: application/vnd.android.package-archive
+          max_releases: 1
+
+      # Hand the signed AAB to Phase 3 (play) as a workflow artifact so the upload job doesn't have
+      # to rebuild it.
+      - name: Locate AAB
+        run: echo "AAB_PATH=$(find app/build/outputs/bundle/baseRelease -name '*.aab' | head -1)" >> $GITHUB_ENV
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-release-aab
+          path: ${{ env.AAB_PATH }}
+
+  # ---------------------------------------------------------------------------------------------
+  # Phase 3 — Publish the base AAB (built + signed in Phase 2) to the Play Console internal track.
+  # No Gradle/JDK needed: just pull the artifact and upload.
+  # ---------------------------------------------------------------------------------------------
+  play:
+    needs: base
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download AAB artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-release-aab
+          path: aab
+
+      - name: Locate AAB
+        run: echo "AAB_PATH=$(find aab -name '*.aab' | head -1)" >> $GITHUB_ENV
+
+      # The SERVICE_ACCOUNT_JSON secret holds the Play service-account key base64-encoded (same
+      # convention as KEYSTORE_BASE64), so decode it to a file. Feeding the base64 straight to
+      # serviceAccountJsonPlainText made the action JSON.parse the base64 string; use the file input.
+      - name: Decode Play service account
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        run: echo "$SERVICE_ACCOUNT_JSON" | base64 -d > service-account.json
+
+      # r0adkll/upload-google-play handles the resumable upload with retries/timeouts internally.
+      - name: Upload .aab to Internal Track
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJson: service-account.json
+          packageName: pt.aguiarvieira.andromuks
+          releaseFiles: ${{ env.AAB_PATH }}
+          track: internal
+          status: draft
+
+  # ---------------------------------------------------------------------------------------------
+  # Phase 4 — Side-by-side variants a/b/c. Release only (no debug builds/deploys for these). One job
+  # per flavor via the matrix; independent (fail-fast: false) so one variant's failure doesn't sink
+  # the others.
+  # ---------------------------------------------------------------------------------------------
+  variants:
+    needs: play
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - flavor: a
+            gradleFlavor: A
+            tag: '-A'
+            id_release: 281695559
+          - flavor: b
+            gradleFlavor: B
+            tag: '-B'
+            id_release: 281696024
+          - flavor: c
+            gradleFlavor: C
+            tag: '-C'
+            id_release: 281696449
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      - name: Decode release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 -d > app/gomuks.keystore
+
+      # Release only for the variants — no debug APK is needed here.
+      - name: Build ${{ matrix.flavor }} flavor (release APK)
+        env:
+          KEYSTORE_FILE: gomuks.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assemble${{ matrix.gradleFlavor }}Release --stacktrace --no-daemon --parallel --build-cache
+
+      - name: Locate built APK
+        run: |
+          RELEASE_APK=$(find app/build/outputs/apk/${{ matrix.flavor }}/release -name "*.apk" | head -1)
+          echo "RELEASE_APK=$RELEASE_APK" >> $GITHUB_ENV
+          echo "### Built APK (${{ matrix.flavor }} flavor, release)" >> $GITHUB_STEP_SUMMARY
           echo "- $RELEASE_APK" >> $GITHUB_STEP_SUMMARY
 
       - name: Upload R8 missing rules
@@ -137,27 +262,11 @@ jobs:
           path: app/build/outputs/mapping/${{ matrix.flavor }}Release/missing_rules.txt
           if-no-files-found: ignore
 
-      - name: Upload debug APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: pt.aguiarvieira.andromuks${{ matrix.tag }}-debug
-          path: ${{ env.DEBUG_APK }}
-
       - name: Upload release APK
         uses: actions/upload-artifact@v4
         with:
           name: pt.aguiarvieira.andromuks${{ matrix.tag }}-release
           path: ${{ env.RELEASE_APK }}
-
-      - name: Deploy Nightly Debug
-        uses: WebFreak001/deploy-nightly@v3.1.0
-        with:
-          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/${{ matrix.id_debug }}/assets{?name,label}
-          release_id: ${{ matrix.id_debug }}
-          asset_path: ${{ env.DEBUG_APK }}
-          asset_name: andromuks.aguiarvieira.pt-debug${{ matrix.tag }}-$$.apk
-          asset_content_type: application/vnd.android.package-archive
-          max_releases: 1
 
       - name: Deploy Nightly Release
         uses: WebFreak001/deploy-nightly@v3.1.0
@@ -168,39 +277,3 @@ jobs:
           asset_name: andromuks.aguiarvieira.pt-release${{ matrix.tag }}-$$.apk
           asset_content_type: application/vnd.android.package-archive
           max_releases: 1
-
-      # --- Play Store publishing (base flavor only) ---
-      # The AAB was built above in the same Gradle invocation as the base APKs.
-      - name: Locate AAB
-        if: matrix.flavor == 'base'
-        run: echo "AAB_PATH=$(find app/build/outputs/bundle/baseRelease -name '*.aab' | head -1)" >> $GITHUB_ENV
-
-      - name: Upload AAB artifact
-        if: matrix.flavor == 'base'
-        uses: actions/upload-artifact@v4
-        with:
-          name: pt.aguiarvieira.andromuks-release-aab
-          path: ${{ env.AAB_PATH }}
-
-      # The SERVICE_ACCOUNT_JSON secret holds the Play service-account key base64-encoded (same
-      # convention as KEYSTORE_BASE64 above), so decode it to a file. Feeding the base64 straight to
-      # serviceAccountJsonPlainText made the action JSON.parse the base64 string ("Unexpected token
-      # 'e', \"ewogICJ0eX\"..."). Use the file-path input instead.
-      - name: Decode Play service account
-        if: matrix.flavor == 'base'
-        env:
-          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
-        run: echo "$SERVICE_ACCOUNT_JSON" | base64 -d > service-account.json
-
-      # r0adkll/upload-google-play handles the resumable upload with retries/timeouts internally,
-      # replacing the previous KevinRohn action whose single-shot .execute() failed on a transient
-      # socket read timeout.
-      - name: Upload .aab to Internal Track
-        if: matrix.flavor == 'base'
-        uses: r0adkll/upload-google-play@v1
-        with:
-          serviceAccountJson: service-account.json
-          packageName: pt.aguiarvieira.andromuks
-          releaseFiles: ${{ env.AAB_PATH }}
-          track: internal
-          status: draft
