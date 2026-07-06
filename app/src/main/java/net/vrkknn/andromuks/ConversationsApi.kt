@@ -1,17 +1,13 @@
 package net.vrkknn.andromuks
 
-import android.app.Person
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.util.Log
-import androidx.annotation.RequiresApi
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
@@ -1072,7 +1068,6 @@ class ConversationsApi(
      * Runs entirely in background to avoid UI blocking
      * Only updates shortcuts that actually changed
      */
-    @RequiresApi(Build.VERSION_CODES.N_MR1)
     private suspend fun updateShortcuts(shortcuts: List<ConversationShortcut>, replaceAll: Boolean = false) {
         try {
             // CRITICAL: If cache is not initialized, initialize it first to preserve existing shortcuts
@@ -1406,174 +1401,6 @@ class ConversationsApi(
     }
 
     /**
-     * Create a ShortcutInfo from ConversationShortcut (platform API version - kept for compatibility)
-     */
-    @RequiresApi(Build.VERSION_CODES.N_MR1)
-    private suspend fun createShortcutInfo(shortcut: ConversationShortcut): ShortcutInfo {
-        // Create proper matrix: URI with via parameter
-        val matrixUri = if (realMatrixHomeserverUrl.isNotEmpty()) {
-            val serverHost = Uri.parse(realMatrixHomeserverUrl).host ?: ""
-            "matrix:roomid/${shortcut.roomId.substring(1)}?via=$serverHost"
-        } else {
-            "matrix:roomid/${shortcut.roomId.substring(1)}"
-        }
-        val intent = Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse(matrixUri),
-            context,
-            MainActivity::class.java,
-        ).apply {
-            putExtra("room_id", shortcut.roomId)
-            putExtra("direct_navigation", true) // Flag for optimized processing
-            putExtra("from_shortcut", true)
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-
-        val icon = if (shortcut.roomAvatarUrl != null) {
-            try {
-                // Check if we have a cached version first
-                var cachedFile = IntelligentMediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
-
-                // If not cached, download and cache it (similar to EnhancedNotificationDisplay)
-                if (cachedFile == null || !cachedFile.exists()) {
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                        TAG,
-                        "Avatar not in IntelligentMediaCache, downloading for shortcut: ${shortcut.roomId}",
-                    )
-                    }
-
-                    // Convert MXC URL to HTTP URL
-                    val httpUrl = when {
-                        shortcut.roomAvatarUrl.startsWith("mxc://") -> {
-                            AvatarUtils.mxcToHttpUrl(shortcut.roomAvatarUrl, homeserverUrl)
-                        }
-
-                        shortcut.roomAvatarUrl.startsWith("_gomuks/") -> {
-                            "$homeserverUrl/${shortcut.roomAvatarUrl}"
-                        }
-
-                        else -> {
-                            shortcut.roomAvatarUrl
-                        }
-                    }
-
-                    if (httpUrl != null) {
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                            TAG,
-                            "Downloading avatar for shortcut ${shortcut.roomId} from: $httpUrl",
-                        )
-                        }
-                        // Download and cache using IntelligentMediaCache
-                        cachedFile = IntelligentMediaCache.downloadAndCache(
-                            context,
-                            shortcut.roomAvatarUrl,
-                            httpUrl,
-                            authToken,
-                        )
-                        if (cachedFile != null) {
-                            if (BuildConfig.DEBUG) {
-                                Log.d(
-                                TAG,
-                                "✓ Successfully downloaded and cached avatar for shortcut: ${shortcut.roomId} (${cachedFile.length()} bytes)",
-                            )
-                            }
-                        } else {
-                            Log.w(TAG, "✗ Failed to download avatar for shortcut: ${shortcut.roomId} from: $httpUrl")
-                        }
-                    } else {
-                        Log.w(TAG, "Failed to convert avatar URL to HTTP URL: ${shortcut.roomAvatarUrl}")
-                    }
-                }
-
-                // Load bitmap from cached file (or fallback if download failed)
-                if (cachedFile != null && cachedFile.exists()) {
-                    // Create circular bitmap from cached file
-                    val bitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
-
-                    if (bitmap != null) {
-                        val circularBitmap = getCircularBitmap(bitmap)
-
-                        if (circularBitmap != null) {
-                            if (BuildConfig.DEBUG) {
-                                Log.d(
-                                TAG,
-                                "✓✓✓ SUCCESS: Created shortcut icon with avatar for: ${shortcut.roomId}",
-                            )
-                            }
-                            Icon.createWithAdaptiveBitmap(circularBitmap)
-                        } else {
-                            Log.e(TAG, "  ✗✗✗ FAILED: getCircularBitmap returned null, creating fallback with initials")
-                            createFallbackShortcutIcon(shortcut.roomName, shortcut.roomId)
-                        }
-                    } else {
-                        Log.e(
-                            TAG,
-                            "  ✗✗✗ FAILED: BitmapFactory.decodeFile returned null, creating fallback with initials",
-                        )
-                        createFallbackShortcutIcon(shortcut.roomName, shortcut.roomId)
-                    }
-                } else {
-                    Log.w(TAG, "  ✗✗✗ FAILED: Avatar not in cache and download failed, creating fallback with initials")
-                    createFallbackShortcutIcon(shortcut.roomName, shortcut.roomId)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "  ✗✗✗ EXCEPTION: Error loading avatar for shortcut, creating fallback", e)
-                e.printStackTrace()
-                createFallbackShortcutIcon(shortcut.roomName, shortcut.roomId)
-            }
-        } else {
-            Log.w(TAG, "━━━ No room avatar URL provided, creating fallback with initials ━━━")
-            createFallbackShortcutIcon(shortcut.roomName, shortcut.roomId)
-        }
-
-        return ShortcutInfo.Builder(context, shortcut.roomId)
-            .setShortLabel(shortcut.roomName)
-            // .setLongLabel(shortcut.roomName)
-            .setIcon(icon)
-            .setIntent(intent)
-            .setRank(0) // Simple rank, can be improved later
-            .setCategories(setOf("android.shortcut.conversation")) // Use standard conversation category
-            .setLongLived(true)
-            .build()
-    }
-
-    /**
-     * Create conversation persons for notification grouping
-     */
-    fun createConversationPerson(roomId: String, roomName: String, avatarUrl: String?): Person =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            Person.Builder()
-                .setKey(roomId)
-                .setName(roomName)
-                .setIcon(createPersonIcon(avatarUrl))
-                .build()
-        } else {
-            Person.Builder()
-                .setKey(roomId)
-                .setName(roomName)
-                .build()
-        }
-
-    /**
-     * Create person icon from avatar URL
-     */
-    private fun createPersonIcon(avatarUrl: String?): Icon? =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && avatarUrl != null) {
-            try {
-                // For now, use default icon since we can't call suspend function here
-                // In a real implementation, you'd need to load this asynchronously
-                Icon.createWithResource(context, R.mipmap.ic_launcher)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error creating person avatar", e)
-                null
-            }
-        } else {
-            null
-        }
-
-    /**
      * Load bitmap from URL using Coil with IntelligentMediaCache integration
      */
     private suspend fun loadBitmapFromUrl(url: String): Bitmap? = withContext(Dispatchers.IO) {
@@ -1764,59 +1591,5 @@ class ConversationsApi(
     } catch (e: Exception) {
         Log.e(TAG, "Error creating fallback shortcut icon", e)
         IconCompat.createWithResource(context, R.drawable.matrix)
-    }
-
-    /**
-     * Create fallback shortcut icon with initials (platform Icon version - kept for compatibility)
-     */
-    private fun createFallbackShortcutIcon(displayName: String?, userId: String): Icon = try {
-        // Get color and character using AvatarUtils
-        val color = AvatarUtils.getUserColor(userId)
-        val character = AvatarUtils.getFallbackCharacter(displayName, userId)
-
-        // Create bitmap
-        val size = 128
-        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bitmap)
-
-        // Draw background
-        val bgPaint = android.graphics.Paint().apply {
-            this.color = color
-            style = android.graphics.Paint.Style.FILL
-            isAntiAlias = true
-        }
-        canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), bgPaint)
-
-        // Draw text (character/initial)
-        if (character.isNotEmpty()) {
-            val textPaint = android.graphics.Paint().apply {
-                this.color = android.graphics.Color.WHITE
-                textSize = size * 0.5f // 50% of size
-                typeface = android.graphics.Typeface.create(
-                    android.graphics.Typeface.DEFAULT,
-                    android.graphics.Typeface.BOLD,
-                )
-                textAlign = android.graphics.Paint.Align.CENTER
-                isAntiAlias = true
-            }
-
-            // Center text vertically
-            val textBounds = android.graphics.Rect()
-            textPaint.getTextBounds(character, 0, character.length, textBounds)
-            val y = size / 2f + textBounds.height() / 2f
-
-            canvas.drawText(character, size / 2f, y, textPaint)
-        }
-
-        // Make it circular
-        val circularBitmap = getCircularBitmap(bitmap)
-        if (circularBitmap != null) {
-            Icon.createWithAdaptiveBitmap(circularBitmap)
-        } else {
-            Icon.createWithResource(context, R.drawable.matrix)
-        }
-    } catch (e: Exception) {
-        Log.e(TAG, "Error creating fallback shortcut icon", e)
-        Icon.createWithResource(context, R.drawable.matrix)
     }
 }

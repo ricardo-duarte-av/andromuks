@@ -247,12 +247,11 @@
     <ID>CyclomaticComplexMethod:CallsWidgetsCoordinator.kt:CallsWidgetsCoordinator$fun refreshElementCallBaseUrlFromWellKnown</ID>
     <ID>CyclomaticComplexMethod:ChatBubbleActivity.kt:@Composable private fun ChatBubbleLoadingScreen</ID>
     <ID>CyclomaticComplexMethod:ChatBubbleActivity.kt:ChatBubbleActivity$override fun onCreate</ID>
-    <ID>CyclomaticComplexMethod:ConversationsApi.kt:ConversationsApi$@RequiresApi(Build.VERSION_CODES.N_MR1) private suspend fun createShortcutInfo: ShortcutInfo</ID>
-    <ID>CyclomaticComplexMethod:ConversationsApi.kt:ConversationsApi$@RequiresApi(Build.VERSION_CODES.N_MR1) private suspend fun updateShortcuts</ID>
     <ID>CyclomaticComplexMethod:ConversationsApi.kt:ConversationsApi$private suspend fun createShortcutInfoCompat: ShortcutInfoCompat</ID>
     <ID>CyclomaticComplexMethod:ConversationsApi.kt:ConversationsApi$private suspend fun getCircularBitmapFromUrl: Bitmap?</ID>
     <ID>CyclomaticComplexMethod:ConversationsApi.kt:ConversationsApi$private suspend fun initializeShortcutCache</ID>
     <ID>CyclomaticComplexMethod:ConversationsApi.kt:ConversationsApi$private suspend fun shortcutsNeedUpdate: Pair&lt;Boolean, Boolean&gt;</ID>
+    <ID>CyclomaticComplexMethod:ConversationsApi.kt:ConversationsApi$private suspend fun updateShortcuts</ID>
     <ID>CyclomaticComplexMethod:ConversationsApi.kt:ConversationsApi$private suspend fun updateSingleShortcut</ID>
     <ID>CyclomaticComplexMethod:EditVersionCoordinator.kt:EditVersionCoordinator$fun buildEditChainsFromEvents</ID>
     <ID>CyclomaticComplexMethod:EditVersionCoordinator.kt:EditVersionCoordinator$fun findSupersededEvents: List&lt;String&gt;</ID>
@@ -585,8 +584,6 @@
     <ID>FunctionSignature:ContactsSyncService.kt:ContactsSyncService$private suspend fun addContact</ID>
     <ID>FunctionSignature:ContactsSyncService.kt:ContactsSyncService$private suspend fun updateContact</ID>
     <ID>FunctionSignature:ContactsSyncService.kt:ContactsSyncService$suspend fun mergeWithExistingContact</ID>
-    <ID>FunctionSignature:ConversationsApi.kt:ConversationsApi$fun createConversationPerson: Person</ID>
-    <ID>FunctionSignature:ConversationsApi.kt:ConversationsApi$private fun createPersonIcon: Icon?</ID>
     <ID>FunctionSignature:DownloadDeduplicationManager.kt:DownloadDeduplicationManager$fun isDownloadInProgress: Boolean</ID>
     <ID>FunctionSignature:DownloadDeduplicationManager.kt:DownloadDeduplicationManager$private suspend fun performDownload: File</ID>
     <ID>FunctionSignature:DownloadDeduplicationManager.kt:DownloadDeduplicationManager$suspend fun downloadMedia: File</ID>
@@ -935,11 +932,10 @@
     <ID>LongMethod:CodeViewer.kt:@Composable fun CodeViewer</ID>
     <ID>LongMethod:ContactsSyncService.kt:ContactsSyncService$private suspend fun addContact</ID>
     <ID>LongMethod:ContactsSyncService.kt:ContactsSyncService$private suspend fun updateContact</ID>
-    <ID>LongMethod:ConversationsApi.kt:ConversationsApi$@RequiresApi(Build.VERSION_CODES.N_MR1) private suspend fun createShortcutInfo: ShortcutInfo</ID>
-    <ID>LongMethod:ConversationsApi.kt:ConversationsApi$@RequiresApi(Build.VERSION_CODES.N_MR1) private suspend fun updateShortcuts</ID>
     <ID>LongMethod:ConversationsApi.kt:ConversationsApi$private suspend fun createShortcutInfoCompat: ShortcutInfoCompat</ID>
     <ID>LongMethod:ConversationsApi.kt:ConversationsApi$private suspend fun getCircularBitmapFromUrl: Bitmap?</ID>
     <ID>LongMethod:ConversationsApi.kt:ConversationsApi$private suspend fun initializeShortcutCache</ID>
+    <ID>LongMethod:ConversationsApi.kt:ConversationsApi$private suspend fun updateShortcuts</ID>
     <ID>LongMethod:DiagnosticsCoordinator.kt:DiagnosticsCoordinator$fun getCacheStatistics: Map&lt;String, String&gt;</ID>
     <ID>LongMethod:EditHistoryDialog.kt:@Composable fun EditHistoryDialog</ID>
     <ID>LongMethod:EditHistoryDialog.kt:@Composable private fun VersionItem</ID>
@@ -1456,7 +1452,6 @@
     <ID>NestedBlockDepth:AppViewModel.kt:AppViewModel$private fun processSyncEventsArray</ID>
     <ID>NestedBlockDepth:AppViewModel.kt:AppViewModel$private fun updateTimelineFromSync</ID>
     <ID>NestedBlockDepth:AppViewModel.kt:AppViewModel$private suspend fun executeTimelineRebuild</ID>
-    <ID>NestedBlockDepth:ConversationsApi.kt:ConversationsApi$@RequiresApi(Build.VERSION_CODES.N_MR1) private suspend fun createShortcutInfo: ShortcutInfo</ID>
     <ID>NestedBlockDepth:ConversationsApi.kt:ConversationsApi$private suspend fun createShortcutInfoCompat: ShortcutInfoCompat</ID>
     <ID>NestedBlockDepth:ConversationsApi.kt:ConversationsApi$private suspend fun shortcutsNeedUpdate: Pair&lt;Boolean, Boolean&gt;</ID>
     <ID>NestedBlockDepth:DiagnosticsCoordinator.kt:DiagnosticsCoordinator$internal fun loadActivityLogFromStorage</ID>

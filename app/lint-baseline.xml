@@ -443,105 +443,6 @@
 
     <issue
         id="NewApi"
-        message="Call requires API level 25 (current min is 24): `updateShortcuts`"
-        errorLine1="                    updateShortcuts(shortcuts, replaceAll)"
-        errorLine2="                    ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="400"
-            column="21"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 25 (current min is 24): `updateShortcuts`"
-        errorLine1="                    updateShortcuts(shortcuts, replaceAll)"
-        errorLine2="                    ~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="411"
-            column="21"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 25): `android.graphics.drawable.Icon#createWithAdaptiveBitmap`"
-        errorLine1="                            Icon.createWithAdaptiveBitmap(circularBitmap)"
-        errorLine2="                                 ~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1505"
-            column="34"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 29 (current min is 25): `android.content.pm.ShortcutInfo.Builder#setLongLived`"
-        errorLine1="            .setLongLived(true)"
-        errorLine2="             ~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1538"
-            column="14"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 28 (current min is 24): `android.app.Person.Builder()`"
-        errorLine1="            Person.Builder()"
-        errorLine2="                   ~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1553"
-            column="20"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 28 (current min is 24): `android.app.Person.Builder#setKey`"
-        errorLine1="                .setKey(roomId)"
-        errorLine2="                 ~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1554"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 28 (current min is 24): `android.app.Person.Builder#setName`"
-        errorLine1="                .setName(roomName)"
-        errorLine2="                 ~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1555"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 28 (current min is 24): `android.app.Person.Builder#build`"
-        errorLine1="                .build()"
-        errorLine2="                 ~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1556"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="NewApi"
-        message="Call requires API level 26 (current min is 24): `android.graphics.drawable.Icon#createWithAdaptiveBitmap`"
-        errorLine1="            Icon.createWithAdaptiveBitmap(circularBitmap)"
-        errorLine2="                 ~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1814"
-            column="18"/>
-    </issue>
-
-    <issue
-        id="NewApi"
         message="Call requires API level 36 (current min is 35): `android.provider.ContactsContract.RawContacts.DefaultAccount#getDefaultAccountForNewContacts`"
         errorLine1="                DefaultAccount.getDefaultAccountForNewContacts(context.contentResolver)"
         errorLine2="                               ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
@@ -1912,17 +1813,6 @@
             file="src/main/AndroidManifest.xml"
             line="252"
             column="10"/>
-    </issue>
-
-    <issue
-        id="ObsoleteSdkInt"
-        message="Unnecessary; `SDK_INT` is always >= 24"
-        errorLine1="        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &amp;&amp; avatarUrl != null) {"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1563"
-            column="13"/>
     </issue>
 
     <issue
@@ -3351,7 +3241,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="222"
+            line="218"
             column="22"/>
     </issue>
 
@@ -3362,7 +3252,7 @@
         errorLine2="                ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="494"
+            line="490"
             column="17"/>
     </issue>
 
@@ -3373,7 +3263,7 @@
         errorLine2="        ~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="926"
+            line="922"
             column="9"/>
     </issue>
 
@@ -3384,7 +3274,7 @@
         errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1278"
+            line="1273"
             column="30"/>
     </issue>
 
@@ -3395,29 +3285,7 @@
         errorLine2="            ~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1286"
-            column="13"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `String.toUri` instead?"
-        errorLine1="            val serverHost = Uri.parse(realMatrixHomeserverUrl).host ?: &quot;&quot;"
-        errorLine2="                             ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1415"
-            column="30"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX extension function `String.toUri` instead?"
-        errorLine1="            Uri.parse(matrixUri),"
-        errorLine2="            ~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1422"
+            line="1281"
             column="13"/>
     </issue>
 
@@ -3428,18 +3296,7 @@
         errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
         <location
             file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1725"
-            column="22"/>
-    </issue>
-
-    <issue
-        id="UseKtx"
-        message="Use the KTX function `createBitmap` instead?"
-        errorLine1="        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)"
-        errorLine2="                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~">
-        <location
-            file="src/main/java/net/vrkknn/andromuks/ConversationsApi.kt"
-            line="1779"
+            line="1552"
             column="22"/>
     </issue>
 
