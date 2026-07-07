@@ -230,6 +230,44 @@ private fun formatDuration(durationMs: Int): String {
 }
 
 /**
+ * Fixed frame width for timeline images and videos (m.image / m.video).
+ *
+ * All standardized media render at this width; height follows the aspect ratio with no cap, so
+ * tall shots (e.g. full-page screenshots) simply become tall bubbles. This replaces the previous
+ * "pixels-as-dp natural size" sizing that produced inconsistent bubble widths.
+ */
+val STANDARD_MEDIA_WIDTH = 288.dp
+
+/**
+ * Maximum factor a pre-baked thumbnail may be stretched to fill [STANDARD_MEDIA_WIDTH] before we
+ * abandon it and load the real image instead. Measured in logical dp: thumbnail pixels are treated
+ * as dp (matching the existing `.toDp()` convention), so the test is density-independent.
+ */
+private const val THUMBNAIL_MAX_STRETCH = 2.0f
+
+/**
+ * Decides whether to render the pre-baked thumbnail or the real image for a timeline media item.
+ *
+ * Gomuks does not resize regular media server-side, so we can only pick which of the two existing
+ * assets to fetch. Thumbnails are preferred (cheaper bytes) unless they'd need to be stretched past
+ * [THUMBNAIL_MAX_STRETCH] to fill [STANDARD_MEDIA_WIDTH], in which case the real image is loaded for
+ * quality. Videos always use the thumbnail regardless of stretch; animated images never use the
+ * thumbnail (MSC4230, so the animation plays).
+ */
+fun shouldUseTimelineThumbnail(mediaMessage: MediaMessage, loadThumbnailsIfAvailable: Boolean): Boolean {
+    val info = mediaMessage.info
+    val thumbnailUsable = loadThumbnailsIfAvailable && info.thumbnailUrl != null && info.isAnimated != true
+    if (!thumbnailUsable) return false
+    // Video always uses the thumbnail. For images, keep the thumbnail unless it would stretch past
+    // THUMBNAIL_MAX_STRETCH to fill STANDARD_MEDIA_WIDTH (logical dp) — then load the real image.
+    // A missing/zero thumbnail width can't be judged, so the thumbnail is trusted.
+    val thumbWidth = info.thumbnailWidth
+    val stretchAcceptable = thumbWidth == null || thumbWidth <= 0 ||
+        (STANDARD_MEDIA_WIDTH.value / thumbWidth.toFloat()) <= THUMBNAIL_MAX_STRETCH
+    return mediaMessage.msgType == "m.video" || stretchAcceptable
+}
+
+/**
  * Renders a caption with HTML support when available.
  * If caption is empty/null, displays the filename instead.
  */
@@ -406,24 +444,22 @@ fun MediaMessage(
 
     // Calculate if image is small enough to wrap content (like stickers do)
     val density = LocalDensity.current
-    // FIX: When using thumbnails, calculate size based on thumbnail dimensions, not original dimensions
-    // This prevents small thumbnails (e.g., 600x600) from being stretched to fill 80% of screen width
-    val imageWidthDp = if (useThumbnails && mediaMessage.info.thumbnailWidth != null &&
-        mediaMessage.info.thumbnailWidth!! > 0 &&
-        (
-            mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" ||
-            mediaMessage.msgType == "m.sticker"
-        )
-    ) {
-        // Use thumbnail width when thumbnails are enabled and available
-        with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
-    } else if (mediaMessage.info.width > 0 &&
-        (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video" || mediaMessage.msgType == "m.sticker")
-    ) {
+    // Images and videos render at the fixed STANDARD_MEDIA_WIDTH frame (see MediaContent). Stickers
+    // keep their natural size, computed from thumbnail dimensions when available.
+    val isStandardizedMedia = mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video"
+    val stickerThumbWidth = mediaMessage.info.thumbnailWidth ?: 0
+    val imageWidthDp = when {
+        isStandardizedMedia -> STANDARD_MEDIA_WIDTH
+
+        mediaMessage.msgType != "m.sticker" -> null
+
+        // Sticker: use thumbnail width when thumbnails are enabled and available
+        useThumbnails && stickerThumbWidth > 0 -> with(density) { stickerThumbWidth.toDp() }
+
         // Fallback to original width when thumbnails are disabled or not available
-        with(density) { mediaMessage.info.width.toDp() }
-    } else {
-        null
+        mediaMessage.info.width > 0 -> with(density) { mediaMessage.info.width.toDp() }
+
+        else -> null
     }
     // If image is small (< 400dp), wrap content instead of using fillMaxWidth(0.8f)
     val shouldWrapBubble = imageWidthDp != null && imageWidthDp < 400.dp
@@ -444,9 +480,11 @@ fun MediaMessage(
     }
     val mediaBubbleColor = bubbleColorOverride ?: mediaBubbleColors.container
 
-    // Calculate maximum width based on actual image/thumbnail dimensions
-    // This prevents images from being stretched beyond their natural size
-    val maxBubbleWidthDp = if (useThumbnails && mediaMessage.info.thumbnailWidth != null &&
+    // Calculate maximum bubble width. Images/videos are pinned to STANDARD_MEDIA_WIDTH; stickers use
+    // their natural dimensions so they aren't stretched beyond their real size.
+    val maxBubbleWidthDp = if (isStandardizedMedia) {
+        STANDARD_MEDIA_WIDTH
+    } else if (useThumbnails && mediaMessage.info.thumbnailWidth != null &&
         mediaMessage.info.thumbnailWidth!! > 0
     ) {
         // Use thumbnail dimensions when thumbnails are enabled
@@ -837,12 +875,14 @@ private fun MediaContent(
 ) {
     val density = LocalDensity.current
 
-    // Determine if we're using thumbnails
-    // MSC4230: Skip thumbnails for animated images (GIF, animated PNG, animated WebP) to ensure animation plays
-    // Thumbnails for animated images are typically static JPG/PNG, so we need to use the original
-    val useThumbnail = loadThumbnailsIfAvailable &&
-        mediaMessage.info.thumbnailUrl != null &&
-        mediaMessage.info.isAnimated != true // Skip thumbnail for animated images
+    // Determine if we're using thumbnails.
+    // Prefers the pre-baked thumbnail unless it would need to be stretched past THUMBNAIL_MAX_STRETCH
+    // to fill STANDARD_MEDIA_WIDTH (then the real image is loaded); video always uses the thumbnail;
+    // animated images never do (MSC4230). See shouldUseTimelineThumbnail.
+    val useThumbnail = shouldUseTimelineThumbnail(mediaMessage, loadThumbnailsIfAvailable)
+
+    // Standardize width (fixed 288dp frame) for images and videos; stickers keep their natural size.
+    val standardizeWidth = mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video"
 
     // State to track if user has tapped to reveal thumbnail (only relevant when renderThumbnailsAlways is false)
     var isRevealed by remember(mediaMessage.url) { mutableStateOf(false) }
@@ -974,16 +1014,24 @@ private fun MediaContent(
                 bottomEnd = 12.dp,
             )
 
-            // Frame constrained to image size to prevent stretching
-            // Image should size naturally, not fill parent (which might be wider due to caption)
+            // Frame width: images/videos get the fixed STANDARD_MEDIA_WIDTH so every bubble shares
+            // one column width (height follows the aspect ratio). Stickers keep their natural size,
+            // constrained to prevent stretching.
             Surface(
                 modifier = Modifier
-                    .wrapContentWidth() // Wrap to image size
                     .then(
-                        if (maxImageWidthDp != null) {
-                            Modifier.widthIn(max = maxImageWidthDp)
+                        if (standardizeWidth) {
+                            Modifier.width(STANDARD_MEDIA_WIDTH)
                         } else {
                             Modifier
+                                .wrapContentWidth() // Wrap to sticker size
+                                .then(
+                                    if (maxImageWidthDp != null) {
+                                        Modifier.widthIn(max = maxImageWidthDp)
+                                    } else {
+                                        Modifier
+                                    },
+                                )
                         },
                     )
                     .padding(
