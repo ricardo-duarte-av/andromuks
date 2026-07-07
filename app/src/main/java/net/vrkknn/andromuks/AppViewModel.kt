@@ -11304,8 +11304,13 @@ class AppViewModel : ViewModel() {
                         )
                         // Track status eventId → original message eventId so bridge bot receipts
                         // that land on the status event ID can be remapped to the original message.
+                        // Bump the receipt counter on a genuinely new mapping so the read-side flatten
+                        // (gatherFlattenedReceipts) re-runs and surfaces a receipt that already landed
+                        // on this status event in an earlier sync batch (receipt-before-status order).
                         if (event.eventId.isNotBlank()) {
+                            val isNewMapping = bridgeStatusEventToMessageId[event.eventId] != relatedEventId
                             bridgeStatusEventToMessageId[event.eventId] = relatedEventId
+                            if (isNewMapping) readReceiptsUpdateCounter++
                         }
                     }
                 }

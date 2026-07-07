@@ -174,6 +174,7 @@ fun SystemEventNarrator(
                 absorbedEventIds = absorbedReceiptEventIds,
                 roomId = event.roomId,
                 readReceiptsMap = appViewModel.getReadReceiptsMap(event.roomId),
+                bridgeStatusEventToMessageId = appViewModel.bridgeStatusEventToMessageId,
             )
         } else {
             emptyList()

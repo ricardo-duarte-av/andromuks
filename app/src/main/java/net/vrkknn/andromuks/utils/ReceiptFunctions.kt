@@ -219,23 +219,48 @@ object ReceiptFunctions {
      * The one-receipt-per-user-per-room invariant means a user can appear on at most one of these
      * IDs, so [distinctBy]-style dedup is only belt-and-suspenders.
      *
+     * Bridge delivery-confirmation events (`com.beeper.message_send_status`) are a special case: they
+     * never enter the timeline at all (they aren't added to the event chain), so they can't appear in
+     * [absorbedEventIds] via the ordinary timeline walk. A bridge bot's read receipt frequently lands
+     * on its own last status event, and there is a separate remap ([bridgeStatusEventToMessageId])
+     * that normally rewrites such receipts onto the original message. That remap is incremental and
+     * can miss a receipt whose status event arrived in a different sync batch, leaving it orphaned on
+     * a non-rendered event until the next full paginate. To be robust against that timing, we also
+     * flatten in receipts sitting on any status event that maps to this anchor — reading directly, so
+     * the avatar surfaces on the correct bubble whether or not the remap has run yet. This is
+     * idempotent with the remap: if the receipt was already moved onto the anchor, the per-user dedup
+     * collapses the duplicate.
+     *
      * @param anchorEventId The rendered event that hosts the avatars
      * @param absorbedEventIds Non-rendered event IDs that collapse onto the anchor (may be empty)
      * @param roomId Room of the anchor — cross-room guard (event IDs are globally unique)
      * @param readReceiptsMap The receipts map (eventId -> receipts)
+     * @param bridgeStatusEventToMessageId Status-event-ID → original-message-ID map; any entry whose
+     *        value equals [anchorEventId] contributes its status event's receipts (may be empty)
      */
     fun gatherFlattenedReceipts(
         anchorEventId: String,
         absorbedEventIds: List<String>,
         roomId: String,
         readReceiptsMap: Map<String, List<ReadReceipt>>,
+        bridgeStatusEventToMessageId: Map<String, String> = emptyMap(),
     ): List<ReadReceipt> {
-        val ids = if (absorbedEventIds.isEmpty()) {
+        // Status events that map to this anchor (see kdoc) — usually empty, so avoid allocating unless
+        // there's at least one entry pointing here.
+        val bridgeStatusIds: List<String> = if (bridgeStatusEventToMessageId.isEmpty()) {
+            emptyList()
+        } else {
+            bridgeStatusEventToMessageId.mapNotNull { (statusId, msgId) ->
+                statusId.takeIf { msgId == anchorEventId }
+            }
+        }
+        val ids = if (absorbedEventIds.isEmpty() && bridgeStatusIds.isEmpty()) {
             listOf(anchorEventId)
         } else {
-            ArrayList<String>(absorbedEventIds.size + 1).apply {
+            ArrayList<String>(absorbedEventIds.size + bridgeStatusIds.size + 1).apply {
                 add(anchorEventId)
                 addAll(absorbedEventIds)
+                addAll(bridgeStatusIds)
             }
         }
         val seenUsers = HashSet<String>()
