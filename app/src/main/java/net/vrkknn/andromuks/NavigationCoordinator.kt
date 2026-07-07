@@ -13,6 +13,9 @@ data class RoomNavigationRequest(val roomId: String, val timestamp: Long?, val s
     enum class Source { NOTIFICATION, SHORTCUT, BUBBLE, RESTORE }
 }
 
+/** Result of [NavigationCoordinator.claimDirectRoomNavigation]: the claimed target. */
+data class DirectRoomNavClaim(val roomId: String, val timestamp: Long?)
+
 /**
  * Pending/direct room navigation, highlight map, and cache-first open for [AppViewModel].
  */
@@ -20,6 +23,12 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
 
     private val _roomNavigationRequests = Channel<RoomNavigationRequest>(Channel.CONFLATED)
     val roomNavigationRequests: Flow<RoomNavigationRequest> = _roomNavigationRequests.receiveAsFlow()
+
+    // Arbitrates the single direct (notification) navigation between its two consumers:
+    // AppNavigation's roomNavigationRequests collector and RoomTimelineScreen's navTrigger effect.
+    // A single tap arms both (setDirectRoomNavigation bumps directRoomNavigationTrigger AND sends
+    // on the channel). Guards the atomic read-and-clear in claimDirectRoomNavigation.
+    private val directNavClaimLock = Any()
 
     fun setPendingRoomNavigation(roomId: String, fromNotification: Boolean) {
         with(vm) {
@@ -84,6 +93,38 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
             }
             directRoomNavigation = null
             directRoomNavigationTimestamp = null
+        }
+    }
+
+    /**
+     * Atomically consume the pending direct (notification) room navigation. Returns the target
+     * (roomId + notification timestamp) to *exactly one* caller; every other concurrent caller gets
+     * null. This is the single arbiter that stops the AppNavigation collector and
+     * RoomTimelineScreen's navTrigger effect from *both* navigating for one notification tap.
+     *
+     * The pre-existing route-based deferral (AppNavigation defers to RT when room_timeline is the
+     * active route) is only a hint — it reads navController.currentBackStackEntry.route, which lags
+     * navigation restoration on foreground-resume, so both consumers can occasionally fire. When
+     * they do, two overlapping popUpTo(graph.id, inclusive) + navigate sequences corrupt the
+     * NavHost / SharedTransition state and leave a rendered-but-dead screen (input frozen, no
+     * recomposition, no ANR). Claiming makes that structurally impossible: the loser sees null and
+     * bails.
+     */
+    fun claimDirectRoomNavigation(): DirectRoomNavClaim? {
+        with(vm) {
+            synchronized(directNavClaimLock) {
+                val roomId = directRoomNavigation ?: return null
+                val timestamp = directRoomNavigationTimestamp
+                directRoomNavigation = null
+                directRoomNavigationTimestamp = null
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Claimed direct room navigation: $roomId (timestamp=$timestamp)",
+                    )
+                }
+                return DirectRoomNavClaim(roomId, timestamp)
+            }
         }
     }
 

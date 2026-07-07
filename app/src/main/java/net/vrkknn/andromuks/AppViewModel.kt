@@ -4436,6 +4436,8 @@ class AppViewModel : ViewModel() {
 
     fun clearDirectRoomNavigation() = navigationCoordinator.clearDirectRoomNavigation()
 
+    fun claimDirectRoomNavigation(): DirectRoomNavClaim? = navigationCoordinator.claimDirectRoomNavigation()
+
     fun getDirectRoomNavigationTimestamp(): Long? = navigationCoordinator.getDirectRoomNavigationTimestamp()
 
     fun getPendingRoomNavigation(): String? = navigationCoordinator.getPendingRoomNavigation()

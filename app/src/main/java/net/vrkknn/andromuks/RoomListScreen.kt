@@ -198,16 +198,22 @@ internal fun NavController.navigateToRoomTimelineForExternalEntry(roomId: String
 /**
  * Single entry point for all notification / shortcut / restore room navigation in RoomListScreen.
  *
- * Flush MUST happen before [clearNavigation] so that directRoomNavigation != null during the
+ * Flush MUST happen before [claimNavigation] so that directRoomNavigation != null during the
  * suspension — this shields navigateToRoomListIfNeeded from force-navigating to room_list
  * (with popUpTo(navController.graph.id)) and cancelling this coroutine while the batch is still processing.
+ *
+ * [claimNavigation] both consumes the pending navigation (as the old clearNavigation did) and
+ * returns whether *this* caller won ownership. For a NOTIFICATION it delegates to
+ * claimDirectRoomNavigation, so if RoomTimelineScreen's navTrigger effect already claimed the same
+ * tap it returns false and we abort — preventing two overlapping popUpTo(graph.id) + navigate
+ * sequences from corrupting the NavHost (the "renders but frozen" bug). SHORTCUT/RESTORE always win.
  */
 internal suspend fun executeRoomNavigation(
     appViewModel: AppViewModel,
     navController: NavController,
     roomId: String,
     notificationTimestamp: Long?,
-    clearNavigation: () -> Unit,
+    claimNavigation: () -> Boolean,
 ) {
     Androlog(
         "FCMOpen",
@@ -216,7 +222,13 @@ internal suspend fun executeRoomNavigation(
         ) != null} wsConn=${appViewModel.isWebSocketConnected()} → room_timeline",
     )
     appViewModel.flushSyncBatchForRoom(roomId)
-    clearNavigation()
+    if (!claimNavigation()) {
+        Androlog(
+            "FCMOpen",
+            "executeRoomNavigation ABORT room=$roomId — navigation already claimed (RoomTimelineScreen owns this tap)",
+        )
+        return
+    }
     if (notificationTimestamp != null) {
         appViewModel.navigateToRoomWithCache(roomId, notificationTimestamp)
     } else {

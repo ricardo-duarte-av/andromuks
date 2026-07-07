@@ -851,14 +851,17 @@ fun RoomTimelineScreen(
     val navTrigger = appViewModel.directRoomNavigationTrigger
     LaunchedEffect(navTrigger) {
         if (navTrigger == 0) return@LaunchedEffect // Skip initial composition
-        val targetRoomId = appViewModel.getDirectRoomNavigation()
+        // Atomically claim the pending navigation. A single notification tap arms both this
+        // effect and the AppNavigation collector; whichever claims first navigates, the other
+        // gets null here and bails — see NavigationCoordinator.claimDirectRoomNavigation.
+        val claim = appViewModel.claimDirectRoomNavigation()
+        val targetRoomId = claim?.roomId
         if (targetRoomId != null) {
             if (targetRoomId == roomId) {
-                // Same room — clear navigation, consume highlight event, then rebuild timeline
-                // to pick up any messages received while backgrounded.
-                // Mirrors the onAppBecameVisible double-increment: immediate refresh from cache,
-                // then wait for batch flush and refresh again.
-                appViewModel.clearDirectRoomNavigation()
+                // Same room — consume highlight event, then rebuild timeline to pick up any
+                // messages received while backgrounded (the claim above already cleared the
+                // pending navigation). Mirrors the onAppBecameVisible double-increment: immediate
+                // refresh from cache, then wait for batch flush and refresh again.
                 val eventId = appViewModel.consumePendingHighlightEvent(roomId)
                 if (eventId != null) {
                     if (BuildConfig.DEBUG) {
@@ -889,8 +892,7 @@ fun RoomTimelineScreen(
                     "RoomTimelineScreen: Navigation for different room $targetRoomId (current=$roomId)",
                 )
                 }
-                val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                appViewModel.clearDirectRoomNavigation()
+                val notificationTimestamp = claim?.timestamp
                 // Set currentRoomId to targetRoomId BEFORE suspending in flushSyncBatchForRoom.
                 // If flush suspends (up to 500ms), any concurrent LaunchedEffect watching
                 // currentRoomId will see the new room, not the old one, preventing stale room
@@ -2935,6 +2937,17 @@ fun RoomTimelineScreen(
         // Capture before any suspension — the big initial-scroll effect clears this after it fires.
         val isThreadViewerReturn = appViewModel.threadReturnScrollEventId != null
         val isWarmTimelineReturn = appViewModel.currentRoomId == roomId && appViewModel.timelineEvents.isNotEmpty()
+        // Mount breadcrumb: records how this timeline screen was entered. A screen that appears with
+        // no deliberate open (openedViaDirectNotification=false, currentRoomId not already this room,
+        // and a back stack we didn't synthesize) is a NavHost-restored stale entry — the precondition
+        // for the double-navigation freeze (a stale RT mounted when a notification for another room is
+        // tapped). This pins down where such an entry came from on the next occurrence.
+        Androlog(
+            "FCMOpen",
+            "RoomTimelineScreen MOUNT room=$roomId prevRoute=${navController.previousBackStackEntry?.destination?.route} " +
+                "openedViaDirectNotif=${appViewModel.openedViaDirectNotification} warmReturn=$isWarmTimelineReturn " +
+                "currentRoomId=${appViewModel.currentRoomId} wsConn=${appViewModel.isWebSocketConnected()}",
+        )
         readinessCheckComplete = isWarmTimelineReturn
         pendingInitialScroll = !isWarmTimelineReturn
         if (!isWarmTimelineReturn) {

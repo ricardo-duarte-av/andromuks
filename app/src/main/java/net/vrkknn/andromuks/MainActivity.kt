@@ -1754,12 +1754,17 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                 return@collectLatest
             }
 
-            val clearFn: () -> Unit = when (request.source) {
-                RoomNavigationRequest.Source.NOTIFICATION -> appViewModel::clearDirectRoomNavigation
-                RoomNavigationRequest.Source.SHORTCUT -> appViewModel::clearPendingRoomNavigation
-                else -> ({})
+            // Claim ownership atomically. A NOTIFICATION shares directRoomNavigation with
+            // RoomTimelineScreen's navTrigger effect (a single tap arms both), so
+            // claimDirectRoomNavigation returns false here if RT already took it — executeRoomNavigation
+            // then aborts instead of firing a second, overlapping navigation. SHORTCUT/RESTORE do not
+            // share that state and always win.
+            val claimFn: () -> Boolean = when (request.source) {
+                RoomNavigationRequest.Source.NOTIFICATION -> ({ appViewModel.claimDirectRoomNavigation() != null })
+                RoomNavigationRequest.Source.SHORTCUT -> ({ true.also { appViewModel.clearPendingRoomNavigation() } })
+                else -> ({ true })
             }
-            executeRoomNavigation(appViewModel, navController, roomId, request.timestamp, clearFn)
+            executeRoomNavigation(appViewModel, navController, roomId, request.timestamp, claimFn)
         }
     }
 
