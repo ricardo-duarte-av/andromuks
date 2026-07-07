@@ -9,6 +9,13 @@ import kotlinx.coroutines.launch
  */
 internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
 
+    private companion object {
+        // Window for collapsing the onResume + "ViewModel created after onResume" double-fire.
+        // Short enough that genuinely separate resumes (foreground, then onNewIntent seconds later)
+        // each run the full resume body; long enough to absorb the same-transition double-fire.
+        const val APP_BECAME_VISIBLE_DEBOUNCE_MS = 1000L
+    }
+
     fun markAsPrimaryInstance() {
         with(vm) {
             instanceRole = AppViewModel.InstanceRole.PRIMARY
@@ -185,6 +192,27 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
 
     fun onAppBecameVisible() {
         with(vm) {
+            // Debounce the near-simultaneous double-fire from onAppBecameVisible's two call sites
+            // (MainActivity.onResume + the "ViewModel created after onResume" fallback). Without this,
+            // a cold notification-open runs the heavy resume body twice — notably two re-dial
+            // branches → two initializeWebSocketConnection calls racing to open parallel WebSocket
+            // connections (the cold-open freeze). The window is short enough that genuinely separate
+            // resumes (foreground, then an onNewIntent seconds later) still each run fully.
+            val nowMs = android.os.SystemClock.elapsedRealtime()
+            val sinceLastMs = nowMs - lastAppBecameVisibleAtMs
+            if (lastAppBecameVisibleAtMs != 0L && sinceLastMs in 0 until APP_BECAME_VISIBLE_DEBOUNCE_MS) {
+                // Still make the idempotent visibility state true (cheap, no side effects) so a
+                // dropped call can't leave us reading stale invisibility, then skip the heavy work.
+                isAppVisible = true
+                mainActivityEverResumed = true
+                Androlog(
+                    "FCMOpen",
+                    "onAppBecameVisible: debounced duplicate (${sinceLastMs}ms since last) — skipping heavy resume work",
+                )
+                return
+            }
+            lastAppBecameVisibleAtMs = nowMs
+
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "AppViewModel: App became visible")
             }

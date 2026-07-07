@@ -1875,7 +1875,23 @@ class WebSocketService : Service() {
                         return@launch
                     }
 
-                    if (serviceInstance.connectionState is ConnectionState.Connecting) {
+                    // Atomic dial claim. Two concurrent connectWebSocket coroutines (e.g. a double
+                    // onAppBecameVisible cold-dial while wsConn=false) both suspend in
+                    // waitForServiceInstance, so checking "is state Connecting?" BEFORE the transition
+                    // to Connecting is a check-then-act race — both can pass it and open parallel
+                    // connections, corrupting connection state (the "renders but frozen" cold-open
+                    // freeze). Do the check AND the transition under reconnectionLock so exactly one
+                    // coroutine wins the dial; the loser bails.
+                    val claimedDial = synchronized(serviceInstance.reconnectionLock) {
+                        if (serviceInstance.connectionState is ConnectionState.Connecting) {
+                            false
+                        } else {
+                            val attempt = serviceInstance.reconnectionAttemptCount.coerceAtLeast(0) + 1
+                            updateConnectionState(ConnectionState.Connecting(attempt))
+                            true
+                        }
+                    }
+                    if (!claimedDial) {
                         // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
                         android.util.Log.i(
                             "Andromuks",
@@ -1886,11 +1902,6 @@ class WebSocketService : Service() {
                             serviceInstance.currentNetworkType.name,
                         )
                         return@launch
-                    }
-
-                    synchronized(serviceInstance.reconnectionLock) {
-                        val attempt = serviceInstance.reconnectionAttemptCount.coerceAtLeast(0) + 1
-                        updateConnectionState(ConnectionState.Connecting(attempt))
                     }
                     serviceInstance.startHardConnectingTimeout()
 

@@ -4387,6 +4387,14 @@ class AppViewModel : ViewModel() {
     // linger reschedule reads [isAppVisible] == true (its default) and
     // incorrectly assumes the main UI is foregrounded.
     internal var mainActivityEverResumed: Boolean = false
+
+    // Timestamp (SystemClock.elapsedRealtime) of the last onAppBecameVisible that ran its full body.
+    // onAppBecameVisible has two call sites — MainActivity.onResume and the "ViewModel created after
+    // onResume" fallback — which can both fire within the same lifecycle transition on a cold
+    // notification-open, double-running the heavy resume work (ping, batch flush, re-dial). A short
+    // debounce collapses that near-simultaneous double-fire while leaving genuinely separate resumes
+    // (e.g. foreground → onNewIntent seconds later) untouched. See onAppBecameVisible.
+    internal var lastAppBecameVisibleAtMs: Long = 0L
         internal set
 
     // Delayed shutdown job for when app becomes invisible
