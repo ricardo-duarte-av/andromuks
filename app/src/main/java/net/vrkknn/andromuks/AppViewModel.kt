@@ -1906,7 +1906,23 @@ class AppViewModel : ViewModel() {
             receiptMovements.entries.removeAll { (_, movement) ->
                 currentTime - movement.third > 2000
             }
-            return receiptMovements.toMap()
+            if (bridgeStatusEventToMessageId.isEmpty()) return receiptMovements.toMap()
+            // Flatten bridge status-event endpoints onto their original message so the receipt
+            // animation targets a rendered bubble. A bridge bot's read receipt hops
+            // message → status1 → status2 (both com.beeper.message_send_status events are
+            // non-rendered); without flattening, the animation chases a non-rendered event and the
+            // avatar slides "to nowhere". After flattening, a hop that collapses onto the same bubble
+            // is a no-op and is dropped so no spurious in/out animation fires. Non-bridge event IDs
+            // aren't in the map and pass through unchanged.
+            val result = HashMap<String, Triple<String?, String, Long>>(receiptMovements.size)
+            for ((userId, movement) in receiptMovements) {
+                val (prev, new, ts) = movement
+                val flatPrev = prev?.let { bridgeStatusEventToMessageId[it] ?: it }
+                val flatNew = bridgeStatusEventToMessageId[new] ?: new
+                if (flatPrev == flatNew) continue
+                result[userId] = Triple(flatPrev, flatNew, ts)
+            }
+            return result
         }
     }
 
