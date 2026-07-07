@@ -12168,7 +12168,8 @@ class AppViewModel : ViewModel() {
     fun inviteUser(roomId: String, userId: String, reason: String? = null) {
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "set_membership", requestId,
+            "set_membership",
+            requestId,
             mapOf(
                 "room_id" to roomId,
                 "user_id" to userId,
@@ -12186,7 +12187,8 @@ class AppViewModel : ViewModel() {
     fun kickUser(roomId: String, userId: String, reason: String? = null) {
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "set_membership", requestId,
+            "set_membership",
+            requestId,
             mapOf(
                 "room_id" to roomId,
                 "user_id" to userId,
