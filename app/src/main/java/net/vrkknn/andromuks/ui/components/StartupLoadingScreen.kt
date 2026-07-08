@@ -1,28 +1,28 @@
 package net.vrkknn.andromuks.ui.components
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
- * Startup loading screen with Material 3 spinner and progress message list
- * Shows the last 10 progress messages with newest on top
+ * Startup loading screen shown during cold start.
+ *
+ * Renders the current user's avatar (via [topContent], which carries the shared-element tag so it
+ * flies into the RoomListScreen header) and their global display name below it. The avatar is
+ * framed with Material 3 Expressive wavy bezels by the caller's morph mask. The former progress
+ * message box has been removed — progress messages are no longer surfaced to the user.
  */
 @Composable
 fun StartupLoadingScreen(
-    progressMessages: List<String>,
     modifier: Modifier = Modifier,
+    displayName: String? = null,
     topContent: (@Composable () -> Unit)? = null,
 ) {
     Box(
@@ -33,76 +33,29 @@ fun StartupLoadingScreen(
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Top,
+            verticalArrangement = Arrangement.Center,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(32.dp),
         ) {
             if (topContent != null) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(96.dp)
-                        .padding(bottom = 24.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    topContent()
-                }
+                topContent()
             } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(96.dp)
-                        .padding(bottom = 24.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    // Material 3 spinner with primary color
-                    ExpressiveLoadingIndicator(
-                        modifier = Modifier.size(72.dp),
-                        indicatorColor = MaterialTheme.colorScheme.primary,
-                    )
-                }
+                ExpressiveLoadingIndicator(
+                    modifier = Modifier.size(96.dp),
+                    indicatorColor = MaterialTheme.colorScheme.primary,
+                )
             }
 
-            // Progress messages list (last 10, newest on top)
-            // Note: progressMessages already has newest first, so we display them in order
-            val displayMessages = progressMessages.take(10)
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 220.dp, max = 320.dp),
-                shape = RoundedCornerShape(24.dp),
-                tonalElevation = 3.dp,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                ),
-            ) {
-                if (displayMessages.isNotEmpty()) {
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(vertical = 10.dp),
-                        horizontalAlignment = Alignment.Start,
-                        verticalArrangement = Arrangement.Top,
-                    ) {
-                        items(displayMessages) { message ->
-                            Text(
-                                text = message,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                textAlign = TextAlign.Start,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 4.dp, horizontal = 16.dp),
-                            )
-                        }
-                    }
-                } else {
-                    // No fallback text — when displayMessages is empty we render nothing,
-                    // letting only the avatar/morph carry the loading affordance.
-                }
+            if (!displayName.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(24.dp))
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    textAlign = TextAlign.Center,
+                )
             }
         }
     }

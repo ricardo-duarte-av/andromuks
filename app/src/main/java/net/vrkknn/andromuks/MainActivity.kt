@@ -2029,8 +2029,8 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                                 exit = fadeOut(animationSpec = tween(durationMillis = scaledTweenMs(0))),
                             ) {
                                 net.vrkknn.andromuks.ui.components.StartupLoadingScreen(
-                                    progressMessages = emptyList(),
                                     modifier = Modifier.fillMaxSize(),
+                                    displayName = startupDisplayName,
                                     topContent = {
                                         if (startupAvatarMxc != null) {
                                             val morphMaskModifier = rememberMorphingStartupAvatarMaskModifier()
@@ -2041,7 +2041,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                                                         homeserverUrl = startupHomeserverUrl,
                                                         authToken = startupAuthToken,
                                                         fallbackText = startupDisplayName,
-                                                        size = 72.dp,
+                                                        size = 112.dp,
                                                         userId = currentUserId,
                                                         displayName = startupDisplayName,
                                                         modifier = Modifier
@@ -2068,7 +2068,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                                                         homeserverUrl = startupHomeserverUrl,
                                                         authToken = startupAuthToken,
                                                         fallbackText = startupDisplayName,
-                                                        size = 72.dp,
+                                                        size = 112.dp,
                                                         userId = currentUserId,
                                                         displayName = startupDisplayName,
                                                         modifier = Modifier.then(morphMaskModifier),
@@ -2077,7 +2077,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                                             }
                                         } else {
                                             net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator(
-                                                modifier = Modifier.size(72.dp),
+                                                modifier = Modifier.size(112.dp),
                                             )
                                         }
                                     },
