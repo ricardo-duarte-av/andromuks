@@ -32,9 +32,14 @@ Andromuks is a Matrix protocol chat client for Android, built with Jetpack Compo
 
 # Single test class
 ./gradlew test --tests "net.vrkknn.andromuks.SomeTest"
+
+# Lint (detekt + Android lint) — ALWAYS run before committing
+./gradlew detekt
 ```
 
 Build produces arm64-v8a only (ABI splits enabled). JVM heap is configured at 4GB (`-Xmx4096m`).
+
+**ALWAYS run `./gradlew detekt` and fix every issue before committing.** CI's first job is `lint` (detekt + Android lint) and it hard-fails the whole pipeline on any finding — detekt treats warnings as build-failing issues (e.g. the `ModifierReused` rule: the `modifier` parameter must be applied by exactly one — the root — layout in a composable; nested layouts use a fresh `Modifier`). A green local compile is not enough.
 
 ### Product flavors (side-by-side installs)
 

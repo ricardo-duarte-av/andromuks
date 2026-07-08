@@ -1871,7 +1871,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                         // CRITICAL FIX: Always show StartupLoadingScreen initially to prevent white flash during navigation
                         // Use Box with background to ensure no white flash even during transition
                         androidx.compose.foundation.layout.Box(
-                            modifier = modifier
+                            modifier = Modifier
                                 .fillMaxSize()
                                 .background(androidx.compose.material3.MaterialTheme.colorScheme.background),
                         ) {
