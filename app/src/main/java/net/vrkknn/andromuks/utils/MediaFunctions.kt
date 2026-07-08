@@ -3312,12 +3312,11 @@ internal fun ImageViewerDialog(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
+                            // Outer layer: pan only. Translation here is applied in screen space,
+                            // so pan direction stays correct regardless of the inner rotation.
                             .graphicsLayer(
-                                scaleX = scale,
-                                scaleY = scale,
                                 translationX = offsetX,
                                 translationY = offsetY,
-                                rotationZ = normalizedRotation,
                             )
                             .transformable(state = transformableState)
                             .pointerInput(Unit) {
@@ -3332,6 +3331,17 @@ internal fun ImageViewerDialog(
                                 )
                             },
                     ) {
+                      // Inner layer: scale + rotation. Kept separate from pan so that
+                      // rotating the image does not rotate the pan axes.
+                      Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                rotationZ = normalizedRotation,
+                            ),
+                      ) {
                         val thumbnailRequest = remember(thumbnailUrl, cachedFile, authToken) {
                             ImageRequest.Builder(context)
                                 .data(thumbnailUrl)
@@ -3416,6 +3426,7 @@ internal fun ImageViewerDialog(
                                 }
                             },
                         )
+                      }
                     }
                 }
             }
