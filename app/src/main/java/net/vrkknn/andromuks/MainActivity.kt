@@ -2192,15 +2192,31 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                         popExitTransition = {
                             val to = targetState.destination.route
                             val noFade = to?.startsWith("user_info") == true ||
-                                to?.startsWith("room_info") == true ||
-                                to == "room_list"
+                                to?.startsWith("room_info") == true
                             if (BuildConfig.DEBUG) {
                                 Log.d(
                                     "Andromuks",
                                     "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=$to, noFade=$noFade",
                                 )
                             }
-                            if (noFade) androidx.compose.animation.ExitTransition.None else fadeOut(tween(scaledTweenMs(200)))
+                            when {
+                                // Popping back to the room list: on a pop the outgoing timeline is drawn
+                                // *on top of* the revealed room list. ExitTransition.None never fades it,
+                                // and AnimatedContent keeps the outgoing content composed for as long as
+                                // the transition is active — which the shared-element avatar/badge spring
+                                // (StiffnessLow + LowBouncy, ~1s bouncy settle) keeps alive. Net effect:
+                                // the fully-opaque, still-live timeline sat on top of the room list for
+                                // ~1s before snapping away. Fade it out fast (150ms) so it clears almost
+                                // immediately, revealing the room list underneath, while the shared element
+                                // keeps flying in the SharedTransition overlay (drawn above everything).
+                                // The room list stays instant (EnterTransition.None) so it's solid under
+                                // the fade — fading BOTH would flash the background through for 150ms.
+                                to == "room_list" -> fadeOut(tween(scaledTweenMs(150)))
+
+                                noFade -> androidx.compose.animation.ExitTransition.None
+
+                                else -> fadeOut(tween(scaledTweenMs(200)))
+                            }
                         },
                     ) { backStackEntry ->
                         val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
