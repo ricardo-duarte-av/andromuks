@@ -1851,16 +1851,20 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                         exitTransition = {
                             // Opening a room: no fade — the list stays solid behind the flying avatar so the
                             // shared-element flight is the only motion. Fade only for other exits.
+                            // ExitTransition.None, NOT null: null inherits the NavHost default fade (700ms).
                             if (targetState.destination.route?.startsWith("room_timeline") == true) {
-                                null
+                                androidx.compose.animation.ExitTransition.None
                             } else {
                                 fadeOut(tween(scaledTweenMs(200)))
                             }
                         },
                         popEnterTransition = {
                             // Returning from a room: appear instantly under the avatar (shared-element flight only).
+                            // EnterTransition.None, NOT null: null inherits the NavHost default fade (700ms),
+                            // which — now that the timeline exits instantly — would fade the list in from the
+                            // background instead of it being solid the moment we return.
                             if (initialState.destination.route?.startsWith("room_timeline") == true) {
-                                null
+                                androidx.compose.animation.EnterTransition.None
                             } else {
                                 fadeIn(tween(scaledTweenMs(200)))
                             }
@@ -2136,7 +2140,10 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                                     "MainActivity room_timeline enterTransition: initial=$from, target=${targetState.destination.route}, noFade=$noFade",
                                 )
                             }
-                            if (noFade) null else fadeIn(tween(scaledTweenMs(200)))
+                            // noFade must be EnterTransition.None, NOT null: a null lambda result
+                            // inherits the NavHost-level default (fadeIn(tween(700))), which keeps
+                            // this destination animating for 700ms — the opposite of "no fade".
+                            if (noFade) androidx.compose.animation.EnterTransition.None else fadeIn(tween(scaledTweenMs(200)))
                         },
                         exitTransition = {
                             val to = targetState.destination.route
@@ -2149,7 +2156,11 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                                     "MainActivity room_timeline exitTransition: initial=${initialState.destination.route}, target=$to, noFade=$noFade",
                                 )
                             }
-                            if (noFade) null else fadeOut(tween(scaledTweenMs(200)))
+                            // noFade must be ExitTransition.None, NOT null: a null result inherits the
+                            // NavHost default (fadeOut(tween(700))), keeping this timeline composed and
+                            // on top for 700ms. During that window exitInputBlocker swallows all taps,
+                            // so the entering screen underneath is uninteractive for ~0.7s.
+                            if (noFade) androidx.compose.animation.ExitTransition.None else fadeOut(tween(scaledTweenMs(200)))
                         },
                         popEnterTransition = {
                             val from = initialState.destination.route
@@ -2162,7 +2173,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                                     "MainActivity room_timeline popEnterTransition: initial=$from, target=${targetState.destination.route}, noFade=$noFade",
                                 )
                             }
-                            if (noFade) null else fadeIn(tween(scaledTweenMs(200)))
+                            if (noFade) androidx.compose.animation.EnterTransition.None else fadeIn(tween(scaledTweenMs(200)))
                         },
                         popExitTransition = {
                             val to = targetState.destination.route
@@ -2175,7 +2186,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                                     "MainActivity room_timeline popExitTransition: initial=${initialState.destination.route}, target=$to, noFade=$noFade",
                                 )
                             }
-                            if (noFade) null else fadeOut(tween(scaledTweenMs(200)))
+                            if (noFade) androidx.compose.animation.ExitTransition.None else fadeOut(tween(scaledTweenMs(200)))
                         },
                     ) { backStackEntry ->
                         val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
