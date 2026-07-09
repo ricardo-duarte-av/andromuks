@@ -407,6 +407,15 @@ fun RoomListScreen(
     // Room summaries are now in-memory only - no need for separate summary tracking
     var lastRoomSectionSignature by remember { mutableStateOf("") }
 
+    // True while a shared-element nav transition (RoomTimeline↔RoomList flight) is running, for
+    // its whole duration including the spring settle. On a busy account, sync_completes arriving
+    // mid-flight would otherwise re-sort the list live — each moved row firing an animateItem
+    // placement spring — on the same main thread the flight animates on, starving its frames and
+    // producing a ~1s freeze. While this is true we QUEUE section updates (see the updater below)
+    // instead of applying them, keeping the list stable so the flight gets the main thread; the
+    // queued update is flushed the instant the transition ends.
+    val navTransitionActive = sharedTransitionScope?.isTransitionActive == true
+
     // ──────────────────────────────────────────────────────────────────────────
     // SINGLE stableSection updater (merged from two formerly competing effects).
     // Keyed on every trigger that can change the room section: update counters,
@@ -453,6 +462,20 @@ fun RoomListScreen(
                 android.util.Log.d(
                     "Andromuks",
                     "RoomListScreen: Animation in progress, queuing section update (rooms:${newSection.rooms.size})",
+                )
+            }
+            return@LaunchedEffect
+        }
+
+        // ── Nav transition (RT↔RL shared-element flight) in progress → queue ──
+        // Don't reorder the list mid-flight; the placement springs would fight the transition on
+        // the main thread. Buffer and flush when the transition ends (see LaunchedEffect below).
+        if (navTransitionActive) {
+            pendingSectionUpdate = newSection
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "RoomListScreen: Nav transition active, queuing section update (rooms:${newSection.rooms.size})",
                 )
             }
             return@LaunchedEffect
@@ -518,6 +541,25 @@ fun RoomListScreen(
             stableSection = newSection
         }
         // Otherwise nothing meaningful changed – skip update to avoid avatar flashing
+    }
+
+    // Flush any section update that was buffered while the RT↔RL flight was running, the instant
+    // the transition ends. Applying it now (rather than during the flight) means the one-shot
+    // re-sort lands on a free main thread and the list settles into its new order right after the
+    // avatar arrives, instead of reshuffling under it.
+    LaunchedEffect(navTransitionActive) {
+        if (!navTransitionActive) {
+            pendingSectionUpdate?.let { pending ->
+                stableSection = pending
+                pendingSectionUpdate = null
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "RoomListScreen: Nav transition ended, flushing queued section update (rooms:${pending.rooms.size})",
+                    )
+                }
+            }
+        }
     }
 
     // Room summaries are now in-memory only - data is already in stableSection.rooms
