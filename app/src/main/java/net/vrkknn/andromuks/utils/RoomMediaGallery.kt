@@ -239,9 +239,9 @@ fun RoomMediaGalleryScreen(roomId: String, navController: NavController, appView
     fun loadMore() {
         if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
             android.util.Log.d(
-            "GalleryPaginate",
-            "loadMore called: isLoadingMore=$isLoadingMore, hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId",
-        )
+                "GalleryPaginate",
+                "loadMore called: isLoadingMore=$isLoadingMore, hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId",
+            )
         }
         if (isLoadingMore || !hasMore) return
         isLoadingMore = true
@@ -253,9 +253,9 @@ fun RoomMediaGalleryScreen(roomId: String, navController: NavController, appView
             val newItems = extractMediaItems(events, homeserverUrl)
             if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "GalleryPaginate",
-                "Callback: events=${events.size}, newItems=${newItems.size}, moreAvailable=$moreAvailable, minRowId=$minRowId",
-            )
+                    "GalleryPaginate",
+                    "Callback: events=${events.size}, newItems=${newItems.size}, moreAvailable=$moreAvailable, minRowId=$minRowId",
+                )
             }
             mediaItems = mediaItems + newItems
             hasMore = moreAvailable && events.isNotEmpty()
@@ -265,17 +265,17 @@ fun RoomMediaGalleryScreen(roomId: String, navController: NavController, appView
                 // All events lacked a valid timeline_rowid – stop to avoid an infinite loop.
                 if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "GalleryPaginate",
-                    "Stopping to avoid infinite loop (all events lacked a valid timeline_rowid)",
-                )
+                        "GalleryPaginate",
+                        "Stopping to avoid infinite loop (all events lacked a valid timeline_rowid)",
+                    )
                 }
                 hasMore = false
             }
             if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "GalleryPaginate",
-                "After state update: hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId",
-            )
+                    "GalleryPaginate",
+                    "After state update: hasMore=$hasMore, nextMaxTimelineId=$nextMaxTimelineId",
+                )
             }
             isLoadingMore = false
             isInitialLoading = false
@@ -307,9 +307,9 @@ fun RoomMediaGalleryScreen(roomId: String, navController: NavController, appView
     LaunchedEffect(lastVisibleIndex, totalItems, hasMore, isLoadingMore) {
         if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
             android.util.Log.d(
-            "GalleryPaginate",
-            "Scroll check: lastVisible=$lastVisibleIndex, total=$totalItems, hasMore=$hasMore, isLoading=$isLoadingMore",
-        )
+                "GalleryPaginate",
+                "Scroll check: lastVisible=$lastVisibleIndex, total=$totalItems, hasMore=$hasMore, isLoading=$isLoadingMore",
+            )
         }
         // Two reasons to keep paginating:
         //  1. The grid hasn't filled the screen yet (totalItems too small to scroll). This also
@@ -322,9 +322,9 @@ fun RoomMediaGalleryScreen(roomId: String, navController: NavController, appView
         if ((notYetScrollable || scrolledNearEnd) && hasMore && !isLoadingMore) {
             if (net.vrkknn.andromuks.BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "GalleryPaginate",
-                "Load condition met (notYetScrollable=$notYetScrollable, scrolledNearEnd=$scrolledNearEnd) -> calling loadMore()",
-            )
+                    "GalleryPaginate",
+                    "Load condition met (notYetScrollable=$notYetScrollable, scrolledNearEnd=$scrolledNearEnd) -> calling loadMore()",
+                )
             }
             loadMore()
         }
@@ -510,12 +510,7 @@ fun RoomMediaGalleryScreen(roomId: String, navController: NavController, appView
 }
 
 @Composable
-private fun GalleryThumbnail(
-    item: GalleryMediaItem,
-    authToken: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
+private fun GalleryThumbnail(item: GalleryMediaItem, authToken: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val imageLoader = remember { net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context) }
     val shape = RoundedCornerShape(8.dp)

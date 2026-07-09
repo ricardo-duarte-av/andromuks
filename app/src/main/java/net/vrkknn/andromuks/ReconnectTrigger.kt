@@ -22,8 +22,7 @@ sealed class ReconnectTrigger {
 
     object UserRequested : ReconnectTrigger()
 
-    data class NetworkTypeChanged(val from: WebSocketService.NetworkType, val to: WebSocketService.NetworkType) :
-        ReconnectTrigger()
+    data class NetworkTypeChanged(val from: WebSocketService.NetworkType, val to: WebSocketService.NetworkType) : ReconnectTrigger()
 
     // --- Additional structured causes (avoid [Unclassified] where possible) ---
 

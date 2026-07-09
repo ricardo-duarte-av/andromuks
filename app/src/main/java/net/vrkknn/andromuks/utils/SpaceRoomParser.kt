@@ -361,9 +361,9 @@ object SpaceRoomParser {
             val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
             if (BuildConfig.DEBUG) {
                 android.util.Log.w(
-                "Andromuks",
-                "SpaceRoomParser: clear_state=true - clearing $currentSpacesSize spaces (will be repopulated by subsequent sync_complete messages)",
-            )
+                    "Andromuks",
+                    "SpaceRoomParser: clear_state=true - clearing $currentSpacesSize spaces (will be repopulated by subsequent sync_complete messages)",
+                )
             }
             appViewModel?.updateAllSpaces(emptyList())
         }
@@ -373,17 +373,17 @@ object SpaceRoomParser {
         if (topLevelSpaces != null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "SpaceRoomParser: top_level_spaces found with ${topLevelSpaces.length()} items (clear_state=$isClearState)",
-            )
+                    "Andromuks",
+                    "SpaceRoomParser: top_level_spaces found with ${topLevelSpaces.length()} items (clear_state=$isClearState)",
+                )
             }
             // Only parse basic space info, don't populate edges yet
             val spaces = parseSpacesBasic(data)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data (clear_state=$isClearState)",
-            )
+                    "Andromuks",
+                    "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data (clear_state=$isClearState)",
+                )
             }
             if (spaces.isNotEmpty() && BuildConfig.DEBUG) {
                 android.util.Log.d(
@@ -398,18 +398,18 @@ object SpaceRoomParser {
                 val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "SpaceRoomParser: Calling updateAllSpaces with ${spaces.size} spaces (current: $currentSpacesSize, clear_state=$isClearState)",
-                )
+                        "Andromuks",
+                        "SpaceRoomParser: Calling updateAllSpaces with ${spaces.size} spaces (current: $currentSpacesSize, clear_state=$isClearState)",
+                    )
                 }
                 appViewModel?.updateAllSpaces(spaces)
             } else {
                 val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
                 if (BuildConfig.DEBUG) {
                     android.util.Log.w(
-                    "Andromuks",
-                    "SpaceRoomParser: ⚠️ Received empty spaces array (clear_state=$isClearState, current spaces: $currentSpacesSize) - preserving existing spaces",
-                )
+                        "Andromuks",
+                        "SpaceRoomParser: ⚠️ Received empty spaces array (clear_state=$isClearState, current spaces: $currentSpacesSize) - preserving existing spaces",
+                    )
                 }
             }
             discoveredSpaceIds.addAll(spaces.map { it.id })
@@ -423,9 +423,9 @@ object SpaceRoomParser {
             val currentSpacesSize = appViewModel?.allSpaces?.size ?: 0
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "SpaceRoomParser: Storing space_edges (current spaces: $currentSpacesSize, top_level_spaces was ${if (topLevelSpaces != null) "present" else "null"})",
-            )
+                    "Andromuks",
+                    "SpaceRoomParser: Storing space_edges (current spaces: $currentSpacesSize, top_level_spaces was ${if (topLevelSpaces != null) "present" else "null"})",
+                )
             }
             appViewModel?.storeSpaceEdges(spaceEdges)
             // Keys of space_edges are also space IDs (can include nested spaces)
@@ -621,7 +621,7 @@ object SpaceRoomParser {
                         val eid = ev.optString("event_id")?.takeIf { it.isNotBlank() } ?: continue
                         val ts = ev.optLong("timestamp", 0L)
                         if (ts > bestTs) {
-                            bestTs = ts;
+                            bestTs = ts
                             latestEventId = eid
                         }
                     }
@@ -719,12 +719,7 @@ object SpaceRoomParser {
      * 2. Secondary: m.direct account data (more reliable than name-based detection)
      * 3. Fallback: room name patterns (contains @ symbol or looks like a user ID)
      */
-    private fun detectDirectMessage(
-        roomId: String,
-        roomObj: JSONObject,
-        meta: JSONObject,
-        appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-    ): Boolean {
+    private fun detectDirectMessage(roomId: String, roomObj: JSONObject, meta: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): Boolean {
         try {
             // Method 1: Check if dm_user_id is populated in meta - this indicates a DM
             val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
@@ -909,11 +904,7 @@ object SpaceRoomParser {
     /**
      * Updates existing spaces with child rooms from space_edges
      */
-    fun updateExistingSpacesWithEdges(
-        spaceEdges: JSONObject,
-        data: JSONObject,
-        appViewModel: net.vrkknn.andromuks.AppViewModel?,
-    ) {
+    fun updateExistingSpacesWithEdges(spaceEdges: JSONObject, data: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel?) {
         try {
             val roomsJson = data.optJSONObject("rooms")
             val updatedSpaces = mutableListOf<net.vrkknn.andromuks.SpaceItem>()

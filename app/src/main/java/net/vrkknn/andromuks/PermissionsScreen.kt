@@ -64,7 +64,12 @@ fun PermissionsScreen(onPermissionsGranted: () -> Unit, modifier: Modifier = Mod
         notificationPermissionGranted = checkNotificationPermission(context)
         batteryOptimizationDisabled = checkBatteryOptimization(context)
 
-        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Initial permission check - notifications: $notificationPermissionGranted, battery: $batteryOptimizationDisabled")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            "PermissionsScreen",
+            "Initial permission check - notifications: $notificationPermissionGranted, battery: $batteryOptimizationDisabled",
+        )
+        }
 
         // If notification permission is granted, proceed immediately (battery exemption is optional)
         if (notificationPermissionGranted) {
@@ -297,16 +302,15 @@ private fun AutoStartInfoCard(context: Context, modifier: Modifier = Modifier) {
 /**
  * Check if notification permission is granted
  */
-private fun checkNotificationPermission(context: Context): Boolean =
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        ContextCompat.checkSelfPermission(
-            context,
-            Manifest.permission.POST_NOTIFICATIONS,
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-    } else {
-        // Notifications are auto-granted on Android 12 and below
-        true
-    }
+private fun checkNotificationPermission(context: Context): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.POST_NOTIFICATIONS,
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+} else {
+    // Notifications are auto-granted on Android 12 and below
+    true
+}
 
 /**
  * Check if battery optimization is disabled for this app
@@ -319,10 +323,7 @@ private fun checkBatteryOptimization(context: Context): Boolean {
 /**
  * Request battery optimization exemption
  */
-private fun requestBatteryOptimizationExemption(
-    context: Context,
-    launcher: androidx.activity.result.ActivityResultLauncher<Intent>,
-) {
+private fun requestBatteryOptimizationExemption(context: Context, launcher: androidx.activity.result.ActivityResultLauncher<Intent>) {
     try {
         val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
             data = Uri.parse("package:${context.packageName}")
@@ -344,25 +345,21 @@ private fun requestBatteryOptimizationExemption(
  * Check if required permissions are granted and proceed
  * Only notification permission is required; battery exemption is optional
  */
-private fun checkAndProceed(
-    notificationGranted: Boolean,
-    batteryOptimizationDisabled: Boolean,
-    onPermissionsGranted: () -> Unit,
-) {
+private fun checkAndProceed(notificationGranted: Boolean, batteryOptimizationDisabled: Boolean, onPermissionsGranted: () -> Unit) {
     if (notificationGranted) {
         if (BuildConfig.DEBUG) {
             Log.d(
-            "PermissionsScreen",
-            "Notification permission granted, proceeding (battery exemption: $batteryOptimizationDisabled)",
-        )
+                "PermissionsScreen",
+                "Notification permission granted, proceeding (battery exemption: $batteryOptimizationDisabled)",
+            )
         }
         onPermissionsGranted()
     } else {
         if (BuildConfig.DEBUG) {
             Log.d(
-            "PermissionsScreen",
-            "Notification permission not granted yet - notifications: $notificationGranted, battery: $batteryOptimizationDisabled",
-        )
+                "PermissionsScreen",
+                "Notification permission not granted yet - notifications: $notificationGranted, battery: $batteryOptimizationDisabled",
+            )
         }
     }
 }

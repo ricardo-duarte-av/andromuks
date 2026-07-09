@@ -29,19 +29,9 @@ class StubAuthenticatorService : Service() {
         ) = null
         override fun confirmCredentials(r: AccountAuthenticatorResponse, account: Account, options: Bundle?) = null
         override fun editProperties(r: AccountAuthenticatorResponse, accountType: String) = null
-        override fun getAuthToken(
-            r: AccountAuthenticatorResponse,
-            account: Account,
-            authTokenType: String,
-            options: Bundle?,
-        ) = null
+        override fun getAuthToken(r: AccountAuthenticatorResponse, account: Account, authTokenType: String, options: Bundle?) = null
         override fun getAuthTokenLabel(authTokenType: String) = null
         override fun hasFeatures(r: AccountAuthenticatorResponse, account: Account, features: Array<String>) = null
-        override fun updateCredentials(
-            r: AccountAuthenticatorResponse,
-            account: Account,
-            authTokenType: String?,
-            options: Bundle?,
-        ) = null
+        override fun updateCredentials(r: AccountAuthenticatorResponse, account: Account, authTokenType: String?, options: Bundle?) = null
     }
 }

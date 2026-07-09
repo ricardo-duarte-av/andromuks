@@ -161,13 +161,7 @@ class SyncIngestor(private val context: Context) {
         return parts.joinToString(", ")
     }
 
-    private suspend fun logUnprocessedEvent(
-        roomId: String?,
-        eventJson: JSONObject?,
-        source: String,
-        reason: String,
-        exception: Exception? = null,
-    ) {
+    private suspend fun logUnprocessedEvent(roomId: String?, eventJson: JSONObject?, source: String, reason: String, exception: Exception? = null) {
         val eventId = try {
             eventJson?.optString("event_id")?.takeIf { it.isNotBlank() } ?: "<missing>"
         } catch (_: Exception) {
@@ -244,9 +238,9 @@ class SyncIngestor(private val context: Context) {
     suspend fun handleClearStateSignal() = withContext(Dispatchers.IO) {
         if (BuildConfig.DEBUG) {
             Log.w(
-            TAG,
-            "SyncIngestor: clear_state=true received - all data is in-memory only, nothing to clear from DB",
-        )
+                TAG,
+                "SyncIngestor: clear_state=true received - all data is in-memory only, nothing to clear from DB",
+            )
         }
         // All room/space/invite/account data is in-memory only - no DB cleanup needed
     }
@@ -265,153 +259,149 @@ class SyncIngestor(private val context: Context) {
      * @param isAppVisible Whether the app is currently visible (affects processing optimizations)
      * @return IngestResult containing rooms with events and parsed invites
      */
-    suspend fun ingestSyncComplete(
-        syncJson: JSONObject,
-        requestId: Int,
-        runId: String,
-        isAppVisible: Boolean = true,
-    ): IngestResult = withContext(Dispatchers.IO) {
-        // Track which rooms had events added to cache (for notifying timeline screens)
-        val roomsWithEvents = mutableSetOf<String>()
+    suspend fun ingestSyncComplete(syncJson: JSONObject, requestId: Int, runId: String, isAppVisible: Boolean = true): IngestResult =
+        withContext(Dispatchers.IO) {
+            // Track which rooms had events added to cache (for notifying timeline screens)
+            val roomsWithEvents = mutableSetOf<String>()
 
-        // Check which rooms are currently cached before processing
-        // CRITICAL: This is called once at the start, so rooms must be marked as actively cached
-        // BEFORE ingestSyncComplete is called (e.g., in navigateToRoomWithCache before forceFlushBatch)
-        val cachedRoomIds = cacheUpdateListener?.getCachedRoomIds() ?: emptySet()
-        if (BuildConfig.DEBUG && cachedRoomIds.isNotEmpty()) {
-            Log.d(
-                TAG,
-                "SyncIngestor: ingestSyncComplete - ${cachedRoomIds.size} rooms are actively cached: ${cachedRoomIds.take(
-                    5,
-                ).joinToString(", ")}${if (cachedRoomIds.size > 5) "..." else ""}",
-            )
-        }
+            // Check which rooms are currently cached before processing
+            // CRITICAL: This is called once at the start, so rooms must be marked as actively cached
+            // BEFORE ingestSyncComplete is called (e.g., in navigateToRoomWithCache before forceFlushBatch)
+            val cachedRoomIds = cacheUpdateListener?.getCachedRoomIds() ?: emptySet()
+            if (BuildConfig.DEBUG && cachedRoomIds.isNotEmpty()) {
+                Log.d(
+                    TAG,
+                    "SyncIngestor: ingestSyncComplete - ${cachedRoomIds.size} rooms are actively cached: ${cachedRoomIds.take(
+                        5,
+                    ).joinToString(", ")}${if (cachedRoomIds.size > 5) "..." else ""}",
+                )
+            }
 
-        // Check run_id first - this is critical!
-        val runIdChanged = checkAndHandleRunIdChange(runId)
-        if (runIdChanged) {
-            Log.w(TAG, "Run ID changed - updated run_id, preserving all user data and ingesting sync")
-        }
+            // Check run_id first - this is critical!
+            val runIdChanged = checkAndHandleRunIdChange(runId)
+            if (runIdChanged) {
+                Log.w(TAG, "Run ID changed - updated run_id, preserving all user data and ingesting sync")
+            }
 
-        val data = syncJson.optJSONObject("data") ?: run {
-            Log.w(TAG, "No 'data' field in sync_complete")
-            return@withContext IngestResult(emptySet(), emptyList())
-        }
+            val data = syncJson.optJSONObject("data") ?: run {
+                Log.w(TAG, "No 'data' field in sync_complete")
+                return@withContext IngestResult(emptySet(), emptyList())
+            }
 
-        // If server instructs us to clear state, all data is in-memory only - nothing to clear
-        val clearState = data.optBoolean("clear_state", false)
-        if (clearState) {
-            handleClearStateSignal()
-        }
+            // If server instructs us to clear state, all data is in-memory only - nothing to clear
+            val clearState = data.optBoolean("clear_state", false)
+            if (clearState) {
+                handleClearStateSignal()
+            }
 
-        // Extract "since" token (sync token from server) - store in SharedPreferences
-        val since = data.optString("since", "")
-        if (since.isNotEmpty()) {
-            sharedPrefs.edit().putString("ws_since_token", since).apply()
-        }
+            // Extract "since" token (sync token from server) - store in SharedPreferences
+            val since = data.optString("since", "")
+            if (since.isNotEmpty()) {
+                sharedPrefs.edit().putString("ws_since_token", since).apply()
+            }
 
-        // Account data and spaces are now in-memory only - processed by SpaceRoomParser
-        // Invites are parsed and returned (in-memory only, no DB persistence)
-        val invites = processInvitedRooms(data)
+            // Account data and spaces are now in-memory only - processed by SpaceRoomParser
+            // Invites are parsed and returned (in-memory only, no DB persistence)
+            val invites = processInvitedRooms(data)
 
-        // Process left_rooms - all data is in-memory only, no DB cleanup needed
-        val leftRooms = data.optJSONArray("left_rooms")
-        if (leftRooms != null && leftRooms.length() > 0) {
-            val leftRoomIds = mutableListOf<String>()
-            for (i in 0 until leftRooms.length()) {
-                val roomId = leftRooms.optString(i)
-                if (roomId.isNotBlank()) {
-                    leftRoomIds.add(roomId)
+            // Process left_rooms - all data is in-memory only, no DB cleanup needed
+            val leftRooms = data.optJSONArray("left_rooms")
+            if (leftRooms != null && leftRooms.length() > 0) {
+                val leftRoomIds = mutableListOf<String>()
+                for (i in 0 until leftRooms.length()) {
+                    val roomId = leftRooms.optString(i)
+                    if (roomId.isNotBlank()) {
+                        leftRoomIds.add(roomId)
+                    }
                 }
-            }
-            if (leftRoomIds.isNotEmpty() && BuildConfig.DEBUG) {
-                Log.d(TAG, "Left rooms (in-memory only, no DB cleanup): ${leftRoomIds.joinToString(", ")}")
-            }
-        }
-
-        // All data is in-memory only - no pending room processing needed
-
-        // Process rooms - all data is in-memory only, no DB operations
-        val roomsJson = data.optJSONObject("rooms")
-        if (roomsJson != null) {
-            // PERFORMANCE: Extract all room data upfront to avoid repeated JSON operations
-            val roomKeys = roomsJson.keys()
-            val roomsToProcess = mutableListOf<Pair<String, JSONObject>>()
-
-            while (roomKeys.hasNext()) {
-                val roomId = roomKeys.next()
-                val roomObj = roomsJson.optJSONObject(roomId)
-                if (roomObj != null) {
-                    roomsToProcess.add(Pair(roomId, roomObj))
+                if (leftRoomIds.isNotEmpty() && BuildConfig.DEBUG) {
+                    Log.d(TAG, "Left rooms (in-memory only, no DB cleanup): ${leftRoomIds.joinToString(", ")}")
                 }
             }
 
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "SyncIngestor: Processing all ${roomsToProcess.size} rooms from sync_complete")
-            }
+            // All data is in-memory only - no pending room processing needed
 
-            if (roomsToProcess.isEmpty()) {
+            // Process rooms - all data is in-memory only, no DB operations
+            val roomsJson = data.optJSONObject("rooms")
+            if (roomsJson != null) {
+                // PERFORMANCE: Extract all room data upfront to avoid repeated JSON operations
+                val roomKeys = roomsJson.keys()
+                val roomsToProcess = mutableListOf<Pair<String, JSONObject>>()
+
+                while (roomKeys.hasNext()) {
+                    val roomId = roomKeys.next()
+                    val roomObj = roomsJson.optJSONObject(roomId)
+                    if (roomObj != null) {
+                        roomsToProcess.add(Pair(roomId, roomObj))
+                    }
+                }
+
                 if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: No rooms in this sync_complete - skipping event processing")
+                    Log.d(TAG, "SyncIngestor: Processing all ${roomsToProcess.size} rooms from sync_complete")
                 }
-            } else {
-                // PERFORMANCE: Process rooms in parallel (maintains order for cache updates)
-                // Use coroutines to parallelize room processing while keeping cache updates sequential
-                coroutineScope {
-                    val roomResults = roomsToProcess.mapIndexed { index, (roomId, roomObj) ->
-                        async(Dispatchers.IO) {
-                            // Process ALL rooms that have events. Even if a room is NOT in cachedRoomIds,
-                            // we process it to ensure the cache starts and stays fresh (no message loss).
-                            val wasCached = cachedRoomIds.contains(roomId)
-                            val hadEvents = processRoom(roomId, roomObj, isAppVisible, wasCached)
-                            Pair(roomId, hadEvents)
-                        }
-                    }
 
-                    // Collect results (maintains order - await in sequence)
-                    for ((index, deferred) in roomResults.withIndex()) {
-                        val (roomId, hadEvents) = deferred.await()
-                        if (hadEvents) {
-                            roomsWithEvents.add(roomId)
+                if (roomsToProcess.isEmpty()) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "SyncIngestor: No rooms in this sync_complete - skipping event processing")
+                    }
+                } else {
+                    // PERFORMANCE: Process rooms in parallel (maintains order for cache updates)
+                    // Use coroutines to parallelize room processing while keeping cache updates sequential
+                    coroutineScope {
+                        val roomResults = roomsToProcess.mapIndexed { index, (roomId, roomObj) ->
+                            async(Dispatchers.IO) {
+                                // Process ALL rooms that have events. Even if a room is NOT in cachedRoomIds,
+                                // we process it to ensure the cache starts and stays fresh (no message loss).
+                                val wasCached = cachedRoomIds.contains(roomId)
+                                val hadEvents = processRoom(roomId, roomObj, isAppVisible, wasCached)
+                                Pair(roomId, hadEvents)
+                            }
                         }
-                        // Yield every 20 rooms to allow other coroutines to run
-                        if ((index + 1) % 20 == 0) {
-                            kotlinx.coroutines.yield()
+
+                        // Collect results (maintains order - await in sequence)
+                        for ((index, deferred) in roomResults.withIndex()) {
+                            val (roomId, hadEvents) = deferred.await()
+                            if (hadEvents) {
+                                roomsWithEvents.add(roomId)
+                            }
+                            // Yield every 20 rooms to allow other coroutines to run
+                            if ((index + 1) % 20 == 0) {
+                                kotlinx.coroutines.yield()
+                            }
                         }
                     }
                 }
+
+                // Enhanced logging to show what sync_complete actually contained
+                // if (BuildConfig.DEBUG) {
+                //   val roomsWithoutEvents = roomsToProcess.size - roomsWithEvents.size
+                //    val summary = buildString {
+                //        append("Ingested sync_complete: requestId=$requestId, since=$since, ")
+                //        append("rooms=${roomsToProcess.size} (${roomsWithEvents.size} with events added to cache, $roomsWithoutEvents without events)")
+                //        if (roomsWithoutEvents > 0) {
+                //            append(" - Rooms without events: ")
+                //            val roomsWithoutEventsList = roomsToProcess.filter { it !in roomsWithEvents }
+                //            roomsWithoutEventsList.forEachIndexed { index, roomId ->
+                //                if (index > 0) append(", ")
+                //                val roomObj = roomsJson.optJSONObject(roomId)
+                //                if (roomObj != null) {
+                //                    val contents = analyzeRoomContents(roomId, roomObj)
+                //                    append("$roomId($contents)")
+                //                } else {
+                //                    append(roomId)
+                //                }
+                //            }
+                //        }
+                //    }
+                //    Log.d(TAG, summary)
+                // }
+            } else {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, 0 rooms (no rooms object)")
             }
 
-            // Enhanced logging to show what sync_complete actually contained
-            // if (BuildConfig.DEBUG) {
-            //   val roomsWithoutEvents = roomsToProcess.size - roomsWithEvents.size
-            //    val summary = buildString {
-            //        append("Ingested sync_complete: requestId=$requestId, since=$since, ")
-            //        append("rooms=${roomsToProcess.size} (${roomsWithEvents.size} with events added to cache, $roomsWithoutEvents without events)")
-            //        if (roomsWithoutEvents > 0) {
-            //            append(" - Rooms without events: ")
-            //            val roomsWithoutEventsList = roomsToProcess.filter { it !in roomsWithEvents }
-            //            roomsWithoutEventsList.forEachIndexed { index, roomId ->
-            //                if (index > 0) append(", ")
-            //                val roomObj = roomsJson.optJSONObject(roomId)
-            //                if (roomObj != null) {
-            //                    val contents = analyzeRoomContents(roomId, roomObj)
-            //                    append("$roomId($contents)")
-            //                } else {
-            //                    append(roomId)
-            //                }
-            //            }
-            //        }
-            //    }
-            //    Log.d(TAG, summary)
-            // }
-        } else {
-            if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, 0 rooms (no rooms object)")
+            // Return result with rooms that had events and parsed invites
+            IngestResult(roomsWithEvents, invites)
         }
-
-        // Return result with rooms that had events and parsed invites
-        IngestResult(roomsWithEvents, invites)
-    }
 
     /**
      * Process a single room from sync_complete
@@ -514,9 +504,9 @@ class SyncIngestor(private val context: Context) {
             if (isRoomCached) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "SyncIngestor: Processing ${relatedEventsArray.length()} related_events from sync_complete for room $roomId (BEFORE main events)",
-                )
+                        TAG,
+                        "SyncIngestor: Processing ${relatedEventsArray.length()} related_events from sync_complete for room $roomId (BEFORE main events)",
+                    )
                 }
 
                 // Parse related_events and collect them in a separate list first
@@ -560,9 +550,9 @@ class SyncIngestor(private val context: Context) {
 
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "SyncIngestor: Stored ${relatedEventsList.size} related_events as reply-context for room $roomId",
-                )
+                        TAG,
+                        "SyncIngestor: Stored ${relatedEventsList.size} related_events as reply-context for room $roomId",
+                    )
                 }
             }
         }
@@ -1143,9 +1133,9 @@ class SyncIngestor(private val context: Context) {
                                     isDirectMessage = true
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        TAG,
-                                        "SyncIngestor: Detected DM invite - additional_creators contains current user",
-                                    )
+                                            TAG,
+                                            "SyncIngestor: Detected DM invite - additional_creators contains current user",
+                                        )
                                     }
                                     break
                                 }

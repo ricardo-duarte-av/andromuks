@@ -110,33 +110,29 @@ object ProgressiveImageLoader {
      * @param authToken Authentication token for protected images
      * @return Optimized ImageRequest
      */
-    fun createProgressiveImageRequest(
-        context: Context,
-        imageUrl: String,
-        displaySize: ImageSize,
-        authToken: String? = null,
-    ): ImageRequest = ImageRequest.Builder(context)
-        .data(imageUrl)
-        .apply {
-            // Set optimal size
-            size(displaySize.width, displaySize.height)
-            scale(displaySize.scale)
+    fun createProgressiveImageRequest(context: Context, imageUrl: String, displaySize: ImageSize, authToken: String? = null): ImageRequest =
+        ImageRequest.Builder(context)
+            .data(imageUrl)
+            .apply {
+                // Set optimal size
+                size(displaySize.width, displaySize.height)
+                scale(displaySize.scale)
 
-            // Memory optimization
-            memoryCachePolicy(CachePolicy.ENABLED)
-            diskCachePolicy(CachePolicy.ENABLED)
+                // Memory optimization
+                memoryCachePolicy(CachePolicy.ENABLED)
+                diskCachePolicy(CachePolicy.ENABLED)
 
-            // Quality optimization - remove quality method as it's not available
-            // quality(displaySize.quality)
+                // Quality optimization - remove quality method as it's not available
+                // quality(displaySize.quality)
 
-            // Progressive loading settings
-            allowHardware(true)
-            allowRgb565(true)
+                // Progressive loading settings
+                allowHardware(true)
+                allowRgb565(true)
 
-            // Network optimization
-            networkCachePolicy(CachePolicy.ENABLED)
-        }
-        .build()
+                // Network optimization
+                networkCachePolicy(CachePolicy.ENABLED)
+            }
+            .build()
 
     /**
      * Optimize image file with compression and resizing.
@@ -146,39 +142,43 @@ object ProgressiveImageLoader {
      * @param targetSize Target size for optimization
      * @return Optimized image file
      */
-    suspend fun optimizeImage(context: Context, originalFile: File, targetSize: Int = PREVIEW_SIZE): File =
-        withContext(Dispatchers.IO) {
-            val optimizedFile = File(context.cacheDir, "optimized_${originalFile.name}")
+    suspend fun optimizeImage(context: Context, originalFile: File, targetSize: Int = PREVIEW_SIZE): File = withContext(Dispatchers.IO) {
+        val optimizedFile = File(context.cacheDir, "optimized_${originalFile.name}")
 
-            try {
-                val bitmap = BitmapFactory.decodeFile(originalFile.absolutePath)
-                if (bitmap == null) {
-                    Log.w(TAG, "Failed to decode bitmap from file: ${originalFile.absolutePath}")
-                    return@withContext originalFile
-                }
-
-                val optimizedBitmap = resizeBitmap(bitmap, targetSize)
-
-                optimizedFile.outputStream().use { output ->
-                    optimizedBitmap.compress(Bitmap.CompressFormat.JPEG, PREVIEW_QUALITY, output)
-                }
-
-                if (optimizedBitmap != bitmap) {
-                    bitmap.recycle()
-                }
-                optimizedBitmap.recycle()
-
-                val originalSize = originalFile.length()
-                val optimizedSize = optimizedFile.length()
-                val compressionRatio = (1.0 - optimizedSize.toDouble() / originalSize) * 100
-
-                if (BuildConfig.DEBUG) Log.d(TAG, "Optimized image: ${originalSize / 1024}KB -> ${optimizedSize / 1024}KB (${compressionRatio.toInt()}% reduction)")
-                optimizedFile
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to optimize image: ${originalFile.absolutePath}", e)
-                originalFile
+        try {
+            val bitmap = BitmapFactory.decodeFile(originalFile.absolutePath)
+            if (bitmap == null) {
+                Log.w(TAG, "Failed to decode bitmap from file: ${originalFile.absolutePath}")
+                return@withContext originalFile
             }
+
+            val optimizedBitmap = resizeBitmap(bitmap, targetSize)
+
+            optimizedFile.outputStream().use { output ->
+                optimizedBitmap.compress(Bitmap.CompressFormat.JPEG, PREVIEW_QUALITY, output)
+            }
+
+            if (optimizedBitmap != bitmap) {
+                bitmap.recycle()
+            }
+            optimizedBitmap.recycle()
+
+            val originalSize = originalFile.length()
+            val optimizedSize = optimizedFile.length()
+            val compressionRatio = (1.0 - optimizedSize.toDouble() / originalSize) * 100
+
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "Optimized image: ${originalSize / 1024}KB -> ${optimizedSize / 1024}KB (${compressionRatio.toInt()}% reduction)",
+            )
+            }
+            optimizedFile
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to optimize image: ${originalFile.absolutePath}", e)
+            originalFile
         }
+    }
 
     /**
      * Resize bitmap to target size while maintaining aspect ratio.

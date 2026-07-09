@@ -77,8 +77,7 @@ object ProfileCache {
     /**
      * Check if a flattened profile exists
      */
-    fun hasFlattenedProfile(roomId: String, userId: String): Boolean =
-        flattenedMemberCache.containsKey("$roomId:$userId")
+    fun hasFlattenedProfile(roomId: String, userId: String): Boolean = flattenedMemberCache.containsKey("$roomId:$userId")
 
     /**
      * Get all user IDs for a room from the index
@@ -144,9 +143,9 @@ object ProfileCache {
                 keysToRemove.take(maxSize / 2).forEach { flattenedMemberCache.remove(it) }
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "ProfileCache: Cleaned up ${keysToRemove.size} old flattened profiles",
-                )
+                        TAG,
+                        "ProfileCache: Cleaned up ${keysToRemove.size} old flattened profiles",
+                    )
                 }
             }
         }

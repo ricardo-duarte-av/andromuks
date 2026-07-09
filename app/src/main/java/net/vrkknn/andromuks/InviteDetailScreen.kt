@@ -39,12 +39,7 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun InviteDetailScreen(
-    roomId: String,
-    navController: NavController,
-    modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel(),
-) {
+fun InviteDetailScreen(roomId: String, navController: NavController, modifier: Modifier = Modifier, appViewModel: AppViewModel = viewModel()) {
     val invite = appViewModel.getPendingInvites().find { it.roomId == roomId }
 
     if (invite == null) {

@@ -45,13 +45,7 @@ internal class PushRulesCoordinator(private val vm: AppViewModel) {
     }
 
     /** Create or replace a custom rule (`put`). Not valid for default rules. */
-    fun putRule(
-        kind: PushRuleKind,
-        ruleId: String,
-        actions: List<Any>,
-        conditions: List<Map<String, Any>> = emptyList(),
-        pattern: String = "",
-    ) = with(vm) {
+    fun putRule(kind: PushRuleKind, ruleId: String, actions: List<Any>, conditions: List<Map<String, Any>> = emptyList(), pattern: String = "") = with(vm) {
         val newContent = mapOf(
             "actions" to actions,
             "conditions" to conditions,
@@ -102,9 +96,9 @@ internal class PushRulesCoordinator(private val vm: AppViewModel) {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "PushRulesCoordinator: update_push_rule kind=${kind.apiName} rule_id=$ruleId action=$action",
-        )
+                "Andromuks",
+                "PushRulesCoordinator: update_push_rule kind=${kind.apiName} rule_id=$ruleId action=$action",
+            )
         }
         sendWebSocketCommand("update_push_rule", requestId, data)
     }
@@ -145,8 +139,7 @@ internal class PushRulesCoordinator(private val vm: AppViewModel) {
     )
 }
 
-private fun PushRuleset.copyReplacing(kind: PushRuleKind, rules: List<PushRule>): PushRuleset =
-    PushRuleset(byKind.toMutableMap().apply { put(kind, rules) })
+private fun PushRuleset.copyReplacing(kind: PushRuleKind, rules: List<PushRule>): PushRuleset = PushRuleset(byKind.toMutableMap().apply { put(kind, rules) })
 
 private fun PushRuleset.copyRemoving(kind: PushRuleKind, ruleId: String): PushRuleset =
     PushRuleset(byKind.toMutableMap().apply { put(kind, rules(kind).filterNot { it.ruleId == ruleId }) })

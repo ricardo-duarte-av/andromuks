@@ -48,17 +48,17 @@ object StickerPacksCache {
                 packsList[existingIndex] = pack
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "StickerPacksCache: updatePack - updated pack ${pack.packName} in room ${pack.roomId}",
-                )
+                        TAG,
+                        "StickerPacksCache: updatePack - updated pack ${pack.packName} in room ${pack.roomId}",
+                    )
                 }
             } else {
                 packsList.add(pack)
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "StickerPacksCache: updatePack - added new pack ${pack.packName} in room ${pack.roomId}",
-                )
+                        TAG,
+                        "StickerPacksCache: updatePack - added new pack ${pack.packName} in room ${pack.roomId}",
+                    )
                 }
             }
         }

@@ -171,9 +171,9 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Enqueued media update for room $roomId (image=${imageUrl != null}, roomAvatar=${roomAvatarMxc != null}, senderAvatar=${senderAvatarMxc != null}, meAvatar=${meAvatarMxc != null}, fetchEvent=$fetchEvent)",
-            )
+                    TAG,
+                    "Enqueued media update for room $roomId (image=${imageUrl != null}, roomAvatar=${roomAvatarMxc != null}, senderAvatar=${senderAvatarMxc != null}, meAvatar=${meAvatarMxc != null}, fetchEvent=$fetchEvent)",
+                )
             }
         }
     }
@@ -296,7 +296,7 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
                 for (src in imageSources) {
                     val f = downloadImageFile(src.mxc, src.httpUrl, authToken)
                     if (f != null) {
-                        result = f to src.mime;
+                        result = f to src.mime
                         break
                     }
                 }
@@ -449,9 +449,9 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
                     NotificationManagerCompat.from(applicationContext).notify(notifId, repost)
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "Re-posted current notification byte-identical to advance the one-behind People tile: $roomId",
-                    )
+                            TAG,
+                            "Re-posted current notification byte-identical to advance the one-behind People tile: $roomId",
+                        )
                     }
                     Androlog(
                         "Notifications",
@@ -735,9 +735,9 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
                 NotificationManagerCompat.from(applicationContext).notify(notifId, repost)
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "Posted enriched notification a 2nd time so one-behind People tile lands on it: $roomId",
-                )
+                        TAG,
+                        "Posted enriched notification a 2nd time so one-behind People tile lands on it: $roomId",
+                    )
                 }
             }
         }
@@ -782,9 +782,9 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
 
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "Notification updated for room $roomId (image=${imageUri != null}, audio=${audioUri != null}, caption=${audioCaption != null}, richText=${richText != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null})",
-        )
+                TAG,
+                "Notification updated for room $roomId (image=${imageUri != null}, audio=${audioUri != null}, caption=${audioCaption != null}, richText=${richText != null}, room=${dl.room != null}, sender=${dl.sender != null}, me=${dl.me != null})",
+            )
         }
         Androlog(
             "Notifications",
@@ -808,12 +808,7 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
      *  - [retryDownload]: true when a voice clip was wanted but the download failed, so the worker
      *    should retry (the caption already posted regardless).
      */
-    private data class AudioOutcome(
-        val uri: android.net.Uri?,
-        val mime: String,
-        val caption: String?,
-        val retryDownload: Boolean = false,
-    )
+    private data class AudioOutcome(val uri: android.net.Uri?, val mime: String, val caption: String?, val retryDownload: Boolean = false)
 
     /** A candidate image to download for the notification (thumbnail or full-size payload image). */
     private data class ImageSource(val mxc: String?, val httpUrl: String, val mime: String)
@@ -826,11 +821,7 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
      * carry the thumbnail the same way: encrypted → `info.thumbnail_file.url` (served decrypted via
      * `?encrypted=true`); plaintext → `info.thumbnail_url`. Returns null when there is no thumbnail.
      */
-    private fun resolveImageThumbnail(
-        eventJson: JSONObject,
-        homeserverUrl: String,
-        effectiveToken: String,
-    ): ImageSource? {
+    private fun resolveImageThumbnail(eventJson: JSONObject, homeserverUrl: String, effectiveToken: String): ImageSource? {
         val content = decryptedContent(eventJson) ?: return null
         val msgtype = content.optString("msgtype")
         if (msgtype != "m.image" && msgtype != "m.video" && msgtype != "m.file") return null
@@ -840,8 +831,8 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
         val isEncrypted = thumbFile != null
         val mxc = (
             thumbFile?.optString("url")?.takeIf { it.isNotBlank() }
-            ?: info.optString("thumbnail_url").takeIf { it.isNotBlank() }
-        ) ?: return null
+                ?: info.optString("thumbnail_url").takeIf { it.isNotBlank() }
+            ) ?: return null
         val base = MediaUtils.mxcToHttpUrl(mxc, homeserverUrl, registerMapping = false) ?: return null
 
         var url = base + (if (base.contains("?")) "&" else "?") + "encrypted=$isEncrypted"
@@ -890,8 +881,7 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
      * real type). A plaintext event has its content directly in `content`. So: prefer `decrypted`,
      * fall back to `content`. (This differs from the sync/frontend view, which pre-merges them.)
      */
-    private fun decryptedContent(eventJson: JSONObject): JSONObject? =
-        eventJson.optJSONObject("decrypted") ?: eventJson.optJSONObject("content")
+    private fun decryptedContent(eventJson: JSONObject): JSONObject? = eventJson.optJSONObject("decrypted") ?: eventJson.optJSONObject("content")
 
     /** A relay bot's per-message identity: the real actor's display name and/or avatar. */
     private data class PerMessageProfile(val displayname: String?, val avatarMxc: String?)
@@ -1051,11 +1041,7 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
      * (music/podcast) gets a metadata caption only — no heavy background download. Returns null for
      * non-audio events (nothing to enrich here yet).
      */
-    private suspend fun audioOutcomeFrom(
-        eventJson: JSONObject,
-        homeserverUrl: String,
-        authToken: String,
-    ): AudioOutcome? {
+    private suspend fun audioOutcomeFrom(eventJson: JSONObject, homeserverUrl: String, authToken: String): AudioOutcome? {
         // Read the decrypted body for encrypted events (raw `content` is ciphertext there).
         val content = decryptedContent(eventJson) ?: return null
         if (content.optString("msgtype") != "m.audio") return null
@@ -1083,8 +1069,8 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
         val isEncrypted = fileObj != null
         val mxc = (
             fileObj?.optString("url")?.takeIf { it.isNotBlank() }
-            ?: content.optString("url").takeIf { it.isNotBlank() }
-        )
+                ?: content.optString("url").takeIf { it.isNotBlank() }
+            )
             ?: return AudioOutcome(uri = null, mime = "", caption = voiceCaption)
         val mime = info?.optString("mimetype")?.substringBefore(";")?.trim()?.takeIf { it.isNotBlank() }
             ?: "audio/ogg"
@@ -1106,45 +1092,44 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
      * Download a (typically small) audio clip to the FileProvider-exposed cache dir and return the
      * file, or null. No image sniffing — unlike [IntelligentMediaCache]. Cache-first by mxc.
      */
-    private suspend fun downloadAudioFile(mxc: String, httpUrl: String, authToken: String, ext: String): File? =
-        withContext(Dispatchers.IO) {
-            try {
-                // Must live under intelligent_media_cache/ — the only writable dir file_paths.xml exposes.
-                val dir = File(applicationContext.cacheDir, "intelligent_media_cache")
-                if (!dir.exists()) dir.mkdirs()
-                val safe = mxc.removePrefix("mxc://").replace(Regex("[^A-Za-z0-9._-]"), "_")
-                val out = File(dir, "notif_audio_$safe.$ext")
-                if (out.exists() && out.length() > 0L) return@withContext out
+    private suspend fun downloadAudioFile(mxc: String, httpUrl: String, authToken: String, ext: String): File? = withContext(Dispatchers.IO) {
+        try {
+            // Must live under intelligent_media_cache/ — the only writable dir file_paths.xml exposes.
+            val dir = File(applicationContext.cacheDir, "intelligent_media_cache")
+            if (!dir.exists()) dir.mkdirs()
+            val safe = mxc.removePrefix("mxc://").replace(Regex("[^A-Za-z0-9._-]"), "_")
+            val out = File(dir, "notif_audio_$safe.$ext")
+            if (out.exists() && out.length() > 0L) return@withContext out
 
-                val request = Request.Builder()
-                    .url(httpUrl)
-                    .header("Cookie", "gomuks_auth=$authToken")
-                    .header("User-Agent", getUserAgent())
-                    .build()
-                audioHttpClient.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        Log.w(TAG, "Audio download HTTP ${resp.code} for $mxc")
-                        return@withContext null
-                    }
-                    val respBody = resp.body
-                    val tmp = File(dir, "${out.name}.tmp")
-                    tmp.outputStream().use { o -> respBody.byteStream().use { it.copyTo(o) } }
-                    if (tmp.length() == 0L) {
-                        tmp.delete()
-                        return@withContext null
-                    }
-                    out.delete()
-                    if (!tmp.renameTo(out)) {
-                        tmp.copyTo(out, overwrite = true)
-                        tmp.delete()
-                    }
-                    out
+            val request = Request.Builder()
+                .url(httpUrl)
+                .header("Cookie", "gomuks_auth=$authToken")
+                .header("User-Agent", getUserAgent())
+                .build()
+            audioHttpClient.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) {
+                    Log.w(TAG, "Audio download HTTP ${resp.code} for $mxc")
+                    return@withContext null
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Audio download failed for $mxc", e)
-                null
+                val respBody = resp.body
+                val tmp = File(dir, "${out.name}.tmp")
+                tmp.outputStream().use { o -> respBody.byteStream().use { it.copyTo(o) } }
+                if (tmp.length() == 0L) {
+                    tmp.delete()
+                    return@withContext null
+                }
+                out.delete()
+                if (!tmp.renameTo(out)) {
+                    tmp.copyTo(out, overwrite = true)
+                    tmp.delete()
+                }
+                out
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Audio download failed for $mxc", e)
+            null
         }
+    }
 
     /** Wrap a file in a content:// URI and grant read to systemui, Android Auto, the launcher, and us. */
     private fun contentUriForFile(file: File): android.net.Uri? = try {
@@ -1193,53 +1178,47 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
     }
 
     /** Download (cache-first) the message image to a file, or null on failure. */
-    private suspend fun downloadImageFile(mxcUrl: String?, imageUrl: String, authToken: String): File? =
-        withContext(Dispatchers.IO) {
-            try {
-                if (mxcUrl != null) {
-                    IntelligentMediaCache.getCachedFile(applicationContext, mxcUrl)
-                        ?: IntelligentMediaCache.downloadAndCache(applicationContext, mxcUrl, imageUrl, authToken)
-                } else {
-                    IntelligentMediaCache.downloadAndCache(applicationContext, imageUrl, imageUrl, authToken)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Image download failed", e)
-                null
-            }
-        }
-
-    /** Download (cache-first) an avatar and return a circular, downscaled bitmap, or null. */
-    private suspend fun loadCircular(
-        mxcUrl: String,
-        homeserverUrl: String,
-        effectiveToken: String,
-        authToken: String,
-        maxPx: Int,
-    ): Bitmap? = withContext(Dispatchers.IO) {
+    private suspend fun downloadImageFile(mxcUrl: String?, imageUrl: String, authToken: String): File? = withContext(Dispatchers.IO) {
         try {
-            val file = IntelligentMediaCache.getCachedFile(applicationContext, mxcUrl)
-                ?: run {
-                    if (homeserverUrl.isBlank()) return@withContext null
-                    val baseHttpUrl = when {
-                        mxcUrl.startsWith("mxc://") -> AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
-                        mxcUrl.startsWith("_gomuks/") -> "$homeserverUrl/$mxcUrl"
-                        else -> mxcUrl
-                    } ?: return@withContext null
-                    val httpUrl = if (effectiveToken.isNotEmpty() && baseHttpUrl.contains("/_gomuks/media/")) {
-                        val sep = if (baseHttpUrl.contains("?")) "&" else "?"
-                        "$baseHttpUrl${sep}image_auth=$effectiveToken"
-                    } else {
-                        baseHttpUrl
-                    }
-                    IntelligentMediaCache.downloadAndCache(applicationContext, mxcUrl, httpUrl, authToken)
-                }
-            val bitmap = file?.let { decodeScaledBitmap(it, maxPx) } ?: return@withContext null
-            createCircularBitmap(bitmap)
+            if (mxcUrl != null) {
+                IntelligentMediaCache.getCachedFile(applicationContext, mxcUrl)
+                    ?: IntelligentMediaCache.downloadAndCache(applicationContext, mxcUrl, imageUrl, authToken)
+            } else {
+                IntelligentMediaCache.downloadAndCache(applicationContext, imageUrl, imageUrl, authToken)
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "loadCircular failed for $mxcUrl", e)
+            Log.e(TAG, "Image download failed", e)
             null
         }
     }
+
+    /** Download (cache-first) an avatar and return a circular, downscaled bitmap, or null. */
+    private suspend fun loadCircular(mxcUrl: String, homeserverUrl: String, effectiveToken: String, authToken: String, maxPx: Int): Bitmap? =
+        withContext(Dispatchers.IO) {
+            try {
+                val file = IntelligentMediaCache.getCachedFile(applicationContext, mxcUrl)
+                    ?: run {
+                        if (homeserverUrl.isBlank()) return@withContext null
+                        val baseHttpUrl = when {
+                            mxcUrl.startsWith("mxc://") -> AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
+                            mxcUrl.startsWith("_gomuks/") -> "$homeserverUrl/$mxcUrl"
+                            else -> mxcUrl
+                        } ?: return@withContext null
+                        val httpUrl = if (effectiveToken.isNotEmpty() && baseHttpUrl.contains("/_gomuks/media/")) {
+                            val sep = if (baseHttpUrl.contains("?")) "&" else "?"
+                            "$baseHttpUrl${sep}image_auth=$effectiveToken"
+                        } else {
+                            baseHttpUrl
+                        }
+                        IntelligentMediaCache.downloadAndCache(applicationContext, mxcUrl, httpUrl, authToken)
+                    }
+                val bitmap = file?.let { decodeScaledBitmap(it, maxPx) } ?: return@withContext null
+                createCircularBitmap(bitmap)
+            } catch (e: Exception) {
+                Log.e(TAG, "loadCircular failed for $mxcUrl", e)
+                null
+            }
+        }
 
     private fun rebuildPerson(person: Person, icon: IconCompat): Person = Person.Builder()
         .setName(person.name)

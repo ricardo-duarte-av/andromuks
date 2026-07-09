@@ -218,8 +218,8 @@ class RoomJoinerWebSocket(private val sendMessage: (String) -> Unit, private val
             put(
                 "data",
                 JSONObject().apply {
-                put("alias", alias)
-            }
+                    put("alias", alias)
+                },
             )
         }
 
@@ -266,69 +266,68 @@ class RoomJoinerWebSocket(private val sendMessage: (String) -> Unit, private val
      * Returns Pair<RoomSummary?, errorMessage?>
      * Always includes "matrix.org" as a default server in the via list
      */
-    suspend fun getRoomSummary(roomIdOrAlias: String, viaServers: List<String>): Pair<RoomSummary?, String?> =
-        withContext(
-            Dispatchers.IO,
-        ) {
-            val requestId = requestIdCounter.incrementAndGet()
-            var result: RoomSummary? = null
-            var errorMessage: String? = null
+    suspend fun getRoomSummary(roomIdOrAlias: String, viaServers: List<String>): Pair<RoomSummary?, String?> = withContext(
+        Dispatchers.IO,
+    ) {
+        val requestId = requestIdCounter.incrementAndGet()
+        var result: RoomSummary? = null
+        var errorMessage: String? = null
 
-            // Always include "matrix.org" as default server, plus any additional servers
-            val finalViaServers = (viaServers + "matrix.org").distinct()
+        // Always include "matrix.org" as default server, plus any additional servers
+        val finalViaServers = (viaServers + "matrix.org").distinct()
 
-            val request = JSONObject().apply {
-                put("command", "get_room_summary")
-                put("request_id", requestId)
-                put(
-                    "data",
-                    JSONObject().apply {
+        val request = JSONObject().apply {
+            put("command", "get_room_summary")
+            put("request_id", requestId)
+            put(
+                "data",
+                JSONObject().apply {
                     put("room_id_or_alias", roomIdOrAlias)
                     put("via", JSONArray(finalViaServers))
+                },
+            )
+        }
+
+        kotlinx.coroutines.suspendCancellableCoroutine<Unit> { continuation ->
+            pendingRequests[requestId] = { response ->
+                // Check if this is an error response
+                if (isErrorResponse(response)) {
+                    errorMessage = response.optString("data")
+                } else {
+                    val data = response.optJSONObject("data")
+                    if (data != null) {
+                        result = RoomSummary(
+                            roomId = data.optString("room_id", ""),
+                            avatarUrl = data.optString("avatar_url").takeIf { it.isNotEmpty() },
+                            canonicalAlias = data.optString("canonical_alias").takeIf { it.isNotEmpty() },
+                            guestCanJoin = data.optBoolean("guest_can_join", false),
+                            joinRule = data.optString("join_rule", ""),
+                            name = data.optString("name").takeIf { it.isNotEmpty() },
+                            numJoinedMembers = data.optInt("num_joined_members", 0),
+                            roomType = data.optString("room_type").takeIf { it.isNotEmpty() },
+                            worldReadable = data.optBoolean("world_readable", false),
+                            membership = data.optString("membership").takeIf { it.isNotEmpty() },
+                            roomVersion = data.optString("im.nheko.summary.version").takeIf { it.isNotEmpty() },
+                        )
+                    }
                 }
-                )
+                continuation.resumeWith(Result.success(Unit))
             }
 
-            kotlinx.coroutines.suspendCancellableCoroutine<Unit> { continuation ->
-                pendingRequests[requestId] = { response ->
-                    // Check if this is an error response
-                    if (isErrorResponse(response)) {
-                        errorMessage = response.optString("data")
-                    } else {
-                        val data = response.optJSONObject("data")
-                        if (data != null) {
-                            result = RoomSummary(
-                                roomId = data.optString("room_id", ""),
-                                avatarUrl = data.optString("avatar_url").takeIf { it.isNotEmpty() },
-                                canonicalAlias = data.optString("canonical_alias").takeIf { it.isNotEmpty() },
-                                guestCanJoin = data.optBoolean("guest_can_join", false),
-                                joinRule = data.optString("join_rule", ""),
-                                name = data.optString("name").takeIf { it.isNotEmpty() },
-                                numJoinedMembers = data.optInt("num_joined_members", 0),
-                                roomType = data.optString("room_type").takeIf { it.isNotEmpty() },
-                                worldReadable = data.optBoolean("world_readable", false),
-                                membership = data.optString("membership").takeIf { it.isNotEmpty() },
-                                roomVersion = data.optString("im.nheko.summary.version").takeIf { it.isNotEmpty() },
-                            )
-                        }
-                    }
+            sendMessage(request.toString())
+
+            // Timeout after 10 seconds
+            kotlinx.coroutines.MainScope().launch {
+                kotlinx.coroutines.delay(10000)
+                if (pendingRequests.containsKey(requestId)) {
+                    pendingRequests.remove(requestId)
                     continuation.resumeWith(Result.success(Unit))
                 }
-
-                sendMessage(request.toString())
-
-                // Timeout after 10 seconds
-                kotlinx.coroutines.MainScope().launch {
-                    kotlinx.coroutines.delay(10000)
-                    if (pendingRequests.containsKey(requestId)) {
-                        pendingRequests.remove(requestId)
-                        continuation.resumeWith(Result.success(Unit))
-                    }
-                }
             }
-
-            Pair(result, errorMessage)
         }
+
+        Pair(result, errorMessage)
+    }
 
     /**
      * Join a room
@@ -351,9 +350,9 @@ class RoomJoinerWebSocket(private val sendMessage: (String) -> Unit, private val
             put(
                 "data",
                 JSONObject().apply {
-                put("room_id_or_alias", roomIdOrAlias)
-                put("via", JSONArray(finalViaServers))
-            }
+                    put("room_id_or_alias", roomIdOrAlias)
+                    put("via", JSONArray(finalViaServers))
+                },
             )
         }
 
@@ -465,9 +464,9 @@ fun RoomJoinerScreen(
                         // For invites, errors are OK - we'll show the invite info
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "RoomJoiner",
-                            "Room summary error for invite (this is OK): $summaryError",
-                        )
+                                "RoomJoiner",
+                                "Room summary error for invite (this is OK): $summaryError",
+                            )
                         }
                         roomSummary = null
                         errorMessage = null // Don't show error for invites
@@ -476,9 +475,9 @@ fun RoomJoinerScreen(
                         if (summary.numJoinedMembers <= 0) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "RoomJoiner",
-                                "Room summary has no member count, requesting get_room_state with members for invite",
-                            )
+                                    "RoomJoiner",
+                                    "Room summary has no member count, requesting get_room_state with members for invite",
+                                )
                             }
                             appViewModel.requestRoomStateWithMembers(inviteId) { roomStateInfo, stateError ->
                                 if (roomStateInfo != null && roomStateInfo.members.isNotEmpty()) {
@@ -489,9 +488,9 @@ fun RoomJoinerScreen(
                                     roomSummary = updatedSummary
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "RoomJoiner",
-                                        "Updated room summary with member count: ${roomStateInfo.members.size}",
-                                    )
+                                            "RoomJoiner",
+                                            "Updated room summary with member count: ${roomStateInfo.members.size}",
+                                        )
                                     }
                                 } else {
                                     // Use summary as-is (member count will show as "Unknown")
@@ -506,9 +505,9 @@ fun RoomJoinerScreen(
                         if (summary.membership == "join") {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "RoomJoiner",
-                                "Already joined to room ${summary.roomId}, navigating",
-                            )
+                                    "RoomJoiner",
+                                    "Already joined to room ${summary.roomId}, navigating",
+                                )
                             }
                             onJoinSuccess(summary.roomId)
                         }
@@ -521,9 +520,9 @@ fun RoomJoinerScreen(
                 if (isLoading && !summaryLoaded) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "RoomJoiner",
-                        "Room summary timeout for invite, showing invite info anyway",
-                    )
+                            "RoomJoiner",
+                            "Room summary timeout for invite, showing invite info anyway",
+                        )
                     }
                     isLoading = false
                 }
@@ -554,9 +553,9 @@ fun RoomJoinerScreen(
                                     if (summary.membership == "join") {
                                         if (BuildConfig.DEBUG) {
                                             Log.d(
-                                            "RoomJoiner",
-                                            "Already joined to room ${summary.roomId}, navigating",
-                                        )
+                                                "RoomJoiner",
+                                                "Already joined to room ${summary.roomId}, navigating",
+                                            )
                                         }
                                         onJoinSuccess(summary.roomId)
                                     }
@@ -585,9 +584,9 @@ fun RoomJoinerScreen(
                             if (summary.membership == "join") {
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "RoomJoiner",
-                                    "Already joined to room ${summary.roomId}, navigating",
-                                )
+                                        "RoomJoiner",
+                                        "Already joined to room ${summary.roomId}, navigating",
+                                    )
                                 }
                                 onJoinSuccess(summary.roomId)
                             }

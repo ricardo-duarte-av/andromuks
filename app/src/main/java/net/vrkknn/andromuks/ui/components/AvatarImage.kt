@@ -238,9 +238,9 @@ fun AvatarImage(
                         onSuccess = {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "AvatarImage[$effectiveUserId]: onSuccess mxc=$mxcUrl url=$currentAvatarUrl",
-                            )
+                                    "Andromuks",
+                                    "AvatarImage[$effectiveUserId]: onSuccess mxc=$mxcUrl url=$currentAvatarUrl",
+                                )
                             }
                             imageLoadFailed = false
                             imageHasLoaded = true
@@ -248,9 +248,9 @@ fun AvatarImage(
                         onError = {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "AvatarImage[$effectiveUserId]: onError mxc=$mxcUrl url=$currentAvatarUrl result=${it.result.throwable.javaClass.simpleName}: ${it.result.throwable.message}",
-                            )
+                                    "Andromuks",
+                                    "AvatarImage[$effectiveUserId]: onError mxc=$mxcUrl url=$currentAvatarUrl result=${it.result.throwable.javaClass.simpleName}: ${it.result.throwable.message}",
+                                )
                             }
                             // avatarUrl is always the http(s) MXC URL now; a failure means the media
                             // is genuinely unavailable (404/network). Show the native Text fallback.

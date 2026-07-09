@@ -113,8 +113,7 @@ object AvatarUtils {
      * colored-initial fallback locally in [net.vrkknn.andromuks.ui.components.AvatarImage] on a genuine
      * 404/error (which Coil does not disk-cache), so the slot self-heals when the media returns.
      */
-    fun mxcToHttpUrl(mxcUrl: String?, homeserverUrl: String): String? =
-        buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = true)
+    fun mxcToHttpUrl(mxcUrl: String?, homeserverUrl: String): String? = buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = true)
 
     /**
      * Gets the avatar URL without preemptive loading - lets Coil handle caching naturally
@@ -125,8 +124,7 @@ object AvatarUtils {
      * @param homeserverUrl The homeserver URL
      * @return A URL (file:// or http://) that can be used with Coil's AsyncImage, or null for fallback
      */
-    fun getAvatarUrl(context: Context, mxcUrl: String?, homeserverUrl: String): String? =
-        mxcToHttpUrl(mxcUrl, homeserverUrl)
+    fun getAvatarUrl(context: Context, mxcUrl: String?, homeserverUrl: String): String? = mxcToHttpUrl(mxcUrl, homeserverUrl)
 
     /**
      * Converts an MXC URL to the original media URL without thumbnail parameters.

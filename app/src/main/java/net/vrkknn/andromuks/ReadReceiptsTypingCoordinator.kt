@@ -59,9 +59,9 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                     if (roomIds.isEmpty()) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: populateReadReceiptsFromCache - cache is empty",
-                        )
+                                "Andromuks",
+                                "AppViewModel: populateReadReceiptsFromCache - cache is empty",
+                            )
                         }
                         return@synchronized
                     }
@@ -84,9 +84,9 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                                 hasChanges = true
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "AppViewModel: populateReadReceiptsFromCache - added ${cachedList.size} receipts for $eventId in $roomId",
-                                )
+                                        "Andromuks",
+                                        "AppViewModel: populateReadReceiptsFromCache - added ${cachedList.size} receipts for $eventId in $roomId",
+                                    )
                                 }
                             } else {
                                 val existingUserIds = existing.map { it.userId }.toSet()
@@ -111,9 +111,9 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                                     }
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: populateReadReceiptsFromCache - merged ${newReceipts.size} receipts for $eventId in $roomId",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: populateReadReceiptsFromCache - merged ${newReceipts.size} receipts for $eventId in $roomId",
+                                        )
                                     }
                                 }
                             }
@@ -123,9 +123,9 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                     if (hasChanges) readReceiptsUpdateCounter++
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: populateReadReceiptsFromCache - done, hasChanges=$hasChanges, rooms=${readReceipts.size}",
-                    )
+                            "Andromuks",
+                            "AppViewModel: populateReadReceiptsFromCache - done, hasChanges=$hasChanges, rooms=${readReceipts.size}",
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -355,8 +355,8 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
             if (existingRoom != null &&
                 (
                     (existingRoom.unreadCount != null && existingRoom.unreadCount > 0) ||
-                    (existingRoom.highlightCount != null && existingRoom.highlightCount > 0)
-                )
+                        (existingRoom.highlightCount != null && existingRoom.highlightCount > 0)
+                    )
             ) {
                 val updatedRoom =
                     existingRoom.copy(

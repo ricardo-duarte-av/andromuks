@@ -131,9 +131,9 @@ class PersonsApi(
                     ShortcutManagerCompat.removeDynamicShortcuts(context, personShortcutIds)
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "PersonsApi: Cleaned up ${personShortcutIds.size} person shortcuts from dynamic shortcuts",
-                    )
+                            TAG,
+                            "PersonsApi: Cleaned up ${personShortcutIds.size} person shortcuts from dynamic shortcuts",
+                        )
                     }
                 }
 
@@ -149,9 +149,9 @@ class PersonsApi(
         // This method is kept for backward compatibility but does nothing
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "PersonsApi: reportShortcutUsed called for $userId (person shortcuts are not dynamic shortcuts)",
-        )
+                TAG,
+                "PersonsApi: reportShortcutUsed called for $userId (person shortcuts are not dynamic shortcuts)",
+            )
         }
     }
 
@@ -209,9 +209,9 @@ class PersonsApi(
                     ShortcutManagerCompat.removeDynamicShortcuts(context, personShortcutIds)
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "PersonsApi: Removed ${personShortcutIds.size} person shortcuts from dynamic shortcuts (they should only be used in notifications)",
-                    )
+                            TAG,
+                            "PersonsApi: Removed ${personShortcutIds.size} person shortcuts from dynamic shortcuts (they should only be used in notifications)",
+                        )
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "PersonsApi: Failed to remove person shortcuts from dynamic shortcuts", e)
@@ -341,9 +341,9 @@ class PersonsApi(
                     if (cachedFile != null) {
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            TAG,
-                            "PersonsApi: ✓ Successfully downloaded and cached avatar for ${target.userId} (${cachedFile.length()} bytes)",
-                        )
+                                TAG,
+                                "PersonsApi: ✓ Successfully downloaded and cached avatar for ${target.userId} (${cachedFile.length()} bytes)",
+                            )
                         }
                     } else {
                         Log.w(TAG, "PersonsApi: ✗ Failed to download avatar for ${target.userId} from: $httpUrl")
@@ -356,9 +356,9 @@ class PersonsApi(
             if (cachedFile == null || !cachedFile.exists()) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "PersonsApi: Avatar for ${target.userId} not available, using fallback",
-                )
+                        TAG,
+                        "PersonsApi: Avatar for ${target.userId} not available, using fallback",
+                    )
                 }
                 return@withContext null
             }
@@ -379,8 +379,7 @@ class PersonsApi(
         }
     }
 
-    private suspend fun loadShortcutIcon(target: PersonTarget): IconCompat =
-        loadPersonIcon(target) ?: createFallbackIcon(target)
+    private suspend fun loadShortcutIcon(target: PersonTarget): IconCompat = loadPersonIcon(target) ?: createFallbackIcon(target)
 
     private fun createFallbackIcon(target: PersonTarget): IconCompat = try {
         val colorInt = AvatarUtils.getUserColor(target.userId)

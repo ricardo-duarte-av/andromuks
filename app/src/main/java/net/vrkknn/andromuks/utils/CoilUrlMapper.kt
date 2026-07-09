@@ -96,9 +96,9 @@ object CoilUrlMapper {
             ) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "resolveByFile: heuristic match file=$fileName viaUrlHash=$urlHash -> $mxcUrl",
-                )
+                        TAG,
+                        "resolveByFile: heuristic match file=$fileName viaUrlHash=$urlHash -> $mxcUrl",
+                    )
                 }
                 return@withLock mxcUrl
             }
@@ -196,9 +196,9 @@ object CoilUrlMapper {
             mappingFile.writeText(json.toString())
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Saved ${mappingsToSave.size} URL mappings and ${fileKeyMappingsToSave.size} file-key mappings to disk",
-            )
+                    TAG,
+                    "Saved ${mappingsToSave.size} URL mappings and ${fileKeyMappingsToSave.size} file-key mappings to disk",
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save URL mappings", e)

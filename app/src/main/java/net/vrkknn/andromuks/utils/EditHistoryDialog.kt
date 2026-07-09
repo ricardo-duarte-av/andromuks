@@ -119,12 +119,7 @@ fun EditHistoryDialog(versioned: VersionedMessage, onDismiss: () -> Unit) {
  * Individual version item showing timestamp and content
  */
 @Composable
-private fun VersionItem(
-    version: net.vrkknn.andromuks.MessageVersion,
-    versionNumber: Int,
-    isLatest: Boolean,
-    isOriginal: Boolean,
-) {
+private fun VersionItem(version: net.vrkknn.andromuks.MessageVersion, versionNumber: Int, isLatest: Boolean, isOriginal: Boolean) {
     Column(
         modifier = Modifier.fillMaxWidth(),
     ) {

@@ -69,9 +69,9 @@ internal class DiagnosticsCoordinator(private val vm: AppViewModel) {
 
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Loaded ${activityLog.size} activity log entries from storage",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Loaded ${activityLog.size} activity log entries from storage",
+                            )
                         }
                     }
                 } else {
@@ -151,11 +151,11 @@ internal class DiagnosticsCoordinator(private val vm: AppViewModel) {
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "Memory Stats: Used=${formatBytes(
-                usedMemory,
-            )}, Free=${formatBytes(freeMemory)}, Max=${formatBytes(maxMemory)}, Usage=$memoryUsagePercent%",
-        )
+                "Andromuks",
+                "Memory Stats: Used=${formatBytes(
+                    usedMemory,
+                )}, Free=${formatBytes(freeMemory)}, Max=${formatBytes(maxMemory)}, Usage=$memoryUsagePercent%",
+            )
         }
 
         val timelineCacheStats = RoomTimelineCache.getCacheStats()

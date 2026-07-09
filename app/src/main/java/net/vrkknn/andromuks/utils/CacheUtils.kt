@@ -127,12 +127,7 @@ object CacheUtils {
      * @param imageLoader The Coil ImageLoader instance
      * @param context Additional context for logging (e.g., "Avatar", "Media", "Sticker")
      */
-    fun handleImageLoadError(
-        imageUrl: String?,
-        throwable: Throwable,
-        imageLoader: ImageLoader,
-        context: String = "Image",
-    ) {
+    fun handleImageLoadError(imageUrl: String?, throwable: Throwable, imageLoader: ImageLoader, context: String = "Image") {
         Log.e("Andromuks", "❌ $context load failed: ${imageUrl ?: "null"}")
         Log.e("Andromuks", "Error: ${throwable.message}", throwable)
 

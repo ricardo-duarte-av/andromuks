@@ -168,9 +168,9 @@ internal class ElementCallJsBridge(
         if (requestData is JSONObject &&
             (
                 normalizedAction.contains(
-                "send_event",
-            ) || normalizedAction.contains("send_state") || normalizedAction.contains("set_state")
-            )
+                    "send_event",
+                ) || normalizedAction.contains("send_state") || normalizedAction.contains("set_state")
+                )
         ) {
             val eventType = requestData.optString("type")
             if (eventType == "org.matrix.msc3401.call.member") {
@@ -257,18 +257,18 @@ internal class ElementCallJsBridge(
             result.onSuccess { response ->
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "ElementCallJsBridge: response for $action -> $response",
-                )
+                        "Andromuks",
+                        "ElementCallJsBridge: response for $action -> $response",
+                    )
                 }
                 val normalizedResponse = normalizeWidgetResponse(action, response, requestData)
                 sendWidgetResponse(action, widgetRequestId, normalizedResponse)
             }.onFailure { error ->
                 if (BuildConfig.DEBUG) {
                     android.util.Log.w(
-                    "Andromuks",
-                    "ElementCallJsBridge: error for $action -> ${error.message}",
-                )
+                        "Andromuks",
+                        "ElementCallJsBridge: error for $action -> ${error.message}",
+                    )
                 }
                 sendWidgetError(action, widgetRequestId, error.message ?: "Unknown error")
             }
@@ -281,8 +281,8 @@ internal class ElementCallJsBridge(
                 "send_event",
             ) && requestData is JSONObject && requestData.has("state_key")
         ) {
-                return "set_state"
-            }
+            return "set_state"
+        }
         return when {
             normalized.contains("send_state") || normalized.contains("set_state") -> "set_state"
 
@@ -433,8 +433,8 @@ internal class ElementCallJsBridge(
                             "event_id",
                         )
                     ) {
-                            obj.optString("eventId").takeIf { it.isNotBlank() }?.let { obj.put("event_id", it) }
-                        }
+                        obj.optString("eventId").takeIf { it.isNotBlank() }?.let { obj.put("event_id", it) }
+                    }
                     obj
                 }
 
@@ -460,10 +460,10 @@ internal class ElementCallJsBridge(
                 "origin_server_ts",
             )
         ) {
-                raw.optLong("origin_server_ts", 0L)
-            } else {
-                raw.optLong("timestamp", 0L)
-            }
+            raw.optLong("origin_server_ts", 0L)
+        } else {
+            raw.optLong("timestamp", 0L)
+        }
         if (originTs > 0) event.put("origin_server_ts", originTs)
         if (decryptedType != null && raw.has("decrypted")) {
             event.put("content", raw.opt("decrypted"))
@@ -491,9 +491,9 @@ internal class ElementCallJsBridge(
                     val deviceId = membership?.second ?: content.optString("device_id")
                     if (!userId.isNullOrBlank() && !deviceId.isNullOrBlank()) {
                         content.put(
-                        "membershipID",
-                        "$userId:$deviceId",
-                    )
+                            "membershipID",
+                            "$userId:$deviceId",
+                        )
                     }
                 }
             }

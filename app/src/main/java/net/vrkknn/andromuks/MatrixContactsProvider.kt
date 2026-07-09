@@ -36,13 +36,7 @@ class MatrixContactsProvider : ContentProvider() {
 
     override fun onCreate(): Boolean = true
 
-    override fun query(
-        uri: Uri,
-        projection: Array<out String>?,
-        selection: String?,
-        selectionArgs: Array<out String>?,
-        sortOrder: String?,
-    ): Cursor? {
+    override fun query(uri: Uri, projection: Array<out String>?, selection: String?, selectionArgs: Array<out String>?, sortOrder: String?): Cursor? {
         if (BuildConfig.DEBUG) {
             Log.d(TAG, "query called with URI: $uri")
         }

@@ -249,14 +249,7 @@ data class UserEncryptionInfo(
 /**
  * Data class for a single device
  */
-data class DeviceInfo(
-    val deviceId: String,
-    val name: String,
-    val identityKey: String,
-    val signingKey: String,
-    val fingerprint: String,
-    val trustState: String,
-)
+data class DeviceInfo(val deviceId: String, val name: String, val identityKey: String, val signingKey: String, val fingerprint: String, val trustState: String)
 
 /**
  * Data class for user pronouns
@@ -898,9 +891,9 @@ fun UserInfoScreen(
     LaunchedEffect(userId, effectiveRoomId) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "UserInfoScreen: Requesting FRESH user info for $userId${if (effectiveRoomId != null) " in room $effectiveRoomId" else ""} (bypassing cache)",
-        )
+                "Andromuks",
+                "UserInfoScreen: Requesting FRESH user info for $userId${if (effectiveRoomId != null) " in room $effectiveRoomId" else ""} (bypassing cache)",
+            )
         }
 
         // Always request fresh data - don't use cached profile
@@ -922,25 +915,25 @@ fun UserInfoScreen(
                 )
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "UserInfoScreen: Loaded fresh user info successfully with pronouns: ${profileInfo?.pronouns?.size ?: 0}, timezone: ${profileInfo?.timezone}",
-                )
+                        "Andromuks",
+                        "UserInfoScreen: Loaded fresh user info successfully with pronouns: ${profileInfo?.pronouns?.size ?: 0}, timezone: ${profileInfo?.timezone}",
+                    )
                 }
 
                 // Request per-room profile if we have a roomId
                 if (effectiveRoomId != null && profileInfo != null) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "UserInfoScreen: Requesting per-room profile for $userId in room $effectiveRoomId",
-                    )
+                            "Andromuks",
+                            "UserInfoScreen: Requesting per-room profile for $userId in room $effectiveRoomId",
+                        )
                     }
                     appViewModel.requestPerRoomMemberState(effectiveRoomId, userId) { roomDisplayName, roomAvatarUrl ->
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "UserInfoScreen: Received per-room profile - displayName: $roomDisplayName, avatarUrl: $roomAvatarUrl",
-                        )
+                                "Andromuks",
+                                "UserInfoScreen: Received per-room profile - displayName: $roomDisplayName, avatarUrl: $roomAvatarUrl",
+                            )
                         }
                         userProfileInfo = userProfileInfo?.copy(
                             roomDisplayName = roomDisplayName,
@@ -1372,10 +1365,10 @@ fun UserInfoScreen(
                                 } else {
                                     (
                                         globalDisplayName
-                                    ?: usernameFromMatrixId(
-                                        userId,
-                                    )
-                                    )
+                                            ?: usernameFromMatrixId(
+                                                userId,
+                                            )
+                                        )
                                 }
 
                                 // Border around avatar for better visibility on banner
@@ -1516,10 +1509,10 @@ fun UserInfoScreen(
                         } else {
                             (
                                 globalDisplayName
-                            ?: usernameFromMatrixId(
-                                userId,
-                            )
-                            )
+                                    ?: usernameFromMatrixId(
+                                        userId,
+                                    )
+                                )
                         }
 
                         // Keep sharedElement in loaded state too so destination node remains stable
@@ -1648,10 +1641,10 @@ fun UserInfoScreen(
                     } else {
                         (
                             globalDisplayName
-                        ?: usernameFromMatrixId(
-                            userId,
-                        )
-                        )
+                                ?: usernameFromMatrixId(
+                                    userId,
+                                )
+                            )
                     }
 
                     Text(
@@ -2540,9 +2533,9 @@ fun UserInfoScreen(
                         val pronounsArray = JSONArray().apply {
                             put(
                                 JSONObject().apply {
-                                put("language", language)
-                                put("summary", summary)
-                            }
+                                    put("language", language)
+                                    put("summary", summary)
+                                },
                             )
                         }
                         updatedFields["io.fsky.nyx.pronouns"] = pronounsArray
@@ -2851,8 +2844,8 @@ fun UserInfoScreen(
                         // Exclude state events
                         (
                             it.type == "m.room.message" ||
-                            (it.type == "m.room.encrypted" && it.decryptedType == "m.room.message")
-                        )
+                                (it.type == "m.room.encrypted" && it.decryptedType == "m.room.message")
+                            )
                 }
         }
         val messageCount = userMessages.size
@@ -2924,8 +2917,8 @@ fun UserInfoScreen(
                     it.sender == userId &&
                         (
                             it.type == "m.room.message" ||
-                            (it.type == "m.room.encrypted" && it.decryptedType == "m.room.message")
-                        )
+                                (it.type == "m.room.encrypted" && it.decryptedType == "m.room.message")
+                            )
                 }
         }
         val messageCount = userMessages.size
@@ -2983,12 +2976,7 @@ fun UserInfoScreen(
  * Dialog to display shared rooms list
  */
 @Composable
-fun SharedRoomsDialog(
-    mutualRooms: List<String>,
-    appViewModel: AppViewModel,
-    navController: NavController,
-    onDismiss: () -> Unit,
-) {
+fun SharedRoomsDialog(mutualRooms: List<String>, appViewModel: AppViewModel, navController: NavController, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -3307,14 +3295,7 @@ fun DeviceInfoCard(device: DeviceInfo) {
  * Avatar viewer dialog with rotation and download support
  */
 @Composable
-fun AvatarViewerDialog(
-    imageUrl: String,
-    avatarMxcUrl: String?,
-    homeserverUrl: String,
-    authToken: String,
-    displayName: String,
-    onDismiss: () -> Unit,
-) {
+fun AvatarViewerDialog(imageUrl: String, avatarMxcUrl: String?, homeserverUrl: String, authToken: String, displayName: String, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
@@ -3509,84 +3490,79 @@ fun AvatarViewerDialog(
 /**
  * Save avatar image to gallery
  */
-private suspend fun saveAvatarToGallery(
-    context: Context,
-    cachedFile: File?,
-    imageUrl: String,
-    filename: String,
-    authToken: String,
-) = withContext(Dispatchers.IO) {
-    try {
-        var imageFile: File? = cachedFile
+private suspend fun saveAvatarToGallery(context: Context, cachedFile: File?, imageUrl: String, filename: String, authToken: String) =
+    withContext(Dispatchers.IO) {
+        try {
+            var imageFile: File? = cachedFile
 
-        // Download if needed
-        if (imageFile == null && imageUrl.startsWith("http")) {
-            val client = OkHttpClient()
-            val request = Request.Builder()
-                .url(imageUrl)
-                .addHeader("Cookie", "gomuks_auth=$authToken")
-                .addHeader("User-Agent", getUserAgent())
-                .build()
+            // Download if needed
+            if (imageFile == null && imageUrl.startsWith("http")) {
+                val client = OkHttpClient()
+                val request = Request.Builder()
+                    .url(imageUrl)
+                    .addHeader("Cookie", "gomuks_auth=$authToken")
+                    .addHeader("User-Agent", getUserAgent())
+                    .build()
 
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                response.body?.byteStream()?.use { input ->
-                    val tempFile = File(context.cacheDir, "temp_avatar_${System.currentTimeMillis()}.jpg")
-                    java.io.FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
+                val response = client.newCall(request).execute()
+                if (response.isSuccessful) {
+                    response.body?.byteStream()?.use { input ->
+                        val tempFile = File(context.cacheDir, "temp_avatar_${System.currentTimeMillis()}.jpg")
+                        java.io.FileOutputStream(tempFile).use { output ->
+                            input.copyTo(output)
+                        }
+                        imageFile = tempFile
                     }
-                    imageFile = tempFile
+                }
+            } else if (imageFile == null && imageUrl.startsWith("/")) {
+                imageFile = File(imageUrl)
+            }
+
+            if (imageFile == null || !imageFile!!.exists()) {
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(context, "Failed to save avatar", Toast.LENGTH_SHORT).show()
+                }
+                return@withContext
+            }
+
+            // Save to MediaStore
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
+                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Andromuks")
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
                 }
             }
-        } else if (imageFile == null && imageUrl.startsWith("/")) {
-            imageFile = File(imageUrl)
-        }
 
-        if (imageFile == null || !imageFile!!.exists()) {
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Failed to save avatar", Toast.LENGTH_SHORT).show()
+            val uri = context.contentResolver.insert(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                contentValues,
+            ) ?: throw Exception("Failed to create MediaStore entry")
+
+            // Copy file
+            context.contentResolver.openOutputStream(uri)?.use { output ->
+                imageFile!!.inputStream().use { input ->
+                    input.copyTo(output)
+                }
             }
-            return@withContext
-        }
 
-        // Save to MediaStore
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Andromuks")
-                put(MediaStore.MediaColumns.IS_PENDING, 1)
+                contentValues.clear()
+                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                context.contentResolver.update(uri, contentValues, null, null)
             }
-        }
 
-        val uri = context.contentResolver.insert(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            contentValues,
-        ) ?: throw Exception("Failed to create MediaStore entry")
-
-        // Copy file
-        context.contentResolver.openOutputStream(uri)?.use { output ->
-            imageFile!!.inputStream().use { input ->
-                input.copyTo(output)
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Avatar saved to gallery", Toast.LENGTH_SHORT).show()
             }
-        }
-
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            contentValues.clear()
-            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-            context.contentResolver.update(uri, contentValues, null, null)
-        }
-
-        withContext(Dispatchers.Main) {
-            Toast.makeText(context, "Avatar saved to gallery", Toast.LENGTH_SHORT).show()
-        }
-    } catch (e: Exception) {
-        Log.e("Andromuks", "Error saving avatar to gallery", e)
-        withContext(Dispatchers.Main) {
-            Toast.makeText(context, "Error saving avatar: ${e.message}", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Log.e("Andromuks", "Error saving avatar to gallery", e)
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Error saving avatar: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
         }
     }
-}
 
 /**
  * Kick confirmation dialog
@@ -3688,8 +3664,8 @@ fun BanConfirmationDialog(
                             MaterialTheme.colorScheme.onSurface
                         } else {
                             MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = 0.38f,
-                        )
+                                alpha = 0.38f,
+                            )
                         },
                     )
                     Switch(
@@ -3710,8 +3686,8 @@ fun BanConfirmationDialog(
                             MaterialTheme.colorScheme.onSurface
                         } else {
                             MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = 0.38f,
-                        )
+                                alpha = 0.38f,
+                            )
                         },
                     )
                     Switch(
@@ -3796,13 +3772,7 @@ fun RedactConfirmationDialog(
  * Ignore/Unignore confirmation dialog
  */
 @Composable
-fun IgnoreConfirmationDialog(
-    displayName: String,
-    userId: String,
-    isIgnored: Boolean,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
+fun IgnoreConfirmationDialog(displayName: String, userId: String, isIgnored: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (isIgnored) "Unignore User" else "Ignore User") },
@@ -3834,48 +3804,42 @@ fun IgnoreConfirmationDialog(
     )
 }
 
-suspend fun addMatrixUserToContacts(
-    context: Context,
-    userId: String,
-    displayName: String,
-    avatarUrl: String?,
-    homeserverUrl: String,
-    authToken: String,
-) = withContext(Dispatchers.IO) {
-    val hasRead = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.READ_CONTACTS,
-    ) == PackageManager.PERMISSION_GRANTED
-    val hasWrite = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.WRITE_CONTACTS,
-    ) == PackageManager.PERMISSION_GRANTED
+suspend fun addMatrixUserToContacts(context: Context, userId: String, displayName: String, avatarUrl: String?, homeserverUrl: String, authToken: String) =
+    withContext(Dispatchers.IO) {
+        val hasRead = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.READ_CONTACTS,
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasWrite = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.WRITE_CONTACTS,
+        ) == PackageManager.PERMISSION_GRANTED
 
-    if (!hasRead || !hasWrite) {
-        withContext(Dispatchers.Main) {
-            Toast.makeText(context, "Contacts permissions required to add contact", Toast.LENGTH_SHORT).show()
+        if (!hasRead || !hasWrite) {
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, "Contacts permissions required to add contact", Toast.LENGTH_SHORT).show()
+            }
+            return@withContext
         }
-        return@withContext
-    }
 
-    val (accountName, accountType) = getDefaultContactAccount(context)
-    if (accountName == null || accountType == null) {
-        Log.e("UserInfo", "No contact account available")
-        return@withContext
-    }
+        val (accountName, accountType) = getDefaultContactAccount(context)
+        if (accountName == null || accountType == null) {
+            Log.e("UserInfo", "No contact account available")
+            return@withContext
+        }
 
-    val syncService = ContactsSyncService(
-        context,
-        accountName = "Andromuks", // display name for the account
-        accountType = "net.vrkknn.andromuks.matrix",
-    )
-    val user = net.vrkknn.andromuks.MatrixUser(
-        userId = userId,
-        displayName = displayName,
-        avatarUrl = avatarUrl,
-    )
-    syncService.syncContacts(listOf(user), syncAvatars = avatarUrl != null)
-}
+        val syncService = ContactsSyncService(
+            context,
+            accountName = "Andromuks", // display name for the account
+            accountType = "net.vrkknn.andromuks.matrix",
+        )
+        val user = net.vrkknn.andromuks.MatrixUser(
+            userId = userId,
+            displayName = displayName,
+            avatarUrl = avatarUrl,
+        )
+        syncService.syncContacts(listOf(user), syncAvatars = avatarUrl != null)
+    }
 
 /**
  * Convert basic Markdown to HTML for profile bio.

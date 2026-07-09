@@ -107,9 +107,9 @@ private suspend fun fetchUrlPreview(
             }
             if (BuildConfig.DEBUG) {
                 android.util.Log.w(
-                "Andromuks",
-                "UrlPreview: fetch failed for $url — HTTP ${response.code}, error: $errorMessage",
-            )
+                    "Andromuks",
+                    "UrlPreview: fetch failed for $url — HTTP ${response.code}, error: $errorMessage",
+                )
             }
             return@withContext Pair(null, errorMessage)
         }
@@ -120,22 +120,16 @@ private suspend fun fetchUrlPreview(
     } catch (e: Exception) {
         if (BuildConfig.DEBUG) {
             android.util.Log.w(
-            "Andromuks",
-            "UrlPreview: exception fetching $url: ${e.message}",
-        )
+                "Andromuks",
+                "UrlPreview: exception fetching $url: ${e.message}",
+            )
         }
         Pair(null, null)
     }
 }
 
 @Composable
-fun UrlPreviewCompositionBar(
-    text: String,
-    controller: UrlPreviewController,
-    homeserverUrl: String,
-    authToken: String,
-    isRoomEncrypted: Boolean,
-) {
+fun UrlPreviewCompositionBar(text: String, controller: UrlPreviewController, homeserverUrl: String, authToken: String, isRoomEncrypted: Boolean) {
     val scope = rememberCoroutineScope()
     val httpClient = urlPreviewHttpClient
 
@@ -197,13 +191,7 @@ fun UrlPreviewCompositionBar(
 }
 
 @Composable
-private fun UrlPreviewCard(
-    item: UrlPreviewItemState,
-    homeserverUrl: String,
-    authToken: String,
-    cardWidth: Dp,
-    onFetch: () -> Unit,
-) {
+private fun UrlPreviewCard(item: UrlPreviewItemState, homeserverUrl: String, authToken: String, cardWidth: Dp, onFetch: () -> Unit) {
     when {
         // ── Loading ─────────────────────────────────────────────────────────
         item.isLoading -> {

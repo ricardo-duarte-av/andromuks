@@ -68,12 +68,7 @@ data class MentionEvent(
 /**
  * Represents a single version of a message (original or edit)
  */
-data class MessageVersion(
-    val eventId: String,
-    val event: TimelineEvent,
-    val timestamp: Long,
-    val isOriginal: Boolean = false,
-)
+data class MessageVersion(val eventId: String, val event: TimelineEvent, val timestamp: Long, val isOriginal: Boolean = false)
 
 /**
  * Stores the complete edit history and state of a message
@@ -269,9 +264,9 @@ class AppViewModel : ViewModel() {
                                 if (restoreFromLruCache(currentRoomId)) {
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Refreshed timeline for current room $currentRoomId from replicated cache (vmId=$viewModelId)",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: Refreshed timeline for current room $currentRoomId from replicated cache (vmId=$viewModelId)",
+                                        )
                                     }
                                     timelineUpdateCounter++
                                 }
@@ -340,9 +335,9 @@ class AppViewModel : ViewModel() {
     ): Boolean {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "🟣 awaitRoomDataReadiness: START - roomId=$roomId, timeoutMs=$timeoutMs, requireInitComplete=$requireInitComplete, currentRoomId=$currentRoomId, isPendingNavigationFromNotification=$isPendingNavigationFromNotification",
-        )
+                "Andromuks",
+                "🟣 awaitRoomDataReadiness: START - roomId=$roomId, timeoutMs=$timeoutMs, requireInitComplete=$requireInitComplete, currentRoomId=$currentRoomId, isPendingNavigationFromNotification=$isPendingNavigationFromNotification",
+            )
         }
         val startTime = System.currentTimeMillis()
         return withTimeoutOrNull(timeoutMs) {
@@ -410,15 +405,15 @@ class AppViewModel : ViewModel() {
                 if (pollCount % 10 == 0 ||
                     (
                         !pendingReady || !syncReady || !initReady || !notificationFlushReady || !timelineReady ||
-                        !roomStateReady ||
-                        !websocketReady
-                    )
+                            !roomStateReady ||
+                            !websocketReady
+                        )
                 ) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "🟣 awaitRoomDataReadiness: Polling[$pollCount] - pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, notificationFlushReady=$notificationFlushReady, timelineReady=$timelineReady, roomStateReady=$roomStateReady, websocketReady=$websocketReady | isTimelineLoading=$isTimelineLoading, events=${timelineEvents.size}, allRoomStatesLoaded=$allRoomStatesLoaded, isPendingNavFromNotif=$isPendingNavigationFromNotification, currentRoomId=$currentRoomId",
-                    )
+                            "Andromuks",
+                            "🟣 awaitRoomDataReadiness: Polling[$pollCount] - pendingReady=$pendingReady, syncReady=$syncReady, initReady=$initReady, notificationFlushReady=$notificationFlushReady, timelineReady=$timelineReady, roomStateReady=$roomStateReady, websocketReady=$websocketReady | isTimelineLoading=$isTimelineLoading, events=${timelineEvents.size}, allRoomStatesLoaded=$allRoomStatesLoaded, isPendingNavFromNotif=$isPendingNavigationFromNotification, currentRoomId=$currentRoomId",
+                        )
                     }
                 }
 
@@ -428,9 +423,9 @@ class AppViewModel : ViewModel() {
                     val elapsed = System.currentTimeMillis() - startTime
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "🟣 awaitRoomDataReadiness: READY - roomId=$roomId, elapsed=${elapsed}ms, pollCount=$pollCount",
-                    )
+                            "Andromuks",
+                            "🟣 awaitRoomDataReadiness: READY - roomId=$roomId, elapsed=${elapsed}ms, pollCount=$pollCount",
+                        )
                     }
                     break
                 }
@@ -457,9 +452,9 @@ class AppViewModel : ViewModel() {
                 isPendingNavigationFromNotification = false
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "🟣 awaitRoomDataReadiness: Cleared isPendingNavigationFromNotification on timeout",
-                )
+                        "Andromuks",
+                        "🟣 awaitRoomDataReadiness: Cleared isPendingNavigationFromNotification on timeout",
+                    )
                 }
             }
             false
@@ -656,9 +651,9 @@ class AppViewModel : ViewModel() {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Pending share set with ${items.size} items, hasText=${!text.isNullOrBlank()}, autoSelectRoom=$autoSelectRoomId",
-        )
+                "Andromuks",
+                "AppViewModel: Pending share set with ${items.size} items, hasText=${!text.isNullOrBlank()}, autoSelectRoom=$autoSelectRoomId",
+            )
         }
         pendingShare = PendingSharePayload(items, text)
         pendingShareTargetRoomId = null
@@ -668,9 +663,9 @@ class AppViewModel : ViewModel() {
             pendingShareTargetRoomId = autoSelectRoomId
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Pending share auto-selected room: $autoSelectRoomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Pending share auto-selected room: $autoSelectRoomId",
+                )
             }
         }
     }
@@ -692,9 +687,9 @@ class AppViewModel : ViewModel() {
         if (pendingShareNavigationRequested) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Pending share navigation marked as handled",
-            )
+                    "Andromuks",
+                    "AppViewModel: Pending share navigation marked as handled",
+                )
             }
         }
         pendingShareNavigationRequested = false
@@ -706,9 +701,9 @@ class AppViewModel : ViewModel() {
         pendingShareUpdateCounter++
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Pending share target room selected: $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Pending share target room selected: $roomId",
+            )
         }
     }
 
@@ -717,9 +712,9 @@ class AppViewModel : ViewModel() {
         return if (share != null && pendingShareTargetRoomId == roomId) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Consuming pending share for room $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Consuming pending share for room $roomId",
+                )
             }
             pendingShare = null
             pendingShareTargetRoomId = null
@@ -898,9 +893,9 @@ class AppViewModel : ViewModel() {
         bridgeSendStatusCounter++
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "BridgeStatus: $relatedEventId -> $status (counter=$bridgeSendStatusCounter)",
-        )
+                "Andromuks",
+                "BridgeStatus: $relatedEventId -> $status (counter=$bridgeSendStatusCounter)",
+            )
         }
     }
 
@@ -1009,8 +1004,7 @@ class AppViewModel : ViewModel() {
 
     fun setUploadRetryCount(roomId: String, count: Int) = uploadCoordinator.setUploadRetryCount(roomId, count)
 
-    fun setUploadProgress(roomId: String, key: String, progress: Float) =
-        uploadCoordinator.setUploadProgress(roomId, key, progress)
+    fun setUploadProgress(roomId: String, key: String, progress: Float) = uploadCoordinator.setUploadProgress(roomId, key, progress)
 
     fun getUploadProgress(roomId: String): Map<String, Float> = uploadCoordinator.getUploadProgress(roomId)
 
@@ -1051,19 +1045,9 @@ class AppViewModel : ViewModel() {
 
     data class Sticker(val name: String, val mxcUrl: String, val body: String?, val info: org.json.JSONObject?)
 
-    data class EmojiPack(
-        val packName: String,
-        val displayName: String,
-        val roomId: String,
-        val emojis: List<CustomEmoji>,
-    )
+    data class EmojiPack(val packName: String, val displayName: String, val roomId: String, val emojis: List<CustomEmoji>)
 
-    data class StickerPack(
-        val packName: String,
-        val displayName: String,
-        val roomId: String,
-        val stickers: List<Sticker>,
-    )
+    data class StickerPack(val packName: String, val displayName: String, val roomId: String, val stickers: List<Sticker>)
 
     // Custom emoji packs - now using singleton EmojiPacksCache
     var customEmojiPacks: List<EmojiPack>
@@ -1192,12 +1176,7 @@ class AppViewModel : ViewModel() {
 
     // FIFO buffer for notification replies - allows duplicates, processes in order
     // Messages are added by notification replies and removed when sent to WebSocket
-    class PendingNotificationMessage(
-        val roomId: String,
-        val text: String,
-        val timestamp: Long,
-        val onComplete: (() -> Unit)? = null,
-    )
+    class PendingNotificationMessage(val roomId: String, val text: String, val timestamp: Long, val onComplete: (() -> Unit)? = null)
 
     // FIFO queue: oldest messages first, removed when sent to WebSocket
     internal val pendingNotificationMessages = mutableListOf<PendingNotificationMessage>()
@@ -1392,17 +1371,17 @@ class AppViewModel : ViewModel() {
             // Note: This callback is only called when !isAppVisible, so no need to check again
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: onBatchComplete callback STARTED (background batch)",
-            )
+                    "Andromuks",
+                    "AppViewModel: onBatchComplete callback STARTED (background batch)",
+                )
             }
             try {
                 withContext(Dispatchers.Main) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: onBatchComplete - on Main thread, needsRoomListUpdate=$needsRoomListUpdate",
-                    )
+                            "Andromuks",
+                            "AppViewModel: onBatchComplete - on Main thread, needsRoomListUpdate=$needsRoomListUpdate",
+                        )
                     }
                     if (needsRoomListUpdate) {
                         val oldCounter = roomListUpdateCounter
@@ -1410,16 +1389,16 @@ class AppViewModel : ViewModel() {
                         needsRoomListUpdate = false
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Background batch complete - roomListUpdateCounter: $oldCounter -> $roomListUpdateCounter (battery optimization)",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Background batch complete - roomListUpdateCounter: $oldCounter -> $roomListUpdateCounter (battery optimization)",
+                            )
                         }
                     } else {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Background batch complete - skipping roomListUpdateCounter (needsRoomListUpdate=false)",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Background batch complete - skipping roomListUpdateCounter (needsRoomListUpdate=false)",
+                            )
                         }
                     }
                     // Always increment summary counter after batch (rooms may have had events)
@@ -1427,9 +1406,9 @@ class AppViewModel : ViewModel() {
                     roomSummaryUpdateCounter++
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Background batch complete - roomSummaryUpdateCounter: $oldSummaryCounter -> $roomSummaryUpdateCounter (battery optimization)",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Background batch complete - roomSummaryUpdateCounter: $oldSummaryCounter -> $roomSummaryUpdateCounter (battery optimization)",
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -1617,9 +1596,9 @@ class AppViewModel : ViewModel() {
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "🟦 checkStartupComplete: Navigation callback not set yet, marking as pending",
-                    )
+                            "Andromuks",
+                            "🟦 checkStartupComplete: Navigation callback not set yet, marking as pending",
+                        )
                     }
                     pendingNavigation = true
                 }
@@ -1627,16 +1606,15 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    fun setSpaces(spaces: List<SpaceItem>, skipCounterUpdate: Boolean = false) =
-        syncRoomsCoordinator.setSpaces(spaces, skipCounterUpdate)
+    fun setSpaces(spaces: List<SpaceItem>, skipCounterUpdate: Boolean = false) = syncRoomsCoordinator.setSpaces(spaces, skipCounterUpdate)
 
     fun updateAllSpaces(spaces: List<SpaceItem>) {
         val previousSize = allSpaces.size
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: updateAllSpaces called - setting allSpaces from $previousSize to ${spaces.size} spaces",
-        )
+                "Andromuks",
+                "AppViewModel: updateAllSpaces called - setting allSpaces from $previousSize to ${spaces.size} spaces",
+            )
         }
         if (spaces.isNotEmpty() && BuildConfig.DEBUG) {
             android.util.Log.d(
@@ -1657,9 +1635,9 @@ class AppViewModel : ViewModel() {
         roomListUpdateCounter++
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: allSpaces set to ${spaces.size} spaces (was $previousSize), cache updated",
-        )
+                "Andromuks",
+                "AppViewModel: allSpaces set to ${spaces.size} spaces (was $previousSize), cache updated",
+            )
         }
     }
 
@@ -1752,9 +1730,9 @@ class AppViewModel : ViewModel() {
     fun performFullRefresh() {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Performing full refresh - resetting state",
-        )
+                "Andromuks",
+                "AppViewModel: Performing full refresh - resetting state",
+            )
         }
         logActivity("Full Refresh - Resetting State", null)
 
@@ -1806,15 +1784,15 @@ class AppViewModel : ViewModel() {
         val preservedRunId = currentRunId
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: State reset complete - run_id preserved: $preservedRunId",
-        )
+                "Andromuks",
+                "AppViewModel: State reset complete - run_id preserved: $preservedRunId",
+            )
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: FORCE REFRESH - timeline caches cleared, will reconnect with run_id only (no last_received_id)",
-        )
+                "Andromuks",
+                "AppViewModel: FORCE REFRESH - timeline caches cleared, will reconnect with run_id only (no last_received_id)",
+            )
         }
 
         // Clear caches and wait for fresh sync payloads from websocket.
@@ -1822,9 +1800,9 @@ class AppViewModel : ViewModel() {
         // This function is called after a full refresh, which triggers a reconnect with clear_state: true
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Full refresh completed - room/space data will come from sync_complete on reconnect",
-        )
+                "Andromuks",
+                "AppViewModel: Full refresh completed - room/space data will come from sync_complete on reconnect",
+            )
         }
 
         // 5. Trigger reconnection (will use run_id but not last_received_id since it's 0)
@@ -1962,8 +1940,7 @@ class AppViewModel : ViewModel() {
         timelineForegroundTimestamps[roomId] = System.currentTimeMillis()
     }
 
-    internal fun buildDirectPersonTargets(rooms: List<RoomItem>): List<PersonTarget> =
-        roomListUiCoordinator.buildDirectPersonTargets(rooms)
+    internal fun buildDirectPersonTargets(rooms: List<RoomItem>): List<PersonTarget> = roomListUiCoordinator.buildDirectPersonTargets(rooms)
 
     fun getCurrentRoomSection(): RoomSection = roomListUiCoordinator.getCurrentRoomSection()
 
@@ -2026,12 +2003,7 @@ class AppViewModel : ViewModel() {
      * @param homeserverUrl The Gomuks backend URL (optional, can be empty at initialization)
      * @param authToken Authentication token for the backend (optional, can be empty at initialization)
      */
-    fun initializeFCM(
-        context: Context,
-        homeserverUrl: String = "",
-        authToken: String = "",
-        skipCacheClear: Boolean = false,
-    ) {
+    fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "", skipCacheClear: Boolean = false) {
         fcmPushCoordinator.initializeFCM(context, homeserverUrl, authToken, skipCacheClear)
     }
 
@@ -2066,9 +2038,9 @@ class AppViewModel : ViewModel() {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Started acknowledged messages cleanup job",
-        )
+                "Andromuks",
+                "AppViewModel: Started acknowledged messages cleanup job",
+            )
         }
     }
 
@@ -2093,9 +2065,9 @@ class AppViewModel : ViewModel() {
         val result = webClientPushIntegration?.shouldRegisterPush() ?: false
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: shouldRegisterPush() called, result=$result",
-        )
+                "Andromuks",
+                "AppViewModel: shouldRegisterPush() called, result=$result",
+            )
         }
         return result
     }
@@ -2135,17 +2107,14 @@ class AppViewModel : ViewModel() {
     /**
      * Handle FCM registration response from Gomuks Backend
      */
-    fun handleFCMRegistrationResponse(requestId: Int, data: Any) =
-        fcmPushCoordinator.handleFCMRegistrationResponse(requestId, data)
+    fun handleFCMRegistrationResponse(requestId: Int, data: Any) = fcmPushCoordinator.handleFCMRegistrationResponse(requestId, data)
 
-    fun updateTypingUsers(roomId: String, userIds: List<String>) =
-        readReceiptsTypingCoordinator.updateTypingUsers(roomId, userIds)
+    fun updateTypingUsers(roomId: String, userIds: List<String>) = readReceiptsTypingCoordinator.updateTypingUsers(roomId, userIds)
 
     /**
      * Get typing users for a specific room
      */
-    fun getTypingUsersForRoom(roomId: String): List<String> =
-        readReceiptsTypingCoordinator.getTypingUsersForRoom(roomId)
+    fun getTypingUsersForRoom(roomId: String): List<String> = readReceiptsTypingCoordinator.getTypingUsersForRoom(roomId)
 
     private fun normalizeTimestamp(primary: Long, vararg fallbacks: Long): Long {
         if (primary > 0) return primary
@@ -2177,9 +2146,9 @@ class AppViewModel : ViewModel() {
             realMatrixHomeserverUrl = homeserver
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Set realMatrixHomeserverUrl: $homeserver",
-            )
+                    "Andromuks",
+                    "AppViewModel: Set realMatrixHomeserverUrl: $homeserver",
+                )
             }
             callsWidgetsCoordinator.refreshElementCallBaseUrlFromWellKnown()
         }
@@ -2256,9 +2225,9 @@ class AppViewModel : ViewModel() {
             if (cachedEmojis.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: populateRecentEmojisFromCache - populated with ${cachedEmojis.size} emojis from cache",
-                )
+                        "Andromuks",
+                        "AppViewModel: populateRecentEmojisFromCache - populated with ${cachedEmojis.size} emojis from cache",
+                    )
                 }
                 recentEmojis = cachedEmojis
             }
@@ -2277,9 +2246,9 @@ class AppViewModel : ViewModel() {
             if (cachedInvites.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: populatePendingInvitesFromCache - populated with ${cachedInvites.size} invites from cache",
-                )
+                        "Andromuks",
+                        "AppViewModel: populatePendingInvitesFromCache - populated with ${cachedInvites.size} invites from cache",
+                    )
                 }
                 // Invites are accessed via getPendingInvites() which reads from cache
             }
@@ -2298,9 +2267,9 @@ class AppViewModel : ViewModel() {
             if (cachedMembers.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: populateRoomMemberCacheFromCache - populated with ${cachedMembers.size} rooms from cache",
-                )
+                        "Andromuks",
+                        "AppViewModel: populateRoomMemberCacheFromCache - populated with ${cachedMembers.size} rooms from cache",
+                    )
                 }
                 // Member cache is accessed via getMemberProfile() which reads from cache
             }
@@ -2319,9 +2288,9 @@ class AppViewModel : ViewModel() {
             if (cachedPacks.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: populateEmojiPacksFromCache - populated with ${cachedPacks.size} packs from cache",
-                )
+                        "Andromuks",
+                        "AppViewModel: populateEmojiPacksFromCache - populated with ${cachedPacks.size} packs from cache",
+                    )
                 }
                 // Emoji packs are accessed via customEmojiPacks which reads from cache
             }
@@ -2340,9 +2309,9 @@ class AppViewModel : ViewModel() {
             if (cachedPacks.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: populateStickerPacksFromCache - populated with ${cachedPacks.size} packs from cache",
-                )
+                        "Andromuks",
+                        "AppViewModel: populateStickerPacksFromCache - populated with ${cachedPacks.size} packs from cache",
+                    )
                 }
                 // Sticker packs are accessed via stickerPacks which reads from cache
             }
@@ -2398,10 +2367,8 @@ class AppViewModel : ViewModel() {
     /**
      * Enhanced getMemberMap that includes global cache fallback for users in timeline events
      */
-    fun getMemberMapWithFallback(
-        roomId: String,
-        timelineEvents: List<TimelineEvent>? = null,
-    ): Map<String, MemberProfile> = memberProfilesCoordinator.getMemberMapWithFallback(roomId, timelineEvents)
+    fun getMemberMapWithFallback(roomId: String, timelineEvents: List<TimelineEvent>? = null): Map<String, MemberProfile> =
+        memberProfilesCoordinator.getMemberMapWithFallback(roomId, timelineEvents)
 
     /**
      * MEMORY MANAGEMENT: Helper method to store member profile in both flattened and legacy caches.
@@ -2426,13 +2393,18 @@ class AppViewModel : ViewModel() {
         if (existingGlobalProfile != null &&
             (
                 existingGlobalProfile.displayName != profile.displayName ||
-                existingGlobalProfile.avatarUrl != profile.avatarUrl
-            )
+                    existingGlobalProfile.avatarUrl != profile.avatarUrl
+                )
         ) {
             // Use ProfileCache cleanup method
             ProfileCache.cleanupMatchingRoomProfiles(userId, profile)
 
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated global profile for $userId and cleaned up matching room-specific entries")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Updated global profile for $userId and cleaned up matching room-specific entries",
+            )
+            }
         }
     }
 
@@ -2552,10 +2524,10 @@ class AppViewModel : ViewModel() {
         // Sort by display name (nulls last), then by userId, then by roomId
         profilesByKey.values.sortedWith(
             compareBy(
-            { it.profile.displayName?.ifBlank { "\uFFFF" } ?: "\uFFFF" }, // Put nulls/blanks at the end
-            { it.userId },
-            { it.roomId ?: "" },
-        )
+                { it.profile.displayName?.ifBlank { "\uFFFF" } ?: "\uFFFF" }, // Put nulls/blanks at the end
+                { it.userId },
+                { it.roomId ?: "" },
+            ),
         )
     }
 
@@ -2588,9 +2560,9 @@ class AppViewModel : ViewModel() {
             val coilCacheDir = java.io.File(context.cacheDir, "image_cache")
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Checking Coil disk cache at: ${coilCacheDir.absolutePath}, exists: ${coilCacheDir.exists()}",
-            )
+                    "Andromuks",
+                    "AppViewModel: Checking Coil disk cache at: ${coilCacheDir.absolutePath}, exists: ${coilCacheDir.exists()}",
+                )
             }
 
             if (coilCacheDir.exists() && coilCacheDir.isDirectory) {
@@ -2598,9 +2570,9 @@ class AppViewModel : ViewModel() {
                 val files = coilCacheDir.walkTopDown().filter { it.isFile }.toList()
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Found ${files.size} files in Coil disk cache",
-                )
+                        "Andromuks",
+                        "AppViewModel: Found ${files.size} files in Coil disk cache",
+                    )
                 }
 
                 // Process in smaller batches to avoid OOM
@@ -2614,12 +2586,12 @@ class AppViewModel : ViewModel() {
 
                         entries.add(
                             CachedMediaEntry(
-                            mxcUrl = mxcUrl,
-                            filePath = file.absolutePath,
-                            fileSize = file.length(),
-                            cacheType = "memory",
-                            file = file,
-                        )
+                                mxcUrl = mxcUrl,
+                                filePath = file.absolutePath,
+                                fileSize = file.length(),
+                                cacheType = "memory",
+                                file = file,
+                            ),
                         )
                     }
 
@@ -2629,9 +2601,9 @@ class AppViewModel : ViewModel() {
             } else {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Coil disk cache directory does not exist or is not a directory",
-                )
+                        "Andromuks",
+                        "AppViewModel: Coil disk cache directory does not exist or is not a directory",
+                    )
                 }
             }
 
@@ -2682,12 +2654,12 @@ class AppViewModel : ViewModel() {
                             if (mxcUrl != null) {
                                 entries.add(
                                     CachedMediaEntry(
-                                    mxcUrl = mxcUrl,
-                                    filePath = file.absolutePath,
-                                    fileSize = file.length(),
-                                    cacheType = "disk",
-                                    file = file,
-                                )
+                                        mxcUrl = mxcUrl,
+                                        filePath = file.absolutePath,
+                                        fileSize = file.length(),
+                                        cacheType = "disk",
+                                        file = file,
+                                    ),
                                 )
                             }
                         }
@@ -2711,12 +2683,12 @@ class AppViewModel : ViewModel() {
 
                         entries.add(
                             CachedMediaEntry(
-                            mxcUrl = mxcUrl, // May be null if not found
-                            filePath = file.absolutePath,
-                            fileSize = file.length(),
-                            cacheType = "disk",
-                            file = file,
-                        )
+                                mxcUrl = mxcUrl, // May be null if not found
+                                filePath = file.absolutePath,
+                                fileSize = file.length(),
+                                cacheType = "disk",
+                                file = file,
+                            ),
                         )
                     }
 
@@ -2828,9 +2800,9 @@ class AppViewModel : ViewModel() {
         // Not in cache - request it (async)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Async requesting profile for Matrix user: $userId",
-        )
+                "Andromuks",
+                "AppViewModel: Async requesting profile for Matrix user: $userId",
+            )
         }
         requestUserProfile(userId, roomId)
     }
@@ -2853,8 +2825,7 @@ class AppViewModel : ViewModel() {
      * OPTIMIZED: Process events to build version cache (O(n) where n = number of events)
      * This replaces the old chain-following approach with direct version storage
      */
-    internal fun processVersionedMessages(events: List<TimelineEvent>) =
-        editVersionCoordinator.processVersionedMessages(events)
+    internal fun processVersionedMessages(events: List<TimelineEvent>) = editVersionCoordinator.processVersionedMessages(events)
 
     // PERFORMANCE: Track member processing state for incremental updates
     private val lastProcessedMembers = mutableSetOf<String>() // Track which rooms had member events
@@ -2949,8 +2920,8 @@ class AppViewModel : ViewModel() {
                                     prevMembership == "join" && membership == "join" && previousProfile != null &&
                                         (
                                             previousProfile.displayName != displayName ||
-                                            previousProfile.avatarUrl != avatarUrl
-                                        )
+                                                previousProfile.avatarUrl != avatarUrl
+                                            )
 
                                 storeMemberProfile(roomId, userId, profile)
 
@@ -2965,9 +2936,9 @@ class AppViewModel : ViewModel() {
                                 if (isAppVisible && initialSyncComplete) {
                                     if (BuildConfig.DEBUG && isProfileChange) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Profile change detected for $userId - displayName: '$displayName', avatarUrl: '$avatarUrl'",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: Profile change detected for $userId - displayName: '$displayName', avatarUrl: '$avatarUrl'",
+                                        )
                                     }
                                     // Route per-member updates through the 16 ms debouncer
                                     // (scheduleUIUpdate) so a sync_complete with N joins fires
@@ -3019,9 +2990,9 @@ class AppViewModel : ViewModel() {
                                     scheduleUIUpdate("member")
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Member left/banned: $userId in room $roomId - triggering immediate UI update",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: Member left/banned: $userId in room $roomId - triggering immediate UI update",
+                                        )
                                     }
                                 } else {
                                     val reason = when {
@@ -3031,9 +3002,9 @@ class AppViewModel : ViewModel() {
                                     }
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Member left/banned cached ($reason) - $userId in room $roomId",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: Member left/banned cached ($reason) - $userId in room $roomId",
+                                        )
                                     }
                                 }
                                 // Note: Don't remove from global cache as they might be in other rooms
@@ -3115,8 +3086,7 @@ class AppViewModel : ViewModel() {
      * This prevents the frustrating "room jumping" effect when new messages arrive
      * Can be forced to sort immediately via forceImmediate parameter
      */
-    internal fun scheduleRoomReorder(forceImmediate: Boolean = false) =
-        roomListUiCoordinator.scheduleRoomReorder(forceImmediate)
+    internal fun scheduleRoomReorder(forceImmediate: Boolean = false) = roomListUiCoordinator.scheduleRoomReorder(forceImmediate)
 
     /**
      * Force immediate room list re-sorting
@@ -3125,9 +3095,9 @@ class AppViewModel : ViewModel() {
     fun forceRoomListSort() {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Force sorting room list (tab change or screen return)",
-        )
+                "Andromuks",
+                "AppViewModel: Force sorting room list (tab change or screen return)",
+            )
         }
         scheduleRoomReorder(forceImmediate = true)
     }
@@ -3178,9 +3148,9 @@ class AppViewModel : ViewModel() {
         if (navigationState.essentialDataLoaded && !navigationState.memberDataLoaded) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: SKIPPING bulk member loading for $roomId (using opportunistic loading)",
-            )
+                    "Andromuks",
+                    "AppViewModel: SKIPPING bulk member loading for $roomId (using opportunistic loading)",
+                )
             }
             navigationCache[roomId] = navigationState.copy(memberDataLoaded = true)
         }
@@ -3305,18 +3275,18 @@ class AppViewModel : ViewModel() {
                                     roomListUpdateCounter++
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Updated ${invites.size} invites from sync_complete (in-memory only, total: ${pendingInvites.size})",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: Updated ${invites.size} invites from sync_complete (in-memory only, total: ${pendingInvites.size})",
+                                        )
                                     }
                                 } else {
                                     // Background: mark for batched update
                                     needsRoomListUpdate = true
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Updated ${invites.size} invites (background - will update UI once per batch)",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: Updated ${invites.size} invites (background - will update UI once per batch)",
+                                        )
                                     }
                                 }
                             }
@@ -3332,16 +3302,16 @@ class AppViewModel : ViewModel() {
                                     roomSummaryUpdateCounter++
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: $roomSummaryUpdateCounter, isAppVisible=$isAppVisible)",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: $roomSummaryUpdateCounter, isAppVisible=$isAppVisible)",
+                                        )
                                     }
                                 } else {
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms (background - will update UI once per batch)",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms (background - will update UI once per batch)",
+                                        )
                                     }
                                 }
                             }
@@ -3480,9 +3450,9 @@ class AppViewModel : ViewModel() {
     fun clearTimelineCachesForServerResync() {
         if (BuildConfig.DEBUG) {
             android.util.Log.i(
-            "Andromuks",
-            "AppViewModel: clearTimelineCachesForServerResync — dropping RoomTimelineCache + paginate cursors",
-        )
+                "Andromuks",
+                "AppViewModel: clearTimelineCachesForServerResync — dropping RoomTimelineCache + paginate cursors",
+            )
         }
         RoomTimelineCache.clearAll()
         oldestRowIdPerRoom.clear()
@@ -3500,8 +3470,7 @@ class AppViewModel : ViewModel() {
         forceFreshPaginateAfterWsDown = true
     }
 
-    fun needsFreshTimelinePaginate(): Boolean =
-        forceFreshPaginateAfterWsDown || !WebSocketService.isWebSocketConnected()
+    fun needsFreshTimelinePaginate(): Boolean = forceFreshPaginateAfterWsDown || !WebSocketService.isWebSocketConnected()
 
     internal fun clearForceFreshPaginateAfterWsDown() {
         forceFreshPaginateAfterWsDown = false
@@ -3517,9 +3486,9 @@ class AppViewModel : ViewModel() {
     fun onInitComplete() {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "🟣 onInitComplete: START - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, initialSyncCompleteQueue.size=${initialSyncCompleteQueue.size}",
-        )
+                "Andromuks",
+                "🟣 onInitComplete: START - initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, initialSyncCompleteQueue.size=${initialSyncCompleteQueue.size}",
+            )
         }
         addStartupProgressMessage("Initialization complete - processing ${initialSyncCompleteQueue.size} sync messages")
 
@@ -3527,9 +3496,9 @@ class AppViewModel : ViewModel() {
         initialSyncPhase = true
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "🟣 onInitComplete: Set initialSyncPhase=true, will process ${initialSyncCompleteQueue.size} queued initial sync_complete messages",
-        )
+                "Andromuks",
+                "🟣 onInitComplete: Set initialSyncPhase=true, will process ${initialSyncCompleteQueue.size} queued initial sync_complete messages",
+            )
         }
 
         // Start WebSocket pinger immediately on init_complete so low-traffic accounts don't wait for first sync_complete
@@ -3695,9 +3664,9 @@ class AppViewModel : ViewModel() {
                             withContext(Dispatchers.Main) {
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "🟣 onInitComplete: EARLY UNBLOCK — msg 1 has clear_state+spaces, have ${roomMap.size} rooms",
-                                )
+                                        "Andromuks",
+                                        "🟣 onInitComplete: EARLY UNBLOCK — msg 1 has clear_state+spaces, have ${roomMap.size} rooms",
+                                    )
                                 }
                                 initialSyncComplete = true
                                 spacesLoaded = true
@@ -3745,9 +3714,9 @@ class AppViewModel : ViewModel() {
                                 )
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "🟣 onInitComplete: Applying merged result — newRooms=${merged.newRooms.size}, updatedRooms=${merged.updatedRooms.size}, removedRoomIds=${merged.removedRoomIds.size}",
-                                )
+                                        "Andromuks",
+                                        "🟣 onInitComplete: Applying merged result — newRooms=${merged.newRooms.size}, updatedRooms=${merged.updatedRooms.size}, removedRoomIds=${merged.removedRoomIds.size}",
+                                    )
                                 }
                                 syncRoomsCoordinator.applyBatchedRoomListResult(merged)
                             }
@@ -3769,9 +3738,9 @@ class AppViewModel : ViewModel() {
                             withContext(Dispatchers.Main) {
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "🟣 onInitComplete: Finished processing ${queuedMessages.size} messages (early unblock didn't trigger) - Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true",
-                                )
+                                        "Andromuks",
+                                        "🟣 onInitComplete: Finished processing ${queuedMessages.size} messages (early unblock didn't trigger) - Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true",
+                                    )
                                 }
                                 initialSyncComplete = true
                                 spacesLoaded = true
@@ -3782,9 +3751,9 @@ class AppViewModel : ViewModel() {
                                 checkStartupComplete() // Check if startup is complete
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null} - UI can now be shown",
-                                )
+                                        "Andromuks",
+                                        "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null} - UI can now be shown",
+                                    )
                                 }
                             }
                         }
@@ -3792,9 +3761,9 @@ class AppViewModel : ViewModel() {
                         // Queue was empty - set flags immediately
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "🟣 onInitComplete: No queued messages - setting initialSyncComplete immediately",
-                        )
+                                "Andromuks",
+                                "🟣 onInitComplete: No queued messages - setting initialSyncComplete immediately",
+                            )
                         }
                         // CRITICAL: Ensure profile is loaded before marking processing complete
                         ensureCurrentUserProfileLoaded()
@@ -3802,9 +3771,9 @@ class AppViewModel : ViewModel() {
                         withContext(Dispatchers.Main) {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "🟣 onInitComplete: Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true (empty queue)",
-                            )
+                                    "Andromuks",
+                                    "🟣 onInitComplete: Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true (empty queue)",
+                                )
                             }
                             initialSyncComplete = true
                             spacesLoaded = true
@@ -3817,9 +3786,9 @@ class AppViewModel : ViewModel() {
                             checkStartupComplete() // Check if startup is complete
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}",
-                            )
+                                    "Andromuks",
+                                    "🟣 onInitComplete: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}",
+                                )
                             }
                         }
                     }
@@ -3846,9 +3815,9 @@ class AppViewModel : ViewModel() {
                     if (!initialSyncComplete) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "🟣 Initial sync processing: Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true",
-                        )
+                                "Andromuks",
+                                "🟣 Initial sync processing: Setting initialSyncComplete=true, spacesLoaded=true, processingComplete=true",
+                            )
                         }
                         initialSyncComplete = true
                         spacesLoaded = true
@@ -3859,9 +3828,9 @@ class AppViewModel : ViewModel() {
                         }
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "🟣 Initial sync processing: All messages processed - processingComplete=true (early unblock already set initialSyncComplete)",
-                        )
+                                "Andromuks",
+                                "🟣 Initial sync processing: All messages processed - processingComplete=true (early unblock already set initialSyncComplete)",
+                            )
                         }
                     }
 
@@ -3882,9 +3851,9 @@ class AppViewModel : ViewModel() {
                     checkStartupComplete()
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}, isStartupComplete=$isStartupComplete - Room list can now be shown",
-                    )
+                            "Andromuks",
+                            "🟣 Initial sync processing: COMPLETE - initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, spacesLoaded=$spacesLoaded, profile=${currentUserProfile != null}, isStartupComplete=$isStartupComplete - Room list can now be shown",
+                        )
                     }
                 }
 
@@ -3910,9 +3879,9 @@ class AppViewModel : ViewModel() {
         // Note: initializationComplete is now set in the finally block on Main thread
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates",
-        )
+                "Andromuks",
+                "AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates",
+            )
         }
 
         // Reset reconnection state now that init_complete has arrived
@@ -3944,9 +3913,9 @@ class AppViewModel : ViewModel() {
         if (realMatrixHomeserverUrl.isNotEmpty() && appContext != null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Updating ConversationsApi with real homeserver URL after init_complete",
-            )
+                    "Andromuks",
+                    "AppViewModel: Updating ConversationsApi with real homeserver URL after init_complete",
+                )
             }
             // Create new ConversationsApi instance with real homeserver URL
             conversationsApi = ConversationsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
@@ -3959,9 +3928,9 @@ class AppViewModel : ViewModel() {
             } else {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Skipping shortcut update on init_complete - shortcuts already refreshed on startup",
-                )
+                        "Andromuks",
+                        "AppViewModel: Skipping shortcut update on init_complete - shortcuts already refreshed on startup",
+                    )
                 }
             }
         }
@@ -3975,9 +3944,9 @@ class AppViewModel : ViewModel() {
         // Register FCM on every WebSocket connection to ensure backend has current token
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: onInitComplete - registering FCM to ensure backend has current token",
-        )
+                "Andromuks",
+                "AppViewModel: onInitComplete - registering FCM to ensure backend has current token",
+            )
         }
         registerFCMWithGomuksBackend(forceRegistrationOnConnect = true)
 
@@ -3999,9 +3968,9 @@ class AppViewModel : ViewModel() {
         if (toRetry.isNotEmpty()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: onInitComplete — retrying deferred paginate for ${toRetry.size} room(s): $toRetry",
-            )
+                    "Andromuks",
+                    "AppViewModel: onInitComplete — retrying deferred paginate for ${toRetry.size} room(s): $toRetry",
+                )
             }
             // Only retry rooms the user still cares about (currently open or pending nav target);
             // skip rooms abandoned before WS came up, to avoid clobbering currentRoomId state.
@@ -4041,9 +4010,9 @@ class AppViewModel : ViewModel() {
                 roomListUpdateCounter++
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Forced room list refresh after init_complete",
-                )
+                        "Andromuks",
+                        "AppViewModel: Forced room list refresh after init_complete",
+                    )
                 }
             }
         }
@@ -4054,9 +4023,9 @@ class AppViewModel : ViewModel() {
         // causing the room_list route to show StartupLoadingScreen briefly (visual bounce).
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: onInitComplete sync section done — navigation will fire from checkStartupComplete once startup is truly complete",
-        )
+                "Andromuks",
+                "AppViewModel: onInitComplete sync section done — navigation will fire from checkStartupComplete once startup is truly complete",
+            )
         }
     }
 
@@ -4070,9 +4039,9 @@ class AppViewModel : ViewModel() {
         if (pendingNotificationActions.isEmpty()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: No pending notification actions to execute",
-            )
+                    "Andromuks",
+                    "AppViewModel: No pending notification actions to execute",
+                )
             }
             return
         }
@@ -4094,17 +4063,17 @@ class AppViewModel : ViewModel() {
                             deduplicatedActions.add(action)
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Keeping queued send_message (roomId: ${action.roomId}, text: '${action.text}')",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Keeping queued send_message (roomId: ${action.roomId}, text: '${action.text}')",
+                                )
                             }
                         } else {
                             // Duplicate - skip it
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Skipping duplicate queued send_message (roomId: ${action.roomId}, text: '${action.text}')",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Skipping duplicate queued send_message (roomId: ${action.roomId}, text: '${action.text}')",
+                                )
                             }
                             // Still call completion callback to prevent UI stalling
                             action.onComplete?.invoke()
@@ -4123,9 +4092,9 @@ class AppViewModel : ViewModel() {
         if (removedCount > 0) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Removed $removedCount duplicate actions from queue",
-            )
+                    "Andromuks",
+                    "AppViewModel: Removed $removedCount duplicate actions from queue",
+                )
             }
         }
 
@@ -4137,9 +4106,9 @@ class AppViewModel : ViewModel() {
                     if (action.text != null) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Executing pending send_message for room ${action.roomId}",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Executing pending send_message for room ${action.roomId}",
+                            )
                         }
                         // Note: sendMessageFromNotification will also check deduplication, but this prevents
                         // duplicate queue entries from being processed
@@ -4151,9 +4120,9 @@ class AppViewModel : ViewModel() {
                     if (action.eventId != null) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Executing pending mark_read for room ${action.roomId}",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Executing pending mark_read for room ${action.roomId}",
+                            )
                         }
                         markRoomAsReadFromNotification(action.roomId, action.eventId, action.onComplete)
                     }
@@ -4232,7 +4201,12 @@ class AppViewModel : ViewModel() {
                 mockSyncData.put("rooms", roomsObject)
                 mockSyncData.put("space_edges", storedSpaceEdges)
 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background space edge processing - Created mock data for ${allRooms.size} rooms")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Background space edge processing - Created mock data for ${allRooms.size} rooms",
+                )
+                }
 
                 // Process space edges in background (parsing is expensive)
                 net.vrkknn.andromuks.utils.SpaceRoomParser.updateExistingSpacesWithEdges(
@@ -4249,9 +4223,9 @@ class AppViewModel : ViewModel() {
                     storedSpaceEdges = null
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Space edge processing complete - UI updated",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Space edge processing complete - UI updated",
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -4423,16 +4397,15 @@ class AppViewModel : ViewModel() {
         else if (spacesLoaded) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Spaces already loaded from cache, but waiting for WebSocket connection before navigating",
-            )
+                    "Andromuks",
+                    "AppViewModel: Spaces already loaded from cache, but waiting for WebSocket connection before navigating",
+                )
             }
             // Don't trigger here - let onInitComplete() or WebSocket connection handle it
         }
     }
 
-    fun setPendingRoomNavigation(roomId: String, fromNotification: Boolean = false) =
-        navigationCoordinator.setPendingRoomNavigation(roomId, fromNotification)
+    fun setPendingRoomNavigation(roomId: String, fromNotification: Boolean = false) = navigationCoordinator.setPendingRoomNavigation(roomId, fromNotification)
 
     // OPTIMIZATION #1: Direct navigation method (bypasses pending state)
     fun setDirectRoomNavigation(roomId: String, notificationTimestamp: Long? = null, targetEventId: String? = null) =
@@ -4455,9 +4428,9 @@ class AppViewModel : ViewModel() {
     fun setPendingUserInfoNavigation(userId: String) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Set pending user info navigation for: $userId",
-        )
+                "Andromuks",
+                "AppViewModel: Set pending user info navigation for: $userId",
+            )
         }
         pendingUserInfoNavigation = userId
         pendingUserInfoNavigationTrigger++ // Notify observers
@@ -4473,9 +4446,9 @@ class AppViewModel : ViewModel() {
     fun setPendingBubbleNavigation(roomId: String) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Set pending bubble navigation to: $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Set pending bubble navigation to: $roomId",
+            )
         }
         pendingBubbleNavigation = roomId
     }
@@ -4485,9 +4458,9 @@ class AppViewModel : ViewModel() {
         if (roomId != null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Getting pending bubble navigation: $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Getting pending bubble navigation: $roomId",
+                )
             }
         }
         return roomId
@@ -4498,14 +4471,11 @@ class AppViewModel : ViewModel() {
         pendingBubbleNavigation = null
     }
 
-    fun setPendingHighlightEvent(roomId: String, eventId: String?) =
-        navigationCoordinator.setPendingHighlightEvent(roomId, eventId)
+    fun setPendingHighlightEvent(roomId: String, eventId: String?) = navigationCoordinator.setPendingHighlightEvent(roomId, eventId)
 
-    fun consumePendingHighlightEvent(roomId: String): String? =
-        navigationCoordinator.consumePendingHighlightEvent(roomId)
+    fun consumePendingHighlightEvent(roomId: String): String? = navigationCoordinator.consumePendingHighlightEvent(roomId)
 
-    fun setPendingInterRoomJump(roomId: String, eventId: String?) =
-        navigationCoordinator.setPendingInterRoomJump(roomId, eventId)
+    fun setPendingInterRoomJump(roomId: String, eventId: String?) = navigationCoordinator.setPendingInterRoomJump(roomId, eventId)
 
     fun consumePendingInterRoomJump(roomId: String): String? = navigationCoordinator.consumePendingInterRoomJump(roomId)
 
@@ -4524,9 +4494,9 @@ class AppViewModel : ViewModel() {
         val syncIngestorInstance = syncIngestor ?: run {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: syncIngestor not initialized, skipping pending items check",
-            )
+                    "Andromuks",
+                    "AppViewModel: syncIngestor not initialized, skipping pending items check",
+                )
             }
             // Ensure flag is false if syncIngestor doesn't exist
             isProcessingPendingItems = false
@@ -4539,9 +4509,9 @@ class AppViewModel : ViewModel() {
                 // No pending items to process - UI can show immediately
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: No pending items to process (deprecated - all data is in-memory only) - not blocking UI",
-                )
+                        "Andromuks",
+                        "AppViewModel: No pending items to process (deprecated - all data is in-memory only) - not blocking UI",
+                    )
                 }
                 isProcessingPendingItems = false
             } catch (e: Exception) {
@@ -4551,9 +4521,9 @@ class AppViewModel : ViewModel() {
                 isProcessingPendingItems = false
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Cleared isProcessingPendingItems flag (finally block)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Cleared isProcessingPendingItems flag (finally block)",
+                    )
                 }
             }
         }
@@ -4653,9 +4623,9 @@ class AppViewModel : ViewModel() {
     fun setBubbleVisible(visible: Boolean) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Bubble visibility set to $visible (lightweight)",
-        )
+                "Andromuks",
+                "AppViewModel: Bubble visibility set to $visible (lightweight)",
+            )
         }
 
         // Keep sync_complete processing immediate while any bubble is on screen.
@@ -4703,18 +4673,18 @@ class AppViewModel : ViewModel() {
             if (currentRoomId.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh for bubble",
-                )
+                        "Andromuks",
+                        "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh for bubble",
+                    )
                 }
                 timelineRefreshTrigger++
             }
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Bubble hidden - notifications remain enabled for $currentRoomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Bubble hidden - notifications remain enabled for $currentRoomId",
+                )
             }
 
             // A→B transition: bubble is still on screen as a minimized icon. The
@@ -4751,9 +4721,9 @@ class AppViewModel : ViewModel() {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.i(
-            "Andromuks",
-            "AppViewModel: ensureWebSocketAliveForBubble - WS not connected, starting service + reconnecting",
-        )
+                "Andromuks",
+                "AppViewModel: ensureWebSocketAliveForBubble - WS not connected, starting service + reconnecting",
+            )
         }
         try {
             startWebSocketService()
@@ -4785,9 +4755,9 @@ class AppViewModel : ViewModel() {
         if (useBatterySaverMode && !mainUiForeground && !BubbleTracker.anyBubbleOpen()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Last bubble closed while app invisible — scheduling batterySaver linger",
-            )
+                    "Andromuks",
+                    "AppViewModel: Last bubble closed while app invisible — scheduling batterySaver linger",
+                )
             }
             WebSocketService.scheduleBatterySaverLinger()
         }
@@ -4798,9 +4768,9 @@ class AppViewModel : ViewModel() {
         if (existingWebSocket != null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Attaching $viewModelId to existing WebSocket",
-            )
+                    "Andromuks",
+                    "AppViewModel: Attaching $viewModelId to existing WebSocket",
+                )
             }
             logActivity("Attached to Existing WebSocket", null)
             // REFACTORING: Service owns WebSocket - just register callbacks, no local storage needed
@@ -4839,17 +4809,17 @@ class AppViewModel : ViewModel() {
                 initialSyncProcessingComplete = true
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "🟣 Attaching to WebSocket: Setting initializationComplete=true, initialSyncComplete=true, processingComplete=true (already-initialized WebSocket)",
-                )
+                        "Andromuks",
+                        "🟣 Attaching to WebSocket: Setting initializationComplete=true, initialSyncComplete=true, processingComplete=true (already-initialized WebSocket)",
+                    )
                 }
                 initializationComplete = true // CRITICAL: init_complete was already received by primary instance
                 initialSyncComplete = true
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "🟣 Attaching to WebSocket: initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, profile=${currentUserProfile != null}",
-                )
+                        "Andromuks",
+                        "🟣 Attaching to WebSocket: initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, processingComplete=$initialSyncProcessingComplete, profile=${currentUserProfile != null}",
+                    )
                 }
 
                 // Capture messages already processed by the pipeline (pre-registration) and
@@ -4939,10 +4909,10 @@ class AppViewModel : ViewModel() {
                                                             messageSender = if (room.messagePreview !=
                                                                 null
                                                             ) {
-                                                                    room.messageSender
-                                                                } else {
-                                                                    existing.messageSender
-                                                                },
+                                                                room.messageSender
+                                                            } else {
+                                                                existing.messageSender
+                                                            },
                                                             latestEventId = room.latestEventId ?: existing.latestEventId,
                                                         )
                                                     }
@@ -4966,10 +4936,10 @@ class AppViewModel : ViewModel() {
                                                             messageSender = if (room.messagePreview !=
                                                                 null
                                                             ) {
-                                                                    room.messageSender
-                                                                } else {
-                                                                    existing.messageSender
-                                                                },
+                                                                room.messageSender
+                                                            } else {
+                                                                existing.messageSender
+                                                            },
                                                             latestEventId = room.latestEventId ?: existing.latestEventId,
                                                         )
                                                     }
@@ -5011,9 +4981,9 @@ class AppViewModel : ViewModel() {
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: No existing WebSocket to attach for $viewModelId",
-            )
+                    "Andromuks",
+                    "AppViewModel: No existing WebSocket to attach for $viewModelId",
+                )
             }
 
             // STEP 2.1: Still register ViewModel even if WebSocket doesn't exist (for tracking)
@@ -5045,9 +5015,9 @@ class AppViewModel : ViewModel() {
             spacesLoaded = true
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "🟣 Attaching to WebSocket: Set spacesLoaded=true (have ${roomMap.size} rooms)",
-            )
+                    "Andromuks",
+                    "🟣 Attaching to WebSocket: Set spacesLoaded=true (have ${roomMap.size} rooms)",
+                )
             }
         }
         // Mark initialSyncComplete when attaching to an existing WebSocket.
@@ -5060,9 +5030,9 @@ class AppViewModel : ViewModel() {
             initialSyncComplete = true
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "🟣 Attaching to WebSocket: Set initialSyncComplete=true (have ${roomMap.size} rooms from cache)",
-            )
+                    "Andromuks",
+                    "🟣 Attaching to WebSocket: Set initialSyncComplete=true (have ${roomMap.size} rooms from cache)",
+                )
             }
         }
 
@@ -5098,9 +5068,9 @@ class AppViewModel : ViewModel() {
             allRoomStatesLoaded = true
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "🟣 Attaching to WebSocket: Set allRoomStatesLoaded=true (room states already loaded by primary instance)",
-            )
+                    "Andromuks",
+                    "🟣 Attaching to WebSocket: Set allRoomStatesLoaded=true (room states already loaded by primary instance)",
+                )
             }
         }
 
@@ -5110,24 +5080,24 @@ class AppViewModel : ViewModel() {
             flushPendingCommandsQueue()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "🟣 Attaching to WebSocket: Set canSendCommandsToBackend=true (WebSocket already initialized)",
-            )
+                    "Andromuks",
+                    "🟣 Attaching to WebSocket: Set canSendCommandsToBackend=true (WebSocket already initialized)",
+                )
             }
         }
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, allRoomStatesLoaded=$allRoomStatesLoaded, canSendCommands=$canSendCommandsToBackend, roomMap.size=${roomMap.size}",
-        )
+                "Andromuks",
+                "🟣 Attaching to WebSocket: Checking startup complete - initializationComplete=$initializationComplete, initialSyncComplete=$initialSyncComplete, spacesLoaded=$spacesLoaded, allRoomStatesLoaded=$allRoomStatesLoaded, canSendCommands=$canSendCommandsToBackend, roomMap.size=${roomMap.size}",
+            )
         }
         checkStartupComplete()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "🟣 Attaching to WebSocket: After checkStartupComplete - isStartupComplete=$isStartupComplete",
-        )
+                "Andromuks",
+                "🟣 Attaching to WebSocket: After checkStartupComplete - isStartupComplete=$isStartupComplete",
+            )
         }
 
         // If spaces are loaded, trigger navigation.
@@ -5135,9 +5105,9 @@ class AppViewModel : ViewModel() {
             if (onNavigateToRoomList != null) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback",
-                )
+                        "Andromuks",
+                        "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback",
+                    )
                 }
                 navigationCallbackTriggered = true
                 onNavigateToRoomList?.invoke()
@@ -5145,9 +5115,9 @@ class AppViewModel : ViewModel() {
                 // Callback not yet registered — mark as pending so setNavigationCallback fires it.
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Spaces loaded but no navigation callback registered yet - setting pendingNavigation=true",
-                )
+                        "Andromuks",
+                        "AppViewModel: Spaces loaded but no navigation callback registered yet - setting pendingNavigation=true",
+                    )
                 }
                 pendingNavigation = true
             }
@@ -5294,9 +5264,9 @@ class AppViewModel : ViewModel() {
         if (!shouldPersistForNotifications) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Skipping SharedPreferences current room update for bubble instance (roomId=$roomId)",
-            )
+                    "Andromuks",
+                    "AppViewModel: Skipping SharedPreferences current room update for bubble instance (roomId=$roomId)",
+                )
             }
             return
         }
@@ -5309,16 +5279,16 @@ class AppViewModel : ViewModel() {
             if (roomId.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Publishing current open room to memory + prefs: $roomId",
-                )
+                        "Andromuks",
+                        "AppViewModel: Publishing current open room to memory + prefs: $roomId",
+                    )
                 }
             } else {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Clearing current open room from memory + prefs",
-                )
+                        "Andromuks",
+                        "AppViewModel: Clearing current open room from memory + prefs",
+                    )
                 }
             }
             net.vrkknn.andromuks.utils.NotificationSuppressionState.setCurrentOpenRoomId(context, roomId)
@@ -5333,9 +5303,9 @@ class AppViewModel : ViewModel() {
             net.vrkknn.andromuks.utils.NotificationSuppressionState.setAppVisible(context, visible)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Published app visibility=$visible to memory + prefs (currentRoomId=$currentRoomId)",
-            )
+                    "Andromuks",
+                    "AppViewModel: Published app visibility=$visible to memory + prefs (currentRoomId=$currentRoomId)",
+                )
             }
         } ?: run {
             android.util.Log.w("Andromuks", "AppViewModel: Cannot update app visibility - appContext is null")
@@ -5351,9 +5321,9 @@ class AppViewModel : ViewModel() {
     fun setCurrentRoomIdForTimeline(roomId: String) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: setCurrentRoomIdForTimeline called for room: $roomId (current: $currentRoomId)",
-        )
+                "Andromuks",
+                "AppViewModel: setCurrentRoomIdForTimeline called for room: $roomId (current: $currentRoomId)",
+            )
         }
         if (currentRoomId != roomId) {
             updateCurrentRoomIdInPrefs(roomId)
@@ -5396,9 +5366,9 @@ class AppViewModel : ViewModel() {
     fun clearAllTimelineCaches() {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Clearing all timeline caches (WebSocket connect/reconnect)",
-        )
+                "Andromuks",
+                "AppViewModel: Clearing all timeline caches (WebSocket connect/reconnect)",
+            )
         }
 
         // Clear RoomTimelineCache (includes actively cached rooms tracking)
@@ -5435,9 +5405,9 @@ class AppViewModel : ViewModel() {
         roomsNeedingPostJoinReset.add(roomId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Marked $roomId for post-join reset paginate",
-        )
+                "Andromuks",
+                "AppViewModel: Marked $roomId for post-join reset paginate",
+            )
         }
     }
 
@@ -5472,8 +5442,7 @@ class AppViewModel : ViewModel() {
      * Called by SyncIngestor when new events arrive for a cached room.
      * Returns true if events were appended, false if room not cached or needs full re-render.
      */
-    fun appendEventsToCachedRoom(roomId: String, newEvents: List<TimelineEvent>) =
-        timelineCacheCoordinator.appendEventsToCachedRoom(roomId, newEvents)
+    fun appendEventsToCachedRoom(roomId: String, newEvents: List<TimelineEvent>) = timelineCacheCoordinator.appendEventsToCachedRoom(roomId, newEvents)
 
     /**
      * Invalidate processed timeline state for a specific room (e.g., when edits/redactions arrive).
@@ -5482,9 +5451,9 @@ class AppViewModel : ViewModel() {
         RoomTimelineCache.clearProcessedTimelineState(roomId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Invalidated processed timeline state for room $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Invalidated processed timeline state for room $roomId",
+            )
         }
     }
 
@@ -5493,12 +5462,7 @@ class AppViewModel : ViewModel() {
         internal set
 
     // Edit chain tracking system
-    data class EventChainEntry(
-        val eventId: String,
-        var ourBubble: TimelineEvent?,
-        var replacedBy: String?,
-        val originalTimestamp: Long,
-    )
+    data class EventChainEntry(val eventId: String, var ourBubble: TimelineEvent?, var replacedBy: String?, val originalTimestamp: Long)
 
     // eventChainMap / editEventsMap are touched from Main (echo writes), Dispatchers.Default
     // (chain rebuilds in TimelineCacheCoordinator and buildTimelineFromChain), and IO
@@ -5522,11 +5486,9 @@ class AppViewModel : ViewModel() {
 
     internal fun hasInitialPaginate(roomId: String) = timelineCacheCoordinator.hasInitialPaginate(roomId)
 
-    internal fun markInitialPaginate(roomId: String, reason: String) =
-        timelineCacheCoordinator.markInitialPaginate(roomId, reason)
+    internal fun markInitialPaginate(roomId: String, reason: String) = timelineCacheCoordinator.markInitialPaginate(roomId, reason)
 
-    internal fun logSkippedPaginate(roomId: String, reason: String) =
-        timelineCacheCoordinator.logSkippedPaginate(roomId, reason)
+    internal fun logSkippedPaginate(roomId: String, reason: String) = timelineCacheCoordinator.logSkippedPaginate(roomId, reason)
     private val roomSnapshotAwaiters = ConcurrentHashMap<String, MutableList<CompletableDeferred<Unit>>>()
 
     // Request IDs are allocated from a single per-WebSocket counter in WebSocketService.
@@ -5697,9 +5659,9 @@ class AppViewModel : ViewModel() {
     private val roomStateWithMembersRequests = mutableMapOf<
         Int,
         (
-        net.vrkknn.andromuks.utils.RoomStateInfo?,
-        String?,
-    ) -> Unit,
+            net.vrkknn.andromuks.utils.RoomStateInfo?,
+            String?,
+        ) -> Unit,
         >() // requestId -> callback
 
     // Gallery paginate: requestId -> callback(events, hasMore, minTimelineRowId)
@@ -5713,25 +5675,25 @@ class AppViewModel : ViewModel() {
     internal val userEncryptionInfoRequests = mutableMapOf<
         Int,
         (
-        net.vrkknn.andromuks.utils.UserEncryptionInfo?,
-        String?,
-    ) -> Unit,
+            net.vrkknn.andromuks.utils.UserEncryptionInfo?,
+            String?,
+        ) -> Unit,
         >() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
     internal val basicProfileCallbacks = mutableMapOf<Int, (MemberProfile?) -> Unit>() // requestId -> callback for direct get_profile consumers
     internal val trackDevicesRequests = mutableMapOf<
         Int,
         (
-        net.vrkknn.andromuks.utils.UserEncryptionInfo?,
-        String?,
-    ) -> Unit,
+            net.vrkknn.andromuks.utils.UserEncryptionInfo?,
+            String?,
+        ) -> Unit,
         >() // requestId -> callback
     private val resolveAliasRequests = mutableMapOf<Int, (Pair<String, List<String>>?) -> Unit>() // requestId -> callback
     private val getRoomSummaryRequests = mutableMapOf<
         Int,
         (
-        Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?,
-    ) -> Unit,
+            Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?,
+        ) -> Unit,
         >() // requestId -> callback
     internal val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
     private val roomSpecificStateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_specific_room_state requests)
@@ -5753,12 +5715,7 @@ class AppViewModel : ViewModel() {
     internal val profileRequests = mutableMapOf<Int, String>() // requestId -> userId (get_profile) or routed keys
 
     // CRITICAL FIX: Track profile request metadata for timeout handling and cleanup
-    private data class ProfileRequestMetadata(
-        val requestId: Int,
-        val timestamp: Long,
-        val userId: String,
-        val roomId: String,
-    )
+    private data class ProfileRequestMetadata(val requestId: Int, val timestamp: Long, val userId: String, val roomId: String)
     private val profileRequestMetadata = mutableMapOf<String, ProfileRequestMetadata>() // "roomId:userId" -> metadata
 
     // BATCH: Queue on-demand profile requests and send one get_specific_room_state per room with multiple keys
@@ -5795,9 +5752,9 @@ class AppViewModel : ViewModel() {
             val reasonText = reason?.let { " ($it)" } ?: ""
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Auto-pagination ${if (enabled) "ENABLED" else "DISABLED"}$reasonText",
-            )
+                    "Andromuks",
+                    "AppViewModel: Auto-pagination ${if (enabled) "ENABLED" else "DISABLED"}$reasonText",
+                )
             }
             autoPaginationEnabled = enabled
         }
@@ -5911,9 +5868,9 @@ class AppViewModel : ViewModel() {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Initial sync phase started - will queue sync_complete messages until init_complete",
-        )
+                "Andromuks",
+                "AppViewModel: Initial sync phase started - will queue sync_complete messages until init_complete",
+            )
         }
 
         // CRITICAL FIX: Process deferred emoji pack requests when WebSocket is set
@@ -5921,9 +5878,9 @@ class AppViewModel : ViewModel() {
         if (deferredEmojiPackRequests.isNotEmpty()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Processing ${deferredEmojiPackRequests.size} deferred emoji pack requests after WebSocket connection",
-            )
+                    "Andromuks",
+                    "AppViewModel: Processing ${deferredEmojiPackRequests.size} deferred emoji pack requests after WebSocket connection",
+                )
             }
             val requests = deferredEmojiPackRequests.toList()
             deferredEmojiPackRequests.clear()
@@ -5935,9 +5892,9 @@ class AppViewModel : ViewModel() {
         // PHASE 4: Register this ViewModel to receive WebSocket messages
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Registering $viewModelId to receive WebSocket messages",
-        )
+                "Andromuks",
+                "AppViewModel: Registering $viewModelId to receive WebSocket messages",
+            )
         }
         WebSocketService.registerReceiveCallback(viewModelId, this)
 
@@ -5963,9 +5920,9 @@ class AppViewModel : ViewModel() {
             } else {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Primary callbacks already registered for $viewModelId",
-                )
+                        "Andromuks",
+                        "AppViewModel: Primary callbacks already registered for $viewModelId",
+                    )
                 }
             }
         }
@@ -5978,9 +5935,9 @@ class AppViewModel : ViewModel() {
         // This prevents duplicate registrations from setWebSocket() and onInitComplete()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: setWebSocket - FCM registration will happen in onInitComplete()",
-        )
+                "Andromuks",
+                "AppViewModel: setWebSocket - FCM registration will happen in onInitComplete()",
+            )
         }
 
         // Broadcast that socket connection is available
@@ -6004,9 +5961,9 @@ class AppViewModel : ViewModel() {
     fun resetReconnectionState() {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Resetting reconnection state (successful connection)",
-        )
+                "Andromuks",
+                "AppViewModel: Resetting reconnection state (successful connection)",
+            )
         }
         // Delegate to service
         WebSocketService.resetReconnectionState()
@@ -6058,9 +6015,9 @@ class AppViewModel : ViewModel() {
             initializationComplete = false
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: WebSocket cleared - resetting initializationComplete (reason: $reason)",
-            )
+                    "Andromuks",
+                    "AppViewModel: WebSocket cleared - resetting initializationComplete (reason: $reason)",
+                )
             }
         }
 
@@ -6294,9 +6251,8 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    private fun getCertificateErrorState(): Boolean =
-        appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            ?.getBoolean("certificate_error_state", false) ?: false
+    private fun getCertificateErrorState(): Boolean = appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        ?.getBoolean("certificate_error_state", false) ?: false
 
     // PHASE 4.3: TLS failure tracking (stored in SharedPreferences)
     private fun getTlsFailureCount(): Int = appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -6365,9 +6321,9 @@ class AppViewModel : ViewModel() {
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Run ID matches existing value: $runId",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Run ID matches existing value: $runId",
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -6386,9 +6342,9 @@ class AppViewModel : ViewModel() {
         if (deferredEmojiPackRequests.isNotEmpty() && isWebSocketConnected()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Processing ${deferredEmojiPackRequests.size} deferred emoji pack requests",
-            )
+                    "Andromuks",
+                    "AppViewModel: Processing ${deferredEmojiPackRequests.size} deferred emoji pack requests",
+                )
             }
             val requests = deferredEmojiPackRequests.toList()
             deferredEmojiPackRequests.clear()
@@ -6607,9 +6563,9 @@ class AppViewModel : ViewModel() {
         if (restartCallback != null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Using direct reconnect callback for reason: $reasonLabel",
-            )
+                    "Andromuks",
+                    "AppViewModel: Using direct reconnect callback for reason: $reasonLabel",
+                )
             }
             // Cancel any pending reconnection jobs in the service to avoid duplicate attempts
             WebSocketService.cancelReconnection()
@@ -6673,9 +6629,9 @@ class AppViewModel : ViewModel() {
             WebSocketService.clearWebSocket(reasonLabel)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Service restart reconnection - connection should be handled by app startup flow",
-            )
+                    "Andromuks",
+                    "AppViewModel: Service restart reconnection - connection should be handled by app startup flow",
+                )
             }
             isRestarting = false
             return
@@ -6703,15 +6659,13 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    fun requestUserProfile(userId: String, roomId: String? = null) =
-        memberProfilesCoordinator.requestUserProfile(userId, roomId)
+    fun requestUserProfile(userId: String, roomId: String? = null) = memberProfilesCoordinator.requestUserProfile(userId, roomId)
 
     /**
      * Request a basic global profile and invoke callback as soon as get_profile returns.
      * This is useful for surfaces (like pinned events) that need deterministic profile fetch.
      */
-    fun requestBasicUserProfile(userId: String, callback: (MemberProfile?) -> Unit) =
-        memberProfilesCoordinator.requestBasicUserProfile(userId, callback)
+    fun requestBasicUserProfile(userId: String, callback: (MemberProfile?) -> Unit) = memberProfilesCoordinator.requestBasicUserProfile(userId, callback)
 
     /**
      * Validates and requests missing user profiles for a room.
@@ -6747,9 +6701,9 @@ class AppViewModel : ViewModel() {
                     usersToRequest.add(sender)
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Missing profile data for $sender - displayName: $hasDisplayName, avatar: $hasAvatar",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Missing profile data for $sender - displayName: $hasDisplayName, avatar: $hasAvatar",
+                        )
                     }
                 }
             }
@@ -6760,9 +6714,9 @@ class AppViewModel : ViewModel() {
         for (userId in usersToRequest) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Requesting missing profile (on-demand) for $userId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Requesting missing profile (on-demand) for $userId",
+                )
             }
             requestUserProfileOnDemand(userId, roomId)
         }
@@ -6773,15 +6727,14 @@ class AppViewModel : ViewModel() {
         outgoingRequests[requestId] = roomId
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Tracking outgoing request $requestId for room $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Tracking outgoing request $requestId for room $roomId",
+            )
         }
     }
 
     // Send a message and track the response
-    fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList()) =
-        messageSendCoordinator.sendMessage(roomId, text, mentions)
+    fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList()) = messageSendCoordinator.sendMessage(roomId, text, mentions)
 
     /**
      * Helper function to process cached events and display them
@@ -6947,9 +6900,9 @@ class AppViewModel : ViewModel() {
             storeMemberProfile(roomId, userId, newProfile)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Updated member profile for $userId in $roomId from timeline event (displayName=${displayName != null}, avatarUrl=${avatarUrl != null})",
-            )
+                    "Andromuks",
+                    "AppViewModel: Updated member profile for $userId in $roomId from timeline event (displayName=${displayName != null}, avatarUrl=${avatarUrl != null})",
+                )
             }
         }
     }
@@ -6966,11 +6919,7 @@ class AppViewModel : ViewModel() {
      * Ensure timeline cache is fresh (cache-only approach, no DB loading)
      * If cache is empty or room is not actively cached, triggers paginate request
      */
-    suspend fun ensureTimelineCacheIsFresh(
-        roomId: String,
-        limit: Int = INITIAL_ROOM_PAGINATE_LIMIT,
-        isBackground: Boolean = false,
-    ) {
+    suspend fun ensureTimelineCacheIsFresh(roomId: String, limit: Int = INITIAL_ROOM_PAGINATE_LIMIT, isBackground: Boolean = false) {
         val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
         val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
 
@@ -6978,9 +6927,9 @@ class AppViewModel : ViewModel() {
         if (cachedEvents != null && cachedEvents.isNotEmpty() && isActivelyCached) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: ensureTimelineCacheIsFresh($roomId) - cache is fresh (${cachedEvents.size} events, actively cached)",
-            )
+                    "Andromuks",
+                    "AppViewModel: ensureTimelineCacheIsFresh($roomId) - cache is fresh (${cachedEvents.size} events, actively cached)",
+                )
             }
             return
         }
@@ -6988,9 +6937,9 @@ class AppViewModel : ViewModel() {
         // Cache is empty or room not actively cached - trigger paginate request
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: ensureTimelineCacheIsFresh($roomId) - cache empty or not actively cached, triggering paginate (background=$isBackground)",
-        )
+                "Andromuks",
+                "AppViewModel: ensureTimelineCacheIsFresh($roomId) - cache empty or not actively cached, triggering paginate (background=$isBackground)",
+            )
         }
 
         // Issue paginate request to fill cache
@@ -7010,21 +6959,22 @@ class AppViewModel : ViewModel() {
                 backgroundPrefetchRequests[paginateRequestId] = roomId
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: ensureTimelineCacheIsFresh($roomId) - using backgroundPrefetchRequests for silent cache update",
-                )
+                        "Andromuks",
+                        "AppViewModel: ensureTimelineCacheIsFresh($roomId) - using backgroundPrefetchRequests for silent cache update",
+                    )
                 }
             } else {
                 timelineRequests[paginateRequestId] = roomId
             }
             val result = sendWebSocketCommand(
-                "paginate", paginateRequestId,
+                "paginate",
+                paginateRequestId,
                 mapOf(
-                "room_id" to roomId,
-                "max_timeline_id" to 0, // Fetch latest events
-                "limit" to limit,
-                "reset" to false,
-            )
+                    "room_id" to roomId,
+                    "max_timeline_id" to 0, // Fetch latest events
+                    "limit" to limit,
+                    "reset" to false,
+                ),
             )
 
             if (result == WebSocketResult.SUCCESS) {
@@ -7034,16 +6984,16 @@ class AppViewModel : ViewModel() {
                     RoomTimelineCache.markRoomAsCached(roomId)
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: ensureTimelineCacheIsFresh($roomId) - room was not actively cached, marked it now",
-                    )
+                            "Andromuks",
+                            "AppViewModel: ensureTimelineCacheIsFresh($roomId) - room was not actively cached, marked it now",
+                        )
                     }
                 }
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: ensureTimelineCacheIsFresh($roomId) - paginate request sent, room is actively cached (background=$isBackground)",
-                )
+                        "Andromuks",
+                        "AppViewModel: ensureTimelineCacheIsFresh($roomId) - paginate request sent, room is actively cached (background=$isBackground)",
+                    )
                 }
             } else {
                 android.util.Log.w(
@@ -7063,9 +7013,9 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: triggerPreemptivePagination called for room: $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: triggerPreemptivePagination called for room: $roomId",
+                )
             }
 
             // Battery-saver mode is no longer a hard bail-out: when the WS is up *for any
@@ -7082,9 +7032,9 @@ class AppViewModel : ViewModel() {
             if (!WebSocketService.isWebSocketConnected()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: WebSocket not connected, skipping preemptive pagination for $roomId (will fetch when user opens room)",
-                )
+                        "Andromuks",
+                        "AppViewModel: WebSocket not connected, skipping preemptive pagination for $roomId (will fetch when user opens room)",
+                    )
                 }
                 return@launch
             }
@@ -7096,9 +7046,9 @@ class AppViewModel : ViewModel() {
             if (cachedEventCount >= 50 && isActivelyCached) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Room $roomId already in cache ($cachedEventCount events >= 50, actively cached), skipping preemptive pagination",
-                )
+                        "Andromuks",
+                        "AppViewModel: Room $roomId already in cache ($cachedEventCount events >= 50, actively cached), skipping preemptive pagination",
+                    )
                 }
                 return@launch
             }
@@ -7109,18 +7059,18 @@ class AppViewModel : ViewModel() {
             RoomTimelineCache.markRoomAsCached(roomId)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Marked room $roomId as actively cached immediately (will receive events from sync_complete while pagination is in progress)",
-            )
+                    "Andromuks",
+                    "AppViewModel: Marked room $roomId as actively cached immediately (will receive events from sync_complete while pagination is in progress)",
+                )
             }
 
             // CRITICAL FIX: Use background pagination to prevent timeline rebuild for currently open room
             // Background pagination only updates cache, doesn't rebuild timeline
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Triggering preemptive pagination for room: $roomId (cached: $cachedEventCount events, actively cached: $isActivelyCached) - using background mode",
-            )
+                    "Andromuks",
+                    "AppViewModel: Triggering preemptive pagination for room: $roomId (cached: $cachedEventCount events, actively cached: $isActivelyCached) - using background mode",
+                )
             }
             ensureTimelineCacheIsFresh(roomId, limit = INITIAL_ROOM_PAGINATE_LIMIT, isBackground = true)
         }
@@ -7131,8 +7081,7 @@ class AppViewModel : ViewModel() {
      */
     fun restoreFromLruCache(roomId: String): Boolean = timelineCacheCoordinator.restoreFromLruCache(roomId)
 
-    fun requestRoomTimeline(roomId: String, useLruCache: Boolean = true) =
-        timelineCacheCoordinator.requestRoomTimeline(roomId, useLruCache)
+    fun requestRoomTimeline(roomId: String, useLruCache: Boolean = true) = timelineCacheCoordinator.requestRoomTimeline(roomId, useLruCache)
 
     /**
      * Fully refreshes the room timeline by resetting in-memory state and fetching a clean snapshot.
@@ -7146,9 +7095,9 @@ class AppViewModel : ViewModel() {
     fun fullRefreshRoomTimeline(roomId: String) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)",
-        )
+                "Andromuks",
+                "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)",
+            )
         }
         setAutoPaginationEnabled(false, "manual_refresh_$roomId")
 
@@ -7157,9 +7106,9 @@ class AppViewModel : ViewModel() {
         roomsPaginatedOnce.remove(roomId)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Cleared pagination flag for manual refresh of room: $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Cleared pagination flag for manual refresh of room: $roomId",
+            )
         }
 
         // REMOVED: Skip check - manual refresh should always request fresh events from server
@@ -7222,7 +7171,12 @@ class AppViewModel : ViewModel() {
             ),
         )
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for room: $roomId (${INITIAL_ROOM_PAGINATE_LIMIT} events) - awaiting response to rebuild timeline")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Sent paginate request for room: $roomId (${INITIAL_ROOM_PAGINATE_LIMIT} events) - awaiting response to rebuild timeline",
+        )
+        }
         if (result == WebSocketResult.SUCCESS) {
             markInitialPaginate(roomId, "full_refresh")
         } else {
@@ -7233,17 +7187,13 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    suspend fun prefetchRoomSnapshot(
-        roomId: String,
-        limit: Int = INITIAL_ROOM_PAGINATE_LIMIT,
-        timeoutMs: Long = 6000L,
-    ): Boolean {
+    suspend fun prefetchRoomSnapshot(roomId: String, limit: Int = INITIAL_ROOM_PAGINATE_LIMIT, timeoutMs: Long = 6000L): Boolean {
         if (!AUTO_PAGINATION_ENABLED) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Prefetch snapshot disabled (AUTO_PAGINATION_ENABLED=false) for $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Prefetch snapshot disabled (AUTO_PAGINATION_ENABLED=false) for $roomId",
+                )
             }
             return false
         }
@@ -7267,9 +7217,9 @@ class AppViewModel : ViewModel() {
         backgroundPrefetchRequests[requestId] = roomId
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Prefetching snapshot for room $roomId (requestId=$requestId, limit=$limit, timeout=${timeoutMs}ms)",
-        )
+                "Andromuks",
+                "AppViewModel: Prefetching snapshot for room $roomId (requestId=$requestId, limit=$limit, timeout=${timeoutMs}ms)",
+            )
         }
 
         val commandResult = sendWebSocketCommand(
@@ -7299,9 +7249,9 @@ class AppViewModel : ViewModel() {
             }
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Prefetch snapshot complete for room $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Prefetch snapshot complete for room $roomId",
+                )
             }
             markInitialPaginate(roomId, "prefetch_snapshot")
             true
@@ -7331,8 +7281,7 @@ class AppViewModel : ViewModel() {
     fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) =
         navigationCoordinator.navigateToRoomWithCache(roomId, notificationTimestamp)
 
-    internal fun requestHistoricalReactions(roomId: String, smallestCached: Long) =
-        reactionCoordinator.requestHistoricalReactions(roomId, smallestCached)
+    internal fun requestHistoricalReactions(roomId: String, smallestCached: Long) = reactionCoordinator.requestHistoricalReactions(roomId, smallestCached)
 
     /**
      * Request related events for a specific message to backfill detailed reactions via get_related_events.
@@ -7341,17 +7290,16 @@ class AppViewModel : ViewModel() {
      * messageReactions[eventId] has per-user reaction data (including timestamps), even when the
      * room was loaded primarily via paginate responses.
      */
-    fun requestReactionDetails(roomId: String, eventId: String) =
-        reactionCoordinator.requestReactionDetails(roomId, eventId)
+    fun requestReactionDetails(roomId: String, eventId: String) = reactionCoordinator.requestReactionDetails(roomId, eventId)
 
     fun requestRoomState(roomId: String) {
         // PERFORMANCE: Prevent duplicate room state requests for the same room
         if (pendingRoomStateRequests.contains(roomId)) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Room state request already pending for $roomId, skipping duplicate",
-            )
+                    "Andromuks",
+                    "AppViewModel: Room state request already pending for $roomId, skipping duplicate",
+                )
             }
             return
         }
@@ -7363,13 +7311,14 @@ class AppViewModel : ViewModel() {
         synchronized(roomStateRequests) { roomStateRequests[stateRequestId] = roomId }
 
         sendWebSocketCommand(
-            "get_room_state", stateRequestId,
+            "get_room_state",
+            stateRequestId,
             mapOf(
-            "room_id" to roomId,
-            "include_members" to false,
-            "fetch_members" to false,
-            "refetch" to false,
-        )
+                "room_id" to roomId,
+                "include_members" to false,
+                "fetch_members" to false,
+                "refetch" to false,
+            ),
         )
     }
 
@@ -7377,15 +7326,12 @@ class AppViewModel : ViewModel() {
      * Requests complete room state including member list
      * Used by the Room Info screen to display detailed room information
      */
-    fun requestRoomStateWithMembers(
-        roomId: String,
-        callback: (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit,
-    ) {
+    fun requestRoomStateWithMembers(roomId: String, callback: (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Requesting room state with members for room: $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Requesting room state with members for room: $roomId",
+            )
         }
 
         // Check if WebSocket is connected
@@ -7401,9 +7347,9 @@ class AppViewModel : ViewModel() {
         val stateRequestId = WebSocketService.allocateRequestId()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Generated request_id for get_room_state with members: $stateRequestId",
-        )
+                "Andromuks",
+                "AppViewModel: Generated request_id for get_room_state with members: $stateRequestId",
+            )
         }
 
         // Store the callback to handle the response
@@ -7412,19 +7358,20 @@ class AppViewModel : ViewModel() {
         // IMPORTANT: Request room state with include_members: true to get the full member list
         // This ensures RoomInfo screen displays the actual member list from the server
         sendWebSocketCommand(
-            "get_room_state", stateRequestId,
+            "get_room_state",
+            stateRequestId,
             mapOf(
-            "room_id" to roomId,
-            "include_members" to true, // CRITICAL: Include members in response for RoomInfo screen
-            "fetch_members" to false,
-            "refetch" to false,
-        )
+                "room_id" to roomId,
+                "include_members" to true, // CRITICAL: Include members in response for RoomInfo screen
+                "fetch_members" to false,
+                "refetch" to false,
+            ),
         )
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: WebSocket command sent with request_id: $stateRequestId (include_members=true)",
-        )
+                "Andromuks",
+                "AppViewModel: WebSocket command sent with request_id: $stateRequestId (include_members=true)",
+            )
         }
     }
 
@@ -7449,9 +7396,9 @@ class AppViewModel : ViewModel() {
             if (pendingProfileRequests.contains(requestKey)) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Profile request already pending for $userId, skipping duplicate",
-                )
+                        "Andromuks",
+                        "AppViewModel: Profile request already pending for $userId, skipping duplicate",
+                    )
                 }
                 return
             }
@@ -7467,9 +7414,9 @@ class AppViewModel : ViewModel() {
                 // Recent successful request - throttle
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Profile request throttled for $userId (requested ${currentTime - lastRequestTime}ms ago)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Profile request throttled for $userId (requested ${currentTime - lastRequestTime}ms ago)",
+                    )
                 }
                 return
             }
@@ -7491,14 +7438,14 @@ class AppViewModel : ViewModel() {
                 val sep = key.indexOf(":@")
                 if (sep > 0) {
                     synchronized(pendingProfileBatch) {
-                    pendingProfileBatch[key.substring(0, sep)]?.remove(key.substring(sep + 1))
-                }
+                        pendingProfileBatch[key.substring(0, sep)]?.remove(key.substring(sep + 1))
+                    }
                 }
                 if (BuildConfig.DEBUG) {
                     android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: Cleaned up stale profile request for $key (older than 30s)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Cleaned up stale profile request for $key (older than 30s)",
+                    )
                 }
             }
 
@@ -7557,9 +7504,9 @@ class AppViewModel : ViewModel() {
                 sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Sent batched profile request with ID $requestId for $roomId (${userIds.size} users)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Sent batched profile request with ID $requestId for $roomId (${userIds.size} users)",
+                    )
                 }
             } else {
                 // WebSocket down: fall back to the /exec endpoint with the same get_specific_room_state
@@ -7570,10 +7517,10 @@ class AppViewModel : ViewModel() {
                 userIds.forEach { userId ->
                     keysArray.put(
                         org.json.JSONObject().apply {
-                        put("room_id", roomId)
-                        put("type", "m.room.member")
-                        put("state_key", userId)
-                    }
+                            put("room_id", roomId)
+                            put("type", "m.room.member")
+                            put("state_key", userId)
+                        },
                     )
                 }
                 val data = org.json.JSONObject().apply { put("keys", keysArray) }
@@ -7583,9 +7530,9 @@ class AppViewModel : ViewModel() {
                 }
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Sent batched profile request via /exec for $roomId (${userIds.size} users)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Sent batched profile request via /exec for $roomId (${userIds.size} users)",
+                    )
                 }
             }
         }
@@ -7595,11 +7542,7 @@ class AppViewModel : ViewModel() {
      * Request per-room member state for a user with callback.
      * This is used by UserInfoScreen to get room-specific display name and avatar.
      */
-    fun requestPerRoomMemberState(
-        roomId: String,
-        userId: String,
-        callback: (displayName: String?, avatarUrl: String?) -> Unit,
-    ) {
+    fun requestPerRoomMemberState(roomId: String, userId: String, callback: (displayName: String?, avatarUrl: String?) -> Unit) {
         if (!isWebSocketConnected()) {
             android.util.Log.w(
                 "Andromuks",
@@ -7614,19 +7557,25 @@ class AppViewModel : ViewModel() {
         roomSpecificProfileCallbacks[requestId] = callback
 
         sendWebSocketCommand(
-            "get_specific_room_state", requestId,
+            "get_specific_room_state",
+            requestId,
             mapOf(
-            "keys" to listOf(
-                mapOf(
-                "room_id" to roomId,
-                "type" to "m.room.member",
-                "state_key" to userId,
-            )
+                "keys" to listOf(
+                    mapOf(
+                        "room_id" to roomId,
+                        "type" to "m.room.member",
+                        "state_key" to userId,
+                    ),
+                ),
             ),
         )
-        )
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent per-room member state request with ID $requestId for $userId in room $roomId")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Sent per-room member state request with ID $requestId for $userId in room $roomId",
+        )
+        }
     }
 
     /**
@@ -7637,9 +7586,9 @@ class AppViewModel : ViewModel() {
     fun requestUpdatedRoomProfiles(roomId: String, timelineEvents: List<TimelineEvent>) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Requesting updated room profiles for room: $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Requesting updated room profiles for room: $roomId",
+            )
         }
 
         if (!isWebSocketConnected()) {
@@ -7671,14 +7620,19 @@ class AppViewModel : ViewModel() {
         if (userIdList.isEmpty()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: No users found in timeline events, skipping profile refresh",
-            )
+                    "Andromuks",
+                    "AppViewModel: No users found in timeline events, skipping profile refresh",
+                )
             }
             return
         }
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting profile updates for ${userIdList.size} users (senders + mentions + reply targets)")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Requesting profile updates for ${userIdList.size} users (senders + mentions + reply targets)",
+        )
+        }
 
         val keysList = userIdList.map { userId ->
             mapOf(
@@ -7697,9 +7651,9 @@ class AppViewModel : ViewModel() {
         sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Sent get_specific_room_state request with ID $requestId for ${userIdList.size} members",
-        )
+                "Andromuks",
+                "AppViewModel: Sent get_specific_room_state request with ID $requestId for ${userIdList.size} members",
+            )
         }
     }
 
@@ -7714,12 +7668,7 @@ class AppViewModel : ViewModel() {
      * Intended for the initial-paginate path only: call this instead of
      * [requestUpdatedRoomProfiles] when the timeline should not render until profiles are ready.
      */
-    internal fun requestRoomProfilesForRender(
-        roomId: String,
-        timelineEvents: List<TimelineEvent>,
-        receiptUserIds: Set<String>,
-        onComplete: () -> Unit,
-    ) {
+    internal fun requestRoomProfilesForRender(roomId: String, timelineEvents: List<TimelineEvent>, receiptUserIds: Set<String>, onComplete: () -> Unit) {
         // Collect all user IDs referenced by this paginate response
         val allUserIds = mutableSetOf<String>()
         allUserIds.addAll(receiptUserIds)
@@ -7747,9 +7696,9 @@ class AppViewModel : ViewModel() {
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: requestRoomProfilesForRender - fetching ${missing.size} missing profiles for room $roomId before render",
-        )
+                "Andromuks",
+                "AppViewModel: requestRoomProfilesForRender - fetching ${missing.size} missing profiles for room $roomId before render",
+            )
         }
 
         val requestId = WebSocketService.allocateRequestId()
@@ -7786,19 +7735,15 @@ class AppViewModel : ViewModel() {
     /**
      * Request emoji pack data from a room using get_specific_room_state
      */
-    internal fun requestEmojiPackData(
-        roomId: String,
-        packName: String,
-        stateEventType: String = "im.ponies.room_emotes",
-    ) {
+    internal fun requestEmojiPackData(roomId: String, packName: String, stateEventType: String = "im.ponies.room_emotes") {
         if (!isWebSocketConnected()) {
             // CRITICAL FIX: Queue emoji pack requests when WebSocket isn't ready
             // They will be processed when WebSocket connects
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: WebSocket not connected, queuing emoji pack request for $packName in $roomId (type=$stateEventType)",
-            )
+                    "Andromuks",
+                    "AppViewModel: WebSocket not connected, queuing emoji pack request for $packName in $roomId (type=$stateEventType)",
+                )
             }
             deferredEmojiPackRequests.add(Triple(roomId, packName, stateEventType))
             return
@@ -7810,18 +7755,18 @@ class AppViewModel : ViewModel() {
 
         val keysList = listOf(
             mapOf(
-            "room_id" to roomId,
-            "type" to stateEventType,
-            "state_key" to packName,
-        )
+                "room_id" to roomId,
+                "type" to stateEventType,
+                "state_key" to packName,
+            ),
         )
         sendWebSocketCommand("get_specific_room_state", requestId, mapOf("keys" to keysList))
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Sent emoji pack request with ID $requestId for pack $packName in room $roomId (type=$stateEventType)",
-        )
+                "Andromuks",
+                "AppViewModel: Sent emoji pack request with ID $requestId for pack $packName in room $roomId (type=$stateEventType)",
+            )
         }
     }
 
@@ -7848,13 +7793,14 @@ class AppViewModel : ViewModel() {
         fullMemberListRequests[requestId] = roomId
 
         sendWebSocketCommand(
-            "get_room_state", requestId,
+            "get_room_state",
+            requestId,
             mapOf(
-            "room_id" to roomId,
-            "include_members" to true,
-            "fetch_members" to false,
-            "refetch" to false,
-        )
+                "room_id" to roomId,
+                "include_members" to true,
+                "fetch_members" to false,
+                "refetch" to false,
+            ),
         )
     }
 
@@ -7862,8 +7808,7 @@ class AppViewModel : ViewModel() {
 
     fun sendMessage(roomId: String, text: String) = messageSendCoordinator.sendMessage(roomId, text)
 
-    fun sendMessage(roomId: String, text: String, urlPreviews: org.json.JSONArray) =
-        messageSendCoordinator.sendMessage(roomId, text, urlPreviews)
+    fun sendMessage(roomId: String, text: String, urlPreviews: org.json.JSONArray) = messageSendCoordinator.sendMessage(roomId, text, urlPreviews)
 
     /**
      * Sends a message from a notification action.
@@ -7887,8 +7832,7 @@ class AppViewModel : ViewModel() {
     fun markRoomAsReadFromNotification(roomId: String, eventId: String, onComplete: (() -> Unit)? = null) =
         readReceiptsTypingCoordinator.markRoomAsReadFromNotification(roomId, eventId, onComplete)
 
-    fun sendReaction(roomId: String, eventId: String, emoji: String) =
-        reactionCoordinator.sendReaction(roomId, eventId, emoji)
+    fun sendReaction(roomId: String, eventId: String, emoji: String) = reactionCoordinator.sendReaction(roomId, eventId, emoji)
 
     fun updateRecentEmojis(emoji: String) = accountDataCoordinator.updateRecentEmojis(emoji)
 
@@ -7908,11 +7852,9 @@ class AppViewModel : ViewModel() {
         replyToEventId,
     )
 
-    fun sendReply(roomId: String, text: String, originalEvent: TimelineEvent) =
-        messageSendCoordinator.sendReply(roomId, text, originalEvent)
+    fun sendReply(roomId: String, text: String, originalEvent: TimelineEvent) = messageSendCoordinator.sendReply(roomId, text, originalEvent)
 
-    fun sendEdit(roomId: String, text: String, originalEvent: TimelineEvent) =
-        messageSendCoordinator.sendEdit(roomId, text, originalEvent)
+    fun sendEdit(roomId: String, text: String, originalEvent: TimelineEvent) = messageSendCoordinator.sendEdit(roomId, text, originalEvent)
 
     fun sendMediaMessage(
         roomId: String,
@@ -8014,8 +7956,7 @@ class AppViewModel : ViewModel() {
         threadRootEventId, replyToEventId, isThreadFallback, mentions,
     )
 
-    fun sendDelete(roomId: String, originalEvent: TimelineEvent, reason: String = "") =
-        messageSendCoordinator.sendDelete(roomId, originalEvent, reason)
+    fun sendDelete(roomId: String, originalEvent: TimelineEvent, reason: String = "") = messageSendCoordinator.sendDelete(roomId, originalEvent, reason)
 
     /**
      * Send an audio message
@@ -8077,9 +8018,9 @@ class AppViewModel : ViewModel() {
         } else if (requestId == 0) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: PHASE 5.3 - Received response with request_id=0 (no acknowledgment needed)",
-            )
+                    "Andromuks",
+                    "AppViewModel: PHASE 5.3 - Received response with request_id=0 (no acknowledgment needed)",
+                )
             }
         }
 
@@ -8092,9 +8033,9 @@ class AppViewModel : ViewModel() {
                 deferred.complete(data)
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Widget response received for requestId=$requestId",
-                )
+                        "Andromuks",
+                        "AppViewModel: Widget response received for requestId=$requestId",
+                    )
                 }
                 return
             }
@@ -8137,18 +8078,18 @@ class AppViewModel : ViewModel() {
             if (!isInRequestMap) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: Ignoring stale response with requestId=$requestId (not in any request map and no pending operation)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Ignoring stale response with requestId=$requestId (not in any request map and no pending operation)",
+                    )
                 }
                 return
             }
             // If it IS in a request map, it's valid - continue processing even though operation was cleaned up
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Processing response with requestId=$requestId (found in request map, operation may have been cleaned up)",
-            )
+                    "Andromuks",
+                    "AppViewModel: Processing response with requestId=$requestId (found in request map, operation may have been cleaned up)",
+                )
             }
         }
 
@@ -8156,9 +8097,9 @@ class AppViewModel : ViewModel() {
             deferred.complete(data)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Widget response received for requestId=$requestId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Widget response received for requestId=$requestId",
+                )
             }
             return
         }
@@ -8237,9 +8178,9 @@ class AppViewModel : ViewModel() {
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Unknown response requestId=$requestId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Unknown response requestId=$requestId",
+                )
             }
         }
     }
@@ -8261,9 +8202,9 @@ class AppViewModel : ViewModel() {
         } else if (requestId == 0) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: PHASE 5.3 - Received error with request_id=0 (no acknowledgment needed)",
-            )
+                    "Andromuks",
+                    "AppViewModel: PHASE 5.3 - Received error with request_id=0 (no acknowledgment needed)",
+                )
             }
         }
 
@@ -8283,9 +8224,9 @@ class AppViewModel : ViewModel() {
             deferred.completeExceptionally(IllegalStateException(errorMessage))
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Widget error received for requestId=$requestId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Widget error received for requestId=$requestId",
+                )
             }
             return
         }
@@ -8430,11 +8371,7 @@ class AppViewModel : ViewModel() {
                 cacheUpdateListener = object : net.vrkknn.andromuks.database.SyncIngestor.CacheUpdateListener {
                     override fun getCachedRoomIds(): Set<String> = this@AppViewModel.getCachedRoomIds()
 
-                    override fun onEventsForCachedRoom(
-                        roomId: String,
-                        events: List<TimelineEvent>,
-                        requiresFullRerender: Boolean,
-                    ): Boolean {
+                    override fun onEventsForCachedRoom(roomId: String, events: List<TimelineEvent>, requiresFullRerender: Boolean): Boolean {
                         if (requiresFullRerender) {
                             // CRITICAL FIX: Always add events to the raw cache BEFORE invalidating.
                             // Previously, when requiresFullRerender=true (edit/redaction/reaction present
@@ -8536,9 +8473,9 @@ class AppViewModel : ViewModel() {
                 currentUserId = storedUserId
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Restored currentUserId from SharedPreferences: $currentUserId",
-                )
+                        "Andromuks",
+                        "AppViewModel: Restored currentUserId from SharedPreferences: $currentUserId",
+                    )
                 }
             }
 
@@ -8548,9 +8485,9 @@ class AppViewModel : ViewModel() {
             if (currentUserProfile == null && currentUserId.isNotBlank()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Requesting current user profile from server - userId: $currentUserId",
-                )
+                        "Andromuks",
+                        "AppViewModel: Requesting current user profile from server - userId: $currentUserId",
+                    )
                 }
                 requestUserProfile(currentUserId)
             }
@@ -8562,9 +8499,9 @@ class AppViewModel : ViewModel() {
     private fun handleOutgoingRequestResponse(requestId: Int, data: Any) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: handleOutgoingRequestResponse called with requestId=$requestId",
-        )
+                "Andromuks",
+                "AppViewModel: handleOutgoingRequestResponse called with requestId=$requestId",
+            )
         }
         val roomId = outgoingRequests.remove(requestId)
         // Upgrade a send-time placeholder (Sending → Sent) for sends that route via outgoingRequests
@@ -8589,9 +8526,9 @@ class AppViewModel : ViewModel() {
         if (transactionId.isEmpty()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: PHASE 5.3 - send_complete has no transaction_id, cannot match to original message",
-            )
+                    "Andromuks",
+                    "AppViewModel: PHASE 5.3 - send_complete has no transaction_id, cannot match to original message",
+                )
             }
             return
         }
@@ -8622,9 +8559,9 @@ class AppViewModel : ViewModel() {
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: PHASE 5.3 - No pending operation found for transaction_id=$transactionId (may have been already acknowledged)",
-            )
+                    "Andromuks",
+                    "AppViewModel: PHASE 5.3 - No pending operation found for transaction_id=$transactionId (may have been already acknowledged)",
+                )
             }
         }
 
@@ -8647,9 +8584,9 @@ class AppViewModel : ViewModel() {
             val event = TimelineEvent.fromJson(eventData)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, sender=${event.sender}, currentRoomId=$currentRoomId, currentUserId=$currentUserId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, sender=${event.sender}, currentRoomId=$currentRoomId, currentUserId=$currentUserId",
+                )
             }
 
             val echoTxId = event.transactionId
@@ -8667,9 +8604,9 @@ class AppViewModel : ViewModel() {
                     if (existingEntry != null && existingBubble != null) {
                         val updatedLocalContent = (
                             existingBubble.localContent
-                            ?.let { org.json.JSONObject(it.toString()) }
-                            ?: org.json.JSONObject()
-                        ).apply {
+                                ?.let { org.json.JSONObject(it.toString()) }
+                                ?: org.json.JSONObject()
+                            ).apply {
                             put("send_error", sendErrorRaw)
                         }
                         eventChainMap[pendingId] = existingEntry.copy(
@@ -8680,9 +8617,9 @@ class AppViewModel : ViewModel() {
                     localEchoCoordinator.cancel(pendingId) // Matrix-side error: resolved, stop the backstop watchdog
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Echo $pendingId marked failed: $sendErrorRaw",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Echo $pendingId marked failed: $sendErrorRaw",
+                        )
                     }
                 }
                 return
@@ -8698,9 +8635,9 @@ class AppViewModel : ViewModel() {
                     markTimelineEntrancePlayed(event.eventId)
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Evicted pending echo $pendingId for txId=$echoTxId",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Evicted pending echo $pendingId for txId=$echoTxId",
+                        )
                     }
                 }
             }
@@ -8713,9 +8650,9 @@ class AppViewModel : ViewModel() {
             ) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: SHORTCUT - Message sent by user, preparing shortcut update for room ${event.roomId}",
-                )
+                        "Andromuks",
+                        "AppViewModel: SHORTCUT - Message sent by user, preparing shortcut update for room ${event.roomId}",
+                    )
                 }
 
                 // Store conversationsApi in local variable to avoid smart cast issue
@@ -8738,9 +8675,9 @@ class AppViewModel : ViewModel() {
                         room = room.copy(sortingTimestamp = updatedTimestamp)
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: SHORTCUT - Room found, updating shortcut for ${room.name} with timestamp $updatedTimestamp",
-                        )
+                                "Andromuks",
+                                "AppViewModel: SHORTCUT - Room found, updating shortcut for ${room.name} with timestamp $updatedTimestamp",
+                            )
                         }
 
                         // Update shortcuts asynchronously
@@ -8748,9 +8685,9 @@ class AppViewModel : ViewModel() {
                             api.updateShortcutsFromSyncRooms(listOf(room))
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${room.name} after sending message",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${room.name} after sending message",
+                                )
                             }
                         }
                     } else {
@@ -8763,9 +8700,9 @@ class AppViewModel : ViewModel() {
             } else {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: SHORTCUT - Skipping shortcut update: type=${event.type}, sender=${event.sender}, currentUserId=$currentUserId, roomId=${event.roomId}",
-                )
+                        "Andromuks",
+                        "AppViewModel: SHORTCUT - Skipping shortcut update: type=${event.type}, sender=${event.sender}, currentUserId=$currentUserId, roomId=${event.roomId}",
+                    )
                 }
             }
 
@@ -8773,9 +8710,9 @@ class AppViewModel : ViewModel() {
             if (event.roomId != currentRoomId) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: send_complete for different room (${event.roomId}), ignoring timeline update",
-                )
+                        "Andromuks",
+                        "AppViewModel: send_complete for different room (${event.roomId}), ignoring timeline update",
+                    )
                 }
                 return
             }
@@ -8792,9 +8729,9 @@ class AppViewModel : ViewModel() {
                     if (event.sender == currentUserId) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Skipping send_complete reaction from ourself (will be processed by sync_complete): $emoji from ${event.sender} to $relatesToEventId",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Skipping send_complete reaction from ourself (will be processed by sync_complete): $emoji from ${event.sender} to $relatesToEventId",
+                            )
                         }
                     } else {
                         // Process reactions from other users in send_complete
@@ -8812,9 +8749,9 @@ class AppViewModel : ViewModel() {
                         processReactionEvent(reactionEvent)
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Processed send_complete reaction from other user: $emoji from ${event.sender} to $relatesToEventId",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Processed send_complete reaction from other user: $emoji from ${event.sender} to $relatesToEventId",
+                            )
                         }
                     }
                 }
@@ -8890,9 +8827,9 @@ class AppViewModel : ViewModel() {
             if (eventsArray.length() == 0) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Freshness check returned no events for $roomId - treating as up to date",
-                )
+                        "Andromuks",
+                        "AppViewModel: Freshness check returned no events for $roomId - treating as up to date",
+                    )
                 }
                 roomsWithPendingPaginate.remove(roomId)
                 return
@@ -8931,9 +8868,9 @@ class AppViewModel : ViewModel() {
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Freshness check - our latest timeline_rowid: $ourLatestRowId (RAM), server: $serverLatestRowId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Freshness check - our latest timeline_rowid: $ourLatestRowId (RAM), server: $serverLatestRowId",
+                )
             }
 
             // timeline_rowid is not linear or predictable, so we can't reason about "how much"
@@ -8942,9 +8879,9 @@ class AppViewModel : ViewModel() {
             if (serverLatestRowId == ourLatestRowId) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Cache is fresh for $roomId (server newest timeline_rowid == ours: $ourLatestRowId) — skipping full paginate",
-                )
+                        "Andromuks",
+                        "AppViewModel: Cache is fresh for $roomId (server newest timeline_rowid == ours: $ourLatestRowId) — skipping full paginate",
+                    )
                 }
                 roomsWithPendingPaginate.remove(roomId)
                 return
@@ -8960,20 +8897,21 @@ class AppViewModel : ViewModel() {
                 backgroundPrefetchRequests[paginateRequestId] = roomId
                 startOpenRoomTrace(paginateRequestId, "open_room_full", trigger = "probe_stale")
                 val result = sendWebSocketCommand(
-                    "paginate", paginateRequestId,
+                    "paginate",
+                    paginateRequestId,
                     mapOf(
-                    "room_id" to roomId,
-                    "max_timeline_id" to 0,
-                    "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
-                    "reset" to false,
-                )
+                        "room_id" to roomId,
+                        "max_timeline_id" to 0,
+                        "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
+                        "reset" to false,
+                    ),
                 )
                 if (result == WebSocketResult.SUCCESS) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Cache stale for $roomId (server: $serverLatestRowId != ours: $ourLatestRowId) — sent full paginate (reqId=$paginateRequestId)",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Cache stale for $roomId (server: $serverLatestRowId != ours: $ourLatestRowId) — sent full paginate (reqId=$paginateRequestId)",
+                        )
                     }
                     // roomsWithPendingPaginate is cleared by handleBackgroundPrefetch on response.
                 } else if (!isWebSocketConnected()) {
@@ -8990,9 +8928,9 @@ class AppViewModel : ViewModel() {
                     // response is handled when flushPendingQueue() re-sends after init_complete.
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Full paginate after freshness check queued for $roomId (reqId=$paginateRequestId) — keeping tracking",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Full paginate after freshness check queued for $roomId (reqId=$paginateRequestId) — keeping tracking",
+                        )
                     }
                 }
             } else {
@@ -9009,8 +8947,7 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    fun handleTimelineResponse(requestId: Int, data: Any) =
-        timelineCacheCoordinator.handleTimelineResponse(requestId, data)
+    fun handleTimelineResponse(requestId: Int, data: Any) = timelineCacheCoordinator.handleTimelineResponse(requestId, data)
     private fun handleRoomStateResponse(requestId: Int, data: Any) {
         val roomId = synchronized(roomStateRequests) { roomStateRequests.remove(requestId) } ?: return
 
@@ -9082,9 +9019,9 @@ class AppViewModel : ViewModel() {
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: No events array in room state response",
-                    )
+                            "Andromuks",
+                            "AppViewModel: No events array in room state response",
+                        )
                     }
                 }
             }
@@ -9092,9 +9029,9 @@ class AppViewModel : ViewModel() {
             else -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Unhandled data type in handleRoomStateResponse: ${data::class.java.simpleName}",
-                )
+                        "Andromuks",
+                        "AppViewModel: Unhandled data type in handleRoomStateResponse: ${data::class.java.simpleName}",
+                    )
                 }
             }
         }
@@ -9295,9 +9232,9 @@ class AppViewModel : ViewModel() {
                 needsUpdate = true
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Marked $roomId as DM via bridge room_type",
-                )
+                        "Andromuks",
+                        "AppViewModel: Marked $roomId as DM via bridge room_type",
+                    )
                 }
             }
 
@@ -9341,9 +9278,9 @@ class AppViewModel : ViewModel() {
                 roomListUpdateCounter++
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Updated roomMap with bridge info for $roomId, triggered UI update",
-                )
+                        "Andromuks",
+                        "AppViewModel: Updated roomMap with bridge info for $roomId, triggered UI update",
+                    )
                 }
             }
 
@@ -9367,9 +9304,9 @@ class AppViewModel : ViewModel() {
                 // The bridge info will be applied on the next get_room_state or when room is opened
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Bridge info received for $roomId but room not in roomMap yet (will be applied when room is created)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Bridge info received for $roomId but room not in roomMap yet (will be applied when room is created)",
+                    )
                 }
             }
 
@@ -9378,9 +9315,9 @@ class AppViewModel : ViewModel() {
                 directMessageRoomIds = directMessageRoomIds + roomId
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Recorded $roomId as DM via bridge room_type (no room object yet)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Recorded $roomId as DM via bridge room_type (no room object yet)",
+                    )
                 }
             }
 
@@ -9424,9 +9361,9 @@ class AppViewModel : ViewModel() {
             roomStateUpdateCounter++
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: ✓ Updated current room state - Name: ${currentRoomState?.name}, Alias: ${currentRoomState?.canonicalAlias}, Topic: ${currentRoomState?.topic}, Avatar: ${currentRoomState?.avatarUrl}, Encrypted: ${currentRoomState?.isEncrypted} (response had Name=$name, Avatar=$avatarUrl)",
-            )
+                    "Andromuks",
+                    "AppViewModel: ✓ Updated current room state - Name: ${currentRoomState?.name}, Alias: ${currentRoomState?.canonicalAlias}, Topic: ${currentRoomState?.topic}, Avatar: ${currentRoomState?.avatarUrl}, Encrypted: ${currentRoomState?.isEncrypted} (response had Name=$name, Avatar=$avatarUrl)",
+                )
             }
         }
     }
@@ -9443,9 +9380,9 @@ class AppViewModel : ViewModel() {
             if (cachedDisplayName != null) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: getBridgeDisplayNameFromRoomState - Found cached display name for room $roomId: $cachedDisplayName",
-                )
+                        "Andromuks",
+                        "AppViewModel: getBridgeDisplayNameFromRoomState - Found cached display name for room $roomId: $cachedDisplayName",
+                    )
                 }
                 return cachedDisplayName
             }
@@ -9456,9 +9393,9 @@ class AppViewModel : ViewModel() {
         if (roomStateEvents == null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: getBridgeDisplayNameFromRoomState - No cached state for room $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: getBridgeDisplayNameFromRoomState - No cached state for room $roomId",
+                )
             }
             return null
         }
@@ -9473,9 +9410,9 @@ class AppViewModel : ViewModel() {
                 val displayName = bridgeInfo?.displayName
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: getBridgeDisplayNameFromRoomState - Found bridge for room $roomId: displayName=$displayName, protocol=${bridgeInfo?.protocol?.id}, protocolDisplayName=${bridgeInfo?.protocol?.displayName}",
-                )
+                        "Andromuks",
+                        "AppViewModel: getBridgeDisplayNameFromRoomState - Found bridge for room $roomId: displayName=$displayName, protocol=${bridgeInfo?.protocol?.id}, protocolDisplayName=${bridgeInfo?.protocol?.displayName}",
+                    )
                 }
 
                 // Cache the display name for future use
@@ -9492,7 +9429,12 @@ class AppViewModel : ViewModel() {
             }
         }
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: getBridgeDisplayNameFromRoomState - No bridge event found in cached state for room $roomId (${roomStateEvents.length()} events)")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: getBridgeDisplayNameFromRoomState - No bridge event found in cached state for room $roomId (${roomStateEvents.length()} events)",
+        )
+        }
         return null
     }
 
@@ -9573,9 +9515,9 @@ class AppViewModel : ViewModel() {
         notificationActionCompletionCallbacks.remove(requestId)?.invoke()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Handling message response for room: $roomId, pendingSendCount=$pendingSendCount, data: $data",
-        )
+                "Andromuks",
+                "AppViewModel: Handling message response for room: $roomId, pendingSendCount=$pendingSendCount, data: $data",
+            )
         }
 
         // PHASE 5.2: Acknowledgment is now handled in handleResponse() for all commands
@@ -9601,9 +9543,9 @@ class AppViewModel : ViewModel() {
                     savePendingOperationsToStorage()
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: PHASE 5.3 - Stored transaction_id=$transactionId for request_id=$requestId",
-                    )
+                            "Andromuks",
+                            "AppViewModel: PHASE 5.3 - Stored transaction_id=$transactionId for request_id=$requestId",
+                        )
                     }
                 }
             }
@@ -9654,17 +9596,17 @@ class AppViewModel : ViewModel() {
                     if (echoTxId != null && echoEvent.eventId.startsWith("~") &&
                         (
                             echoEvent.type == "m.room.message" || echoEvent.type == "m.room.encrypted" ||
-                            echoEvent.type == "m.sticker"
-                        )
+                                echoEvent.type == "m.sticker"
+                            )
                     ) {
                         addNewEventToChain(echoEvent) // eventChainMap first
                         pendingEchoMap[echoTxId] = echoEvent.eventId // then pendingEchoMap
                         buildTimelineFromChain(expectedRoomId = roomId)
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Pending echo inserted for txId=$echoTxId eventId=${echoEvent.eventId}",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Pending echo inserted for txId=$echoTxId eventId=${echoEvent.eventId}",
+                            )
                         }
                     }
                 }
@@ -9677,9 +9619,9 @@ class AppViewModel : ViewModel() {
         // the response here to avoid duplicates. send_complete will add the event to timeline.
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Message response received, waiting for send_complete for actual event",
-        )
+                "Andromuks",
+                "AppViewModel: Message response received, waiting for send_complete for actual event",
+            )
         }
 
         // SHORTCUT OPTIMIZATION: Update shortcut when message is successfully sent
@@ -9688,9 +9630,9 @@ class AppViewModel : ViewModel() {
         if (!isError && roomId.isNotEmpty()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: SHORTCUT - Message successfully sent to room $roomId, updating shortcut",
-            )
+                    "Andromuks",
+                    "AppViewModel: SHORTCUT - Message successfully sent to room $roomId, updating shortcut",
+                )
             }
 
             val api = conversationsApi
@@ -9704,9 +9646,9 @@ class AppViewModel : ViewModel() {
                         api.updateShortcutsFromSyncRooms(listOf(updatedRoom))
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${updatedRoom.name} after sending message",
-                        )
+                                "Andromuks",
+                                "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${updatedRoom.name} after sending message",
+                            )
                         }
                     }
                 } else {
@@ -9758,9 +9700,9 @@ class AppViewModel : ViewModel() {
         if (api == null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: refreshShortcutsOnStartup - conversationsApi is null, cannot refresh shortcuts",
-            )
+                    "Andromuks",
+                    "AppViewModel: refreshShortcutsOnStartup - conversationsApi is null, cannot refresh shortcuts",
+                )
             }
             return
         }
@@ -9780,9 +9722,9 @@ class AppViewModel : ViewModel() {
                 if (!initialSyncComplete && waitCount >= maxWait) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: Initial sync processing timeout, refreshing shortcuts anyway",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Initial sync processing timeout, refreshing shortcuts anyway",
+                        )
                     }
                 }
 
@@ -9798,20 +9740,20 @@ class AppViewModel : ViewModel() {
                     }
                     .sortedWith(
                         compareByDescending<RoomItem> { room ->
-                        // Primary sort: timestamp if available
-                        room.sortingTimestamp ?: 0L
-                    }.thenByDescending { room ->
-                        // Secondary sort: unread count
-                        room.unreadCount ?: 0
-                    }
+                            // Primary sort: timestamp if available
+                            room.sortingTimestamp ?: 0L
+                        }.thenByDescending { room ->
+                            // Secondary sort: unread count
+                            room.unreadCount ?: 0
+                        },
                     )
 
                 if (sortedRooms.isNotEmpty()) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Refreshing shortcuts on startup with ${sortedRooms.size} active rooms (top 4 will be used)",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Refreshing shortcuts on startup with ${sortedRooms.size} active rooms (top 4 will be used)",
+                        )
                     }
                     // Reorder so rooms the user has sent to come first (most recently sent first),
                     // then fill remaining slots with the timestamp-based sorted list.
@@ -9828,9 +9770,9 @@ class AppViewModel : ViewModel() {
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: No active rooms found (no timestamps, unread, or message previews), skipping shortcut refresh on startup",
-                    )
+                            "Andromuks",
+                            "AppViewModel: No active rooms found (no timestamps, unread, or message previews), skipping shortcut refresh on startup",
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -9843,9 +9785,9 @@ class AppViewModel : ViewModel() {
         val callback = roomStateWithMembersRequests.remove(requestId) ?: return
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Handling room state with members response for requestId: $requestId",
-        )
+                "Andromuks",
+                "AppViewModel: Handling room state with members response for requestId: $requestId",
+            )
         }
 
         try {
@@ -9856,9 +9798,9 @@ class AppViewModel : ViewModel() {
             if (roomStateInfo != null) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Successfully parsed room state with ${roomStateInfo.members.size} members (include_members=true response)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Successfully parsed room state with ${roomStateInfo.members.size} members (include_members=true response)",
+                    )
                 }
                 callback(roomStateInfo, null)
             } else {
@@ -9970,9 +9912,9 @@ class AppViewModel : ViewModel() {
         threadPaginateRequests[requestId] = callback
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: paginateThread - room=$roomId, root=$threadRootEventId, since='$since', dir=$direction, limit=$limit, requestId=$requestId",
-        )
+                "Andromuks",
+                "AppViewModel: paginateThread - room=$roomId, root=$threadRootEventId, since='$since', dir=$direction, limit=$limit, requestId=$requestId",
+            )
         }
         val result = sendWebSocketCommand(
             "paginate_manual",
@@ -10048,9 +9990,9 @@ class AppViewModel : ViewModel() {
             }
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: paginateThread - parsed ${events.size} events, next_batch='$nextBatch'",
-            )
+                    "Andromuks",
+                    "AppViewModel: paginateThread - parsed ${events.size} events, next_batch='$nextBatch'",
+                )
             }
             callback(events, nextBatch)
         } catch (e: Exception) {
@@ -10114,9 +10056,9 @@ class AppViewModel : ViewModel() {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: searchMessages - command=$command, term='$searchTerm', rooms=$roomIds, sortByTime=$sortByTime, includeRedacted=$includeRedacted, requestId=$requestId",
-        )
+                "Andromuks",
+                "AppViewModel: searchMessages - command=$command, term='$searchTerm', rooms=$roomIds, sortByTime=$sortByTime, includeRedacted=$includeRedacted, requestId=$requestId",
+            )
         }
         val result = sendWebSocketCommand(command, requestId, data)
         if (result != WebSocketResult.SUCCESS) {
@@ -10179,9 +10121,9 @@ class AppViewModel : ViewModel() {
             }
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: searchMessages - parsed ${events.size} events, next_batch='$nextBatch'",
-            )
+                    "Andromuks",
+                    "AppViewModel: searchMessages - parsed ${events.size} events, next_batch='$nextBatch'",
+                )
             }
             callback(events, nextBatch)
         } catch (e: Exception) {
@@ -10195,9 +10137,9 @@ class AppViewModel : ViewModel() {
         val (roomId, callback) = requestInfo
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Handling event response for requestId: $requestId",
-        )
+                "Andromuks",
+                "AppViewModel: Handling event response for requestId: $requestId",
+            )
         }
 
         when (data) {
@@ -10206,9 +10148,9 @@ class AppViewModel : ViewModel() {
                 val event = TimelineEvent.fromJson(data)
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Retrieved event: ${event.eventId}, type: ${event.type}, sender: ${event.sender}",
-                )
+                        "Andromuks",
+                        "AppViewModel: Retrieved event: ${event.eventId}, type: ${event.type}, sender: ${event.sender}",
+                    )
                 }
                 callback(event)
             }
@@ -10216,9 +10158,9 @@ class AppViewModel : ViewModel() {
             else -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Unhandled data type in handleEventResponse: ${data::class.java.simpleName}",
-                )
+                        "Andromuks",
+                        "AppViewModel: Unhandled data type in handleEventResponse: ${data::class.java.simpleName}",
+                    )
                 }
                 callback(null)
             }
@@ -10230,9 +10172,9 @@ class AppViewModel : ViewModel() {
         val (roomId, callback) = requestInfo
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Handling event context response for requestId: $requestId",
-        )
+                "Andromuks",
+                "AppViewModel: Handling event context response for requestId: $requestId",
+            )
         }
 
         when (data) {
@@ -10291,9 +10233,9 @@ class AppViewModel : ViewModel() {
                 val sortedEvents = events.sortedBy { it.timestamp }
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Retrieved ${sortedEvents.size} events in context (from JSONObject: ${beforeArray?.length() ?: 0} before, ${if (targetEventJson != null) 1 else 0} target, ${afterArray?.length() ?: 0} after)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Retrieved ${sortedEvents.size} events in context (from JSONObject: ${beforeArray?.length() ?: 0} before, ${if (targetEventJson != null) 1 else 0} target, ${afterArray?.length() ?: 0} after)",
+                    )
                 }
                 callback(sortedEvents, null)
             }
@@ -10318,9 +10260,9 @@ class AppViewModel : ViewModel() {
                 val sortedEvents = events.sortedBy { it.timestamp }
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Retrieved ${sortedEvents.size} events in context",
-                )
+                        "Andromuks",
+                        "AppViewModel: Retrieved ${sortedEvents.size} events in context",
+                    )
                 }
                 callback(sortedEvents, null)
             }
@@ -10350,9 +10292,9 @@ class AppViewModel : ViewModel() {
                 val sortedEvents = events.sortedBy { it.timestamp }
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Retrieved ${sortedEvents.size} events in context (from List)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Retrieved ${sortedEvents.size} events in context (from List)",
+                    )
                 }
                 callback(sortedEvents, null)
             }
@@ -10360,9 +10302,9 @@ class AppViewModel : ViewModel() {
             else -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Unhandled data type in handleEventContextResponse: ${data::class.java.simpleName}",
-                )
+                        "Andromuks",
+                        "AppViewModel: Unhandled data type in handleEventContextResponse: ${data::class.java.simpleName}",
+                    )
                 }
                 callback(null, "Unexpected response type from server: ${data::class.java.simpleName}")
             }
@@ -10379,22 +10321,22 @@ class AppViewModel : ViewModel() {
             }
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Cleaned up ${keys.size} batched profile request keys for requestId=$requestId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Cleaned up ${keys.size} batched profile request keys for requestId=$requestId",
+                )
             }
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Handling room specific state response for room: $roomId, requestId: $requestId",
-        )
+                "Andromuks",
+                "AppViewModel: Handling room specific state response for room: $roomId, requestId: $requestId",
+            )
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Room specific state response data type: ${data::class.java.simpleName}",
-        )
+                "Andromuks",
+                "AppViewModel: Room specific state response data type: ${data::class.java.simpleName}",
+            )
         }
 
         // Check if this is an emoji pack request
@@ -10403,9 +10345,9 @@ class AppViewModel : ViewModel() {
             val (packRoomId, packName) = emojiPackInfo
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Processing emoji pack response for pack $packName in room $packRoomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Processing emoji pack response for pack $packName in room $packRoomId",
+                )
             }
             handleEmojiPackResponse(packRoomId, packName, data)
             return
@@ -10426,26 +10368,26 @@ class AppViewModel : ViewModel() {
                             val avatarUrl = content.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" }
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Per-room profile callback - displayName: $displayName, avatarUrl: $avatarUrl",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Per-room profile callback - displayName: $displayName, avatarUrl: $avatarUrl",
+                                )
                             }
                             profileCallback(displayName, avatarUrl)
                         } else {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Per-room profile callback - no content in event",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Per-room profile callback - no content in event",
+                                )
                             }
                             profileCallback(null, null)
                         }
                     } else {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Per-room profile callback - empty response",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Per-room profile callback - empty response",
+                            )
                         }
                         profileCallback(null, null)
                     }
@@ -10454,9 +10396,9 @@ class AppViewModel : ViewModel() {
                 else -> {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: Per-room profile callback - unexpected data type: ${data::class.java.simpleName}",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Per-room profile callback - unexpected data type: ${data::class.java.simpleName}",
+                        )
                     }
                     profileCallback(null, null)
                 }
@@ -10477,17 +10419,17 @@ class AppViewModel : ViewModel() {
             is JSONArray -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Processing JSONArray response with ${data.length()} items",
-                )
+                        "Andromuks",
+                        "AppViewModel: Processing JSONArray response with ${data.length()} items",
+                    )
                 }
                 // Parse member events from the response
                 parseMemberEventsForProfileUpdate(roomId, data)
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: parseMemberEventsForProfileUpdate completed",
-                )
+                        "Andromuks",
+                        "AppViewModel: parseMemberEventsForProfileUpdate completed",
+                    )
                 }
 
                 // CRITICAL FIX: Clean up pending request even if response was empty
@@ -10500,9 +10442,9 @@ class AppViewModel : ViewModel() {
                     }
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Cleaned up pending profile request for empty response: $requestKey",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Cleaned up pending profile request for empty response: $requestKey",
+                        )
                     }
                 }
             }
@@ -10510,9 +10452,9 @@ class AppViewModel : ViewModel() {
             is JSONObject -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Room specific state response is JSONObject, expected JSONArray",
-                )
+                        "Andromuks",
+                        "AppViewModel: Room specific state response is JSONObject, expected JSONArray",
+                    )
                 }
                 // CRITICAL FIX: Clean up on unexpected response format
                 if (userIdFromRequest != null) {
@@ -10523,9 +10465,9 @@ class AppViewModel : ViewModel() {
                     }
                     if (BuildConfig.DEBUG) {
                         android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: Cleaned up pending profile request for unexpected response format: $requestKey",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Cleaned up pending profile request for unexpected response format: $requestKey",
+                        )
                     }
                 }
             }
@@ -10533,9 +10475,9 @@ class AppViewModel : ViewModel() {
             else -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Unhandled data type in handleRoomSpecificStateResponse: ${data::class.java.simpleName}",
-                )
+                        "Andromuks",
+                        "AppViewModel: Unhandled data type in handleRoomSpecificStateResponse: ${data::class.java.simpleName}",
+                    )
                 }
                 // CRITICAL FIX: Clean up on unhandled response type
                 if (userIdFromRequest != null) {
@@ -10546,9 +10488,9 @@ class AppViewModel : ViewModel() {
                     }
                     if (BuildConfig.DEBUG) {
                         android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: Cleaned up pending profile request for unhandled response type: $requestKey",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Cleaned up pending profile request for unhandled response type: $requestKey",
+                        )
                     }
                 }
             }
@@ -10565,9 +10507,9 @@ class AppViewModel : ViewModel() {
     private fun handleEmojiPackResponse(roomId: String, packName: String, data: Any) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Handling emoji pack response for $packName in $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Handling emoji pack response for $packName in $roomId",
+            )
         }
 
         when (data) {
@@ -10617,11 +10559,11 @@ class AppViewModel : ViewModel() {
                                             if (hasSticker) {
                                                 stickers.add(
                                                     Sticker(
-                                                    name = emojiName,
-                                                    mxcUrl = mxcUrl,
-                                                    body = emojiName, // Use name as body/caption
-                                                    info = info,
-                                                )
+                                                        name = emojiName,
+                                                        mxcUrl = mxcUrl,
+                                                        body = emojiName, // Use name as body/caption
+                                                        info = info,
+                                                    ),
                                                 )
                                             }
 
@@ -10630,10 +10572,10 @@ class AppViewModel : ViewModel() {
                                             if (hasEmoticon) {
                                                 emojis.add(
                                                     CustomEmoji(
-                                                    name = emojiName,
-                                                    mxcUrl = mxcUrl,
-                                                    info = info,
-                                                )
+                                                        name = emojiName,
+                                                        mxcUrl = mxcUrl,
+                                                        info = info,
+                                                    ),
                                                 )
                                             }
                                         }
@@ -10660,9 +10602,9 @@ class AppViewModel : ViewModel() {
                                 EmojiPacksCache.updatePack(newPack)
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "AppViewModel: Updated emoji pack $packName with ${emojis.size} emojis",
-                                )
+                                        "Andromuks",
+                                        "AppViewModel: Updated emoji pack $packName with ${emojis.size} emojis",
+                                    )
                                 }
                             }
 
@@ -10685,9 +10627,9 @@ class AppViewModel : ViewModel() {
                                 StickerPacksCache.updatePack(newStickerPack)
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "AppViewModel: Updated sticker pack $packName with ${stickers.size} stickers",
-                                )
+                                        "Andromuks",
+                                        "AppViewModel: Updated sticker pack $packName with ${stickers.size} stickers",
+                                    )
                                 }
                             }
                         }
@@ -10698,9 +10640,9 @@ class AppViewModel : ViewModel() {
             else -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Emoji pack response is not JSONArray: ${data::class.java.simpleName}",
-                )
+                        "Andromuks",
+                        "AppViewModel: Emoji pack response is not JSONArray: ${data::class.java.simpleName}",
+                    )
                 }
             }
         }
@@ -10710,9 +10652,9 @@ class AppViewModel : ViewModel() {
         val startTime = System.currentTimeMillis()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Parsing ${events.length()} member events for profile update in room: $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Parsing ${events.length()} member events for profile update in room: $roomId",
+            )
         }
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Member events data: $events")
 
@@ -10762,12 +10704,17 @@ class AppViewModel : ViewModel() {
                             manageRoomMemberCacheSize(roomId)
                             manageFlattenedMemberCacheSize()
 
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                 "Andromuks",
-                                "AppViewModel: Profile update completed for $stateKey, triggering memberUpdateCounter",
+                                "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'",
                             )
+                            }
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: Profile update completed for $stateKey, triggering memberUpdateCounter",
+                                )
                             }
 
                             // CRITICAL FIX: If this is the current user, also update currentUserProfile
@@ -10781,9 +10728,9 @@ class AppViewModel : ViewModel() {
                                 persistCurrentUserDisplayNameIfChanged(displayName)
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "AppViewModel: Set currentUserProfile from member event - displayName: '$displayName', avatarUrl: '$avatarUrl'",
-                                )
+                                        "Andromuks",
+                                        "AppViewModel: Set currentUserProfile from member event - displayName: '$displayName', avatarUrl: '$avatarUrl'",
+                                    )
                                 }
                             }
 
@@ -10815,9 +10762,9 @@ class AppViewModel : ViewModel() {
                         if (wasRemoved || wasRemovedFromFlattened) {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Removed $stateKey from room cache (membership: $membership)",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Removed $stateKey from room cache (membership: $membership)",
+                                )
                             }
                             updatedProfiles++
                         }
@@ -10831,18 +10778,18 @@ class AppViewModel : ViewModel() {
             val duration = System.currentTimeMillis() - startTime
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Updated $updatedProfiles profiles in room $roomId in ${duration}ms",
-            )
+                    "Andromuks",
+                    "AppViewModel: Updated $updatedProfiles profiles in room $roomId in ${duration}ms",
+                )
             }
             // mutableStateOf writes must happen on the main thread to avoid Compose snapshot conflicts
             viewModelScope.launch(Dispatchers.Main) {
                 memberUpdateCounter++
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Triggered memberUpdateCounter++ for $updatedProfiles profile updates",
-                )
+                        "Andromuks",
+                        "AppViewModel: Triggered memberUpdateCounter++ for $updatedProfiles profile updates",
+                    )
                 }
             }
         }
@@ -10860,9 +10807,9 @@ class AppViewModel : ViewModel() {
                     }
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Cleaned up pendingProfileRequests for $requestKey",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Cleaned up pendingProfileRequests for $requestKey",
+                        )
                     }
                 }
             }
@@ -10890,9 +10837,9 @@ class AppViewModel : ViewModel() {
                     RoomTimelineCache.addEventsFromSync(bubbleRoomId, events, memberMap)
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Updated RoomTimelineCache for bubble room $bubbleRoomId (${events.length()} events)",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Updated RoomTimelineCache for bubble room $bubbleRoomId (${events.length()} events)",
+                        )
                     }
                 }
             }
@@ -10971,7 +10918,7 @@ class AppViewModel : ViewModel() {
                 val eid = ev.optString("event_id").takeIf { it.isNotBlank() } ?: continue
                 val ts = ev.optLong("timestamp", 0L)
                 if (ts > latestTs) {
-                    latestTs = ts;
+                    latestTs = ts
                     latestEventId = eid
                 }
             }
@@ -11019,9 +10966,9 @@ class AppViewModel : ViewModel() {
                     if (events != null && events.length() > 0) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Processing ${events.length()} new timeline events for room: $roomId",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Processing ${events.length()} new timeline events for room: $roomId",
+                            )
                         }
 
                         // CRITICAL FIX: Cache events BEFORE processing them into timeline
@@ -11043,9 +10990,9 @@ class AppViewModel : ViewModel() {
     private fun processSyncEventsArray(eventsArray: JSONArray, roomId: String) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: processSyncEventsArray called with ${eventsArray.length()} events",
-        )
+                "Andromuks",
+                "AppViewModel: processSyncEventsArray called with ${eventsArray.length()} events",
+            )
         }
         val memberMap = RoomMemberCache.getRoomMembers(roomId)
 
@@ -11065,9 +11012,9 @@ class AppViewModel : ViewModel() {
             events.sortBy { it.timestamp }
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Processing ${events.size} events in timestamp order",
-            )
+                    "Andromuks",
+                    "AppViewModel: Processing ${events.size} events in timestamp order",
+                )
             }
 
             // Count event types for debugging (lightweight operation, can defer if needed)
@@ -11078,9 +11025,9 @@ class AppViewModel : ViewModel() {
             }
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Event breakdown: $eventTypeCounts (including $ownMessageCount from YOU)",
-            )
+                    "Andromuks",
+                    "AppViewModel: Event breakdown: $eventTypeCounts (including $ownMessageCount from YOU)",
+                )
             }
         }
 
@@ -11094,9 +11041,9 @@ class AppViewModel : ViewModel() {
         // Defer to background thread if we have many events
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Processing ${events.size} sync events for version tracking",
-        )
+                "Andromuks",
+                "AppViewModel: Processing ${events.size} sync events for version tracking",
+            )
         }
         if (events.size > 20) {
             viewModelScope.launch(Dispatchers.Default) {
@@ -11154,9 +11101,9 @@ class AppViewModel : ViewModel() {
 
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: [LIVE SYNC] Marked event $redactsEventId as redacted by ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType})",
-                        )
+                                "Andromuks",
+                                "AppViewModel: [LIVE SYNC] Marked event $redactsEventId as redacted by ${event.eventId} (type=${event.type}, decryptedType=${event.decryptedType})",
+                            )
                         }
                     } else {
                         android.util.Log.w(
@@ -11175,9 +11122,9 @@ class AppViewModel : ViewModel() {
                             removeReaction(reactionEvent)
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: [LIVE SYNC] Removed redacted reaction $redactsEventId (${reactionEvent.emoji} by ${reactionEvent.sender}) from messageReactions",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: [LIVE SYNC] Removed redacted reaction $redactsEventId (${reactionEvent.emoji} by ${reactionEvent.sender}) from messageReactions",
+                                )
                             }
                         }
                     }
@@ -11350,8 +11297,8 @@ class AppViewModel : ViewModel() {
                 (event.type == "m.room.redaction") ||
                 (
                     event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" ||
-                    event.type == "m.room.avatar"
-                )
+                        event.type == "m.room.avatar"
+                    )
         }
         val memberStateUpdates = events.count { event ->
             event.type == "m.room.member" && event.timelineRowid <= 0L
@@ -11393,16 +11340,21 @@ class AppViewModel : ViewModel() {
             buildTimelineFromChain(expectedRoomId = roomId)
             val timelineCountAfter = timelineEvents.size
 
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Rebuilt timeline after processing sync events for current room $roomId: before=$timelineCountBefore, after=$timelineCountAfter")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Rebuilt timeline after processing sync events for current room $roomId: before=$timelineCountBefore, after=$timelineCountAfter",
+            )
+            }
 
             // Timeline is updated directly from sync_complete events via processSyncEventsArray()
             // No DB persistence or refresh needed - all data is in-memory
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Skipping timeline rebuild for room $roomId (not currently open, currentRoomId=$currentRoomId)",
-            )
+                    "Andromuks",
+                    "AppViewModel: Skipping timeline rebuild for room $roomId (not currently open, currentRoomId=$currentRoomId)",
+                )
             }
         }
 
@@ -11433,9 +11385,9 @@ class AppViewModel : ViewModel() {
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)",
-            )
+                    "Andromuks",
+                    "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)",
+                )
             }
         }
     }
@@ -11444,8 +11396,7 @@ class AppViewModel : ViewModel() {
      * Handles edit events using the edit chain tracking system.
      * This ensures clean edit handling by tracking the edit chain properly.
      */
-    private fun handleEditEventInChain(editEvent: TimelineEvent) =
-        editVersionCoordinator.handleEditEventInChain(editEvent)
+    private fun handleEditEventInChain(editEvent: TimelineEvent) = editVersionCoordinator.handleEditEventInChain(editEvent)
 
     /**
      * Adds a new timeline event to the edit chain.
@@ -11456,8 +11407,7 @@ class AppViewModel : ViewModel() {
     /**
      * Processes edit relationships for new edit events only.
      */
-    private fun processNewEditRelationships(newEditEvents: List<TimelineEvent>) =
-        editVersionCoordinator.processNewEditRelationships(newEditEvents)
+    private fun processNewEditRelationships(newEditEvents: List<TimelineEvent>) = editVersionCoordinator.processNewEditRelationships(newEditEvents)
 
     /**
      * Processes edit relationships to build the complete edit chain.
@@ -11483,10 +11433,7 @@ class AppViewModel : ViewModel() {
      * state update runs on Main to keep the UI responsive when opening a room from cache.
      * @param rebuildComplete If non-null, completed when the rebuild and state update are done (so callers can run post-rebuild steps).
      */
-    internal fun buildTimelineFromChain(
-        rebuildComplete: CompletableDeferred<Unit>? = null,
-        expectedRoomId: String? = null,
-    ) {
+    internal fun buildTimelineFromChain(rebuildComplete: CompletableDeferred<Unit>? = null, expectedRoomId: String? = null) {
         viewModelScope.launch(Dispatchers.Main) {
             val shouldSkip = shouldSkipTimelineRebuild.value
             if (shouldSkip) {
@@ -11575,9 +11522,9 @@ class AppViewModel : ViewModel() {
                             redactionEventByOriginal[redactsEventId] = redactionEvent
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "buildTimelineFromChain: redaction ${redactionEvent.eventId} (type=${redactionEvent.type}, decryptedType=${redactionEvent.decryptedType}) targets $redactsEventId",
-                            )
+                                    "Andromuks",
+                                    "buildTimelineFromChain: redaction ${redactionEvent.eventId} (type=${redactionEvent.type}, decryptedType=${redactionEvent.decryptedType}) targets $redactsEventId",
+                                )
                             }
                         } else if (BuildConfig.DEBUG) {
                             android.util.Log.w(
@@ -11645,8 +11592,8 @@ class AppViewModel : ViewModel() {
                         // responses when the redaction event itself is not in the same batch.
                         val redactedBecause = if (redEvt == null) {
                             baseEvent.unsigned?.optJSONObject(
-                            "redacted_because",
-                        )
+                                "redacted_because",
+                            )
                         } else {
                             null
                         }
@@ -11657,16 +11604,16 @@ class AppViewModel : ViewModel() {
                                 ?: redactedBecause?.optString("sender")?.takeIf { it.isNotBlank() },
                             redactionReason = (
                                 redEvt?.let { e ->
-                                (
-                                    e.content?.optString(
-                                    "reason",
-                                ) ?: e.decrypted?.optString("reason")
-                                )?.takeIf { it.isNotBlank() }
-                            } ?: baseEvent.redactionReason
-                                ?: redactedBecause?.optJSONObject(
-                                    "content",
-                                )?.optString("reason")?.takeIf { it.isNotBlank() }
-                            ),
+                                    (
+                                        e.content?.optString(
+                                            "reason",
+                                        ) ?: e.decrypted?.optString("reason")
+                                        )?.takeIf { it.isNotBlank() }
+                                } ?: baseEvent.redactionReason
+                                    ?: redactedBecause?.optJSONObject(
+                                        "content",
+                                    )?.optString("reason")?.takeIf { it.isNotBlank() }
+                                ),
                             redactionTimestamp = redEvt?.timestamp
                                 ?: baseEvent.redactionTimestamp
                                 ?: redactedBecause?.optLong("origin_server_ts", 0L)?.takeIf { it > 0L },
@@ -11680,9 +11627,9 @@ class AppViewModel : ViewModel() {
                     if (finalEvent.redactedBy != null) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "buildTimelineFromChain: timeline event ${finalEvent.eventId} marked redacted by ${finalEvent.redactedBy}",
-                        )
+                                "Andromuks",
+                                "buildTimelineFromChain: timeline event ${finalEvent.eventId} marked redacted by ${finalEvent.redactedBy}",
+                            )
                         }
                     }
                     // android.util.Log.d("Andromuks", "AppViewModel: Added event for ${eventId} with final content from ${entry.replacedBy ?: eventId}${if (redactedBy != null) " (redacted by $redactedBy)" else ""}")
@@ -11704,11 +11651,11 @@ class AppViewModel : ViewModel() {
             // DIAGNOSTIC: Log summary
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "buildTimelineFromChain: Processed $processedCount events from $totalEntries entries " +
-                    "(nullBubble=$nullBubbleCount, redactions=$redactionCount, errors=$errorCount, " +
-                    "timelineEvents.size=${timelineEvents.size})",
-            )
+                    "Andromuks",
+                    "buildTimelineFromChain: Processed $processedCount events from $totalEntries entries " +
+                        "(nullBubble=$nullBubbleCount, redactions=$redactionCount, errors=$errorCount, " +
+                        "timelineEvents.size=${timelineEvents.size})",
+                )
             }
 
             // Sort by timestamp, then timelineRowid (server ordering), then eventId (deterministic tiebreak)
@@ -11724,9 +11671,9 @@ class AppViewModel : ViewModel() {
                 if (expectedRoomId != null && currentRoomId != expectedRoomId) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.w(
-                        "Andromuks",
-                        "executeTimelineRebuild: Discarding stale rebuild for $expectedRoomId (currentRoomId=$currentRoomId)",
-                    )
+                            "Andromuks",
+                            "executeTimelineRebuild: Discarding stale rebuild for $expectedRoomId (currentRoomId=$currentRoomId)",
+                        )
                     }
                     isTimelineLoading = false
                     rebuildComplete?.complete(Unit)
@@ -11739,9 +11686,9 @@ class AppViewModel : ViewModel() {
                 if (capturedGeneration != 0 && capturedGeneration != timelineRebuildGeneration) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.w(
-                        "Andromuks",
-                        "executeTimelineRebuild: Discarding stale rebuild gen=$capturedGeneration (current=$timelineRebuildGeneration)",
-                    )
+                            "Andromuks",
+                            "executeTimelineRebuild: Discarding stale rebuild gen=$capturedGeneration (current=$timelineRebuildGeneration)",
+                        )
                     }
                     isTimelineLoading = false
                     rebuildComplete?.complete(Unit)
@@ -11814,9 +11761,9 @@ class AppViewModel : ViewModel() {
         // requestPaginationWithSmallestRowId() handles backend pagination using cache-only
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: loadOlderMessages($roomId) - using backend pagination",
-        )
+                "Andromuks",
+                "AppViewModel: loadOlderMessages($roomId) - using backend pagination",
+            )
         }
         requestPaginationWithSmallestRowId(roomId, limit = INITIAL_ROOM_PAGINATE_LIMIT)
     }
@@ -11844,9 +11791,9 @@ class AppViewModel : ViewModel() {
         if (needsFreshTimelinePaginate()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: WS-down fresh paginate pending — routing to requestRoomTimeline for $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: WS-down fresh paginate pending — routing to requestRoomTimeline for $roomId",
+                )
             }
             requestRoomTimeline(roomId)
             return
@@ -11854,9 +11801,9 @@ class AppViewModel : ViewModel() {
         if (isPaginating) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Already paginating, skipping request for $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Already paginating, skipping request for $roomId",
+                )
             }
             return
         }
@@ -11924,9 +11871,9 @@ class AppViewModel : ViewModel() {
 
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Requesting pagination for $roomId with oldest timelineRowId=$oldestRowId, max_timeline_id=$maxTimelineId, limit=$limit",
-                )
+                        "Andromuks",
+                        "AppViewModel: Requesting pagination for $roomId with oldest timelineRowId=$oldestRowId, max_timeline_id=$maxTimelineId, limit=$limit",
+                    )
                 }
 
                 val paginateRequestId = WebSocketService.allocateRequestId()
@@ -11936,19 +11883,20 @@ class AppViewModel : ViewModel() {
                 // Log paginate request
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "paginate: Room - $roomId, MaxTimelineRowID - $maxTimelineId, Limit - $limit",
-                )
+                        "Andromuks",
+                        "paginate: Room - $roomId, MaxTimelineRowID - $maxTimelineId, Limit - $limit",
+                    )
                 }
 
                 val result = sendWebSocketCommand(
-                    "paginate", paginateRequestId,
+                    "paginate",
+                    paginateRequestId,
                     mapOf(
-                    "room_id" to roomId,
-                    "max_timeline_id" to maxTimelineId,
-                    "limit" to limit,
-                    "reset" to false,
-                )
+                        "room_id" to roomId,
+                        "max_timeline_id" to maxTimelineId,
+                        "limit" to limit,
+                        "reset" to false,
+                    ),
                 )
 
                 if (result != WebSocketResult.SUCCESS) {
@@ -11993,8 +11941,7 @@ class AppViewModel : ViewModel() {
      * @param editEvent The edit event containing the new content
      * @return A new TimelineEvent with merged content
      */
-    private fun mergeEditContent(originalEvent: TimelineEvent, editEvent: TimelineEvent) =
-        editVersionCoordinator.mergeEditContent(originalEvent, editEvent)
+    private fun mergeEditContent(originalEvent: TimelineEvent, editEvent: TimelineEvent) = editVersionCoordinator.mergeEditContent(originalEvent, editEvent)
 
     fun markRoomAsRead(roomId: String, eventId: String) = readReceiptsTypingCoordinator.markRoomAsRead(roomId, eventId)
 
@@ -12005,11 +11952,12 @@ class AppViewModel : ViewModel() {
         roomSummaryRequests[summaryRequestId] = roomId
         val via = roomId.substringAfter(":").substringBefore(".") // Extract server from room ID
         sendWebSocketCommand(
-            "get_room_summary", summaryRequestId,
+            "get_room_summary",
+            summaryRequestId,
             mapOf(
-            "room_id_or_alias" to roomId,
-            "via" to listOf(via),
-        )
+                "room_id_or_alias" to roomId,
+                "via" to listOf(via),
+            ),
         )
     }
 
@@ -12027,9 +11975,9 @@ class AppViewModel : ViewModel() {
         if (roomId != null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Mark read response for room $roomId: $success",
-            )
+                    "Andromuks",
+                    "AppViewModel: Mark read response for room $roomId: $success",
+                )
             }
             // Remove the request from pending
             markReadRequests.remove(requestId)
@@ -12042,17 +11990,16 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    private fun handleMessageAcknowledgmentByRequestId(requestId: Int) =
-        persistenceCoordinator.handleMessageAcknowledgmentByRequestId(requestId)
+    private fun handleMessageAcknowledgmentByRequestId(requestId: Int) = persistenceCoordinator.handleMessageAcknowledgmentByRequestId(requestId)
 
     fun handleRoomSummaryResponse(requestId: Int, data: Any) {
         val roomId = roomSummaryRequests[requestId]
         if (roomId != null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Room summary response for room $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Room summary response for room $roomId",
+                )
             }
             // Room summary received - could be used to update invite details if needed
             roomSummaryRequests.remove(requestId)
@@ -12120,19 +12067,15 @@ class AppViewModel : ViewModel() {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Room created roomId=$newRoomId requestId=$requestId",
-        )
+                "Andromuks",
+                "AppViewModel: Room created roomId=$newRoomId requestId=$requestId",
+            )
         }
         callback(newRoomId, null)
     }
 
-    fun executeCommand(
-        roomId: String,
-        text: String,
-        context: android.content.Context,
-        navController: androidx.navigation.NavController? = null,
-    ): Boolean = slashCommandsCoordinator.executeCommand(roomId, text, context, navController)
+    fun executeCommand(roomId: String, text: String, context: android.content.Context, navController: androidx.navigation.NavController? = null): Boolean =
+        slashCommandsCoordinator.executeCommand(roomId, text, context, navController)
 
     fun setAccountDataContent(type: String, content: Map<String, Any>) {
         val requestId = WebSocketService.allocateRequestId()
@@ -12143,11 +12086,8 @@ class AppViewModel : ViewModel() {
     fun setPushRuleEnabled(kind: net.vrkknn.andromuks.utils.PushRuleKind, ruleId: String, enabled: Boolean) =
         pushRulesCoordinator.setRuleEnabled(kind, ruleId, enabled)
 
-    fun setPushRulePreset(
-        kind: net.vrkknn.andromuks.utils.PushRuleKind,
-        ruleId: String,
-        preset: net.vrkknn.andromuks.utils.NotificationPreset,
-    ) = pushRulesCoordinator.setRulePreset(kind, ruleId, preset)
+    fun setPushRulePreset(kind: net.vrkknn.andromuks.utils.PushRuleKind, ruleId: String, preset: net.vrkknn.andromuks.utils.NotificationPreset) =
+        pushRulesCoordinator.setRulePreset(kind, ruleId, preset)
 
     fun setPushRuleActions(kind: net.vrkknn.andromuks.utils.PushRuleKind, ruleId: String, actions: List<Any>) =
         pushRulesCoordinator.setRuleActions(kind, ruleId, actions)
@@ -12160,8 +12100,7 @@ class AppViewModel : ViewModel() {
         pattern: String = "",
     ) = pushRulesCoordinator.putRule(kind, ruleId, actions, conditions, pattern)
 
-    fun deletePushRule(kind: net.vrkknn.andromuks.utils.PushRuleKind, ruleId: String) =
-        pushRulesCoordinator.deleteRule(kind, ruleId)
+    fun deletePushRule(kind: net.vrkknn.andromuks.utils.PushRuleKind, ruleId: String) = pushRulesCoordinator.deleteRule(kind, ruleId)
 
     fun setRoomNotificationLevel(roomId: String, level: net.vrkknn.andromuks.utils.RoomNotificationLevel) =
         pushRulesCoordinator.setRoomNotificationLevel(roomId, level)
@@ -12173,16 +12112,17 @@ class AppViewModel : ViewModel() {
     fun setRoomMemberAvatar(roomId: String, mxcUrl: String) {
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "set_state", requestId,
+            "set_state",
+            requestId,
             mapOf(
-            "room_id" to roomId,
-            "type" to "m.room.member",
-            "state_key" to currentUserId,
-            "content" to mapOf(
-                "avatar_url" to mxcUrl,
-                "membership" to "join",
+                "room_id" to roomId,
+                "type" to "m.room.member",
+                "state_key" to currentUserId,
+                "content" to mapOf(
+                    "avatar_url" to mxcUrl,
+                    "membership" to "join",
+                ),
             ),
-        )
         )
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting room member avatar: $mxcUrl")
     }
@@ -12231,20 +12171,21 @@ class AppViewModel : ViewModel() {
     fun banUser(roomId: String, userId: String, reason: String, redactSystemMessages: Boolean = false) {
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "set_membership", requestId,
+            "set_membership",
+            requestId,
             mapOf(
-            "room_id" to roomId,
-            "user_id" to userId,
-            "action" to "ban",
-            "reason" to reason,
-            "msc4293_redact_events" to redactSystemMessages,
-        )
+                "room_id" to roomId,
+                "user_id" to userId,
+                "action" to "ban",
+                "reason" to reason,
+                "msc4293_redact_events" to redactSystemMessages,
+            ),
         )
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Banning user $userId from room $roomId with reason: $reason",
-        )
+                "Andromuks",
+                "AppViewModel: Banning user $userId from room $roomId with reason: $reason",
+            )
         }
     }
 
@@ -12254,18 +12195,19 @@ class AppViewModel : ViewModel() {
     fun redactEvent(roomId: String, eventId: String, reason: String) {
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "redact_event", requestId,
+            "redact_event",
+            requestId,
             mapOf(
-            "room_id" to roomId,
-            "event_id" to eventId,
-            "reason" to reason,
-        )
+                "room_id" to roomId,
+                "event_id" to eventId,
+                "reason" to reason,
+            ),
         )
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Redacting event $eventId in room $roomId with reason: $reason",
-        )
+                "Andromuks",
+                "AppViewModel: Redacting event $eventId in room $roomId with reason: $reason",
+            )
         }
     }
 
@@ -12277,8 +12219,7 @@ class AppViewModel : ViewModel() {
     fun setIgnoredUser(userId: String, ignore: Boolean) = accountDataCoordinator.setIgnoredUser(userId, ignore)
 
     /** Set an arbitrary account_data key from raw JSON — see [AccountDataCoordinator.setAccountDataRaw]. */
-    fun setAccountDataRaw(type: String, content: org.json.JSONObject, roomId: String? = null) =
-        accountDataCoordinator.setAccountDataRaw(type, content, roomId)
+    fun setAccountDataRaw(type: String, content: org.json.JSONObject, roomId: String? = null) = accountDataCoordinator.setAccountDataRaw(type, content, roomId)
 
     /**
      * Pin or unpin an event in a room
@@ -12291,9 +12232,9 @@ class AppViewModel : ViewModel() {
         if (roomState == null || roomState.roomId != roomId) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: Cannot pin/unpin - room state not available for room $roomId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Cannot pin/unpin - room state not available for room $roomId",
+                )
             }
             return
         }
@@ -12312,16 +12253,22 @@ class AppViewModel : ViewModel() {
 
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "set_state", requestId,
+            "set_state",
+            requestId,
             mapOf(
-            "room_id" to roomId,
-            "type" to "m.room.pinned_events",
-            "state_key" to "",
-            "content" to mapOf("pinned" to currentPinned),
-        )
+                "room_id" to roomId,
+                "type" to "m.room.pinned_events",
+                "state_key" to "",
+                "content" to mapOf("pinned" to currentPinned),
+            ),
         )
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ${if (pin) "Pinned" else "Unpinned"} event $eventId in room $roomId (${currentPinned.size} total pinned events)")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: ${if (pin) "Pinned" else "Unpinned"} event $eventId in room $roomId (${currentPinned.size} total pinned events)",
+        )
+        }
 
         // Request updated room state to refresh m.pinned_events and other room info
         if (isWebSocketConnected() && !pendingRoomStateRequests.contains(roomId)) {
@@ -12331,19 +12278,20 @@ class AppViewModel : ViewModel() {
             }
             pendingRoomStateRequests.add(roomId)
             sendWebSocketCommand(
-                "get_room_state", stateRequestId,
+                "get_room_state",
+                stateRequestId,
                 mapOf(
-                "room_id" to roomId,
-                "include_members" to false,
-                "fetch_members" to false,
-                "refetch" to false,
-            )
+                    "room_id" to roomId,
+                    "include_members" to false,
+                    "fetch_members" to false,
+                    "refetch" to false,
+                ),
             )
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Requested room state update after ${if (pin) "pin" else "unpin"} (reqId: $stateRequestId)",
-            )
+                    "Andromuks",
+                    "AppViewModel: Requested room state update after ${if (pin) "pin" else "unpin"} (reqId: $stateRequestId)",
+                )
             }
         }
     }
@@ -12358,13 +12306,14 @@ class AppViewModel : ViewModel() {
     fun setRoomAvatar(roomId: String, mxcUrl: String) {
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "set_state", requestId,
+            "set_state",
+            requestId,
             mapOf(
-            "room_id" to roomId,
-            "type" to "m.room.avatar",
-            "state_key" to "",
-            "content" to mapOf("url" to mxcUrl),
-        )
+                "room_id" to roomId,
+                "type" to "m.room.avatar",
+                "state_key" to "",
+                "content" to mapOf("url" to mxcUrl),
+            ),
         )
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting room avatar: $mxcUrl")
     }
@@ -12376,11 +12325,12 @@ class AppViewModel : ViewModel() {
     fun setGlobalAvatar(mxcUrl: String) {
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "set_profile_field", requestId,
+            "set_profile_field",
+            requestId,
             mapOf(
-            "field" to "avatar",
-            "value" to mxcUrl,
-        )
+                "field" to "avatar",
+                "value" to mxcUrl,
+            ),
         )
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting global avatar: $mxcUrl")
     }
@@ -12405,11 +12355,9 @@ class AppViewModel : ViewModel() {
     /**
      * Send WebSocket command to the backend (raw payload). Delegates to [WebSocketCommandSender].
      */
-    internal fun sendRawWebSocketCommand(command: String, requestId: Int, data: Any?): WebSocketResult =
-        webSocketCommands.sendRaw(command, requestId, data)
+    internal fun sendRawWebSocketCommand(command: String, requestId: Int, data: Any?): WebSocketResult = webSocketCommands.sendRaw(command, requestId, data)
 
-    fun sendWidgetCommand(command: String, data: Any?, onResult: (Result<Any?>) -> Unit) =
-        callsWidgetsCoordinator.sendWidgetCommand(command, data, onResult)
+    fun sendWidgetCommand(command: String, data: Any?, onResult: (Result<Any?>) -> Unit) = callsWidgetsCoordinator.sendWidgetCommand(command, data, onResult)
 
     internal fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult =
         webSocketCommands.send(command, requestId, data)
@@ -12444,9 +12392,9 @@ class AppViewModel : ViewModel() {
         if (type == "ok" && !canSendCommandsToBackend) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: sync_status=ok — unblocking command queue early (pre-init_complete)",
-            )
+                    "Andromuks",
+                    "AppViewModel: sync_status=ok — unblocking command queue early (pre-init_complete)",
+                )
             }
             canSendCommandsToBackend = true
             flushPendingCommandsQueue()
@@ -12539,10 +12487,10 @@ class AppViewModel : ViewModel() {
                         if (id ==
                             openRoomId
                         ) {
-                                Long.MAX_VALUE
-                            } else {
-                                (roomRecency[id] ?: 0L)
-                            }
+                            Long.MAX_VALUE
+                        } else {
+                            (roomRecency[id] ?: 0L)
+                        }
                     },
                 )
                 .toList()
@@ -12696,9 +12644,9 @@ class AppViewModel : ViewModel() {
     fun getEvent(roomId: String, eventId: String, callback: (TimelineEvent?) -> Unit) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: getEvent called for roomId: '$roomId', eventId: '$eventId'",
-        )
+                "Andromuks",
+                "AppViewModel: getEvent called for roomId: '$roomId', eventId: '$eventId'",
+            )
         }
 
         // Check if WebSocket is connected
@@ -12714,9 +12662,9 @@ class AppViewModel : ViewModel() {
         val eventRequestId = WebSocketService.allocateRequestId()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Generated request_id for get_event: $eventRequestId",
-        )
+                "Andromuks",
+                "AppViewModel: Generated request_id for get_event: $eventRequestId",
+            )
         }
 
         // Store the callback to handle the response
@@ -12731,9 +12679,9 @@ class AppViewModel : ViewModel() {
         sendWebSocketCommand("get_event", eventRequestId, commandData)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: WebSocket command sent with request_id: $eventRequestId",
-        )
+                "Andromuks",
+                "AppViewModel: WebSocket command sent with request_id: $eventRequestId",
+            )
         }
 
         // Add timeout mechanism to prevent infinite loading
@@ -12741,9 +12689,9 @@ class AppViewModel : ViewModel() {
             val timeoutMs = 10000L // 10 second timeout
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Setting get_event timeout to ${timeoutMs}ms for requestId=$eventRequestId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Setting get_event timeout to ${timeoutMs}ms for requestId=$eventRequestId",
+                )
             }
             delay(timeoutMs)
 
@@ -12771,18 +12719,12 @@ class AppViewModel : ViewModel() {
      * @param limitAfter Number of events after the target event (default 5)
      * @param callback Callback with list of events (target event in the middle)
      */
-    fun getEventContext(
-        roomId: String,
-        eventId: String,
-        limitBefore: Int = 5,
-        limitAfter: Int = 5,
-        callback: (List<TimelineEvent>?, String?) -> Unit,
-    ) {
+    fun getEventContext(roomId: String, eventId: String, limitBefore: Int = 5, limitAfter: Int = 5, callback: (List<TimelineEvent>?, String?) -> Unit) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: getEventContext called for roomId: '$roomId', eventId: '$eventId', limitBefore: $limitBefore, limitAfter: $limitAfter",
-        )
+                "Andromuks",
+                "AppViewModel: getEventContext called for roomId: '$roomId', eventId: '$eventId', limitBefore: $limitBefore, limitAfter: $limitAfter",
+            )
         }
 
         // Check if WebSocket is connected
@@ -12798,9 +12740,9 @@ class AppViewModel : ViewModel() {
         val eventContextRequestId = WebSocketService.allocateRequestId()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Generated request_id for get_event_context: $eventContextRequestId",
-        )
+                "Andromuks",
+                "AppViewModel: Generated request_id for get_event_context: $eventContextRequestId",
+            )
         }
 
         // Store the callback to handle the response
@@ -12817,9 +12759,9 @@ class AppViewModel : ViewModel() {
         sendWebSocketCommand("get_event_context", eventContextRequestId, commandData)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: WebSocket command sent with request_id: $eventContextRequestId",
-        )
+                "Andromuks",
+                "AppViewModel: WebSocket command sent with request_id: $eventContextRequestId",
+            )
         }
 
         // Add timeout mechanism to prevent infinite loading
@@ -12827,9 +12769,9 @@ class AppViewModel : ViewModel() {
             val timeoutMs = 10000L // 10 second timeout
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Setting get_event_context timeout to ${timeoutMs}ms for requestId=$eventContextRequestId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Setting get_event_context timeout to ${timeoutMs}ms for requestId=$eventContextRequestId",
+                )
             }
             delay(timeoutMs)
 
@@ -12858,9 +12800,9 @@ class AppViewModel : ViewModel() {
         val actualMaxTimestamp = maxTimestamp ?: System.currentTimeMillis()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: requestMentionsList called with maxTimestamp=$actualMaxTimestamp, limit=$limit, type=$type, roomId=$roomId",
-        )
+                "Andromuks",
+                "AppViewModel: requestMentionsList called with maxTimestamp=$actualMaxTimestamp, limit=$limit, type=$type, roomId=$roomId",
+            )
         }
 
         val ws = WebSocketService.getWebSocket() ?: run {
@@ -12881,7 +12823,12 @@ class AppViewModel : ViewModel() {
         )
         if (roomId != null) commandData["room_id"] = roomId
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending get_mentions command with request_id=$mentionsRequestId, data=$commandData")
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Sending get_mentions command with request_id=$mentionsRequestId, data=$commandData",
+        )
+        }
         sendWebSocketCommand("get_mentions", mentionsRequestId, commandData)
 
         // Add timeout mechanism
@@ -12988,9 +12935,9 @@ class AppViewModel : ViewModel() {
             if (replyTargetsToFetch.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Fetching ${replyTargetsToFetch.size} reply target events",
-                )
+                        "Andromuks",
+                        "AppViewModel: Fetching ${replyTargetsToFetch.size} reply target events",
+                    )
                 }
 
                 // Helper function to convert callback-based getEvent to suspend function
@@ -13041,9 +12988,9 @@ class AppViewModel : ViewModel() {
                 mentionEvents = finalMentionEvents
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Updated mentionEvents with ${finalMentionEvents.size} events",
-                )
+                        "Andromuks",
+                        "AppViewModel: Updated mentionEvents with ${finalMentionEvents.size} events",
+                    )
                 }
             }
         }
@@ -13063,8 +13010,7 @@ class AppViewModel : ViewModel() {
 
     fun toggleTrimLongDisplayNames() = settingsCoordinator.toggleTrimLongDisplayNames()
 
-    fun setDisplayNameColorMode(mode: net.vrkknn.andromuks.utils.DisplayNameColorMode) =
-        settingsCoordinator.setDisplayNameColorMode(mode)
+    fun setDisplayNameColorMode(mode: net.vrkknn.andromuks.utils.DisplayNameColorMode) = settingsCoordinator.setDisplayNameColorMode(mode)
 
     fun setRequireBiometricUnlock(enabled: Boolean) = settingsCoordinator.setRequireBiometricUnlock(enabled)
 
@@ -13129,19 +13075,15 @@ class AppViewModel : ViewModel() {
         return renderThumbnailsAlways
     }
 
-    fun setGomuksGlobalPrefs(showMediaPreviews: Boolean?) =
-        accountDataCoordinator.setGomuksGlobalPrefs(showMediaPreviews)
+    fun setGomuksGlobalPrefs(showMediaPreviews: Boolean?) = accountDataCoordinator.setGomuksGlobalPrefs(showMediaPreviews)
 
-    fun setGomuksRoomPrefs(roomId: String, showMediaPreviews: Boolean?) =
-        accountDataCoordinator.setGomuksRoomPrefs(roomId, showMediaPreviews)
+    fun setGomuksRoomPrefs(roomId: String, showMediaPreviews: Boolean?) = accountDataCoordinator.setGomuksRoomPrefs(roomId, showMediaPreviews)
 
     fun setDeviceGlobalShowMediaPreviews(value: Boolean?) = settingsCoordinator.setDeviceGlobalShowMediaPreviews(value)
 
-    fun setDeviceRoomShowMediaPreviews(roomId: String, value: Boolean?) =
-        settingsCoordinator.setDeviceRoomShowMediaPreviews(roomId, value)
+    fun setDeviceRoomShowMediaPreviews(roomId: String, value: Boolean?) = settingsCoordinator.setDeviceRoomShowMediaPreviews(roomId, value)
 
-    fun getDeviceRoomShowMediaPreviews(roomId: String): Boolean? =
-        settingsCoordinator.getDeviceRoomShowMediaPreviews(roomId)
+    fun getDeviceRoomShowMediaPreviews(roomId: String): Boolean? = settingsCoordinator.getDeviceRoomShowMediaPreviews(roomId)
 
     fun getAccountRoomShowMediaPreviews(roomId: String): Boolean? {
         val roomData = RoomAccountDataCache.getRoomAccountData(roomId, "fi.mau.gomuks.preferences")
@@ -13150,10 +13092,10 @@ class AppViewModel : ViewModel() {
                 "show_media_previews",
             )
         ) {
-                content.optBoolean("show_media_previews")
-            } else {
-                null
-            }
+            content.optBoolean("show_media_previews")
+        } else {
+            null
+        }
     }
 
     private fun getRoomAccountGomuksPref(roomId: String, key: String): Boolean? {
@@ -13202,52 +13144,37 @@ class AppViewModel : ViewModel() {
         return sendLinkPreviews
     }
 
-    fun setGomuksGlobalRenderUrlPreviews(value: Boolean?) =
-        accountDataCoordinator.setGomuksGlobalRenderUrlPreviews(value)
+    fun setGomuksGlobalRenderUrlPreviews(value: Boolean?) = accountDataCoordinator.setGomuksGlobalRenderUrlPreviews(value)
 
-    fun setGomuksGlobalSendBundledUrlPreviews(value: Boolean?) =
-        accountDataCoordinator.setGomuksGlobalSendBundledUrlPreviews(value)
+    fun setGomuksGlobalSendBundledUrlPreviews(value: Boolean?) = accountDataCoordinator.setGomuksGlobalSendBundledUrlPreviews(value)
 
-    fun setGomuksRoomRenderUrlPreviews(roomId: String, value: Boolean?) =
-        accountDataCoordinator.setGomuksRoomRenderUrlPreviews(roomId, value)
+    fun setGomuksRoomRenderUrlPreviews(roomId: String, value: Boolean?) = accountDataCoordinator.setGomuksRoomRenderUrlPreviews(roomId, value)
 
-    fun setGomuksRoomSendBundledUrlPreviews(roomId: String, value: Boolean?) =
-        accountDataCoordinator.setGomuksRoomSendBundledUrlPreviews(roomId, value)
+    fun setGomuksRoomSendBundledUrlPreviews(roomId: String, value: Boolean?) = accountDataCoordinator.setGomuksRoomSendBundledUrlPreviews(roomId, value)
 
     fun setDeviceGlobalRenderUrlPreviews(value: Boolean?) = settingsCoordinator.setDeviceGlobalRenderUrlPreviews(value)
 
-    fun setDeviceGlobalSendBundledUrlPreviews(value: Boolean?) =
-        settingsCoordinator.setDeviceGlobalSendBundledUrlPreviews(value)
+    fun setDeviceGlobalSendBundledUrlPreviews(value: Boolean?) = settingsCoordinator.setDeviceGlobalSendBundledUrlPreviews(value)
 
-    fun setDeviceRoomRenderUrlPreviews(roomId: String, value: Boolean?) =
-        settingsCoordinator.setDeviceRoomRenderUrlPreviews(roomId, value)
+    fun setDeviceRoomRenderUrlPreviews(roomId: String, value: Boolean?) = settingsCoordinator.setDeviceRoomRenderUrlPreviews(roomId, value)
 
-    fun setDeviceRoomSendBundledUrlPreviews(roomId: String, value: Boolean?) =
-        settingsCoordinator.setDeviceRoomSendBundledUrlPreviews(roomId, value)
+    fun setDeviceRoomSendBundledUrlPreviews(roomId: String, value: Boolean?) = settingsCoordinator.setDeviceRoomSendBundledUrlPreviews(roomId, value)
 
-    fun getDeviceRoomRenderUrlPreviews(roomId: String): Boolean? =
-        settingsCoordinator.getDeviceRoomRenderUrlPreviews(roomId)
+    fun getDeviceRoomRenderUrlPreviews(roomId: String): Boolean? = settingsCoordinator.getDeviceRoomRenderUrlPreviews(roomId)
 
-    fun getDeviceRoomSendBundledUrlPreviews(roomId: String): Boolean? =
-        settingsCoordinator.getDeviceRoomSendBundledUrlPreviews(roomId)
+    fun getDeviceRoomSendBundledUrlPreviews(roomId: String): Boolean? = settingsCoordinator.getDeviceRoomSendBundledUrlPreviews(roomId)
 
-    fun getAccountRoomRenderUrlPreviews(roomId: String): Boolean? =
-        getRoomAccountGomuksPref(roomId, "render_url_previews")
+    fun getAccountRoomRenderUrlPreviews(roomId: String): Boolean? = getRoomAccountGomuksPref(roomId, "render_url_previews")
 
-    fun getAccountRoomSendBundledUrlPreviews(roomId: String): Boolean? =
-        getRoomAccountGomuksPref(roomId, "send_bundled_url_previews")
+    fun getAccountRoomSendBundledUrlPreviews(roomId: String): Boolean? = getRoomAccountGomuksPref(roomId, "send_bundled_url_previews")
 
-    fun getAccountRoomSendReadReceipts(roomId: String): Boolean? =
-        getRoomAccountGomuksPref(roomId, "send_read_receipts")
+    fun getAccountRoomSendReadReceipts(roomId: String): Boolean? = getRoomAccountGomuksPref(roomId, "send_read_receipts")
 
-    fun getAccountRoomSendTypingNotifications(roomId: String): Boolean? =
-        getRoomAccountGomuksPref(roomId, "send_typing_notifications")
+    fun getAccountRoomSendTypingNotifications(roomId: String): Boolean? = getRoomAccountGomuksPref(roomId, "send_typing_notifications")
 
-    fun getAccountRoomDisplayReadReceipts(roomId: String): Boolean? =
-        getRoomAccountGomuksPref(roomId, "display_read_receipts")
+    fun getAccountRoomDisplayReadReceipts(roomId: String): Boolean? = getRoomAccountGomuksPref(roomId, "display_read_receipts")
 
-    fun getAccountRoomShowHiddenEvents(roomId: String): Boolean? =
-        getRoomAccountGomuksPref(roomId, "show_hidden_events")
+    fun getAccountRoomShowHiddenEvents(roomId: String): Boolean? = getRoomAccountGomuksPref(roomId, "show_hidden_events")
 
     /**
      * Resolves whether to show hidden/unknown event types for a room (show_hidden_events).
@@ -13272,19 +13199,15 @@ class AppViewModel : ViewModel() {
 
     fun setGomuksGlobalShowHiddenEvents(value: Boolean?) = accountDataCoordinator.setGomuksGlobalShowHiddenEvents(value)
 
-    fun setGomuksRoomShowHiddenEvents(roomId: String, value: Boolean?) =
-        accountDataCoordinator.setGomuksRoomShowHiddenEvents(roomId, value)
+    fun setGomuksRoomShowHiddenEvents(roomId: String, value: Boolean?) = accountDataCoordinator.setGomuksRoomShowHiddenEvents(roomId, value)
 
     fun setDeviceGlobalShowHiddenEvents(value: Boolean?) = settingsCoordinator.setDeviceGlobalShowHiddenEvents(value)
 
-    fun setDeviceRoomShowHiddenEvents(roomId: String, value: Boolean?) =
-        settingsCoordinator.setDeviceRoomShowHiddenEvents(roomId, value)
+    fun setDeviceRoomShowHiddenEvents(roomId: String, value: Boolean?) = settingsCoordinator.setDeviceRoomShowHiddenEvents(roomId, value)
 
-    fun getDeviceRoomShowHiddenEvents(roomId: String): Boolean? =
-        settingsCoordinator.getDeviceRoomShowHiddenEvents(roomId)
+    fun getDeviceRoomShowHiddenEvents(roomId: String): Boolean? = settingsCoordinator.getDeviceRoomShowHiddenEvents(roomId)
 
-    fun getAccountRoomShowMembershipEvents(roomId: String): Boolean? =
-        getRoomAccountGomuksPref(roomId, "show_membership_events")
+    fun getAccountRoomShowMembershipEvents(roomId: String): Boolean? = getRoomAccountGomuksPref(roomId, "show_membership_events")
 
     /**
      * Resolves whether to show membership events — joins, leaves, and display-name/avatar changes
@@ -13311,20 +13234,15 @@ class AppViewModel : ViewModel() {
             (getRoomById(roomId)?.isDirectMessage ?: isDirectMessageFromAccountData(roomId))
     }
 
-    fun setGomuksGlobalShowMembershipEvents(value: Boolean?) =
-        accountDataCoordinator.setGomuksGlobalShowMembershipEvents(value)
+    fun setGomuksGlobalShowMembershipEvents(value: Boolean?) = accountDataCoordinator.setGomuksGlobalShowMembershipEvents(value)
 
-    fun setGomuksRoomShowMembershipEvents(roomId: String, value: Boolean?) =
-        accountDataCoordinator.setGomuksRoomShowMembershipEvents(roomId, value)
+    fun setGomuksRoomShowMembershipEvents(roomId: String, value: Boolean?) = accountDataCoordinator.setGomuksRoomShowMembershipEvents(roomId, value)
 
-    fun setDeviceGlobalShowMembershipEvents(value: Boolean?) =
-        settingsCoordinator.setDeviceGlobalShowMembershipEvents(value)
+    fun setDeviceGlobalShowMembershipEvents(value: Boolean?) = settingsCoordinator.setDeviceGlobalShowMembershipEvents(value)
 
-    fun setDeviceRoomShowMembershipEvents(roomId: String, value: Boolean?) =
-        settingsCoordinator.setDeviceRoomShowMembershipEvents(roomId, value)
+    fun setDeviceRoomShowMembershipEvents(roomId: String, value: Boolean?) = settingsCoordinator.setDeviceRoomShowMembershipEvents(roomId, value)
 
-    fun getDeviceRoomShowMembershipEvents(roomId: String): Boolean? =
-        settingsCoordinator.getDeviceRoomShowMembershipEvents(roomId)
+    fun getDeviceRoomShowMembershipEvents(roomId: String): Boolean? = settingsCoordinator.getDeviceRoomShowMembershipEvents(roomId)
 
     /**
      * Resolves whether to display read receipts for a room (display_read_receipts).
@@ -13347,20 +13265,15 @@ class AppViewModel : ViewModel() {
         return true
     }
 
-    fun setGomuksGlobalDisplayReadReceipts(value: Boolean?) =
-        accountDataCoordinator.setGomuksGlobalDisplayReadReceipts(value)
+    fun setGomuksGlobalDisplayReadReceipts(value: Boolean?) = accountDataCoordinator.setGomuksGlobalDisplayReadReceipts(value)
 
-    fun setGomuksRoomDisplayReadReceipts(roomId: String, value: Boolean?) =
-        accountDataCoordinator.setGomuksRoomDisplayReadReceipts(roomId, value)
+    fun setGomuksRoomDisplayReadReceipts(roomId: String, value: Boolean?) = accountDataCoordinator.setGomuksRoomDisplayReadReceipts(roomId, value)
 
-    fun setDeviceGlobalDisplayReadReceipts(value: Boolean?) =
-        settingsCoordinator.setDeviceGlobalDisplayReadReceipts(value)
+    fun setDeviceGlobalDisplayReadReceipts(value: Boolean?) = settingsCoordinator.setDeviceGlobalDisplayReadReceipts(value)
 
-    fun setDeviceRoomDisplayReadReceipts(roomId: String, value: Boolean?) =
-        settingsCoordinator.setDeviceRoomDisplayReadReceipts(roomId, value)
+    fun setDeviceRoomDisplayReadReceipts(roomId: String, value: Boolean?) = settingsCoordinator.setDeviceRoomDisplayReadReceipts(roomId, value)
 
-    fun getDeviceRoomDisplayReadReceipts(roomId: String): Boolean? =
-        settingsCoordinator.getDeviceRoomDisplayReadReceipts(roomId)
+    fun getDeviceRoomDisplayReadReceipts(roomId: String): Boolean? = settingsCoordinator.getDeviceRoomDisplayReadReceipts(roomId)
 
     /**
      * Resolves whether to send read receipts for a room (send_read_receipts).
@@ -13406,31 +13319,23 @@ class AppViewModel : ViewModel() {
 
     fun setGomuksGlobalSendReadReceipts(value: Boolean?) = accountDataCoordinator.setGomuksGlobalSendReadReceipts(value)
 
-    fun setGomuksGlobalSendTypingNotifications(value: Boolean?) =
-        accountDataCoordinator.setGomuksGlobalSendTypingNotifications(value)
+    fun setGomuksGlobalSendTypingNotifications(value: Boolean?) = accountDataCoordinator.setGomuksGlobalSendTypingNotifications(value)
 
-    fun setGomuksRoomSendReadReceipts(roomId: String, value: Boolean?) =
-        accountDataCoordinator.setGomuksRoomSendReadReceipts(roomId, value)
+    fun setGomuksRoomSendReadReceipts(roomId: String, value: Boolean?) = accountDataCoordinator.setGomuksRoomSendReadReceipts(roomId, value)
 
-    fun setGomuksRoomSendTypingNotifications(roomId: String, value: Boolean?) =
-        accountDataCoordinator.setGomuksRoomSendTypingNotifications(roomId, value)
+    fun setGomuksRoomSendTypingNotifications(roomId: String, value: Boolean?) = accountDataCoordinator.setGomuksRoomSendTypingNotifications(roomId, value)
 
     fun setDeviceGlobalSendReadReceipts(value: Boolean?) = settingsCoordinator.setDeviceGlobalSendReadReceipts(value)
 
-    fun setDeviceGlobalSendTypingNotifications(value: Boolean?) =
-        settingsCoordinator.setDeviceGlobalSendTypingNotifications(value)
+    fun setDeviceGlobalSendTypingNotifications(value: Boolean?) = settingsCoordinator.setDeviceGlobalSendTypingNotifications(value)
 
-    fun setDeviceRoomSendReadReceipts(roomId: String, value: Boolean?) =
-        settingsCoordinator.setDeviceRoomSendReadReceipts(roomId, value)
+    fun setDeviceRoomSendReadReceipts(roomId: String, value: Boolean?) = settingsCoordinator.setDeviceRoomSendReadReceipts(roomId, value)
 
-    fun setDeviceRoomSendTypingNotifications(roomId: String, value: Boolean?) =
-        settingsCoordinator.setDeviceRoomSendTypingNotifications(roomId, value)
+    fun setDeviceRoomSendTypingNotifications(roomId: String, value: Boolean?) = settingsCoordinator.setDeviceRoomSendTypingNotifications(roomId, value)
 
-    fun getDeviceRoomSendReadReceipts(roomId: String): Boolean? =
-        settingsCoordinator.getDeviceRoomSendReadReceipts(roomId)
+    fun getDeviceRoomSendReadReceipts(roomId: String): Boolean? = settingsCoordinator.getDeviceRoomSendReadReceipts(roomId)
 
-    fun getDeviceRoomSendTypingNotifications(roomId: String): Boolean? =
-        settingsCoordinator.getDeviceRoomSendTypingNotifications(roomId)
+    fun getDeviceRoomSendTypingNotifications(roomId: String): Boolean? = settingsCoordinator.getDeviceRoomSendTypingNotifications(roomId)
 
     fun loadSettings(context: Context? = null) = settingsCoordinator.loadSettings(context)
 
@@ -13564,10 +13469,8 @@ class AppViewModel : ViewModel() {
     /**
      * Requests encryption info for a user
      */
-    fun requestUserEncryptionInfo(
-        userId: String,
-        callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit,
-    ) = userEncryptionCoordinator.requestUserEncryptionInfo(userId, callback)
+    fun requestUserEncryptionInfo(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) =
+        userEncryptionCoordinator.requestUserEncryptionInfo(userId, callback)
 
     /**
      * Requests mutual rooms with a user
@@ -13575,9 +13478,9 @@ class AppViewModel : ViewModel() {
     fun requestMutualRooms(userId: String, callback: (List<String>?, String?) -> Unit) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Requesting mutual rooms with user: $userId",
-        )
+                "Andromuks",
+                "AppViewModel: Requesting mutual rooms with user: $userId",
+            )
         }
 
         if (!isWebSocketConnected()) {
@@ -13590,10 +13493,11 @@ class AppViewModel : ViewModel() {
         mutualRoomsRequests[requestId] = callback
 
         sendWebSocketCommand(
-            "get_mutual_rooms", requestId,
+            "get_mutual_rooms",
+            requestId,
             mapOf(
-            "user_id" to userId,
-        )
+                "user_id" to userId,
+            ),
         )
     }
 
@@ -13663,9 +13567,9 @@ class AppViewModel : ViewModel() {
             threadMessages.add(rootMessage)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Found thread root: $threadRootEventId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Found thread root: $threadRootEventId",
+                )
             }
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Thread root not found: $threadRootEventId")
@@ -13683,9 +13587,9 @@ class AppViewModel : ViewModel() {
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: getThreadMessages - found ${sortedMessages.size} messages in thread (1 root + ${threadReplies.size} replies)",
-        )
+                "Andromuks",
+                "AppViewModel: getThreadMessages - found ${sortedMessages.size} messages in thread (1 root + ${threadReplies.size} replies)",
+            )
         }
 
         return sortedMessages
@@ -13709,16 +13613,12 @@ class AppViewModel : ViewModel() {
     /**
      * Requests complete user profile information (profile, encryption info, mutual rooms)
      */
-    fun requestFullUserInfo(
-        userId: String,
-        forceRefresh: Boolean = false,
-        callback: (net.vrkknn.andromuks.utils.UserProfileInfo?, String?) -> Unit,
-    ) {
+    fun requestFullUserInfo(userId: String, forceRefresh: Boolean = false, callback: (net.vrkknn.andromuks.utils.UserProfileInfo?, String?) -> Unit) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Requesting full user info for: $userId (forceRefresh: $forceRefresh)",
-        )
+                "Andromuks",
+                "AppViewModel: Requesting full user info for: $userId (forceRefresh: $forceRefresh)",
+            )
         }
 
         var displayName: String? = null
@@ -13753,7 +13653,12 @@ class AppViewModel : ViewModel() {
 
             val expectedRequests = if (isSelfUser) 2 else 3
 
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full user info progress - profile: $profileCompleted, encryption: $encryptionCompleted, mutualRooms: $mutualRoomsCompleted (expected: $expectedRequests, completed: $completedCount)")
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Full user info progress - profile: $profileCompleted, encryption: $encryptionCompleted, mutualRooms: $mutualRoomsCompleted (expected: $expectedRequests, completed: $completedCount)",
+            )
+            }
 
             if (completedCount >= expectedRequests && !hasError) {
                 val profileInfo = net.vrkknn.andromuks.utils.UserProfileInfo(
@@ -13770,17 +13675,17 @@ class AppViewModel : ViewModel() {
                 )
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Full user info completed for $userId",
-                )
+                        "Andromuks",
+                        "AppViewModel: Full user info completed for $userId",
+                    )
                 }
                 callback(profileInfo, null)
             } else if (!hasError) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Full user info still waiting for requests to complete ($completedCount/$expectedRequests)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Full user info still waiting for requests to complete ($completedCount/$expectedRequests)",
+                    )
                 }
             }
         }
@@ -13790,10 +13695,11 @@ class AppViewModel : ViewModel() {
         val profileRequestId = WebSocketService.allocateRequestId()
         profileRequests[profileRequestId] = userId
         sendWebSocketCommand(
-            "get_profile", profileRequestId,
+            "get_profile",
+            profileRequestId,
             mapOf(
-            "user_id" to userId,
-        )
+                "user_id" to userId,
+            ),
         )
 
         // Override the profile handler temporarily to capture the result
@@ -13825,9 +13731,9 @@ class AppViewModel : ViewModel() {
         if (userId == currentUserId) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Skipping mutual rooms request for self",
-            )
+                    "Andromuks",
+                    "AppViewModel: Skipping mutual rooms request for self",
+                )
             }
             mutualRooms = emptyList()
             mutualRoomsCompleted = true
@@ -13873,9 +13779,9 @@ class AppViewModel : ViewModel() {
                             if (summary.isNotBlank()) {
                                 pronounsList.add(
                                     net.vrkknn.andromuks.utils.UserPronouns(
-                                    language = language,
-                                    summary = summary,
-                                )
+                                        language = language,
+                                        summary = summary,
+                                    ),
                                 )
                             }
                         }
@@ -13914,7 +13820,12 @@ class AppViewModel : ViewModel() {
                 // Store arbitrary fields in outer variable
                 arbitraryFields = arbitraryFieldsMap
 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}, arbitraryFields: ${arbitraryFieldsMap.size}")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}, arbitraryFields: ${arbitraryFieldsMap.size}",
+                )
+                }
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Profile data is null for $userId")
             }
@@ -13960,9 +13871,9 @@ class AppViewModel : ViewModel() {
                     )
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Returning partial user info after timeout for $userId",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Returning partial user info after timeout for $userId",
+                        )
                     }
                     callback(profileInfo, null)
                 }
@@ -13977,9 +13888,9 @@ class AppViewModel : ViewModel() {
         val callback = mutualRoomsRequests.remove(requestId) ?: return
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Handling mutual rooms response for requestId: $requestId, data type: ${data::class.simpleName}",
-        )
+                "Andromuks",
+                "AppViewModel: Handling mutual rooms response for requestId: $requestId, data type: ${data::class.simpleName}",
+            )
         }
 
         try {
@@ -13994,9 +13905,9 @@ class AppViewModel : ViewModel() {
                         }
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Parsed ${list.size} mutual rooms from joined array",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Parsed ${list.size} mutual rooms from joined array",
+                            )
                         }
                         list
                     } else {
@@ -14067,11 +13978,7 @@ class AppViewModel : ViewModel() {
     /**
      * Get room summary with callback
      */
-    fun getRoomSummary(
-        roomIdOrAlias: String,
-        viaServers: List<String>,
-        callback: (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit,
-    ) {
+    fun getRoomSummary(roomIdOrAlias: String, viaServers: List<String>, callback: (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit) {
         val requestId = WebSocketService.allocateRequestId()
         getRoomSummaryRequests[requestId] = callback
 
@@ -14080,22 +13987,20 @@ class AppViewModel : ViewModel() {
 
         // REFACTORING: Use sendWebSocketCommand() instead of direct send()
         sendWebSocketCommand(
-            "get_room_summary", requestId,
+            "get_room_summary",
+            requestId,
             mapOf(
-            "room_id_or_alias" to roomIdOrAlias,
-            "via" to finalViaServers,
-        )
+                "room_id_or_alias" to roomIdOrAlias,
+                "via" to finalViaServers,
+            ),
         )
     }
 
     /**
      * Join room with callback
      */
-    fun joinRoomWithCallback(
-        roomIdOrAlias: String,
-        viaServers: List<String>,
-        callback: (Pair<String?, String?>?) -> Unit,
-    ) = roomInvitesCoordinator.joinRoomWithCallback(roomIdOrAlias, viaServers, callback)
+    fun joinRoomWithCallback(roomIdOrAlias: String, viaServers: List<String>, callback: (Pair<String?, String?>?) -> Unit) =
+        roomInvitesCoordinator.joinRoomWithCallback(roomIdOrAlias, viaServers, callback)
 
     private fun handleResolveAliasResponse(requestId: Int, data: Any) {
         val callback = resolveAliasRequests.remove(requestId) ?: return
@@ -14112,9 +14017,9 @@ class AppViewModel : ViewModel() {
             if (roomId.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Resolved alias to roomId=$roomId, servers=$servers",
-                )
+                        "Andromuks",
+                        "AppViewModel: Resolved alias to roomId=$roomId, servers=$servers",
+                    )
                 }
                 callback(Pair(roomId, servers))
             } else {
@@ -14144,9 +14049,9 @@ class AppViewModel : ViewModel() {
             )
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Got room summary for ${summary.roomId}",
-            )
+                    "Andromuks",
+                    "AppViewModel: Got room summary for ${summary.roomId}",
+                )
             }
             callback(Pair(summary, null))
         } else {
@@ -14162,18 +14067,18 @@ class AppViewModel : ViewModel() {
             if (roomId.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Joined room successfully, roomId=$roomId",
-                )
+                        "Andromuks",
+                        "AppViewModel: Joined room successfully, roomId=$roomId",
+                    )
                 }
 
                 // CRITICAL: Preemptively mark room as newly joined so it appears at top when sync arrives
                 newlyJoinedRoomIds.add(roomId)
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Preemptively marked room $roomId as newly joined from joinRoomWithCallback",
-                )
+                        "Andromuks",
+                        "AppViewModel: Preemptively marked room $roomId as newly joined from joinRoomWithCallback",
+                    )
                 }
 
                 callback(Pair(roomId, null))
@@ -14289,9 +14194,9 @@ class AppViewModel : ViewModel() {
                 MessageVersionsCache.clear()
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Cleaned up ${versionsToRemove.size} old message versions",
-                )
+                        "Andromuks",
+                        "AppViewModel: Cleaned up ${versionsToRemove.size} old message versions",
+                    )
                 }
             }
 
@@ -14301,9 +14206,9 @@ class AppViewModel : ViewModel() {
                 processedReactions.removeAll(toRemove)
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Cleaned up ${toRemove.size} old processed reactions",
-                )
+                        "Andromuks",
+                        "AppViewModel: Cleaned up ${toRemove.size} old processed reactions",
+                    )
                 }
             }
 
@@ -14396,11 +14301,7 @@ class AppViewModel : ViewModel() {
     /**
      * Check if profile has changed
      */
-    private fun isProfileChange(
-        previousProfile: MemberProfile?,
-        newProfile: MemberProfile,
-        event: TimelineEvent,
-    ): Boolean {
+    private fun isProfileChange(previousProfile: MemberProfile?, newProfile: MemberProfile, event: TimelineEvent): Boolean {
         val membership = event.content?.optString("membership")
         val prevContent = event.unsigned?.optJSONObject("prev_content")
         val prevMembership = prevContent?.optString("membership")
@@ -14408,8 +14309,8 @@ class AppViewModel : ViewModel() {
         return prevMembership == "join" && membership == "join" &&
             (
                 previousProfile?.displayName != newProfile.displayName ||
-                previousProfile?.avatarUrl != newProfile.avatarUrl
-            )
+                    previousProfile?.avatarUrl != newProfile.avatarUrl
+                )
     }
 
     /**
@@ -14432,9 +14333,9 @@ class AppViewModel : ViewModel() {
             scheduleUIUpdate("member")
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Profile change detected in timeline for $userId",
-            )
+                    "Andromuks",
+                    "AppViewModel: Profile change detected in timeline for $userId",
+                )
             }
             true
         } else {
@@ -14450,16 +14351,11 @@ class AppViewModel : ViewModel() {
     internal fun buildEditChainsFromEvents(timelineList: List<TimelineEvent>, clearExisting: Boolean = true) =
         editVersionCoordinator.buildEditChainsFromEvents(timelineList, clearExisting)
 
-    fun getCacheStatistics(context: android.content.Context): Map<String, String> =
-        diagnosticsCoordinator.getCacheStatistics(context)
+    fun getCacheStatistics(context: android.content.Context): Map<String, String> = diagnosticsCoordinator.getCacheStatistics(context)
 
     fun formatBytes(bytes: Long): String = diagnosticsCoordinator.formatBytes(bytes)
 }
 
-data class SingleEventLoadResult(
-    val event: TimelineEvent?,
-    val contextEvents: List<TimelineEvent> = emptyList(),
-    val error: String? = null,
-)
+data class SingleEventLoadResult(val event: TimelineEvent?, val contextEvents: List<TimelineEvent> = emptyList(), val error: String? = null)
 
 // Helper to safely access application context from extensions

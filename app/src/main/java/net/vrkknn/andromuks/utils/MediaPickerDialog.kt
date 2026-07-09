@@ -66,11 +66,7 @@ data class MediaPreviewItemSendState(val item: SharedMediaItem, val caption: Str
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
-fun MediaPreviewDialogMultiple(
-    items: List<SharedMediaItem>,
-    onDismiss: () -> Unit,
-    onSendAll: (List<MediaPreviewItemSendState>) -> Unit,
-) {
+fun MediaPreviewDialogMultiple(items: List<SharedMediaItem>, onDismiss: () -> Unit, onSendAll: (List<MediaPreviewItemSendState>) -> Unit) {
     val context = LocalContext.current
     val pagerState = rememberPagerState(pageCount = { items.size })
     var captionsByIndex by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }

@@ -173,9 +173,9 @@ object InlineVideoPlayerManager {
                 currentPlayer?.pause()
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "InlineVideoPlayerManager: Paused previous video: $currentPlayingVideoId",
-                )
+                        "Andromuks",
+                        "InlineVideoPlayerManager: Paused previous video: $currentPlayingVideoId",
+                    )
                 }
             } catch (e: Exception) {
                 Log.e("Andromuks", "InlineVideoPlayerManager: Error pausing previous video", e)
@@ -350,13 +350,7 @@ private fun MediaCaption(
  * Displays timestamp inside media bubble (for consecutive messages)
  */
 @Composable
-private fun MediaBubbleTimestamp(
-    timestamp: Long,
-    editedBy: TimelineEvent?,
-    isMine: Boolean,
-    isConsecutive: Boolean,
-    onEditedClick: (() -> Unit)? = null,
-) {
+private fun MediaBubbleTimestamp(timestamp: Long, editedBy: TimelineEvent?, isMine: Boolean, isConsecutive: Boolean, onEditedClick: (() -> Unit)? = null) {
     if (isConsecutive) {
         val text = if (editedBy != null) {
             "${formatMediaTimestamp(timestamp)} (edited)"
@@ -861,12 +855,7 @@ fun MediaMessage(
     }
 }
 
-fun mediaBubbleColorFor(
-    colorScheme: ColorScheme,
-    isMine: Boolean,
-    isThreadMessage: Boolean,
-    hasBeenEdited: Boolean,
-): Color = BubblePalette.colors(
+fun mediaBubbleColorFor(colorScheme: ColorScheme, isMine: Boolean, isThreadMessage: Boolean, hasBeenEdited: Boolean): Color = BubblePalette.colors(
     colorScheme = colorScheme,
     isMine = isMine,
     isEdited = hasBeenEdited,
@@ -1130,9 +1119,9 @@ private fun MediaContent(
                         // Debug logging
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken",
-                        )
+                                "Andromuks",
+                                "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken",
+                            )
                         }
 
                         val blurHashForDisplay =
@@ -1187,9 +1176,9 @@ private fun MediaContent(
                                 withContext(kotlinx.coroutines.Dispatchers.Default) {
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "Decoding BlurHash: $blurHashForDisplay to ${blurHashWidth}x$blurHashHeight",
-                                    )
+                                            "Andromuks",
+                                            "Decoding BlurHash: $blurHashForDisplay to ${blurHashWidth}x$blurHashHeight",
+                                        )
                                     }
                                     val bitmap = BlurHashUtils.decodeBlurHash(
                                         blurHashForDisplay!!,
@@ -1201,15 +1190,15 @@ private fun MediaContent(
                                         val imageBitmap = bitmap.asImageBitmap()
                                         if (BuildConfig.DEBUG) {
                                             Log.d(
-                                            "Andromuks",
-                                            "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}",
-                                        )
+                                                "Andromuks",
+                                                "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}",
+                                            )
                                         }
                                         if (BuildConfig.DEBUG) {
                                             Log.d(
-                                            "Andromuks",
-                                            "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}",
-                                        )
+                                                "Andromuks",
+                                                "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}",
+                                            )
                                         }
                                         decodedBlurHashBitmap = imageBitmap
                                     } else {
@@ -1263,8 +1252,8 @@ private fun MediaContent(
                         val hasValidJsonDimensions = if (useThumbnail) {
                             (
                                 mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 &&
-                                mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0
-                            ) ||
+                                    mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0
+                                ) ||
                                 (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
                         } else {
                             mediaMessage.info.width > 0 && mediaMessage.info.height > 0
@@ -1384,17 +1373,17 @@ private fun MediaContent(
                                             val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
                                             if (BuildConfig.DEBUG) {
                                                 Log.d(
-                                                "Andromuks",
-                                                "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)",
-                                            )
+                                                    "Andromuks",
+                                                    "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)",
+                                                )
                                             }
                                             if (!hasValidJsonDimensions) {
                                                 loadedAspectRatio = actualAspectRatio
                                                 if (BuildConfig.DEBUG) {
                                                     Log.d(
-                                                    "Andromuks",
-                                                    "Updated aspect ratio from loaded image: $actualAspectRatio",
-                                                )
+                                                        "Andromuks",
+                                                        "Updated aspect ratio from loaded image: $actualAspectRatio",
+                                                    )
                                                 }
                                                 TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
                                             }
@@ -1406,9 +1395,9 @@ private fun MediaContent(
                                     onLoading = { state ->
                                         if (BuildConfig.DEBUG) {
                                             Log.d(
-                                            "Andromuks",
-                                            "⏳ Image loading: $imageUrl, state: $state",
-                                        )
+                                                "Andromuks",
+                                                "⏳ Image loading: $imageUrl, state: $state",
+                                            )
                                         }
                                     },
                                 )
@@ -1447,8 +1436,8 @@ private fun MediaContent(
                             val hasValidVideoJsonDimensions =
                                 (
                                     mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 &&
-                                    mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0
-                                ) ||
+                                        mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0
+                                    ) ||
                                     (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
 
                             // Reset when thumbnail URL changes
@@ -1514,16 +1503,16 @@ private fun MediaContent(
 
                             val videoBlurHashPainter =
                                 remember(decodedVideoBlurHashBitmap, videoBlurHashWidth, videoBlurHashHeight) {
-                                decodedVideoBlurHashBitmap?.let { imageBitmap ->
-                                    BitmapPainter(imageBitmap)
-                                } ?: BitmapPainter(
-                                    BlurHashUtils.createPlaceholderBitmap(
-                                        videoBlurHashWidth,
-                                        videoBlurHashHeight,
-                                        androidx.compose.ui.graphics.Color.Gray,
-                                    ),
-                                )
-                            }
+                                    decodedVideoBlurHashBitmap?.let { imageBitmap ->
+                                        BitmapPainter(imageBitmap)
+                                    } ?: BitmapPainter(
+                                        BlurHashUtils.createPlaceholderBitmap(
+                                            videoBlurHashWidth,
+                                            videoBlurHashHeight,
+                                            androidx.compose.ui.graphics.Color.Gray,
+                                        ),
+                                    )
+                                }
 
                             Box(
                                 modifier = Modifier
@@ -1599,18 +1588,18 @@ private fun MediaContent(
                                 } else if (thumbnailUrl != null) {
                                     val thumbnailFinalUrl =
                                         remember(thumbnailUrl, mediaMessage.info.thumbnailIsEncrypted) {
-                                        val httpUrl = MediaUtils.mxcToThumbnailUrl(
-                                            thumbnailUrl,
-                                            homeserverUrl,
-                                            registerMapping = false,
-                                        )
-                                        if (mediaMessage.info.thumbnailIsEncrypted && httpUrl != null) {
-                                            val separator = if (httpUrl.contains("?")) "&" else "?"
-                                            "$httpUrl${separator}encrypted=true"
-                                        } else {
-                                            httpUrl
+                                            val httpUrl = MediaUtils.mxcToThumbnailUrl(
+                                                thumbnailUrl,
+                                                homeserverUrl,
+                                                registerMapping = false,
+                                            )
+                                            if (mediaMessage.info.thumbnailIsEncrypted && httpUrl != null) {
+                                                val separator = if (httpUrl.contains("?")) "&" else "?"
+                                                "$httpUrl${separator}encrypted=true"
+                                            } else {
+                                                httpUrl
+                                            }
                                         }
-                                    }
 
                                     LaunchedEffect(thumbnailFinalUrl, thumbnailUrl) {
                                         val url = thumbnailFinalUrl ?: return@LaunchedEffect
@@ -1659,9 +1648,9 @@ private fun MediaContent(
                                         onSuccess = { state ->
                                             if (BuildConfig.DEBUG) {
                                                 Log.d(
-                                                "Andromuks",
-                                                "✅ Video thumbnail loaded: $thumbnailFinalUrl",
-                                            )
+                                                    "Andromuks",
+                                                    "✅ Video thumbnail loaded: $thumbnailFinalUrl",
+                                                )
                                             }
 
                                             // Extract actual thumbnail dimensions from loaded image
@@ -1673,9 +1662,9 @@ private fun MediaContent(
                                                 val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
                                                 if (BuildConfig.DEBUG) {
                                                     Log.d(
-                                                    "Andromuks",
-                                                    "Video thumbnail loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidVideoJsonDimensions)",
-                                                )
+                                                        "Andromuks",
+                                                        "Video thumbnail loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidVideoJsonDimensions)",
+                                                    )
                                                 }
                                                 // Only update if we didn't have valid dimensions from JSON
                                                 if (!hasValidVideoJsonDimensions) {
@@ -1683,9 +1672,9 @@ private fun MediaContent(
                                                     hasLoadedThumbnailDimensions = true
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "Updated video thumbnail aspect ratio from loaded image: $actualAspectRatio",
-                                                    )
+                                                            "Andromuks",
+                                                            "Updated video thumbnail aspect ratio from loaded image: $actualAspectRatio",
+                                                        )
                                                     }
                                                     TimelineMediaLayoutCallback.notifyAfterLayoutSettled()
                                                 }
@@ -2162,12 +2151,7 @@ private fun InlineVideoPlayer(
  * @param minHeight minimum normalized height so silent bars stay visible
  * @return normalized bar heights in 0f..1f, empty if [waveform] is empty
  */
-fun normalizeWaveform(
-    waveform: List<Int>,
-    durationMs: Int = 0,
-    targetBars: Int = 0,
-    minHeight: Float = 0.12f,
-): List<Float> {
+fun normalizeWaveform(waveform: List<Int>, durationMs: Int = 0, targetBars: Int = 0, minHeight: Float = 0.12f): List<Float> {
     if (waveform.isEmpty()) return emptyList()
     val bars = when {
         targetBars > 0 -> targetBars
@@ -2489,8 +2473,7 @@ private object PdfThumbnailCache {
 
     // access-ordered LRU; eldest evicted past MAX_MEMORY_ENTRIES.
     private val memCache = object : LinkedHashMap<String, Bitmap>(0, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>): Boolean =
-            size > MAX_MEMORY_ENTRIES
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Bitmap>): Boolean = size > MAX_MEMORY_ENTRIES
     }
 
     @Synchronized
@@ -2501,82 +2484,80 @@ private object PdfThumbnailCache {
         memCache[key] = bmp
     }
 
-    private fun fileNameFor(mxcUrl: String): String =
-        mxcUrl.removePrefix("mxc://").replace('/', '_').replace(':', '_') + ".pdf"
+    private fun fileNameFor(mxcUrl: String): String = mxcUrl.removePrefix("mxc://").replace('/', '_').replace(':', '_') + ".pdf"
 
     /** Render the first page of the PDF to a bitmap, or null on any failure. */
-    suspend fun render(context: Context, mxcUrl: String, httpUrl: String, authToken: String): Bitmap? =
-        withContext(Dispatchers.IO) {
-            getMemory(mxcUrl)?.let { return@withContext it }
-            if (httpUrl.isBlank()) return@withContext null
+    suspend fun render(context: Context, mxcUrl: String, httpUrl: String, authToken: String): Bitmap? = withContext(Dispatchers.IO) {
+        getMemory(mxcUrl)?.let { return@withContext it }
+        if (httpUrl.isBlank()) return@withContext null
 
-            val dir = File(context.cacheDir, "pdf_thumbs").apply { mkdirs() }
-            val pdfFile = File(dir, fileNameFor(mxcUrl))
+        val dir = File(context.cacheDir, "pdf_thumbs").apply { mkdirs() }
+        val pdfFile = File(dir, fileNameFor(mxcUrl))
 
-            // Fetch the PDF bytes once and keep them on disk.
-            if (!pdfFile.exists() || pdfFile.length() == 0L) {
-                try {
-                    val request = Request.Builder()
-                        .url(httpUrl)
-                        .header("Cookie", "gomuks_auth=$authToken")
-                        .build()
-                    client.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            Log.w("Andromuks", "PDF thumbnail download HTTP ${response.code} for $mxcUrl")
-                            return@withContext null
-                        }
-                        val tmp = File(dir, pdfFile.name + ".tmp")
-                        response.body?.byteStream()?.use { input ->
-                            FileOutputStream(tmp).use { output -> input.copyTo(output) }
-                        } ?: return@withContext null
-                        if (tmp.length() == 0L) {
-                            tmp.delete();
-                            return@withContext null
-                        }
-                        if (!tmp.renameTo(pdfFile)) {
-                            tmp.copyTo(pdfFile, overwrite = true);
-                            tmp.delete()
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w("Andromuks", "PDF thumbnail download failed for $mxcUrl: ${e.message}")
-                    return@withContext null
-                }
-            }
-
-            renderMutex.lock()
-            var pfd: ParcelFileDescriptor? = null
-            var renderer: PdfRenderer? = null
+        // Fetch the PDF bytes once and keep them on disk.
+        if (!pdfFile.exists() || pdfFile.length() == 0L) {
             try {
-                pfd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
-                renderer = PdfRenderer(pfd)
-                if (renderer.pageCount <= 0) return@withContext null
-                renderer.openPage(0).use { page ->
-                    // Scale page-0 to ~1080px wide for a crisp-but-bounded thumbnail.
-                    val targetWidth = 1080
-                    val scale = targetWidth.toFloat() / page.width.toFloat()
-                    val height = (page.height * scale).toInt().coerceAtLeast(1)
-                    val bmp = Bitmap.createBitmap(targetWidth, height, Bitmap.Config.ARGB_8888)
-                    bmp.eraseColor(android.graphics.Color.WHITE)
-                    page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    putMemory(mxcUrl, bmp)
-                    bmp
+                val request = Request.Builder()
+                    .url(httpUrl)
+                    .header("Cookie", "gomuks_auth=$authToken")
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w("Andromuks", "PDF thumbnail download HTTP ${response.code} for $mxcUrl")
+                        return@withContext null
+                    }
+                    val tmp = File(dir, pdfFile.name + ".tmp")
+                    response.body?.byteStream()?.use { input ->
+                        FileOutputStream(tmp).use { output -> input.copyTo(output) }
+                    } ?: return@withContext null
+                    if (tmp.length() == 0L) {
+                        tmp.delete()
+                        return@withContext null
+                    }
+                    if (!tmp.renameTo(pdfFile)) {
+                        tmp.copyTo(pdfFile, overwrite = true)
+                        tmp.delete()
+                    }
                 }
             } catch (e: Exception) {
-                Log.w("Andromuks", "PDF thumbnail render failed for $mxcUrl: ${e.message}")
-                // Corrupt/partial download — drop it so a later attempt can re-fetch.
-                pdfFile.delete()
-                null
-            } finally {
-                try {
-                    renderer?.close()
-                } catch (_: Exception) {}
-                try {
-                    pfd?.close()
-                } catch (_: Exception) {}
-                renderMutex.unlock()
+                Log.w("Andromuks", "PDF thumbnail download failed for $mxcUrl: ${e.message}")
+                return@withContext null
             }
         }
+
+        renderMutex.lock()
+        var pfd: ParcelFileDescriptor? = null
+        var renderer: PdfRenderer? = null
+        try {
+            pfd = ParcelFileDescriptor.open(pdfFile, ParcelFileDescriptor.MODE_READ_ONLY)
+            renderer = PdfRenderer(pfd)
+            if (renderer.pageCount <= 0) return@withContext null
+            renderer.openPage(0).use { page ->
+                // Scale page-0 to ~1080px wide for a crisp-but-bounded thumbnail.
+                val targetWidth = 1080
+                val scale = targetWidth.toFloat() / page.width.toFloat()
+                val height = (page.height * scale).toInt().coerceAtLeast(1)
+                val bmp = Bitmap.createBitmap(targetWidth, height, Bitmap.Config.ARGB_8888)
+                bmp.eraseColor(android.graphics.Color.WHITE)
+                page.render(bmp, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                putMemory(mxcUrl, bmp)
+                bmp
+            }
+        } catch (e: Exception) {
+            Log.w("Andromuks", "PDF thumbnail render failed for $mxcUrl: ${e.message}")
+            // Corrupt/partial download — drop it so a later attempt can re-fetch.
+            pdfFile.delete()
+            null
+        } finally {
+            try {
+                renderer?.close()
+            } catch (_: Exception) {}
+            try {
+                pfd?.close()
+            } catch (_: Exception) {}
+            renderMutex.unlock()
+        }
+    }
 }
 
 /**
@@ -2843,12 +2824,7 @@ private suspend fun downloadFile(context: android.content.Context, url: String, 
 /**
  * Fallback download using OkHttp when DownloadManager fails
  */
-private suspend fun downloadFileWithOkHttp(
-    context: android.content.Context,
-    url: String,
-    filename: String,
-    authToken: String,
-) {
+private suspend fun downloadFileWithOkHttp(context: android.content.Context, url: String, filename: String, authToken: String) {
     try {
         val client = OkHttpClient()
         val request = Request.Builder()
@@ -3359,102 +3335,102 @@ internal fun ImageViewerDialog(
                                 )
                             },
                     ) {
-                      // Inner layer: scale + rotation. Kept separate from pan so that
-                      // rotating the image does not rotate the pan axes.
-                      Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer(
-                                scaleX = scale,
-                                scaleY = scale,
-                                rotationZ = normalizedRotation,
-                            ),
-                      ) {
-                        val thumbnailRequest = remember(thumbnailUrl, cachedFile, authToken) {
-                            ImageRequest.Builder(context)
-                                .data(thumbnailUrl)
-                                .apply {
-                                    if (cachedFile == null && thumbnailUrl.startsWith("http")) {
-                                    }
-                                }
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .build()
-                        }
-                        AsyncImage(
-                            model = thumbnailRequest,
-                            imageLoader = imageLoader,
-                            contentDescription = mediaMessage.filename,
-                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-
-                        val fullImageRequest = remember(imageUrl, cachedFile, bypassCoilCache) {
-                            if (BuildConfig.DEBUG) {
-                                Log.d(
-                                "Andromuks",
-                                "ImageViewer: Building fullImageRequest — url=$imageUrl cachedFile=$cachedFile bypassCoilCache=$bypassCoilCache",
-                            )
-                            }
-                            ImageRequest.Builder(context)
-                                .data(imageUrl)
-                                .size(Size.ORIGINAL)
-                                .precision(Precision.EXACT)
-                                .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                .build()
-                        }
-                        AsyncImage(
-                            model = fullImageRequest,
-                            imageLoader = imageLoader,
-                            contentDescription = mediaMessage.filename,
-                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        // Inner layer: scale + rotation. Kept separate from pan so that
+                        // rotating the image does not rotate the pan axes.
+                        Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .graphicsLayer(alpha = fullImageAlpha),
-                            onLoading = {
+                                .graphicsLayer(
+                                    scaleX = scale,
+                                    scaleY = scale,
+                                    rotationZ = normalizedRotation,
+                                ),
+                        ) {
+                            val thumbnailRequest = remember(thumbnailUrl, cachedFile, authToken) {
+                                ImageRequest.Builder(context)
+                                    .data(thumbnailUrl)
+                                    .apply {
+                                        if (cachedFile == null && thumbnailUrl.startsWith("http")) {
+                                        }
+                                    }
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build()
+                            }
+                            AsyncImage(
+                                model = thumbnailRequest,
+                                imageLoader = imageLoader,
+                                contentDescription = mediaMessage.filename,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                modifier = Modifier.fillMaxSize(),
+                            )
+
+                            val fullImageRequest = remember(imageUrl, cachedFile, bypassCoilCache) {
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "⏳ ImageViewer: Full image loading: $imageUrl",
-                                )
+                                        "Andromuks",
+                                        "ImageViewer: Building fullImageRequest — url=$imageUrl cachedFile=$cachedFile bypassCoilCache=$bypassCoilCache",
+                                    )
                                 }
-                            },
-                            onSuccess = {
-                                fullImageLoaded = true
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Full image loaded: $imageUrl")
-                            },
-                            onError = { state ->
-                                if (BuildConfig.DEBUG) {
-                                    Log.e(
-                                    "Andromuks",
-                                    "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable?.message} cachedFile=$cachedFile",
-                                )
-                                }
-                                if (cachedFile != null) {
-                                    // Cached file failed to decode — evict and retry via HTTP.
-                                    val badMxcUrl = mediaMessage.url
+                                ImageRequest.Builder(context)
+                                    .data(imageUrl)
+                                    .size(Size.ORIGINAL)
+                                    .precision(Precision.EXACT)
+                                    .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                    .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                                    .build()
+                            }
+                            AsyncImage(
+                                model = fullImageRequest,
+                                imageLoader = imageLoader,
+                                contentDescription = mediaMessage.filename,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer(alpha = fullImageAlpha),
+                                onLoading = {
                                     if (BuildConfig.DEBUG) {
-                                        Log.w(
+                                        Log.d(
                                             "Andromuks",
-                                            "ImageViewer: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}",
+                                            "⏳ ImageViewer: Full image loading: $imageUrl",
                                         )
                                     }
-                                    cachedFile = null
-                                    coroutineScope.launch {
-                                        IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
+                                },
+                                onSuccess = {
+                                    fullImageLoaded = true
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Full image loaded: $imageUrl")
+                                },
+                                onError = { state ->
+                                    if (BuildConfig.DEBUG) {
+                                        Log.e(
+                                            "Andromuks",
+                                            "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable?.message} cachedFile=$cachedFile",
+                                        )
                                     }
-                                    bypassCoilCache = true
-                                } else if (bypassCoilCache) {
-                                    // Already retried with cache bypass — media is unavailable.
-                                    fullImageFailed = true
-                                } else {
-                                    // First HTTP failure — retry without Coil caches.
-                                    bypassCoilCache = true
-                                }
-                            },
-                        )
-                      }
+                                    if (cachedFile != null) {
+                                        // Cached file failed to decode — evict and retry via HTTP.
+                                        val badMxcUrl = mediaMessage.url
+                                        if (BuildConfig.DEBUG) {
+                                            Log.w(
+                                                "Andromuks",
+                                                "ImageViewer: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}",
+                                            )
+                                        }
+                                        cachedFile = null
+                                        coroutineScope.launch {
+                                            IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
+                                        }
+                                        bypassCoilCache = true
+                                    } else if (bypassCoilCache) {
+                                        // Already retried with cache bypass — media is unavailable.
+                                        fullImageFailed = true
+                                    } else {
+                                        // First HTTP failure — retry without Coil caches.
+                                        bypassCoilCache = true
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -3626,93 +3602,88 @@ internal fun ImageViewerDialog(
 /**
  * Save video to device gallery using MediaStore
  */
-private suspend fun saveVideoToGallery(
-    context: Context,
-    videoUrl: String,
-    filename: String?,
-    mimeType: String,
-    authToken: String,
-) = withContext(Dispatchers.IO) {
-    try {
-        // Determine filename and extension from MIME type
-        val extension = when {
-            mimeType.contains("webm") -> "webm"
-            mimeType.contains("quicktime") || mimeType.contains("mov") -> "mov"
-            mimeType.contains("avi") -> "avi"
-            mimeType.contains("mkv") -> "mkv"
-            else -> "mp4" // Default to mp4
-        }
+private suspend fun saveVideoToGallery(context: Context, videoUrl: String, filename: String?, mimeType: String, authToken: String) =
+    withContext(Dispatchers.IO) {
+        try {
+            // Determine filename and extension from MIME type
+            val extension = when {
+                mimeType.contains("webm") -> "webm"
+                mimeType.contains("quicktime") || mimeType.contains("mov") -> "mov"
+                mimeType.contains("avi") -> "avi"
+                mimeType.contains("mkv") -> "mkv"
+                else -> "mp4" // Default to mp4
+            }
 
-        val displayName = filename?.takeIf { it.isNotBlank() }
-            ?: "video_${System.currentTimeMillis()}.$extension"
-        val finalFilename = if (!displayName.contains(".")) {
-            "$displayName.$extension"
-        } else {
-            displayName
-        }
+            val displayName = filename?.takeIf { it.isNotBlank() }
+                ?: "video_${System.currentTimeMillis()}.$extension"
+            val finalFilename = if (!displayName.contains(".")) {
+                "$displayName.$extension"
+            } else {
+                displayName
+            }
 
-        // Download video using OkHttp
-        val client = OkHttpClient()
-        val request = Request.Builder()
-            .url(videoUrl)
-            .addHeader("Cookie", "gomuks_auth=$authToken")
-            .build()
+            // Download video using OkHttp
+            val client = OkHttpClient()
+            val request = Request.Builder()
+                .url(videoUrl)
+                .addHeader("Cookie", "gomuks_auth=$authToken")
+                .build()
 
-        val response = client.newCall(request).execute()
-        if (!response.isSuccessful) {
-            throw Exception("Failed to download video: ${response.code}")
-        }
+            val response = client.newCall(request).execute()
+            if (!response.isSuccessful) {
+                throw Exception("Failed to download video: ${response.code}")
+            }
 
-        // Save to MediaStore
-        val contentValues = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, finalFilename)
-            put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+            // Save to MediaStore
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, finalFilename)
+                put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Andromuks")
+                    put(MediaStore.Video.Media.IS_PENDING, 1)
+                }
+            }
+
+            val uri = context.contentResolver.insert(
+                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                contentValues,
+            ) ?: throw Exception("Failed to create MediaStore entry")
+
+            // Write video data
+            context.contentResolver.openOutputStream(uri)?.use { output ->
+                response.body?.byteStream()?.use { input ->
+                    input.copyTo(output)
+                }
+            }
+
+            // Mark as not pending (Android Q+)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Andromuks")
-                put(MediaStore.Video.Media.IS_PENDING, 1)
+                contentValues.clear()
+                contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                context.contentResolver.update(uri, contentValues, null, null)
             }
-        }
 
-        val uri = context.contentResolver.insert(
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-            contentValues,
-        ) ?: throw Exception("Failed to create MediaStore entry")
-
-        // Write video data
-        context.contentResolver.openOutputStream(uri)?.use { output ->
-            response.body?.byteStream()?.use { input ->
-                input.copyTo(output)
+            // Show success toast
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                    context,
+                    "Video saved to gallery",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
             }
-        }
 
-        // Mark as not pending (Android Q+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            contentValues.clear()
-            contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
-            context.contentResolver.update(uri, contentValues, null, null)
-        }
-
-        // Show success toast
-        withContext(Dispatchers.Main) {
-            android.widget.Toast.makeText(
-                context,
-                "Video saved to gallery",
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
-        }
-
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "Video saved to gallery: $finalFilename")
-    } catch (e: Exception) {
-        Log.e("Andromuks", "Failed to save video to gallery", e)
-        withContext(Dispatchers.Main) {
-            android.widget.Toast.makeText(
-                context,
-                "Failed to save video: ${e.message}",
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "Video saved to gallery: $finalFilename")
+        } catch (e: Exception) {
+            Log.e("Andromuks", "Failed to save video to gallery", e)
+            withContext(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                    context,
+                    "Failed to save video: ${e.message}",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            }
         }
     }
-}
 
 /**
  * Fullscreen video player dialog with ExoPlayer.
@@ -3867,9 +3838,9 @@ fun VideoPlayerDialog(
                                     hasSeekedToInitialPosition = true
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "VideoPlayerDialog: Seeking to position $initialPosition, shouldAutoPlay=$shouldAutoPlay",
-                                    )
+                                            "Andromuks",
+                                            "VideoPlayerDialog: Seeking to position $initialPosition, shouldAutoPlay=$shouldAutoPlay",
+                                        )
                                     }
                                     // Set playWhenReady BEFORE seeking, so playback resumes automatically after seek completes
                                     if (shouldAutoPlay) {
@@ -3881,9 +3852,9 @@ fun VideoPlayerDialog(
                                         handler.postDelayed({
                                             if (BuildConfig.DEBUG) {
                                                 Log.d(
-                                                "Andromuks",
-                                                "VideoPlayerDialog: Ensuring playback after seek, currentPosition=${player.currentPosition}, state=${player.playbackState}, isPlaying=${player.isPlaying}",
-                                            )
+                                                    "Andromuks",
+                                                    "VideoPlayerDialog: Ensuring playback after seek, currentPosition=${player.currentPosition}, state=${player.playbackState}, isPlaying=${player.isPlaying}",
+                                                )
                                             }
                                             if (!player.isPlaying &&
                                                 player.playbackState == androidx.media3.common.Player.STATE_READY
@@ -3911,9 +3882,9 @@ fun VideoPlayerDialog(
                                 handler.post {
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "VideoPlayerDialog: Resuming playback after seek discontinuity, position=${player.currentPosition}",
-                                    )
+                                            "Andromuks",
+                                            "VideoPlayerDialog: Resuming playback after seek discontinuity, position=${player.currentPosition}",
+                                        )
                                     }
                                     player.playWhenReady = true
                                     player.play()
@@ -3932,9 +3903,9 @@ fun VideoPlayerDialog(
                         if (videoHttpUrl.isNotEmpty()) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "VideoPlayerDialog: Setting up video: $videoHttpUrl, initialPosition=$initialPosition, shouldAutoPlay=$shouldAutoPlay",
-                            )
+                                    "Andromuks",
+                                    "VideoPlayerDialog: Setting up video: $videoHttpUrl, initialPosition=$initialPosition, shouldAutoPlay=$shouldAutoPlay",
+                                )
                             }
                             val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
                             player.setMediaItem(mediaItem)
@@ -4004,9 +3975,9 @@ fun VideoPlayerDialog(
                         fun hideRewindFastForwardButtons() {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "VideoPlayerDialog: hideRewindFastForwardButtons called",
-                            )
+                                    "Andromuks",
+                                    "VideoPlayerDialog: hideRewindFastForwardButtons called",
+                                )
                             }
                             val controllerView = findViewById<ViewGroup>(
                                 androidx.media3.ui.R.id.exo_controller,
@@ -4017,9 +3988,9 @@ fun VideoPlayerDialog(
                             }
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "VideoPlayerDialog: controllerView found, childCount=${controllerView.childCount}",
-                            )
+                                    "Andromuks",
+                                    "VideoPlayerDialog: controllerView found, childCount=${controllerView.childCount}",
+                                )
                             }
 
                             // Log ALL views (not just ImageButtons) in controller for debugging
@@ -4046,9 +4017,9 @@ fun VideoPlayerDialog(
                                 ) {
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "VideoPlayerDialog: Found view: type=$viewType, id=$idName, desc=$contentDesc, visibility=$visibility, depth=$depth",
-                                    )
+                                            "Andromuks",
+                                            "VideoPlayerDialog: Found view: type=$viewType, id=$idName, desc=$contentDesc, visibility=$visibility, depth=$depth",
+                                        )
                                     }
                                 }
                                 if (v is android.view.ViewGroup) {
@@ -4084,9 +4055,9 @@ fun VideoPlayerDialog(
                                     v.visibility = android.view.View.GONE
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "VideoPlayerDialog: Hid view (any type): type=${v.javaClass.simpleName}, id=$idName, desc=$contentDesc",
-                                    )
+                                            "Andromuks",
+                                            "VideoPlayerDialog: Hid view (any type): type=${v.javaClass.simpleName}, id=$idName, desc=$contentDesc",
+                                        )
                                     }
                                 }
                                 if (v is android.view.ViewGroup) {
@@ -4106,9 +4077,9 @@ fun VideoPlayerDialog(
                                 prevButton.visibility = android.view.View.GONE
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "VideoPlayerDialog: Hid prev button (direct find)",
-                                )
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Hid prev button (direct find)",
+                                    )
                                 }
                             }
 
@@ -4119,9 +4090,9 @@ fun VideoPlayerDialog(
                                 nextButton.visibility = android.view.View.GONE
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "VideoPlayerDialog: Hid next button (direct find)",
-                                )
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Hid next button (direct find)",
+                                    )
                                 }
                             }
 
@@ -4147,9 +4118,9 @@ fun VideoPlayerDialog(
                                         v.visibility = android.view.View.GONE
                                         if (BuildConfig.DEBUG) {
                                             Log.d(
-                                            "Andromuks",
-                                            "VideoPlayerDialog: Hid button (id=$idName, desc=$contentDesc)",
-                                        )
+                                                "Andromuks",
+                                                "VideoPlayerDialog: Hid button (id=$idName, desc=$contentDesc)",
+                                            )
                                         }
                                     }
                                 }
@@ -4168,9 +4139,9 @@ fun VideoPlayerDialog(
                                 rewindButton.visibility = android.view.View.GONE
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "VideoPlayerDialog: Hid rewind button (direct find)",
-                                )
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Hid rewind button (direct find)",
+                                    )
                                 }
                             }
 
@@ -4181,9 +4152,9 @@ fun VideoPlayerDialog(
                                 fastForwardButton.visibility = android.view.View.GONE
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "VideoPlayerDialog: Hid fast forward button (direct find)",
-                                )
+                                        "Andromuks",
+                                        "VideoPlayerDialog: Hid fast forward button (direct find)",
+                                    )
                                 }
                             }
 
@@ -4231,9 +4202,9 @@ fun VideoPlayerDialog(
                                                     v.visibility = android.view.View.GONE
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "VideoPlayerDialog: Hid top-right button at (${location[0]}, ${location[1]})",
-                                                    )
+                                                            "Andromuks",
+                                                            "VideoPlayerDialog: Hid top-right button at (${location[0]}, ${location[1]})",
+                                                        )
                                                     }
                                                 }
                                             } catch (e: Exception) {
@@ -4379,9 +4350,9 @@ fun VideoPlayerDialog(
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "VideoPlayerDialog: Themed fast forward button",
-                                    )
+                                            "Andromuks",
+                                            "VideoPlayerDialog: Themed fast forward button",
+                                        )
                                     }
                                 }
 
@@ -4535,9 +4506,9 @@ fun VideoPlayerDialog(
                                     it.imageTintList = ColorStateList.valueOf(primaryColorInt)
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "VideoPlayerDialog: Themed fast forward button",
-                                    )
+                                            "Andromuks",
+                                            "VideoPlayerDialog: Themed fast forward button",
+                                        )
                                     }
                                 }
 
@@ -4607,9 +4578,9 @@ fun VideoPlayerDialog(
                                     v.visibility = android.view.View.GONE
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "VideoPlayerDialog: Hid button in update (id=$idName)",
-                                    )
+                                            "Andromuks",
+                                            "VideoPlayerDialog: Hid button in update (id=$idName)",
+                                        )
                                     }
                                 }
                             }

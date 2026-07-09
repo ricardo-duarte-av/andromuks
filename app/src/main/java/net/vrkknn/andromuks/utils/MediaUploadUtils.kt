@@ -247,17 +247,17 @@ object MediaUploadUtils {
             val thumbWidth = if (orientedBase.width >
                 orientedBase.height
             ) {
-                    maxThumbDim
-                } else {
-                    (maxThumbDim * orientedBase.width / orientedBase.height)
-                }
+                maxThumbDim
+            } else {
+                (maxThumbDim * orientedBase.width / orientedBase.height)
+            }
             val thumbHeight = if (orientedBase.height >
                 orientedBase.width
             ) {
-                    maxThumbDim
-                } else {
-                    (maxThumbDim * orientedBase.height / orientedBase.width)
-                }
+                maxThumbDim
+            } else {
+                (maxThumbDim * orientedBase.height / orientedBase.width)
+            }
 
             val thumbnail = createHighQualityThumbnail(orientedBase, thumbWidth, thumbHeight)
 
@@ -492,13 +492,7 @@ object MediaUploadUtils {
 
     private val sRGBToLinearTable = FloatArray(256) { sRGBToLinear(it) }
 
-    private fun multiplyBasisFunction(
-        pixels: IntArray,
-        xComponent: Int,
-        yComponent: Int,
-        width: Int,
-        height: Int,
-    ): FloatArray {
+    private fun multiplyBasisFunction(pixels: IntArray, xComponent: Int, yComponent: Int, width: Int, height: Int): FloatArray {
         var r = 0f
         var g = 0f
         var b = 0f
@@ -537,8 +531,7 @@ object MediaUploadUtils {
         }
     }
 
-    private fun encodeDC(value: FloatArray): Int =
-        (linearToSRGB(value[0]) shl 16) + (linearToSRGB(value[1]) shl 8) + linearToSRGB(value[2])
+    private fun encodeDC(value: FloatArray): Int = (linearToSRGB(value[0]) shl 16) + (linearToSRGB(value[1]) shl 8) + linearToSRGB(value[2])
 
     private fun encodeAC(value: FloatArray, maximumValue: Float): Int {
         val quantR = kotlin.math.max(

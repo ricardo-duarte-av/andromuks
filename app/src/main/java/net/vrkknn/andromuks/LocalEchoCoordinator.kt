@@ -69,14 +69,7 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
      * Returns the client-local id, or null if we didn't insert one (e.g. the send targets a room
      * other than the one currently open, where there is no timeline to render into).
      */
-    fun insert(
-        roomId: String,
-        requestId: Int,
-        type: String,
-        content: JSONObject,
-        relationType: String? = null,
-        relatesTo: String? = null,
-    ): String? {
+    fun insert(roomId: String, requestId: Int, type: String, content: JSONObject, relationType: String? = null, relatesTo: String? = null): String? {
         if (roomId != vm.currentRoomId) return null
         val localId = LOCAL_ECHO_PREFIX + UUID.randomUUID().toString()
         val echo = TimelineEvent(
@@ -106,9 +99,9 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Local echo inserted $localId (reqId=$requestId, type=$type)",
-        )
+                "Andromuks",
+                "AppViewModel: Local echo inserted $localId (reqId=$requestId, type=$type)",
+            )
         }
         return localId
     }
@@ -151,9 +144,9 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
                 vm.buildTimelineFromChain(expectedRoomId = bubble.roomId)
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Local echo $localId evicted on response — confirmed ${confirmed.eventId} already arrived for txId=$transactionId",
-                )
+                        "Andromuks",
+                        "AppViewModel: Local echo $localId evicted on response — confirmed ${confirmed.eventId} already arrived for txId=$transactionId",
+                    )
                 }
                 return true
             }
@@ -176,9 +169,9 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Local echo $localId → Sent (txId=$transactionId)",
-        )
+                "Andromuks",
+                "AppViewModel: Local echo $localId → Sent (txId=$transactionId)",
+            )
         }
         return true
     }
@@ -195,8 +188,7 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
         return lc.optString("local_send_state") == "sending"
     }
 
-    private fun isFailed(localId: String): Boolean =
-        vm.eventChainMap[localId]?.ourBubble?.localContent?.optString("send_error")?.isNotBlank() == true
+    private fun isFailed(localId: String): Boolean = vm.eventChainMap[localId]?.ourBubble?.localContent?.optString("send_error")?.isNotBlank() == true
 
     private fun markFailed(localId: String, reason: String, roomId: String) {
         val entry = vm.eventChainMap[localId] ?: return

@@ -29,9 +29,4 @@ data class BridgeInfo(
 data class BridgeChannelInfo(val id: String?, val displayName: String?, val avatarUrl: String?, val receiver: String?)
 
 @Immutable
-data class BridgeProtocolInfo(
-    val id: String?,
-    val displayName: String?,
-    val avatarUrl: String?,
-    val externalUrl: String?,
-)
+data class BridgeProtocolInfo(val id: String?, val displayName: String?, val avatarUrl: String?, val externalUrl: String?)

@@ -21,12 +21,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
 
     // --- send_message variants ---
 
-    fun sendMessage(
-        roomId: String,
-        text: String,
-        mentions: List<String> = emptyList(),
-        urlPreviews: JSONArray = JSONArray(),
-    ) {
+    fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList(), urlPreviews: JSONArray = JSONArray()) {
         notifyUserSentTo(roomId)
         val reqId = vm.getAndIncrementRequestId()
 
@@ -103,11 +98,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    internal fun sendMessageInternal(
-        roomId: String,
-        text: String,
-        urlPreviews: JSONArray = JSONArray(),
-    ): WebSocketResult {
+    internal fun sendMessageInternal(roomId: String, text: String, urlPreviews: JSONArray = JSONArray()): WebSocketResult {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageInternal called")
         val messageRequestId = vm.getAndIncrementRequestId()
 
@@ -152,9 +143,9 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         if (!vm.resolveSendTypingNotifications(roomId)) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: sendTyping suppressed for $roomId (send_typing_notifications disabled)",
-            )
+                    "Andromuks",
+                    "AppViewModel: sendTyping suppressed for $roomId (send_typing_notifications disabled)",
+                )
             }
             return
         }
@@ -173,9 +164,9 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Sending typing indicator for room: $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Sending typing indicator for room: $roomId",
+            )
         }
         val typingRequestId = vm.getAndIncrementRequestId()
         val result = vm.sendWebSocketCommand(
@@ -226,9 +217,9 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         if (vm.isWebSocketHealthy()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: WebSocket is healthy, processing message immediately",
-            )
+                    "Andromuks",
+                    "AppViewModel: WebSocket is healthy, processing message immediately",
+                )
             }
             processNextPendingNotificationMessage()
         } else {
@@ -547,11 +538,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
      *    is what lets us reply to a message *with* an image/video/audio/file.
      *  - Neither: null.
      */
-    private fun buildMediaRelatesTo(
-        roomId: String,
-        threadRootEventId: String?,
-        replyToEventId: String?,
-    ): Map<String, Any>? = when {
+    private fun buildMediaRelatesTo(roomId: String, threadRootEventId: String?, replyToEventId: String?): Map<String, Any>? = when {
         threadRootEventId != null -> {
             val resolvedReplyTarget = replyToEventId
                 ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
@@ -1209,13 +1196,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
      * `base_content` map sent to the backend (msgtype/body/url/info/...), so the bubble renders
      * identically to the confirmed event.
      */
-    private fun insertMediaEcho(
-        roomId: String,
-        requestId: Int,
-        baseContent: Map<String, Any>,
-        threadRootEventId: String?,
-        replyToEventId: String? = null,
-    ) {
+    private fun insertMediaEcho(roomId: String, requestId: Int, baseContent: Map<String, Any>, threadRootEventId: String?, replyToEventId: String? = null) {
         val content = JSONObject(baseContent)
         // Embed the same relates_to we send to the server so the optimistic bubble renders the
         // reply quote (and thread relation) immediately — getReplyInfo()/getThreadInfo() read it

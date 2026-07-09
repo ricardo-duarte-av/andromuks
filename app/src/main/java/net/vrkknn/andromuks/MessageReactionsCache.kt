@@ -41,9 +41,9 @@ object MessageReactionsCache {
             reactionsCache.putAll(reactionsMap)
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "MessageReactionsCache: setAll - updated cache with ${reactionsMap.size} events",
-            )
+                    TAG,
+                    "MessageReactionsCache: setAll - updated cache with ${reactionsMap.size} events",
+                )
             }
         }
     }
@@ -88,9 +88,9 @@ object MessageReactionsCache {
         // For now, we'll just clear all (caller should handle room-specific clearing)
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "MessageReactionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)",
-        )
+                TAG,
+                "MessageReactionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)",
+            )
         }
         clear()
     }
@@ -108,9 +108,9 @@ object MessageReactionsCache {
             }
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "MessageReactionsCache: Cleared reactions for $removedCount events (out of ${eventIds.size} requested)",
-            )
+                    TAG,
+                    "MessageReactionsCache: Cleared reactions for $removedCount events (out of ${eventIds.size} requested)",
+                )
             }
         }
     }

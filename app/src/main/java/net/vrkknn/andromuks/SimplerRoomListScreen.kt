@@ -57,11 +57,7 @@ import net.vrkknn.andromuks.ui.theme.AndromuksTheme
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SimplerRoomListScreen(
-    navController: NavController,
-    modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel(),
-) {
+fun SimplerRoomListScreen(navController: NavController, modifier: Modifier = Modifier, appViewModel: AppViewModel = viewModel()) {
     val context = LocalContext.current
     val sharedPreferences =
         remember(context) {
@@ -304,13 +300,7 @@ fun SimplerRoomListScreen(
 }
 
 @Composable
-private fun RoomListRow(
-    room: RoomItem,
-    homeserverUrl: String,
-    authToken: String,
-    modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = {},
-) {
+private fun RoomListRow(room: RoomItem, homeserverUrl: String, authToken: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = {}) {
     val rowModifier = if (onClick != null) {
         modifier
             .fillMaxWidth()
@@ -355,12 +345,7 @@ private fun RoomListRow(
 }
 
 @Composable
-private fun EmptyRoomListPlaceholder(
-    title: String,
-    message: String,
-    actionLabel: String? = null,
-    onAction: (() -> Unit)? = null,
-) {
+private fun EmptyRoomListPlaceholder(title: String, message: String, actionLabel: String? = null, onAction: (() -> Unit)? = null) {
     Column(
         modifier = Modifier
             .fillMaxSize()

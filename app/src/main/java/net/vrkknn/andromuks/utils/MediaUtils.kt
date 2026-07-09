@@ -76,13 +76,7 @@ object MediaUtils {
      * @param height Optional thumbnail height (default: 600)
      * @return The HTTP URL for loading the media thumbnail, or null if conversion fails
      */
-    fun mxcToThumbnailUrl(
-        mxcUrl: String?,
-        homeserverUrl: String,
-        width: Int = 600,
-        height: Int = 600,
-        registerMapping: Boolean = true,
-    ): String? {
+    fun mxcToThumbnailUrl(mxcUrl: String?, homeserverUrl: String, width: Int = 600, height: Int = 600, registerMapping: Boolean = true): String? {
         if (mxcUrl.isNullOrBlank()) return null
 
         try {

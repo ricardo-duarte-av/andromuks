@@ -177,10 +177,7 @@ fun CallOverlay(appViewModel: AppViewModel) {
                     setBackgroundColor(android.graphics.Color.WHITE)
 
                     webViewClient = object : WebViewClient() {
-                        override fun shouldInterceptRequest(
-                            view: WebView?,
-                            request: android.webkit.WebResourceRequest?,
-                        ): android.webkit.WebResourceResponse? {
+                        override fun shouldInterceptRequest(view: WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
                             val uri = request?.url ?: return null
                             return assetLoader.shouldInterceptRequest(uri)
                         }
@@ -189,17 +186,13 @@ fun CallOverlay(appViewModel: AppViewModel) {
                             isLoading.value = false
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "CallOverlay: page loaded $url")
                         }
-                        override fun onReceivedError(
-                            view: WebView?,
-                            request: android.webkit.WebResourceRequest?,
-                            error: android.webkit.WebResourceError?,
-                        ) {
+                        override fun onReceivedError(view: WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
                             super.onReceivedError(view, request, error)
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.e(
-                                "Andromuks",
-                                "CallOverlay: WebView error ${error?.description}",
-                            )
+                                    "Andromuks",
+                                    "CallOverlay: WebView error ${error?.description}",
+                                )
                             }
                             if (request?.isForMainFrame == true) {
                                 loadError.value = error?.description?.toString() ?: "WebView load error"

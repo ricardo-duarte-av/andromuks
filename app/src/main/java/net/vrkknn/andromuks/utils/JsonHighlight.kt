@@ -82,9 +82,9 @@ fun highlightJson(text: String, colors: JsonHighlightColors): AnnotatedString = 
                 val start = i
                 i++
                 while (i < n && (
-                    text[i].isDigit() || text[i] == '.' || text[i] == 'e' ||
-                        text[i] == 'E' || text[i] == '+' || text[i] == '-'
-                )
+                        text[i].isDigit() || text[i] == '.' || text[i] == 'e' ||
+                            text[i] == 'E' || text[i] == '+' || text[i] == '-'
+                        )
                 ) {
                     i++
                 }
@@ -121,6 +121,5 @@ fun highlightJson(text: String, colors: JsonHighlightColors): AnnotatedString = 
  * unchanged ([OffsetMapping.Identity]) because highlighting only adds spans.
  */
 class JsonVisualTransformation(private val colors: JsonHighlightColors) : VisualTransformation {
-    override fun filter(text: AnnotatedString): TransformedText =
-        TransformedText(highlightJson(text.text, colors), OffsetMapping.Identity)
+    override fun filter(text: AnnotatedString): TransformedText = TransformedText(highlightJson(text.text, colors), OffsetMapping.Identity)
 }

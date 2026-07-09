@@ -7,12 +7,7 @@ import android.content.Context
  */
 internal class FcmPushCoordinator(private val vm: AppViewModel) {
 
-    fun initializeFCM(
-        context: Context,
-        homeserverUrl: String = "",
-        authToken: String = "",
-        skipCacheClear: Boolean = false,
-    ) {
+    fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "", skipCacheClear: Boolean = false) {
         with(vm) {
             if (!WebSocketService.isViewModelRegistered(viewModelId)) {
                 WebSocketService.registerViewModel(viewModelId, isPrimary = false)

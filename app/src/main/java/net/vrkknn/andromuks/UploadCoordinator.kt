@@ -35,9 +35,9 @@ internal class UploadCoordinator(private val vm: AppViewModel) {
     fun setUploadProgress(roomId: String, key: String, progress: Float) = with(vm) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: setUploadProgress for room $roomId: $key = $progress",
-        )
+                "Andromuks",
+                "AppViewModel: setUploadProgress for room $roomId: $key = $progress",
+            )
         }
         val currentProgress = uploadProgressPerRoom[roomId]?.toMutableMap() ?: mutableMapOf()
         currentProgress[key] = progress
@@ -57,9 +57,9 @@ internal class UploadCoordinator(private val vm: AppViewModel) {
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Begin upload for room $roomId (type: $uploadType, count: ${uploadInProgressCount[roomId]})",
-        )
+                "Andromuks",
+                "AppViewModel: Begin upload for room $roomId (type: $uploadType, count: ${uploadInProgressCount[roomId]})",
+            )
         }
     }
 
@@ -77,9 +77,9 @@ internal class UploadCoordinator(private val vm: AppViewModel) {
             }
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: End upload for room $roomId (type: $uploadType, count: $newCount)",
-            )
+                    "Andromuks",
+                    "AppViewModel: End upload for room $roomId (type: $uploadType, count: $newCount)",
+                )
             }
         }
     }

@@ -108,15 +108,15 @@ private fun splitIntoJsonObjectStrings(jsonText: String): List<String> {
     for (i in jsonText.indices) {
         val char = jsonText[i]
         if (escapeNext) {
-            escapeNext = false;
+            escapeNext = false
             continue
         }
         if (char == '\\') {
-            escapeNext = true;
+            escapeNext = true
             continue
         }
         if (char == '"') {
-            inString = !inString;
+            inString = !inString
             continue
         }
         if (!inString) {
@@ -146,10 +146,7 @@ private fun emitIncomingWebSocketMessage(json: JSONObject, hint: IncomingWebSock
     SyncRepository.emitIncomingWebSocketMessage(json.toString(), hint)
 }
 
-private fun emitPriorityIncomingWebSocketMessage(
-    json: JSONObject,
-    hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE,
-) {
+private fun emitPriorityIncomingWebSocketMessage(json: JSONObject, hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) {
     SyncRepository.emitPriorityIncomingWebSocketMessage(json.toString(), hint)
 }
 
@@ -158,11 +155,7 @@ private fun emitPriorityIncomingWebSocketMessage(
  * Emission is fan-out via [SyncRepository.events] ([SyncEvent.IncomingWebSocketMessage]); each attached VM collects and calls this.
  * Note: [sync_complete] is **not** delivered here — it is handled once via [SyncRepository.enqueueSyncComplete].
  */
-fun applyIncomingWebSocketMessageForViewModel(
-    jsonObject: JSONObject,
-    viewModel: AppViewModel,
-    hint: IncomingWebSocketHint,
-) {
+fun applyIncomingWebSocketMessageForViewModel(jsonObject: JSONObject, viewModel: AppViewModel, hint: IncomingWebSocketHint) {
     val command = jsonObject.optString("command")
     when (command) {
         "run_id" -> {
@@ -298,9 +291,9 @@ fun applyIncomingWebSocketMessageForViewModel(
         else -> {
             if (BuildConfig.DEBUG && command.isNotEmpty()) {
                 Log.d(
-                "Andromuks",
-                "NetworkUtils: Unhandled WebSocket command: $command",
-            )
+                    "Andromuks",
+                    "NetworkUtils: Unhandled WebSocket command: $command",
+                )
             }
         }
     }
@@ -333,17 +326,17 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
         "sync_complete" -> {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "WebSocketService",
-                "Message received: sync_complete (payload size=${jsonObject.toString().length})",
-            )
+                    "WebSocketService",
+                    "Message received: sync_complete (payload size=${jsonObject.toString().length})",
+                )
             }
             val wasResume = WebSocketService.isReconnectingWithLastReceivedEvent()
             if (wasResume) {
                 if (BuildConfig.DEBUG) {
                     Log.i(
-                    "NetworkUtils",
-                    "Reconnection with last_received_event: First sync_complete - treating as init_complete",
-                )
+                        "NetworkUtils",
+                        "Reconnection with last_received_event: First sync_complete - treating as init_complete",
+                    )
                 }
                 WebSocketService.onInitCompleteReceived("sync_complete_resume")
                 WebSocketService.setReconnectingWithLastReceivedEvent(false)
@@ -374,9 +367,9 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
         "image_auth_token" -> {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "WebSocketService",
-                "Message received: image_auth_token token=${jsonObject.optString("data", "")}",
-            )
+                    "WebSocketService",
+                    "Message received: image_auth_token token=${jsonObject.optString("data", "")}",
+                )
             }
             emitIncomingWebSocketMessage(jsonObject, IncomingWebSocketHint.NONE)
         }
@@ -389,9 +382,9 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
             val errorCount = data?.optInt("error_count", 0) ?: 0
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "WebSocketService",
-                "Message received: sync_status type=$type errorCount=$errorCount",
-            )
+                    "WebSocketService",
+                    "Message received: sync_status type=$type errorCount=$errorCount",
+                )
             }
             // Record in the WebSocket activity log so tapping the header sync indicator (which opens
             // the same log as the connection icon) shows the gomuks↔homeserver sync transitions.
@@ -425,9 +418,9 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
         else -> {
             if (BuildConfig.DEBUG && command.isNotEmpty()) {
                 Log.d(
-                "Andromuks",
-                "NetworkUtils: Unhandled WebSocket command: $command",
-            )
+                    "Andromuks",
+                    "NetworkUtils: Unhandled WebSocket command: $command",
+                )
             }
         }
     }
@@ -572,9 +565,9 @@ fun performHttpLogin(
                         )
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "LoginScreen",
-                            "Token and server base URL saved to SharedPreferences.",
-                        )
+                                "LoginScreen",
+                                "Token and server base URL saved to SharedPreferences.",
+                            )
                         }
                         // Log a dump of SharedPreferences (mask sensitive values)
                         try {
@@ -589,10 +582,10 @@ fun performHttpLogin(
                                         ignoreCase = true,
                                     )
                                 ) {
-                                        "<redacted>"
-                                    } else {
-                                        value?.toString()
-                                    }
+                                    "<redacted>"
+                                } else {
+                                    value?.toString()
+                                }
                                 if (BuildConfig.DEBUG) Log.d("LoginScreen", "pref[$key] = $masked")
                             }
                             if (BuildConfig.DEBUG) Log.d("LoginScreen", "← SharedPreferences dump end")
@@ -649,9 +642,9 @@ fun connectToWebsocket(
 ) {
     if (BuildConfig.DEBUG) {
         Log.d(
-        "NetworkUtils",
-        "connectToWebsocket: Initializing... Reason: $reason, isReconnection: $isReconnection",
-    )
+            "NetworkUtils",
+            "connectToWebsocket: Initializing... Reason: $reason, isReconnection: $isReconnection",
+        )
     }
 
     // Add startup progress message
@@ -958,9 +951,9 @@ fun connectToWebsocket(
 
                 t is java.net.SocketException && (
                     t.message?.contains(
-                    "Network is unreachable",
-                ) == true || t.message?.contains("No route to host") == true
-                ) -> "NETWORK_UNREACHABLE"
+                        "Network is unreachable",
+                    ) == true || t.message?.contains("No route to host") == true
+                    ) -> "NETWORK_UNREACHABLE"
 
                 t is java.net.ConnectException -> "NETWORK_UNREACHABLE"
 

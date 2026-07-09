@@ -92,7 +92,12 @@ class WebSocketHealthCheckWorker(context: Context, params: WorkerParameters) : C
             val isReconnectingOrConnecting = WebSocketService.isReconnectingOrConnecting()
             val connectionState = WebSocketService.getConnectionState()
 
-            if (BuildConfig.DEBUG) Log.d(TAG, "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected, isReconnectingOrConnecting=$isReconnectingOrConnecting, state=$connectionState")
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                TAG,
+                "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected, isReconnectingOrConnecting=$isReconnectingOrConnecting, state=$connectionState",
+            )
+            }
 
             if (!isServiceRunning) {
                 // Service was killed - restart it via ServiceStartWorker (more reliable than direct start)
@@ -112,9 +117,9 @@ class WebSocketHealthCheckWorker(context: Context, params: WorkerParameters) : C
             if (isReconnectingOrConnecting) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "Service is already reconnecting or connecting (state=$connectionState), skipping health check reconnection action",
-                )
+                        TAG,
+                        "Service is already reconnecting or connecting (state=$connectionState), skipping health check reconnection action",
+                    )
                 }
                 WebSocketService.logActivity("Health Check: Service Reconnecting - Skipping Redundant Action", null)
                 return@withContext Result.success()

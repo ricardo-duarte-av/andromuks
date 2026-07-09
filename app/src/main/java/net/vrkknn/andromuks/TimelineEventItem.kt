@@ -170,9 +170,9 @@ private fun isMentioningUser(event: TimelineEvent, userId: String?): Boolean {
                 if (userIds.optString(i) == userId) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "isMentioningUser: Found mention of $userId in event ${event.eventId}",
-                    )
+                            "Andromuks",
+                            "isMentioningUser: Found mention of $userId in event ${event.eventId}",
+                        )
                     }
                     return true
                 }
@@ -189,9 +189,9 @@ private fun isMentioningUser(event: TimelineEvent, userId: String?): Boolean {
                 if (userIds.optString(i) == userId) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "isMentioningUser: Found mention of $userId in encrypted event ${event.eventId}",
-                    )
+                            "Andromuks",
+                            "isMentioningUser: Found mention of $userId in encrypted event ${event.eventId}",
+                        )
                     }
                     return true
                 }
@@ -304,13 +304,7 @@ fun isCustomEmojiOnlyHtml(formattedBody: String?): Boolean {
 }
 
 @Composable
-fun InlineBubbleTimestamp(
-    timestamp: Long,
-    editedBy: TimelineEvent? = null,
-    isMine: Boolean,
-    isConsecutive: Boolean,
-    onEditedClick: (() -> Unit)? = null,
-) {
+fun InlineBubbleTimestamp(timestamp: Long, editedBy: TimelineEvent? = null, isMine: Boolean, isConsecutive: Boolean, onEditedClick: (() -> Unit)? = null) {
     // Only show timestamp inside bubble for consecutive messages
     if (isConsecutive) {
         val text =
@@ -879,8 +873,8 @@ private fun LinkPreviewBubble(preview: org.json.JSONObject, isMine: Boolean, hom
                         .apply {
                             if (blurHashBitmap != null) {
                                 placeholder(
-                                android.graphics.drawable.BitmapDrawable(context.resources, blurHashBitmap).asImage(),
-                            )
+                                    android.graphics.drawable.BitmapDrawable(context.resources, blurHashBitmap).asImage(),
+                                )
                             }
                         }
                         .memoryCachePolicy(CachePolicy.ENABLED)
@@ -899,13 +893,7 @@ private fun LinkPreviewBubble(preview: org.json.JSONObject, isMine: Boolean, hom
 }
 
 @Composable
-private fun LinkPreviewsSection(
-    event: TimelineEvent,
-    isMine: Boolean,
-    homeserverUrl: String,
-    authToken: String,
-    appViewModel: AppViewModel?,
-) {
+private fun LinkPreviewsSection(event: TimelineEvent, isMine: Boolean, homeserverUrl: String, authToken: String, appViewModel: AppViewModel?) {
     if (appViewModel?.resolveRenderUrlPreviews(event.roomId) != true) return
     if (event.redactedBy != null) return
 
@@ -988,9 +976,9 @@ private fun RoomMessageContent(
     val (finalBody, finalFormat, finalMsgType) = if (editedBy != null && !isEditEvent) {
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "RoomMessageContent: Using edit content for event ${event.eventId}, edit event: ${editedBy.eventId}",
-        )
+                "Andromuks",
+                "RoomMessageContent: Using edit content for event ${event.eventId}, edit event: ${editedBy.eventId}",
+            )
         }
         val newContent = editedBy.content?.optJSONObject("m.new_content")
         if (BuildConfig.DEBUG) {
@@ -1029,9 +1017,9 @@ private fun RoomMessageContent(
             val result = newContent?.optString("body", "") ?: body
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomMessageContent: Edit plain text - body length: ${result.length}, preview: ${result.take(50)}",
-            )
+                    "Andromuks",
+                    "RoomMessageContent: Edit plain text - body length: ${result.length}, preview: ${result.take(50)}",
+                )
             }
             result
         }
@@ -1106,9 +1094,9 @@ private fun RoomMessageContent(
         if (!userProfileCache.containsKey(event.redactionSender)) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Requesting profile for redaction sender: ${event.redactionSender} in room ${event.roomId}",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Requesting profile for redaction sender: ${event.redactionSender} in room ${event.roomId}",
+                )
             }
             appViewModel.requestUserProfile(event.redactionSender, event.roomId)
         }
@@ -1152,9 +1140,9 @@ private fun RoomMessageContent(
     if (msgType == "m.sticker") {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "TimelineEventItem: Detected m.sticker message in m.room.message event ${event.eventId}, isConsecutive=$isConsecutive",
-        )
+                "Andromuks",
+                "TimelineEventItem: Detected m.sticker message in m.room.message event ${event.eventId}, isConsecutive=$isConsecutive",
+            )
         }
         val stickerMessage = extractStickerFromEvent(event)
         val isRedacted = event.redactedBy != null
@@ -1235,9 +1223,9 @@ private fun RoomMessageContent(
         if (stickerMessage != null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "TimelineEventItem: Successfully extracted sticker, rendering StickerMessageContent with isConsecutive=$isConsecutive",
-            )
+                    "Andromuks",
+                    "TimelineEventItem: Successfully extracted sticker, rendering StickerMessageContent with isConsecutive=$isConsecutive",
+                )
             }
             StickerMessageContent(
                 event = event,
@@ -1262,9 +1250,9 @@ private fun RoomMessageContent(
             // Fallback: show as text if sticker extraction fails
             if (BuildConfig.DEBUG) {
                 android.util.Log.w(
-                "Andromuks",
-                "TimelineEventItem: Failed to extract sticker from m.room.message with msgtype m.sticker",
-            )
+                    "Andromuks",
+                    "TimelineEventItem: Failed to extract sticker from m.room.message with msgtype m.sticker",
+                )
             }
         }
         return
@@ -2372,12 +2360,7 @@ private fun RoomTextMessageContent(
 }
 
 @Composable
-private fun rememberReplyTargetEvent(
-    replyInfo: ReplyInfo?,
-    timelineEvents: List<TimelineEvent>,
-    roomId: String,
-    appViewModel: AppViewModel?,
-): TimelineEvent? {
+private fun rememberReplyTargetEvent(replyInfo: ReplyInfo?, timelineEvents: List<TimelineEvent>, roomId: String, appViewModel: AppViewModel?): TimelineEvent? {
     if (replyInfo == null) return null
 
     // State to track fetched event
@@ -2526,9 +2509,9 @@ private fun EncryptedMessageContent(
     if (isEditEvent) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "RoomTimelineScreen: Filtering out edit event ${event.eventId}",
-        )
+                "Andromuks",
+                "RoomTimelineScreen: Filtering out edit event ${event.eventId}",
+            )
         }
         return // Don't display edit events as separate timeline items
     }
@@ -2605,9 +2588,9 @@ private fun EncryptedMessageContent(
             if (!userProfileCache.containsKey(event.redactionSender)) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Requesting profile for encrypted message redaction sender: ${event.redactionSender} in room ${event.roomId}",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Requesting profile for encrypted message redaction sender: ${event.redactionSender} in room ${event.roomId}",
+                    )
                 }
                 appViewModel.requestUserProfile(event.redactionSender, event.roomId)
             }
@@ -2756,31 +2739,31 @@ private fun EncryptedMessageContent(
         if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body",
-            )
+                    "Andromuks",
+                    "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body",
+                )
             }
 
             // Debug: Check what's in the decrypted object
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "TimelineEventItem: Direct url field: ${decrypted?.optString("url", "NOT_FOUND")}",
-            )
+                    "Andromuks",
+                    "TimelineEventItem: Direct url field: ${decrypted?.optString("url", "NOT_FOUND")}",
+                )
             }
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "TimelineEventItem: File object exists: ${decrypted?.has("file")}",
-            )
+                    "Andromuks",
+                    "TimelineEventItem: File object exists: ${decrypted?.has("file")}",
+                )
             }
             if (decrypted?.has("file") == true) {
                 val fileObj = decrypted.optJSONObject("file")
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "TimelineEventItem: File url field: ${fileObj?.optString("url", "NOT_FOUND")}",
-                )
+                        "Andromuks",
+                        "TimelineEventItem: File url field: ${fileObj?.optString("url", "NOT_FOUND")}",
+                    )
                 }
             }
 
@@ -2795,9 +2778,9 @@ private fun EncryptedMessageContent(
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "TimelineEventItem: URL extraction - directUrl='$directUrl', fileObj=${fileObj != null}, fileUrl='$fileUrl', finalUrl='$url', hasEncryptedFile=$hasEncryptedFile",
-            )
+                    "Andromuks",
+                    "TimelineEventItem: URL extraction - directUrl='$directUrl', fileObj=${fileObj != null}, fileUrl='$fileUrl', finalUrl='$url', hasEncryptedFile=$hasEncryptedFile",
+                )
             }
 
             val filename = decrypted?.optString("filename", "") ?: ""
@@ -2807,9 +2790,9 @@ private fun EncryptedMessageContent(
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "TimelineEventItem: Encrypted media data - url=$url, filename=$filename",
-            )
+                    "Andromuks",
+                    "TimelineEventItem: Encrypted media data - url=$url, filename=$filename",
+                )
             }
 
             if (url.isNotBlank()) {
@@ -2914,9 +2897,9 @@ private fun EncryptedMessageContent(
 
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}",
-                )
+                        "Andromuks",
+                        "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}",
+                    )
                 }
 
                 val encryptedMediaIsThreadMessage = event.isThreadMessage()
@@ -3473,9 +3456,9 @@ private fun StickerMessageContent(
 ) {
     if (BuildConfig.DEBUG) {
         Log.d(
-        "Andromuks",
-        "StickerMessageContent: Rendering sticker event ${event.eventId}, isConsecutive=$isConsecutive",
-    )
+            "Andromuks",
+            "StickerMessageContent: Rendering sticker event ${event.eventId}, isConsecutive=$isConsecutive",
+        )
     }
 
     // Show deletion bubble if redacted
@@ -3581,9 +3564,9 @@ private fun StickerMessageContent(
     if (stickerMessage != null) {
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "TimelineEventItem: Found sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}, isConsecutive=$isConsecutive",
-        )
+                "Andromuks",
+                "TimelineEventItem: Found sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}, isConsecutive=$isConsecutive",
+            )
         }
 
         Row(
@@ -3851,12 +3834,12 @@ fun TimelineEventItem(
                 timelineEvents.filter {
                     (
                         it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                        it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    ) ||
+                            it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                        ) ||
                         (
                             it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                            it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        )
+                                it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                            )
                 }.maxByOrNull { it.timestamp }
             } else {
                 null
@@ -3984,10 +3967,10 @@ fun TimelineEventItem(
             event.roomId,
         ) != false
     ) {
-            rawReadReceipts
-        } else {
-            emptyList()
-        }
+        rawReadReceipts
+    } else {
+        emptyList()
+    }
 
     // Early check for emote message (before rendering layout)
     val isEmoteMessage = when {
@@ -4269,9 +4252,9 @@ fun TimelineEventItem(
                                         onReply(event)
                                         if (BuildConfig.DEBUG) {
                                             android.util.Log.d(
-                                            "TimelineEventItem",
-                                            "Swipe gesture completed, triggering reply",
-                                        )
+                                                "TimelineEventItem",
+                                                "Swipe gesture completed, triggering reply",
+                                            )
                                         }
                                     }
                                     coroutineScope.launch {
@@ -4649,14 +4632,13 @@ private fun String?.containsSpoilerMarkers(): Boolean {
         this.contains("||")
 }
 
-private fun TimelineEvent.containsSpoilerContent(): Boolean =
-    content?.optString("formatted_body").containsSpoilerMarkers() ||
-        decrypted?.optString("formatted_body").containsSpoilerMarkers() ||
-        localContent?.optString("sanitized_html").containsSpoilerMarkers() ||
-        extractSanitizedHtml(this).containsSpoilerMarkers() ||
-        content?.optString("body").containsSpoilerMarkers() ||
-        decrypted?.optString("body").containsSpoilerMarkers() ||
-        localContent?.optString("edit_source").containsSpoilerMarkers()
+private fun TimelineEvent.containsSpoilerContent(): Boolean = content?.optString("formatted_body").containsSpoilerMarkers() ||
+    decrypted?.optString("formatted_body").containsSpoilerMarkers() ||
+    localContent?.optString("sanitized_html").containsSpoilerMarkers() ||
+    extractSanitizedHtml(this).containsSpoilerMarkers() ||
+    content?.optString("body").containsSpoilerMarkers() ||
+    decrypted?.optString("body").containsSpoilerMarkers() ||
+    localContent?.optString("edit_source").containsSpoilerMarkers()
 
 /**
  * The small bridge send-status icon (Check / DoneAll / Warning / Error) shown next to a sent

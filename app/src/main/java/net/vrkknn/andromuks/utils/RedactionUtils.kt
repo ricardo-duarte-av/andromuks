@@ -97,22 +97,21 @@ object RedactionUtils {
         "Use AppViewModel.getRedactionEvent() for O(1) lookup",
         ReplaceWith("appViewModel.getRedactionEvent(targetEventId)"),
     )
-    fun findLatestRedactionEvent(targetEventId: String, timelineEvents: List<TimelineEvent>): TimelineEvent? =
-        timelineEvents
-            .filter { event ->
-                if (event.type != "m.room.redaction") {
-                    false
-                } else {
-                    // Handle both formats: "redacts" as string or as object with "event_id"
-                    val redactsString = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
-                    val redactsObject = event.content?.optJSONObject(
-                        "redacts",
-                    )?.optString("event_id")?.takeIf { it.isNotBlank() }
+    fun findLatestRedactionEvent(targetEventId: String, timelineEvents: List<TimelineEvent>): TimelineEvent? = timelineEvents
+        .filter { event ->
+            if (event.type != "m.room.redaction") {
+                false
+            } else {
+                // Handle both formats: "redacts" as string or as object with "event_id"
+                val redactsString = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                val redactsObject = event.content?.optJSONObject(
+                    "redacts",
+                )?.optString("event_id")?.takeIf { it.isNotBlank() }
 
-                    (redactsString == targetEventId) || (redactsObject == targetEventId)
-                }
+                (redactsString == targetEventId) || (redactsObject == targetEventId)
             }
-            .maxByOrNull { it.timestamp }
+        }
+        .maxByOrNull { it.timestamp }
 
     /**
      * OPTIMIZED: Creates deletion message directly from redaction event (O(1))
@@ -121,10 +120,7 @@ object RedactionUtils {
      * @param userProfileCache Map of user IDs to MemberProfile objects for display names
      * @return Formatted deletion message string
      */
-    fun createDeletionMessageFromEvent(
-        redactionEvent: TimelineEvent?,
-        userProfileCache: Map<String, MemberProfile>,
-    ): String {
+    fun createDeletionMessageFromEvent(redactionEvent: TimelineEvent?, userProfileCache: Map<String, MemberProfile>): String {
         if (redactionEvent == null) {
             return "Message deleted"
         }

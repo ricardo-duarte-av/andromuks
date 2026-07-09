@@ -69,9 +69,9 @@ fun ImageEmoji(mxcUrl: String, homeserverUrl: String, authToken: String) {
             onSuccess = {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "ImageEmoji: Successfully loaded emoji for $mxcUrl",
-                )
+                        "Andromuks",
+                        "ImageEmoji: Successfully loaded emoji for $mxcUrl",
+                    )
                 }
             },
             onError = {

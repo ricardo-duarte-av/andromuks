@@ -165,7 +165,7 @@ fun RoomMakerScreen(appViewModel: AppViewModel, navController: NavController, mo
                             DropdownMenuItem(
                                 text = { Text(p.displayName) },
                                 onClick = {
-                                    preset = p;
+                                    preset = p
                                     presetExpanded = false
                                 },
                             )
@@ -301,10 +301,10 @@ fun RoomMakerScreen(appViewModel: AppViewModel, navController: NavController, mo
                             originServerTs = if (isV12 &&
                                 roomIdOrTs.isNotBlank()
                             ) {
-                                    roomIdOrTs.trim().toLongOrNull()
-                                } else {
-                                    null
-                                },
+                                roomIdOrTs.trim().toLongOrNull()
+                            } else {
+                                null
+                            },
                         ) { roomId, error ->
                             isCreating = false
                             if (error != null) {

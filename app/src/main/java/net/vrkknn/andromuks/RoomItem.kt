@@ -41,12 +41,7 @@ data class RoomItem(
 data class SpaceItem(val id: String, val name: String, val avatarUrl: String?, val rooms: List<RoomItem>)
 
 @Immutable
-data class RoomSection(
-    val type: RoomSectionType,
-    val rooms: List<RoomItem>,
-    val spaces: List<SpaceItem> = emptyList(),
-    val unreadCount: Int = 0,
-)
+data class RoomSection(val type: RoomSectionType, val rooms: List<RoomItem>, val spaces: List<SpaceItem> = emptyList(), val unreadCount: Int = 0)
 
 enum class RoomSectionType {
     HOME,
@@ -59,11 +54,7 @@ enum class RoomSectionType {
 }
 
 @Immutable
-data class SyncUpdateResult(
-    val updatedRooms: List<RoomItem>,
-    val newRooms: List<RoomItem>,
-    val removedRoomIds: List<String>,
-)
+data class SyncUpdateResult(val updatedRooms: List<RoomItem>, val newRooms: List<RoomItem>, val removedRoomIds: List<String>)
 
 @Immutable
 data class RoomState(

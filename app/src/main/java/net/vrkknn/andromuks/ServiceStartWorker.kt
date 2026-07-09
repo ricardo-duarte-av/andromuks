@@ -81,9 +81,9 @@ class ServiceStartWorker(context: Context, params: WorkerParameters) : Coroutine
             if (WebSocketService.isBatterySaverUserDisconnected(applicationContext)) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "battery-saver mode: user-disconnected, skipping service start (reason=$reason)",
-                )
+                        TAG,
+                        "battery-saver mode: user-disconnected, skipping service start (reason=$reason)",
+                    )
                 }
                 return@withContext Result.success()
             }

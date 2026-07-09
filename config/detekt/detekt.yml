@@ -24,12 +24,47 @@ style:
   # Pervasive and low-signal across this codebase; re-enable with ignore thresholds later if wanted.
   MagicNumber:
     active: false
+  # Multiple returns are idiomatic in this codebase's guard-heavy event/sync handlers; fired on ~190
+  # existing methods and most new ones. Disabled to keep it out of the baseline.
+  ReturnCount:
+    active: false
 
 naming:
   # @Composable functions are intentionally PascalCase. ktlint's function-naming rule is already
   # exempted via .editorconfig; detekt's own FunctionNaming needs this explicit ignore.
   FunctionNaming:
     ignoreAnnotated: ['Composable']
+
+# --- Complexity metrics (disabled) ---------------------------------------------------------------
+# This codebase is deliberately structured around a few very large hubs (AppViewModel, the timeline
+# renderer, wide Compose trees). The size/complexity metrics below fire on ~1,000 existing methods
+# AND on essentially every substantial new method, so they generated constant baseline churn without
+# guiding real changes. Disabled so new code doesn't trip them and they leave the baseline entirely.
+complexity:
+  LongMethod:
+    active: false
+  CyclomaticComplexMethod:
+    active: false
+  NestedBlockDepth:
+    active: false
+  ComplexCondition:
+    active: false
+  TooManyFunctions:
+    active: false
+  LargeClass:
+    active: false
+
+# --- Generic-exception rules (disabled) ----------------------------------------------------------
+# `try { ... } catch (e: Exception)` is the house style for the WebSocket / sync / media paths where
+# any failure is logged and swallowed by design. These rules fired on ~150 existing sites and every
+# new catch, so they were pure baseline noise here. PrintStackTrace stays active (real smell, rare).
+exceptions:
+  TooGenericExceptionCaught:
+    active: false
+  TooGenericExceptionThrown:
+    active: false
+  SwallowedException:
+    active: false
 
 # --- ktlint-wrapper line length ------------------------------------------------------------------
 # The ktlint-wrapper does NOT read `.editorconfig`'s max_line_length; each rule uses its own

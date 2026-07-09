@@ -111,8 +111,8 @@ fun SystemEventNarrator(
     // on every layout pass. boundsInWindow() is computed on demand when the menu is triggered.
     val coordinatesHolder = remember {
         object {
-        var value: LayoutCoordinates? = null
-    }
+            var value: LayoutCoordinates? = null
+        }
     }
     val content = event.content
     val eventType = event.type
@@ -373,14 +373,14 @@ fun SystemEventNarrator(
 
                             val annotatedText =
                                 remember(displayName, event.sender, senderDisplayName, roomName, memberMap, userMentionColor) {
-                                buildAnnotatedString {
-                                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                                    append(" changed the room name to ")
-                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                        append(roomName ?: "")
+                                    buildAnnotatedString {
+                                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                                        append(" changed the room name to ")
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(roomName ?: "")
+                                        }
                                     }
                                 }
-                            }
 
                             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
                         }
@@ -399,11 +399,11 @@ fun SystemEventNarrator(
 
                             val annotatedText =
                                 remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
-                                buildAnnotatedString {
-                                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                                    append(" changed the room topic")
+                                    buildAnnotatedString {
+                                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                                        append(" changed the room topic")
+                                    }
                                 }
-                            }
 
                             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
                         }
@@ -422,11 +422,11 @@ fun SystemEventNarrator(
 
                             val annotatedText =
                                 remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
-                                buildAnnotatedString {
-                                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                                    append(" changed the room avatar")
+                                    buildAnnotatedString {
+                                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                                        append(" changed the room avatar")
+                                    }
                                 }
-                            }
 
                             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
                         }
@@ -570,9 +570,9 @@ fun SystemEventNarrator(
                     onDismissRequest = {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "NarratorFunctions",
-                            "SystemEventNarrator: Popup dismissed",
-                        )
+                                "NarratorFunctions",
+                                "SystemEventNarrator: Popup dismissed",
+                            )
                         }
                         showMenu = false
                     },
@@ -593,9 +593,9 @@ fun SystemEventNarrator(
                                         onTap = {
                                             if (BuildConfig.DEBUG) {
                                                 android.util.Log.d(
-                                                "NarratorFunctions",
-                                                "SystemEventNarrator: Scrim tapped, dismissing menu",
-                                            )
+                                                    "NarratorFunctions",
+                                                    "SystemEventNarrator: Scrim tapped, dismissing menu",
+                                                )
                                             }
                                             showMenu = false
                                         },
@@ -624,7 +624,12 @@ fun SystemEventNarrator(
                                                 .coerceAtMost(screenWidth - menuWidth - margin)
                                             val clampedY = menuY.coerceAtLeast(margin)
 
-                                            if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth")
+                                            if (BuildConfig.DEBUG) {
+                                                android.util.Log.d(
+                                                "NarratorFunctions",
+                                                "SystemEventNarrator: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth",
+                                            )
+                                            }
 
                                             IntOffset(
                                                 x = clampedX.toInt(),
@@ -647,9 +652,9 @@ fun SystemEventNarrator(
                                         onClick = {
                                             if (BuildConfig.DEBUG) {
                                                 android.util.Log.d(
-                                                "NarratorFunctions",
-                                                "SystemEventNarrator: Reply clicked",
-                                            )
+                                                    "NarratorFunctions",
+                                                    "SystemEventNarrator: Reply clicked",
+                                                )
                                             }
                                             showMenu = false
                                             onReply(event)
@@ -1314,11 +1319,11 @@ private fun MemberEventNarrator(
 
                     val annotatedText =
                         remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
-                        buildAnnotatedString {
-                            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                            append(" made no change")
+                            buildAnnotatedString {
+                                appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                                append(" made no change")
+                            }
                         }
-                    }
 
                     ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
                 } else {
@@ -1352,11 +1357,11 @@ private fun MemberEventNarrator(
 
                 val annotatedText =
                     remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
-                    buildAnnotatedString {
-                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                        append(" joined the room")
+                        buildAnnotatedString {
+                            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                            append(" joined the room")
+                        }
                     }
-                }
 
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
@@ -1527,15 +1532,15 @@ private fun MemberEventNarrator(
 
                 val annotatedText =
                     remember(displayName, event.sender, senderDisplayName, reason, memberMap, userMentionColor) {
-                    buildAnnotatedString {
-                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
-                        append(" left the room")
-                        if (!reason.isNullOrEmpty()) {
-                            append(": ")
-                            appendTextWithMentions(reason, memberMap, appViewModel, roomId, userMentionColor)
+                        buildAnnotatedString {
+                            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                            append(" left the room")
+                            if (!reason.isNullOrEmpty()) {
+                                append(": ")
+                                appendTextWithMentions(reason, memberMap, appViewModel, roomId, userMentionColor)
+                            }
                         }
                     }
-                }
 
                 ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
@@ -1647,7 +1652,7 @@ private fun MemberEventNarrator(
                         (
                             ev.unsigned?.optString("replaces_state") == event.eventId ||
                                 ev.timelineRowid > event.timelineRowid
-                        )
+                            )
                 } == true
             }
 
@@ -2572,13 +2577,13 @@ private fun PowerLevelsUserChangesNarrator(
 
             val annotatedText =
                 remember(senderId, senderDisplayName, userId, userDisplayName, newLevel, memberMap, userMentionColor) {
-                buildAnnotatedString {
-                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
-                    append(" set user ")
-                    appendClickableUser(userId, userDisplayName, userMentionColor)
-                    append(" power level to $newLevel")
+                    buildAnnotatedString {
+                        appendClickableUser(senderId, senderDisplayName, userMentionColor)
+                        append(" set user ")
+                        appendClickableUser(userId, userDisplayName, userMentionColor)
+                        append(" power level to $newLevel")
+                    }
                 }
-            }
 
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
@@ -2595,13 +2600,13 @@ private fun PowerLevelsUserChangesNarrator(
 
             val annotatedText =
                 remember(senderId, senderDisplayName, userId, userDisplayName, memberMap, userMentionColor) {
-                buildAnnotatedString {
-                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
-                    append(" set user ")
-                    appendClickableUser(userId, userDisplayName, userMentionColor)
-                    append(" power level to the default")
+                    buildAnnotatedString {
+                        appendClickableUser(senderId, senderDisplayName, userMentionColor)
+                        append(" set user ")
+                        appendClickableUser(userId, userDisplayName, userMentionColor)
+                        append(" power level to the default")
+                    }
                 }
-            }
 
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
@@ -2619,13 +2624,13 @@ private fun PowerLevelsUserChangesNarrator(
 
             val annotatedText =
                 remember(senderId, senderDisplayName, userId, userDisplayName, newLevel, memberMap, userMentionColor) {
-                buildAnnotatedString {
-                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
-                    append(" set user ")
-                    appendClickableUser(userId, userDisplayName, userMentionColor)
-                    append(" power level to $newLevel")
+                    buildAnnotatedString {
+                        appendClickableUser(senderId, senderDisplayName, userMentionColor)
+                        append(" set user ")
+                        appendClickableUser(userId, userDisplayName, userMentionColor)
+                        append(" power level to $newLevel")
+                    }
                 }
-            }
 
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }

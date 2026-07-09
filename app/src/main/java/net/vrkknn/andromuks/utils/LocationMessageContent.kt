@@ -86,8 +86,8 @@ fun LocationMessageContent(
                 val webUri = Uri.parse("https://maps.google.com/?q=${coords.first},${coords.second}")
                 context.startActivity(
                     Intent(Intent.ACTION_VIEW, webUri).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    },
                 )
             }
         }

@@ -53,9 +53,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 invalidateRoomSectionCache()
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Registered ${spaceIds.size} space IDs (total=${knownSpaceIds.size})",
-                )
+                        "Andromuks",
+                        "AppViewModel: Registered ${spaceIds.size} space IDs (total=${knownSpaceIds.size})",
+                    )
                 }
             }
         }
@@ -94,9 +94,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             try {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: populateRoomMapFromCache called - current roomMap size: ${roomMap.size}, cache size: ${RoomListCache.getRoomCount()}",
-                )
+                        "Andromuks",
+                        "AppViewModel: populateRoomMapFromCache called - current roomMap size: ${roomMap.size}, cache size: ${RoomListCache.getRoomCount()}",
+                    )
                 }
 
                 val cachedRooms = RoomListCache.getAllRooms()
@@ -104,7 +104,12 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     // Populate roomMap with rooms from singleton cache
                     roomMap.putAll(cachedRooms)
 
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRoomMapFromCache - populated roomMap with ${cachedRooms.size} rooms from cache (new size: ${roomMap.size})")
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: populateRoomMapFromCache - populated roomMap with ${cachedRooms.size} rooms from cache (new size: ${roomMap.size})",
+                    )
+                    }
 
                     // CRITICAL: If we loaded rooms from cache, mark spaces as loaded
                     // This prevents "Loading spaces..." from showing when we have rooms but spacesLoaded is false
@@ -112,9 +117,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     if (!spacesLoaded && cachedRooms.isNotEmpty()) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: populateRoomMapFromCache - marking spaces as loaded since cache has ${cachedRooms.size} rooms",
-                        )
+                                "Andromuks",
+                                "AppViewModel: populateRoomMapFromCache - marking spaces as loaded since cache has ${cachedRooms.size} rooms",
+                            )
                         }
                         spacesLoaded = true
                     }
@@ -124,9 +129,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: populateRoomMapFromCache - cache is empty, cannot populate roomMap",
-                    )
+                            "Andromuks",
+                            "AppViewModel: populateRoomMapFromCache - cache is empty, cannot populate roomMap",
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -140,9 +145,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             try {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: populateSpacesFromCache called - current allSpaces size: ${allSpaces.size}, cache size: ${SpaceListCache.getSpaceCount()}",
-                )
+                        "Andromuks",
+                        "AppViewModel: populateSpacesFromCache called - current allSpaces size: ${allSpaces.size}, cache size: ${SpaceListCache.getSpaceCount()}",
+                    )
                 }
 
                 val cachedSpaces = SpaceListCache.getAllSpaces()
@@ -150,7 +155,12 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     // Populate allSpaces from singleton cache
                     allSpaces = cachedSpaces
 
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateSpacesFromCache - populated allSpaces with ${cachedSpaces.size} spaces from cache")
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: populateSpacesFromCache - populated allSpaces with ${cachedSpaces.size} spaces from cache",
+                    )
+                    }
 
                     // Also restore space_edges if available
                     val cachedSpaceEdges = SpaceListCache.getSpaceEdges()
@@ -158,9 +168,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         storedSpaceEdges = cachedSpaceEdges
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: populateSpacesFromCache - restored space_edges from cache",
-                        )
+                                "Andromuks",
+                                "AppViewModel: populateSpacesFromCache - restored space_edges from cache",
+                            )
                         }
                     }
 
@@ -169,9 +179,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         spacesLoaded = true
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: populateSpacesFromCache - marking spaces as loaded",
-                        )
+                                "Andromuks",
+                                "AppViewModel: populateSpacesFromCache - marking spaces as loaded",
+                            )
                         }
                     }
 
@@ -179,9 +189,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: populateSpacesFromCache - cache is empty, spaces will be loaded from sync_complete",
-                    )
+                            "Andromuks",
+                            "AppViewModel: populateSpacesFromCache - cache is empty, spaces will be loaded from sync_complete",
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -263,15 +273,15 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                             recentEmojiFrequencies = sortedFrequencies.toMutableList()
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data (server is source of truth): ${sortedFrequencies.take(
-                                    5,
-                                ).joinToString(
-                                    ", ",
-                                ) {
-                                    "${it.first}(${it.second})"
-                                }}${if (sortedFrequencies.size > 5) "..." else ""}",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data (server is source of truth): ${sortedFrequencies.take(
+                                        5,
+                                    ).joinToString(
+                                        ", ",
+                                    ) {
+                                        "${it.first}(${it.second})"
+                                    }}${if (sortedFrequencies.size > 5) "..." else ""}",
+                                )
                             }
                             val emojisList = recentEmojiFrequencies.map { it.first }
                             RecentEmojisCache.set(emojisList)
@@ -287,9 +297,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                             hasLoadedRecentEmojisFromServer = true
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: io.element.recent_emoji is present but empty, cleared recent emojis",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: io.element.recent_emoji is present but empty, cleared recent emojis",
+                                )
                             }
                         }
                     } else {
@@ -300,9 +310,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         hasLoadedRecentEmojisFromServer = true
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: io.element.recent_emoji is present but empty/null, cleared recent emojis",
-                        )
+                                "Andromuks",
+                                "AppViewModel: io.element.recent_emoji is present but empty/null, cleared recent emojis",
+                            )
                         }
                     }
                 } else {
@@ -313,17 +323,17 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     hasLoadedRecentEmojisFromServer = true
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: io.element.recent_emoji is null, cleared recent emojis",
-                    )
+                            "Andromuks",
+                            "AppViewModel: io.element.recent_emoji is null, cleared recent emojis",
+                        )
                     }
                 }
             } else {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: processAccountData - io.element.recent_emoji key not found in account_data",
-                )
+                        "Andromuks",
+                        "AppViewModel: processAccountData - io.element.recent_emoji key not found in account_data",
+                    )
                 }
             }
             // If key is missing, don't process it (preserve existing state)
@@ -361,9 +371,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         directMessageUserMap = dmUserMap.mapValues { it.value.toSet() }
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Loaded ${dmRoomIds.size} DM room IDs for ${dmUserMap.size} users from m.direct account data",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Loaded ${dmRoomIds.size} DM room IDs for ${dmUserMap.size} users from m.direct account data",
+                            )
                         }
 
                         // PERFORMANCE: Update existing rooms in roomMap with correct DM status from account_data
@@ -375,9 +385,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         directMessageUserMap = emptyMap()
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: m.direct is present but empty/null, cleared DM room IDs",
-                        )
+                                "Andromuks",
+                                "AppViewModel: m.direct is present but empty/null, cleared DM room IDs",
+                            )
                         }
                     }
                 } else {
@@ -386,9 +396,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     directMessageUserMap = emptyMap()
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: m.direct is null, cleared DM room IDs",
-                    )
+                            "Andromuks",
+                            "AppViewModel: m.direct is null, cleared DM room IDs",
+                        )
                     }
                 }
             }
@@ -415,18 +425,18 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                             ignoredUsers = ignoredSet
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Loaded ${ignoredSet.size} ignored users from m.ignored_user_list",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Loaded ${ignoredSet.size} ignored users from m.ignored_user_list",
+                                )
                             }
                         } else {
                             // Key is present but ignored_users is null or empty - clear ignored users
                             ignoredUsers = emptySet()
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: m.ignored_user_list.ignored_users is null/empty, cleared ignored users",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: m.ignored_user_list.ignored_users is null/empty, cleared ignored users",
+                                )
                             }
                         }
                     } else {
@@ -434,9 +444,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         ignoredUsers = emptySet()
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: m.ignored_user_list.content is null, cleared ignored users",
-                        )
+                                "Andromuks",
+                                "AppViewModel: m.ignored_user_list.content is null, cleared ignored users",
+                            )
                         }
                     }
                 } else {
@@ -444,9 +454,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     ignoredUsers = emptySet()
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: m.ignored_user_list is null, cleared ignored users",
-                    )
+                            "Andromuks",
+                            "AppViewModel: m.ignored_user_list is null, cleared ignored users",
+                        )
                     }
                 }
             }
@@ -475,9 +485,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     if (rooms != null && rooms.length() > 0) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Found $activeAccountDataKey account data with ${rooms.length()} rooms (stateType=$activeStateEventType)",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Found $activeAccountDataKey account data with ${rooms.length()} rooms (stateType=$activeStateEventType)",
+                            )
                         }
                         val keys = rooms.names()
                         if (keys != null) {
@@ -492,9 +502,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                             val packName = packNames.optString(j)
                                             if (BuildConfig.DEBUG) {
                                                 android.util.Log.d(
-                                                "Andromuks",
-                                                "AppViewModel: Requesting emoji pack data for pack $packName in room $roomId (type=$activeStateEventType)",
-                                            )
+                                                    "Andromuks",
+                                                    "AppViewModel: Requesting emoji pack data for pack $packName in room $roomId (type=$activeStateEventType)",
+                                                )
                                             }
                                             requestEmojiPackData(roomId, packName, activeStateEventType)
                                             packCount++
@@ -504,16 +514,16 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                             }
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Requested emoji pack data for $packCount packs across ${keys.length()} rooms",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Requested emoji pack data for $packCount packs across ${keys.length()} rooms",
+                                )
                             }
                         } else {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: No room keys found in $activeAccountDataKey",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: No room keys found in $activeAccountDataKey",
+                                )
                             }
                         }
                     } else {
@@ -522,9 +532,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         StickerPacksCache.clear()
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: $activeAccountDataKey is present but empty/null, cleared emoji/sticker packs",
-                        )
+                                "Andromuks",
+                                "AppViewModel: $activeAccountDataKey is present but empty/null, cleared emoji/sticker packs",
+                            )
                         }
                     }
                 } else {
@@ -533,9 +543,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     StickerPacksCache.clear()
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: $activeAccountDataKey is null, cleared emoji/sticker packs",
-                    )
+                            "Andromuks",
+                            "AppViewModel: $activeAccountDataKey is null, cleared emoji/sticker packs",
+                        )
                     }
                 }
             } else {
@@ -545,16 +555,16 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 if (customEmojiPacks.isEmpty() && stickerPacks.isEmpty()) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: No emoji pack account data in incoming sync and no packs loaded - will be populated on next reconnect",
-                    )
+                            "Andromuks",
+                            "AppViewModel: No emoji pack account data in incoming sync and no packs loaded - will be populated on next reconnect",
+                        )
                     }
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: No emoji pack account data in incoming sync, preserving existing ${customEmojiPacks.size} emoji packs and ${stickerPacks.size} sticker packs",
-                    )
+                            "Andromuks",
+                            "AppViewModel: No emoji pack account data in incoming sync, preserving existing ${customEmojiPacks.size} emoji packs and ${stickerPacks.size} sticker packs",
+                        )
                     }
                 }
             }
@@ -574,10 +584,10 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                             "send_bundled_url_previews",
                         )
                     ) {
-                            it.optBoolean("send_bundled_url_previews")
-                        } else {
-                            null
-                        }
+                        it.optBoolean("send_bundled_url_previews")
+                    } else {
+                        null
+                    }
                 }
                 accountGlobalSendReadReceipts = content?.let {
                     if (it.has("send_read_receipts")) it.optBoolean("send_read_receipts") else null
@@ -587,10 +597,10 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                             "send_typing_notifications",
                         )
                     ) {
-                            it.optBoolean("send_typing_notifications")
-                        } else {
-                            null
-                        }
+                        it.optBoolean("send_typing_notifications")
+                    } else {
+                        null
+                    }
                 }
                 accountGlobalDisplayReadReceipts = content?.let {
                     if (it.has("display_read_receipts")) it.optBoolean("display_read_receipts") else null
@@ -603,9 +613,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 }
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: processAccountData - fi.mau.gomuks.preferences show_media_previews=$accountGlobalShowMediaPreviews render_url_previews=$accountGlobalRenderUrlPreviews send_bundled_url_previews=$accountGlobalSendBundledUrlPreviews send_read_receipts=$accountGlobalSendReadReceipts send_typing_notifications=$accountGlobalSendTypingNotifications display_read_receipts=$accountGlobalDisplayReadReceipts",
-                )
+                        "Andromuks",
+                        "AppViewModel: processAccountData - fi.mau.gomuks.preferences show_media_previews=$accountGlobalShowMediaPreviews render_url_previews=$accountGlobalRenderUrlPreviews send_bundled_url_previews=$accountGlobalSendBundledUrlPreviews send_read_receipts=$accountGlobalSendReadReceipts send_typing_notifications=$accountGlobalSendTypingNotifications display_read_receipts=$accountGlobalDisplayReadReceipts",
+                    )
                 }
             }
 
@@ -639,9 +649,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 invalidateRoomSectionCache()
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Updated $updatedCount rooms with correct DM status from m.direct/bridge data",
-                )
+                        "Andromuks",
+                        "AppViewModel: Updated $updatedCount rooms with correct DM status from m.direct/bridge data",
+                    )
                 }
             }
         }
@@ -866,9 +876,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
         with(vm) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: clear_state=true received - purging all room/space state including currently opened rooms (backend is authoritative)",
-            )
+                    "Andromuks",
+                    "AppViewModel: clear_state=true received - purging all room/space state including currently opened rooms (backend is authoritative)",
+                )
             }
             clearDerivedStateInMemory()
             // SyncIngestor.handleClearStateSignal() is a no-op stub and is also called
@@ -902,9 +912,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 if (staleRoomIds.isEmpty()) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "clear_state diff-prune: no stale rooms (roomMap=${roomMap.size}, seen=${seenRoomIds.size})",
-                    )
+                            "Andromuks",
+                            "clear_state diff-prune: no stale rooms (roomMap=${roomMap.size}, seen=${seenRoomIds.size})",
+                        )
                     }
                     return@with
                 }
@@ -1086,9 +1096,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         if (receipts != null && receipts.length() > 0) {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: processParsedSyncResult - Processing read receipts from sync_complete for room: $roomId (${receipts.length()} event receipts)",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: processParsedSyncResult - Processing read receipts from sync_complete for room: $roomId (${receipts.length()} event receipts)",
+                                )
                             }
                             synchronized(readReceiptsLock) {
                                 val roomReceiptsMap = readReceipts.getOrPut(roomId) { mutableMapOf() }
@@ -1110,9 +1120,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                         receiptAnimationTrigger = System.currentTimeMillis()
                                         if (BuildConfig.DEBUG) {
                                             android.util.Log.d(
-                                            "Andromuks",
-                                            "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId",
-                                        )
+                                                "Andromuks",
+                                                "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId",
+                                            )
                                         }
                                     },
                                     roomId = roomId,
@@ -1260,9 +1270,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 // This means "no account_data updates" - preserve existing state
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)",
-                )
+                        "Andromuks",
+                        "AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)",
+                    )
                 }
             }
 
@@ -1357,9 +1367,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     if (existingRoom.isFavourite && !room.isFavourite && updatedRoom.isFavourite) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Preserved isFavourite=true for room ${room.id} (sync didn't include account_data.m.tag)",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Preserved isFavourite=true for room ${room.id} (sync didn't include account_data.m.tag)",
+                            )
                         }
                     }
                     roomMap[room.id] = updatedRoom
@@ -1425,30 +1435,30 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         messagePreview = if (room.messagePreview.isNullOrBlank() &&
                             !existingInRoomMap.messagePreview.isNullOrBlank()
                         ) {
-                                existingInRoomMap.messagePreview
-                            } else {
-                                room.messagePreview
-                            },
+                            existingInRoomMap.messagePreview
+                        } else {
+                            room.messagePreview
+                        },
                         messageSender = if (room.messagePreview.isNullOrBlank() &&
                             !existingInRoomMap.messagePreview.isNullOrBlank()
                         ) {
-                                existingInRoomMap.messageSender
-                            } else {
-                                room.messageSender
-                            },
+                            existingInRoomMap.messageSender
+                        } else {
+                            room.messageSender
+                        },
                         senderDisplayName = if (room.messagePreview.isNullOrBlank() &&
                             !existingInRoomMap.messagePreview.isNullOrBlank()
                         ) {
-                                existingInRoomMap.senderDisplayName
-                            } else {
-                                (
-                                    room.senderDisplayName
-                            ?: existingInRoomMap.senderDisplayName?.takeIf {
-                                existingInRoomMap.messageSender ==
-                                    room.messageSender
-                            }
+                            existingInRoomMap.senderDisplayName
+                        } else {
+                            (
+                                room.senderDisplayName
+                                    ?: existingInRoomMap.senderDisplayName?.takeIf {
+                                        existingInRoomMap.messageSender ==
+                                            room.messageSender
+                                    }
                                 )
-                            },
+                        },
                         isFavourite = room.isFavourite || existingInRoomMap.isFavourite,
                         isLowPriority = room.isLowPriority || existingInRoomMap.isLowPriority,
                         isDirectMessage = room.isDirectMessage || existingInRoomMap.isDirectMessage,
@@ -1499,9 +1509,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             if (syncResult.newRooms.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: New rooms detected - forcing immediate sort to show them at the top",
-                )
+                        "Andromuks",
+                        "AppViewModel: New rooms detected - forcing immediate sort to show them at the top",
+                    )
                 }
                 scheduleRoomReorder(forceImmediate = true)
             }
@@ -1520,9 +1530,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     invitesWereRemoved = true
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Removed refused invite (left_rooms): $roomId",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Removed refused invite (left_rooms): $roomId",
+                        )
                     }
                 }
 
@@ -1543,9 +1553,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             if (roomsWereRemoved) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Rooms removed - immediately filtering from allRooms and updating UI",
-                )
+                        "Andromuks",
+                        "AppViewModel: Rooms removed - immediately filtering from allRooms and updating UI",
+                    )
                 }
                 // Immediately filter out removed rooms from allRooms
                 val filteredRooms = allRooms.filter { it.id !in removedRoomIdsSet }
@@ -1563,9 +1573,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 roomListUpdateCounter++
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Immediately updated UI after room removal (roomListUpdateCounter: $roomListUpdateCounter)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Immediately updated UI after room removal (roomListUpdateCounter: $roomListUpdateCounter)",
+                    )
                 }
             }
 
@@ -1573,9 +1583,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             if (invitesWereRemoved) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Invites removed (refused on another client) - updating UI",
-                )
+                        "Andromuks",
+                        "AppViewModel: Invites removed (refused on another client) - updating UI",
+                    )
                 }
                 needsRoomListUpdate = true
                 roomListUpdateCounter++
@@ -1590,9 +1600,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 if (acceptedInvites.isNotEmpty()) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Detected ${acceptedInvites.size} invites already joined via sync - removing pending invites",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Detected ${acceptedInvites.size} invites already joined via sync - removing pending invites",
+                        )
                     }
 
                     acceptedInvites.forEach { roomId ->
@@ -1602,9 +1612,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     // Invites are in-memory only - no local cleanup needed
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Removed ${acceptedInvites.size} invites from memory (accepted elsewhere)",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Removed ${acceptedInvites.size} invites from memory (accepted elsewhere)",
+                        )
                     }
 
                     // Trigger UI update to remove invites from RoomListScreen
@@ -1612,9 +1622,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     roomListUpdateCounter++
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Room list updated after removing accepted invites (roomListUpdateCounter: $roomListUpdateCounter)",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Room list updated after removing accepted invites (roomListUpdateCounter: $roomListUpdateCounter)",
+                        )
                     }
                 }
             }
@@ -1657,9 +1667,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         allRooms = sortedRooms
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Initializing allRooms with ${sortedRooms.size} sorted rooms",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Initializing allRooms with ${sortedRooms.size} sorted rooms",
+                            )
                         }
                     } else {
                         // Update existing rooms in current order, add new rooms at end
@@ -1810,9 +1820,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 if (memberStateChanged) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update",
-                    )
+                            "Andromuks",
+                            "AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update",
+                        )
                     }
                     needsMemberUpdate = true
                     scheduleUIUpdate("member")
@@ -1841,9 +1851,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     if (syncDMs.isNotEmpty()) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Background: Updating persons (DMs changed in sync_complete)",
-                        )
+                                "Andromuks",
+                                "AppViewModel: Background: Updating persons (DMs changed in sync_complete)",
+                            )
                         }
                         // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
                         val allDMs = roomMap.values.filter { it.isDirectMessage }
@@ -1858,9 +1868,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             if (syncMessageCount >= 3 && !spacesLoaded) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Setting spacesLoaded after $syncMessageCount sync messages",
-                )
+                        "Andromuks",
+                        "AppViewModel: Setting spacesLoaded after $syncMessageCount sync messages",
+                    )
                 }
                 spacesLoaded = true
             }

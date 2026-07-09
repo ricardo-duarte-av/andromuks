@@ -79,9 +79,9 @@ object MessageVersionsCache {
     fun clearForRoom(roomId: String) {
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "MessageVersionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)",
-        )
+                TAG,
+                "MessageVersionsCache: clearForRoom called for $roomId (clearing all - room tracking not implemented)",
+            )
         }
         clear()
     }
@@ -118,9 +118,9 @@ object MessageVersionsCache {
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "MessageVersionsCache: Cleared versions for $removedVersions events, $removedEdits edit mappings (out of ${eventIds.size} requested)",
-            )
+                    TAG,
+                    "MessageVersionsCache: Cleared versions for $removedVersions events, $removedEdits edit mappings (out of ${eventIds.size} requested)",
+                )
             }
         }
     }

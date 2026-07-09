@@ -9,9 +9,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         if (!hasLoadedRecentEmojisFromServer) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: Skipping updateRecentEmojis - haven't loaded full recent emoji list from server yet. Will update after sync completes.",
-            )
+                    "Andromuks",
+                    "AppViewModel: Skipping updateRecentEmojis - haven't loaded full recent emoji list from server yet. Will update after sync completes.",
+                )
             }
             return@with
         }
@@ -100,9 +100,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendWebSocketCommand("set_account_data", accountDataRequestId, commandData)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: WebSocket command sent with request_id: $accountDataRequestId",
-        )
+                "Andromuks",
+                "AppViewModel: WebSocket command sent with request_id: $accountDataRequestId",
+            )
         }
     }
 
@@ -327,11 +327,12 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         if (value != null) contentMap[key] = value else contentMap.remove(key)
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "set_account_data", requestId,
+            "set_account_data",
+            requestId,
             mapOf(
-            "type" to "fi.mau.gomuks.preferences",
-            "content" to contentMap,
-        )
+                "type" to "fi.mau.gomuks.preferences",
+                "content" to contentMap,
+            ),
         )
     }
 
@@ -350,12 +351,13 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         if (value != null) contentMap[key] = value else contentMap.remove(key)
         val requestId = WebSocketService.allocateRequestId()
         sendWebSocketCommand(
-            "set_account_data", requestId,
+            "set_account_data",
+            requestId,
             mapOf(
-            "type" to "fi.mau.gomuks.preferences",
-            "content" to contentMap,
-            "room_id" to roomId,
-        )
+                "type" to "fi.mau.gomuks.preferences",
+                "content" to contentMap,
+                "room_id" to roomId,
+            ),
         )
         val contentObj = existingContent?.let { org.json.JSONObject(it.toString()) } ?: org.json.JSONObject()
         if (value != null) contentObj.put(key, value) else contentObj.remove(key)
@@ -372,9 +374,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         accountGlobalShowMediaPreviews = showMediaPreviews
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: global show_media_previews=$showMediaPreviews",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: global show_media_previews=$showMediaPreviews",
+            )
         }
     }
 
@@ -383,9 +385,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         accountGlobalRenderUrlPreviews = value
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: global render_url_previews=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: global render_url_previews=$value",
+            )
         }
     }
 
@@ -394,9 +396,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         accountGlobalSendBundledUrlPreviews = value
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: global send_bundled_url_previews=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: global send_bundled_url_previews=$value",
+            )
         }
     }
 
@@ -404,9 +406,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "show_media_previews", showMediaPreviews)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: room $roomId show_media_previews=$showMediaPreviews",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: room $roomId show_media_previews=$showMediaPreviews",
+            )
         }
     }
 
@@ -414,9 +416,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "render_url_previews", value)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: room $roomId render_url_previews=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: room $roomId render_url_previews=$value",
+            )
         }
     }
 
@@ -424,9 +426,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "send_bundled_url_previews", value)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: room $roomId send_bundled_url_previews=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: room $roomId send_bundled_url_previews=$value",
+            )
         }
     }
 
@@ -435,9 +437,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         accountGlobalSendReadReceipts = value
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: global send_read_receipts=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: global send_read_receipts=$value",
+            )
         }
     }
 
@@ -446,9 +448,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         accountGlobalSendTypingNotifications = value
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: global send_typing_notifications=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: global send_typing_notifications=$value",
+            )
         }
     }
 
@@ -456,9 +458,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "send_read_receipts", value)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: room $roomId send_read_receipts=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: room $roomId send_read_receipts=$value",
+            )
         }
     }
 
@@ -466,9 +468,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "send_typing_notifications", value)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: room $roomId send_typing_notifications=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: room $roomId send_typing_notifications=$value",
+            )
         }
     }
 
@@ -477,9 +479,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         accountGlobalDisplayReadReceipts = value
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: global display_read_receipts=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: global display_read_receipts=$value",
+            )
         }
     }
 
@@ -487,9 +489,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "display_read_receipts", value)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: room $roomId display_read_receipts=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: room $roomId display_read_receipts=$value",
+            )
         }
     }
 
@@ -498,9 +500,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         accountGlobalShowHiddenEvents = value
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: global show_hidden_events=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: global show_hidden_events=$value",
+            )
         }
     }
 
@@ -508,9 +510,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "show_hidden_events", value)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: room $roomId show_hidden_events=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: room $roomId show_hidden_events=$value",
+            )
         }
     }
 
@@ -519,9 +521,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         accountGlobalShowMembershipEvents = value
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: global show_membership_events=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: global show_membership_events=$value",
+            )
         }
     }
 
@@ -529,9 +531,9 @@ internal class AccountDataCoordinator(private val vm: AppViewModel) {
         sendGomuksRoomPref(roomId, "show_membership_events", value)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AccountDataCoordinator: room $roomId show_membership_events=$value",
-        )
+                "Andromuks",
+                "AccountDataCoordinator: room $roomId show_membership_events=$value",
+            )
         }
     }
 }

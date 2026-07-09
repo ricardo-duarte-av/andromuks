@@ -17,6 +17,5 @@ object NotificationVisibilityHelper {
     /**
      * Intent to open notification listener settings so the user can enable it.
      */
-    fun listenerSettingsIntent(): Intent =
-        Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    fun listenerSettingsIntent(): Intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 }

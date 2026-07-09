@@ -89,9 +89,9 @@ object ReceiptFunctions {
     ): Boolean {
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "ReceiptFunctions: processReadReceiptsFromSyncComplete called with ${receiptsJson.length()} event receipts for roomId=$roomId",
-        )
+                "Andromuks",
+                "ReceiptFunctions: processReadReceiptsFromSyncComplete called with ${receiptsJson.length()} event receipts for roomId=$roomId",
+            )
         }
 
         var hasChanges = false
@@ -125,9 +125,9 @@ object ReceiptFunctions {
                             hasChanges = true
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "ReceiptFunctions: Moved ${receipt.userId} from $previousEventId → ${receipt.eventId} in $roomId",
-                            )
+                                    "Andromuks",
+                                    "ReceiptFunctions: Moved ${receipt.userId} from $previousEventId → ${receipt.eventId} in $roomId",
+                                )
                             }
                         }
                     }
@@ -142,9 +142,9 @@ object ReceiptFunctions {
                         hasChanges = true
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "ReceiptFunctions: Updated timestamp for ${receipt.userId} on ${receipt.eventId} in $roomId",
-                        )
+                                "Andromuks",
+                                "ReceiptFunctions: Updated timestamp for ${receipt.userId} on ${receipt.eventId} in $roomId",
+                            )
                         }
                     }
                 }
@@ -157,9 +157,9 @@ object ReceiptFunctions {
                     hasChanges = true
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "ReceiptFunctions: Added ${receipt.userId} to ${receipt.eventId} in $roomId",
-                    )
+                            "Andromuks",
+                            "ReceiptFunctions: Added ${receipt.userId} to ${receipt.eventId} in $roomId",
+                        )
                     }
                 } else if (existing.timestamp != receipt.timestamp) {
                     list.remove(existing)
@@ -174,9 +174,9 @@ object ReceiptFunctions {
 
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "ReceiptFunctions: processReadReceiptsFromSyncComplete completed - hasChanges: $hasChanges",
-        )
+                "Andromuks",
+                "ReceiptFunctions: processReadReceiptsFromSyncComplete completed - hasChanges: $hasChanges",
+            )
         }
         if (hasChanges) updateCounter()
         return hasChanges
@@ -301,9 +301,9 @@ object ReceiptFunctions {
                     removedCount += removed
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "ReceiptFunctions: Removed $removed receipts for user $userId from event: $eventId",
-                    )
+                            "Andromuks",
+                            "ReceiptFunctions: Removed $removed receipts for user $userId from event: $eventId",
+                        )
                     }
 
                     // Remove the event entry if no receipts remain
@@ -311,9 +311,9 @@ object ReceiptFunctions {
                         readReceiptsMap.remove(eventId)
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "ReceiptFunctions: Removed empty event entry: $eventId",
-                        )
+                                "Andromuks",
+                                "ReceiptFunctions: Removed empty event entry: $eventId",
+                            )
                         }
                     }
                 }
@@ -356,9 +356,9 @@ fun InlineReadReceiptAvatars(
 
     if (BuildConfig.DEBUG) {
         Log.d(
-        "Andromuks",
-        "InlineReadReceiptAvatars: Called with ${receipts.size} receipts for sender: $messageSender",
-    )
+            "Andromuks",
+            "InlineReadReceiptAvatars: Called with ${receipts.size} receipts for sender: $messageSender",
+        )
     }
     if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Receipt users: ${receipts.map { it.userId }}")
 
@@ -370,11 +370,11 @@ fun InlineReadReceiptAvatars(
     val filteredReceipts = receipts.filter { it.userId != messageSender }
     if (BuildConfig.DEBUG) {
         Log.d(
-        "Andromuks",
-        "InlineReadReceiptAvatars: After filtering: ${filteredReceipts.size} receipts, users: ${filteredReceipts.map {
-            it.userId
-        }}",
-    )
+            "Andromuks",
+            "InlineReadReceiptAvatars: After filtering: ${filteredReceipts.size} receipts, users: ${filteredReceipts.map {
+                it.userId
+            }}",
+        )
     }
 
     val receiptUserIds = remember(filteredReceipts) {
@@ -411,9 +411,9 @@ fun InlineReadReceiptAvatars(
     if (filteredReceipts.isNotEmpty()) {
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "InlineReadReceiptAvatars: Rendering ${filteredReceipts.size} read receipt avatars",
-        )
+                "Andromuks",
+                "InlineReadReceiptAvatars: Rendering ${filteredReceipts.size} read receipt avatars",
+            )
         }
         // Show up to 3 avatars, with a "+X" indicator if there are more
         val maxAvatars = 3
@@ -469,15 +469,15 @@ fun InlineReadReceiptAvatars(
 
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "InlineReadReceiptAvatars: Rendering avatar for user: ${receipt.userId}",
-                    )
+                            "Andromuks",
+                            "InlineReadReceiptAvatars: Rendering avatar for user: ${receipt.userId}",
+                        )
                     }
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "InlineReadReceiptAvatars: Profile - displayName: $displayName, avatarUrl: $avatarUrl",
-                    )
+                            "Andromuks",
+                            "InlineReadReceiptAvatars: Profile - displayName: $displayName, avatarUrl: $avatarUrl",
+                        )
                     }
 
                     Box(
@@ -790,59 +790,59 @@ fun ReadReceiptDetailsDialog(
         if (appViewModel != null && roomId != null && receipts.isNotEmpty()) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "ReadReceiptDetailsDialog: LaunchedEffect triggered - receipts: ${receipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}",
-            )
+                    "Andromuks",
+                    "ReadReceiptDetailsDialog: LaunchedEffect triggered - receipts: ${receipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}",
+                )
             }
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "ReadReceiptDetailsDialog: Requesting profiles for ${receipts.size} read receipt users",
-            )
+                    "Andromuks",
+                    "ReadReceiptDetailsDialog: Requesting profiles for ${receipts.size} read receipt users",
+                )
             }
             receipts.forEach { receipt ->
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "ReadReceiptDetailsDialog: Processing receipt for user: ${receipt.userId}",
-                )
+                        "Andromuks",
+                        "ReadReceiptDetailsDialog: Processing receipt for user: ${receipt.userId}",
+                    )
                 }
                 val existingProfile = appViewModel.getUserProfile(receipt.userId, roomId)
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "ReadReceiptDetailsDialog: Profile check for ${receipt.userId} - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}",
-                )
+                        "Andromuks",
+                        "ReadReceiptDetailsDialog: Profile check for ${receipt.userId} - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}",
+                    )
                 }
                 if (existingProfile == null) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "ReadReceiptDetailsDialog: Profile not cached for ${receipt.userId}, requesting...",
-                    )
+                            "Andromuks",
+                            "ReadReceiptDetailsDialog: Profile not cached for ${receipt.userId}, requesting...",
+                        )
                     }
                     appViewModel.requestUserProfileOnDemand(receipt.userId, roomId)
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "ReadReceiptDetailsDialog: Profile request sent for ${receipt.userId}",
-                    )
+                            "Andromuks",
+                            "ReadReceiptDetailsDialog: Profile request sent for ${receipt.userId}",
+                        )
                     }
                 } else {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "ReadReceiptDetailsDialog: Profile already cached for ${receipt.userId} - displayName: ${existingProfile.displayName}",
-                    )
+                            "Andromuks",
+                            "ReadReceiptDetailsDialog: Profile already cached for ${receipt.userId} - displayName: ${existingProfile.displayName}",
+                        )
                     }
                 }
             }
         } else {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "ReadReceiptDetailsDialog: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, receipts: ${receipts.size}",
-            )
+                    "Andromuks",
+                    "ReadReceiptDetailsDialog: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, receipts: ${receipts.size}",
+                )
             }
         }
     }
@@ -961,13 +961,7 @@ fun ReadReceiptDetailsDialog(
 }
 
 @Composable
-private fun ReadReceiptItem(
-    receipt: ReadReceipt,
-    userProfile: MemberProfile?,
-    homeserverUrl: String,
-    authToken: String,
-    onUserClick: (String) -> Unit = {},
-) {
+private fun ReadReceiptItem(receipt: ReadReceipt, userProfile: MemberProfile?, homeserverUrl: String, authToken: String, onUserClick: (String) -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

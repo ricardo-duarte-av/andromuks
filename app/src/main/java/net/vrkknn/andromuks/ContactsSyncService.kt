@@ -32,11 +32,7 @@ import java.io.ByteArrayOutputStream
  * - Handles avatar syncing
  * - Supports incremental updates
  */
-class ContactsSyncService(
-    private val context: Context,
-    private val accountName: String,
-    private val accountType: String = "net.vrkknn.andromuks.matrix",
-) {
+class ContactsSyncService(private val context: Context, private val accountName: String, private val accountType: String = "net.vrkknn.andromuks.matrix") {
     companion object {
         private const val TAG = "ContactsSyncService"
 
@@ -189,12 +185,7 @@ class ContactsSyncService(
     /**
      * Add a new Matrix user as a contact
      */
-    private suspend fun addContact(
-        operations: MutableList<ContentProviderOperation>,
-        account: Account,
-        user: MatrixUser,
-        syncAvatars: Boolean,
-    ) {
+    private suspend fun addContact(operations: MutableList<ContentProviderOperation>, account: Account, user: MatrixUser, syncAvatars: Boolean) {
         val displayName = user.displayName ?: extractUsername(user.userId)
 
         // Create raw contact
@@ -275,12 +266,7 @@ class ContactsSyncService(
     /**
      * Update an existing Matrix contact
      */
-    private suspend fun updateContact(
-        operations: MutableList<ContentProviderOperation>,
-        rawContactId: Long,
-        user: MatrixUser,
-        syncAvatars: Boolean,
-    ) {
+    private suspend fun updateContact(operations: MutableList<ContentProviderOperation>, rawContactId: Long, user: MatrixUser, syncAvatars: Boolean) {
         val displayName = user.displayName ?: extractUsername(user.userId)
 
         // Update display name
@@ -615,50 +601,49 @@ class ContactsSyncService(
      * Merge Matrix contact with existing contact
      * This adds Matrix data to an existing contact instead of creating a new one
      */
-    suspend fun mergeWithExistingContact(existingRawContactId: Long, user: MatrixUser, syncAvatars: Boolean) =
-        withContext(Dispatchers.IO) {
-            val operations = mutableListOf<ContentProviderOperation>()
+    suspend fun mergeWithExistingContact(existingRawContactId: Long, user: MatrixUser, syncAvatars: Boolean) = withContext(Dispatchers.IO) {
+        val operations = mutableListOf<ContentProviderOperation>()
 
-            // Add Matrix user ID as custom MIME type to existing contact
-            val matrixUri = "matrix:u/${user.userId.removePrefix("@")}"
-            operations.add(
-                ContentProviderOperation.newInsert(Data.CONTENT_URI)
-                    .withValue(Data.RAW_CONTACT_ID, existingRawContactId)
-                    .withValue(Data.MIMETYPE, MatrixContactsProvider.MIME_TYPE_MATRIX_USER)
-                    .withValue(Data.DATA1, matrixUri)
-                    .withValue(Data.DATA2, "Matrix")
-                    .withValue(Data.DATA3, "Send Matrix message")
-                    .withValue(Data.DATA4, user.userId)
-                    .build(),
-            )
+        // Add Matrix user ID as custom MIME type to existing contact
+        val matrixUri = "matrix:u/${user.userId.removePrefix("@")}"
+        operations.add(
+            ContentProviderOperation.newInsert(Data.CONTENT_URI)
+                .withValue(Data.RAW_CONTACT_ID, existingRawContactId)
+                .withValue(Data.MIMETYPE, MatrixContactsProvider.MIME_TYPE_MATRIX_USER)
+                .withValue(Data.DATA1, matrixUri)
+                .withValue(Data.DATA2, "Matrix")
+                .withValue(Data.DATA3, "Send Matrix message")
+                .withValue(Data.DATA4, user.userId)
+                .build(),
+        )
 
-            // Add avatar if available
-            if (syncAvatars && user.avatarUrl != null) {
-                val avatarBytes = getAvatarBytes(user.avatarUrl)
-                if (avatarBytes != null) {
-                    // Only add if contact doesn't already have a photo
-                    val photoId = getPhotoDataId(existingRawContactId)
-                    if (photoId == null) {
-                        operations.add(
-                            ContentProviderOperation.newInsert(Data.CONTENT_URI)
-                                .withValue(Data.RAW_CONTACT_ID, existingRawContactId)
-                                .withValue(Data.MIMETYPE, CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
-                                .withValue(CommonDataKinds.Photo.PHOTO, avatarBytes)
-                                .build(),
-                        )
-                    }
+        // Add avatar if available
+        if (syncAvatars && user.avatarUrl != null) {
+            val avatarBytes = getAvatarBytes(user.avatarUrl)
+            if (avatarBytes != null) {
+                // Only add if contact doesn't already have a photo
+                val photoId = getPhotoDataId(existingRawContactId)
+                if (photoId == null) {
+                    operations.add(
+                        ContentProviderOperation.newInsert(Data.CONTENT_URI)
+                            .withValue(Data.RAW_CONTACT_ID, existingRawContactId)
+                            .withValue(Data.MIMETYPE, CommonDataKinds.Photo.CONTENT_ITEM_TYPE)
+                            .withValue(CommonDataKinds.Photo.PHOTO, avatarBytes)
+                            .build(),
+                    )
                 }
-            }
-
-            try {
-                context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ArrayList(operations))
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "Merged Matrix contact with existing contact: ${user.userId}")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error merging contact", e)
             }
         }
+
+        try {
+            context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ArrayList(operations))
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Merged Matrix contact with existing contact: ${user.userId}")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error merging contact", e)
+        }
+    }
 
     /**
      * Ensure the sync account exists

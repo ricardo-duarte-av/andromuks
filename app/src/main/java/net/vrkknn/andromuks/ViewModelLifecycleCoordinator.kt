@@ -296,9 +296,9 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                     val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
                     if (BuildConfig.DEBUG) {
                         android.util.Log.i(
-                        "Andromuks",
-                        "AppViewModel: Resume health check — pingNowWithWatchdog returned false → re-dialling WebSocket",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Resume health check — pingNowWithWatchdog returned false → re-dialling WebSocket",
+                        )
                     }
                     val haveCreds = homeserverUrl.isNotEmpty() && authToken.isNotEmpty()
                     Androlog(
@@ -439,17 +439,17 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 if (BubbleTracker.anyBubbleOpen()) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: BatterySaver linger skipped — bubble open",
-                    )
+                            "Andromuks",
+                            "AppViewModel: BatterySaver linger skipped — bubble open",
+                        )
                     }
                 } else {
                     WebSocketService.scheduleBatterySaverLinger()
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Battery-saver mode active — service will stop after linger",
-                    )
+                            "Andromuks",
+                            "AppViewModel: Battery-saver mode active — service will stop after linger",
+                        )
                     }
                 }
             } else {

@@ -59,9 +59,9 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             val timeSinceLastProcess = now - lastProcessedTime
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Skipping duplicate reply processing - processed ${timeSinceLastProcess}ms ago (dedup window: ${DEDUP_WINDOW_MS}ms)",
-            )
+                    TAG,
+                    "Skipping duplicate reply processing - processed ${timeSinceLastProcess}ms ago (dedup window: ${DEDUP_WINDOW_MS}ms)",
+                )
             }
             // Return early to prevent duplicate processing
             return
@@ -113,9 +113,9 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         if (viewModel != null) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Found registered ViewModel, sending message directly (MainActivity may not be running)",
-            )
+                    TAG,
+                    "Found registered ViewModel, sending message directly (MainActivity may not be running)",
+                )
             }
             // Send message directly via ViewModel - this adds to FIFO buffer
             viewModel.sendMessageFromNotification(roomId, replyText) {

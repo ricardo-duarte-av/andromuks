@@ -25,11 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.AppViewModel
 
-data class EmojiSuggestion(
-    val shortcode: String,
-    val emoji: String? = null,
-    val customEmoji: AppViewModel.CustomEmoji? = null,
-)
+data class EmojiSuggestion(val shortcode: String, val emoji: String? = null, val customEmoji: AppViewModel.CustomEmoji? = null)
 
 object EmojiShortcodes {
     private val shortcodeToEmoji: Map<String, String> = buildMap(1983) {
@@ -4019,11 +4015,7 @@ object EmojiShortcodes {
         m["💤"] = "zzz"
     }
 
-    fun getSuggestions(
-        query: String,
-        customEmojiPacks: List<AppViewModel.EmojiPack>,
-        maxResults: Int = 25,
-    ): List<EmojiSuggestion> {
+    fun getSuggestions(query: String, customEmojiPacks: List<AppViewModel.EmojiPack>, maxResults: Int = 25): List<EmojiSuggestion> {
         val trimmed = query.trim().lowercase()
 
         val standardMatches = shortcodeToEmoji
@@ -4047,10 +4039,7 @@ object EmojiShortcodes {
         return (standardMatches + customMatches).take(maxResults).toList()
     }
 
-    fun findByShortcode(
-        shortcodeWithoutColons: String,
-        customEmojiPacks: List<AppViewModel.EmojiPack>,
-    ): EmojiSuggestion? {
+    fun findByShortcode(shortcodeWithoutColons: String, customEmojiPacks: List<AppViewModel.EmojiPack>): EmojiSuggestion? {
         val key = shortcodeWithoutColons.trim().lowercase()
         shortcodeToEmoji[key]?.let { return EmojiSuggestion(shortcode = key, emoji = it) }
         customEmojiPacks

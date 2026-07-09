@@ -559,15 +559,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
      * clock skew), so a timestamp-max target can fall short of the genuine latest event and
      * leave the "new messages" divider stuck across re-opens. Returns null for an empty list.
      */
-    internal fun latestRowidEventId(events: List<TimelineEvent>): String? =
-        events.maxByOrNull { it.timelineRowid }?.eventId
+    internal fun latestRowidEventId(events: List<TimelineEvent>): String? = events.maxByOrNull { it.timelineRowid }?.eventId
 
-    fun processCachedEvents(
-        roomId: String,
-        cachedEvents: List<TimelineEvent>,
-        openingFromNotification: Boolean,
-        skipNetworkRequests: Boolean = false,
-    ) {
+    fun processCachedEvents(roomId: String, cachedEvents: List<TimelineEvent>, openingFromNotification: Boolean, skipNetworkRequests: Boolean = false) {
         with(vm) {
             val ownMessagesInCache =
                 cachedEvents.count {
@@ -817,9 +811,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     if (currentRoomId != roomId) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.w(
-                            "Andromuks",
-                            "processCachedEvents: Discarding stale post-processing for $roomId (currentRoomId=$currentRoomId)",
-                        )
+                                "Andromuks",
+                                "processCachedEvents: Discarding stale post-processing for $roomId (currentRoomId=$currentRoomId)",
+                            )
                         }
                         return@withContext
                     }
@@ -2248,10 +2242,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                                 if (roomUserIndex[r.userId] ==
                                                                     eventId
                                                                 ) {
-                                                                        roomUserIndex.remove(
-                                                                    r.userId,
-                                                                )
-                                                                    }
+                                                                    roomUserIndex.remove(
+                                                                        r.userId,
+                                                                    )
+                                                                }
                                                             }
                                                             if (BuildConfig.DEBUG) {
                                                                 android.util.Log.d(
@@ -2654,8 +2648,8 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             event.type == "m.room.redaction" ||
                                 (
                                     event.type == "m.room.encrypted" &&
-                                    event.decryptedType == "m.room.redaction"
-                                )
+                                        event.decryptedType == "m.room.redaction"
+                                    )
 
                         if (isRedaction) {
                             // For encrypted redactions, check decrypted content; for non-encrypted,
@@ -3112,11 +3106,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 "(pushed caught=$caughtPushed)." +
                                 (
                                     if (purge) {
-                                    " Purging timeline and reseeding with full paginate."
-                                } else {
-                                    " Room is open — skipping purge, escalating with full merge-paginate."
-                                }
-                                ),
+                                        " Purging timeline and reseeding with full paginate."
+                                    } else {
+                                        " Room is open — skipping purge, escalating with full merge-paginate."
+                                    }
+                                    ),
                         )
                         if (purge) RoomTimelineCache.clearRoomCache(roomId)
                         paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)

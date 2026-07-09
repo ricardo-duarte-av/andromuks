@@ -67,10 +67,7 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun getMemberMapWithFallback(
-        roomId: String,
-        timelineEvents: List<TimelineEvent>? = null,
-    ): Map<String, MemberProfile> {
+    fun getMemberMapWithFallback(roomId: String, timelineEvents: List<TimelineEvent>? = null): Map<String, MemberProfile> {
         val memberMap = getMemberMap(roomId).toMutableMap()
         with(vm) {
             timelineEvents?.let { events ->
