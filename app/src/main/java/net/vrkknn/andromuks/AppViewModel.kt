@@ -4,6 +4,7 @@ import android.app.ForegroundServiceStartNotAllowedException
 import android.content.Context
 import android.net.Uri
 import android.os.Build
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -481,6 +482,28 @@ class AppViewModel : ViewModel() {
     fun isPrimaryInstance() = viewModelLifecycleCoordinator.isPrimaryInstance()
 
     var isLoading by mutableStateOf(false)
+
+    /**
+     * Per-section [LazyListState] for RoomListScreen, hoisted here so the room list's scroll
+     * position survives RoomListScreen being disposed on navigation (NavHost only preserves
+     * *saveable* state, and a plain `remember { mutableMapOf(...) }` inside the screen is lost).
+     *
+     * Restoring the real scroll position on pop-back means the row you came from is composed at
+     * its actual position rather than the list snapping to index 0 — which gives the
+     * shared-element avatar/badge flight a stable, correctly-placed target instead of a
+     * missing/moving one (the "clunky" back-to-list transition). Plain map (not observable): it's
+     * a state store owned by the screen, not something composition should react to.
+     */
+    val roomListScrollStates = mutableMapOf<RoomSectionType, LazyListState>()
+
+    /**
+     * One-shot latch for the cold-start "scroll active section to top once initial sync
+     * completes" behaviour. Lives here (not in RoomListScreen) because the screen is disposed on
+     * navigation — a `remember` flag would reset and re-fire the scroll on every pop-back, which
+     * would defeat [roomListScrollStates] by snapping the list to index 0 just as we return.
+     */
+    var roomListInitialSyncScrollApplied: Boolean = false
+
     var homeserverUrl by mutableStateOf("")
         private set
     var authToken by mutableStateOf("")

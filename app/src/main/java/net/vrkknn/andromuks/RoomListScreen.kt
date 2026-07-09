@@ -282,7 +282,10 @@ fun RoomListScreen(
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     var coldStartRefreshing by remember { mutableStateOf(false) }
     var initialLoadComplete by remember { mutableStateOf(false) }
-    val listStates = remember { mutableMapOf<RoomSectionType, LazyListState>() }
+    // Hoisted to AppViewModel so scroll position survives this screen being disposed on
+    // navigation. On pop-back the destination row is then composed at its real position,
+    // giving the shared-element avatar flight a stable target (see roomListScrollStates).
+    val listStates = appViewModel.roomListScrollStates
     // PERFORMANCE FIX: Smart timestamp updates - only update when displayed unit changes
     // New format: Today shows hh:mm, Yesterday shows "Yesterday", older shows "2d ago", "1w ago", "1y ago"
     // Update intervals:
@@ -548,8 +551,13 @@ fun RoomListScreen(
     // top. Without this, rooms inserted at the front of the sorted list (newer timestamps) shift
     // existing keyed items down, causing Compose to adjust firstVisibleItemIndex upward — which
     // silently defeats the sticky-top guard in RoomListContent (index > 1 → no auto-scroll).
+    // One-shot per session: gated by a ViewModel latch so it does NOT re-fire when this screen
+    // is recomposed on pop-back (which would snap the restored scroll position back to 0 and
+    // defeat the hoisted listStates). The front-insertion shift it guards against only happens
+    // during the initial cold-start sync.
     LaunchedEffect(effectiveInitialSyncComplete) {
-        if (effectiveInitialSyncComplete) {
+        if (effectiveInitialSyncComplete && !appViewModel.roomListInitialSyncScrollApplied) {
+            appViewModel.roomListInitialSyncScrollApplied = true
             listStates[stableSection.type]?.scrollToItem(0)
         }
     }
