@@ -309,11 +309,7 @@ private fun LoadingBox(innerPadding: PaddingValues) {
 }
 
 @Composable
-private fun AccountDataKeyList(
-    entries: Map<String, JSONObject>,
-    innerPadding: PaddingValues,
-    onSelect: (String) -> Unit,
-) {
+private fun AccountDataKeyList(entries: Map<String, JSONObject>, innerPadding: PaddingValues, onSelect: (String) -> Unit) {
     if (entries.isEmpty()) {
         Column(
             modifier = Modifier

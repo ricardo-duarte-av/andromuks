@@ -208,12 +208,7 @@ object RoomMetadataStore {
      * [RoomListCache] persists per sync_complete. Null [name]/[avatarMxc] means "leave that
      * column untouched"; [sortTs] only advances forward (older/zero values are dropped).
      */
-    data class MetaUpdate(
-        val roomId: String,
-        val name: String? = null,
-        val avatarMxc: String? = null,
-        val sortTs: Long? = null,
-    )
+    data class MetaUpdate(val roomId: String, val name: String? = null, val avatarMxc: String? = null, val sortTs: Long? = null)
 
     /**
      * Hot-path batched upsert: merges every update into the in-memory mirror synchronously

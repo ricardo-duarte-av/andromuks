@@ -167,11 +167,7 @@ object Commands {
  * Floating suggestion list for `/command` autocomplete.
  */
 @Composable
-fun CommandSuggestionList(
-    query: String,
-    onCommandSelected: (CommandDefinition) -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun CommandSuggestionList(query: String, onCommandSelected: (CommandDefinition) -> Unit, modifier: Modifier = Modifier) {
     val suggestions = remember(query) {
         Commands.getSuggestions(query)
     }

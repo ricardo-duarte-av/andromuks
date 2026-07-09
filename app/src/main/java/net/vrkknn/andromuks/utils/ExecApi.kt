@@ -136,9 +136,9 @@ object ExecApi {
             put(
                 "mentions",
                 JSONObject().apply {
-                put("user_ids", org.json.JSONArray())
-                put("room", false)
-            }
+                    put("user_ids", org.json.JSONArray())
+                    put("room", false)
+                },
             )
         }
         return execRaw(creds, "send_message", body) is ExecResult.Success

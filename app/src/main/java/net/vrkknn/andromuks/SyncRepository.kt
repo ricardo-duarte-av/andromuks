@@ -55,10 +55,7 @@ sealed class SyncEvent {
      * Parsed WebSocket JSON (one direction: NetworkUtils → all attached ViewModels).
      * [hint] carries edge cases that must run per-VM (e.g. resume sync_complete).
      */
-    data class IncomingWebSocketMessage(
-        val jsonString: String,
-        val hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE,
-    ) : SyncEvent()
+    data class IncomingWebSocketMessage(val jsonString: String, val hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) : SyncEvent()
 }
 
 /**
@@ -517,10 +514,7 @@ object SyncRepository {
      * non-lossy [ackEvents] flow instead of [_events]. Keeps acks safe from high-volume sync/key
      * bursts so request responses are never silently dropped.
      */
-    fun emitPriorityIncomingWebSocketMessage(
-        jsonString: String,
-        hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE,
-    ) {
+    fun emitPriorityIncomingWebSocketMessage(jsonString: String, hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) {
         if (!_ackEvents.tryEmit(SyncEvent.IncomingWebSocketMessage(jsonString, hint))) {
             // DROP_OLDEST never reports failure for a non-zero buffer; logged only for completeness.
             android.util.Log.w("SyncRepository", "Ack event dropped (buffer full)")

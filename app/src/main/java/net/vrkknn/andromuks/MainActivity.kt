@@ -280,18 +280,18 @@ class MainActivity : FragmentActivity() {
                                 // This instance should attach as SECONDARY (don't call markAsPrimaryInstance)
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: WebSocket already connected with primary instance $existingPrimaryId - attaching as SECONDARY",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: WebSocket already connected with primary instance $existingPrimaryId - attaching as SECONDARY",
+                                    )
                                 }
                                 // Don't call markAsPrimaryInstance() - let it attach as secondary via attachToExistingWebSocketIfAvailable()
                             } else {
                                 // No existing primary or WebSocket not connected - this instance should be PRIMARY
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: Marking as PRIMARY (isWebSocketConnected=$isWebSocketConnected, existingPrimaryId=$existingPrimaryId)",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: Marking as PRIMARY (isWebSocketConnected=$isWebSocketConnected, existingPrimaryId=$existingPrimaryId)",
+                                    )
                                 }
                                 appViewModel.markAsPrimaryInstance()
                             }
@@ -312,9 +312,9 @@ class MainActivity : FragmentActivity() {
                                 appViewModel.setOpenedFromExternalApp(true)
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: Opened from Contacts app - will finish activity on back navigation",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: Opened from Contacts app - will finish activity on back navigation",
+                                    )
                                 }
 
                                 // Extract Matrix URI from contact data
@@ -338,32 +338,32 @@ class MainActivity : FragmentActivity() {
                                                 matrixUri = android.net.Uri.parse(matrixUriString)
                                                 if (BuildConfig.DEBUG) {
                                                     Log.d(
-                                                    "Andromuks",
-                                                    "MainActivity: Extracted Matrix URI from contact MIME type: $matrixUriString",
-                                                )
+                                                        "Andromuks",
+                                                        "MainActivity: Extracted Matrix URI from contact MIME type: $matrixUriString",
+                                                    )
                                                 }
                                             } else {
                                                 if (BuildConfig.DEBUG) {
                                                     Log.w(
-                                                    "Andromuks",
-                                                    "MainActivity: Contact data row exists but DATA1 is empty or invalid: '$matrixUriString'",
-                                                )
+                                                        "Andromuks",
+                                                        "MainActivity: Contact data row exists but DATA1 is empty or invalid: '$matrixUriString'",
+                                                    )
                                                 }
                                             }
                                         } else {
                                             if (BuildConfig.DEBUG) {
                                                 Log.w(
-                                                "Andromuks",
-                                                "MainActivity: Contact data row query returned no results for URI: $matrixUri",
-                                            )
+                                                    "Andromuks",
+                                                    "MainActivity: Contact data row query returned no results for URI: $matrixUri",
+                                                )
                                             }
                                         }
                                     } ?: run {
                                         if (BuildConfig.DEBUG) {
                                             Log.w(
-                                            "Andromuks",
-                                            "MainActivity: Contact data row query returned null cursor for URI: $matrixUri",
-                                        )
+                                                "Andromuks",
+                                                "MainActivity: Contact data row query returned null cursor for URI: $matrixUri",
+                                            )
                                         }
                                     }
                                 } catch (e: SecurityException) {
@@ -386,23 +386,28 @@ class MainActivity : FragmentActivity() {
                                 // Check if the calling package is Contacts app
                                 val callingPackage = callingPackage
                                 if (callingPackage != null && (
-                                    callingPackage.contains(
-                                        "contacts",
-                                        ignoreCase = true,
-                                    ) || callingPackage == "com.android.contacts"
-                                )
+                                        callingPackage.contains(
+                                            "contacts",
+                                            ignoreCase = true,
+                                        ) || callingPackage == "com.android.contacts"
+                                        )
                                 ) {
                                     appViewModel.setOpenedFromExternalApp(true)
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "MainActivity: Opened from Contacts app via matrix:u/ URI - will finish activity on back navigation",
-                                    )
+                                            "Andromuks",
+                                            "MainActivity: Opened from Contacts app via matrix:u/ URI - will finish activity on back navigation",
+                                        )
                                     }
                                 }
                             }
 
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                "Andromuks",
+                                "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri",
+                            )
+                            }
 
                             // Extract userId from matrix:u/ URI if present
                             var extractedUserId: String? = null
@@ -417,9 +422,9 @@ class MainActivity : FragmentActivity() {
                                     extractedUserId = if (decodedUser.startsWith("@")) decodedUser else "@$decodedUser"
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "MainActivity: Extracted userId from matrix:u/ URI: $extractedUserId",
-                                    )
+                                            "Andromuks",
+                                            "MainActivity: Extracted userId from matrix:u/ URI: $extractedUserId",
+                                        )
                                     }
                                 }
                             }
@@ -428,9 +433,9 @@ class MainActivity : FragmentActivity() {
                                 // OPTIMIZATION #2: Fast path - room ID already extracted
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId",
+                                    )
                                 }
                                 roomId
                             } else {
@@ -438,9 +443,9 @@ class MainActivity : FragmentActivity() {
                                 val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: onCreate - Fallback URI parsing: $uriRoomId",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: onCreate - Fallback URI parsing: $uriRoomId",
+                                    )
                                 }
                                 uriRoomId
                             }
@@ -510,9 +515,9 @@ class MainActivity : FragmentActivity() {
                             if (fromNotification || directNavigation) {
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: Opening from notification/shortcut - populating roomMap from singleton cache",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: Opening from notification/shortcut - populating roomMap from singleton cache",
+                                    )
                                 }
                                 appViewModel.populateRoomMapFromCache()
                                 appViewModel.populateSpacesFromCache()
@@ -536,9 +541,9 @@ class MainActivity : FragmentActivity() {
                                 // This ensures proper state (spacesLoaded, WebSocket connected) before navigating
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: onCreate - Storing direct room navigation to: $extractedRoomId (will wait for WebSocket)",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: onCreate - Storing direct room navigation to: $extractedRoomId (will wait for WebSocket)",
+                                    )
                                 }
                                 // Notification tap means the user has acknowledged the cached
                                 // MessagingStyle history for this room — drop it so the next
@@ -584,9 +589,9 @@ class MainActivity : FragmentActivity() {
                                 // Navigate to user info screen when WebSocket is connected
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: onCreate - Storing user info navigation for userId: $extractedUserId (will wait for WebSocket)",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: onCreate - Storing user info navigation for userId: $extractedUserId (will wait for WebSocket)",
+                                    )
                                 }
                                 appViewModel.setPendingUserInfoNavigation(extractedUserId)
                             }
@@ -608,16 +613,16 @@ class MainActivity : FragmentActivity() {
                                 if (roomId != null && replyText != null) {
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        "Andromuks",
-                                        "MainActivity: Processing pending reply for room: $roomId",
-                                    )
+                                            "Andromuks",
+                                            "MainActivity: Processing pending reply for room: $roomId",
+                                        )
                                     }
                                     appViewModel.sendMessageFromNotification(roomId, replyText) {
                                         if (BuildConfig.DEBUG) {
                                             Log.d(
-                                            "Andromuks",
-                                            "MainActivity: Pending reply message sent successfully",
-                                        )
+                                                "Andromuks",
+                                                "MainActivity: Pending reply message sent successfully",
+                                            )
                                         }
                                     }
                                 } else {
@@ -645,9 +650,9 @@ class MainActivity : FragmentActivity() {
                             if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: ViewModel created after onResume - forcing visible state",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: ViewModel created after onResume - forcing visible state",
+                                    )
                                 }
                                 viewModel.onAppBecameVisible()
                             }
@@ -668,9 +673,9 @@ class MainActivity : FragmentActivity() {
         if (!::appViewModel.isInitialized) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "MainActivity: ViewModel not ready, storing share intent for later processing",
-            )
+                    "Andromuks",
+                    "MainActivity: ViewModel not ready, storing share intent for later processing",
+                )
             }
             pendingShareIntent = intent
             return
@@ -695,9 +700,9 @@ class MainActivity : FragmentActivity() {
         appViewModel.setPendingShare(shareItems, sharedText, targetRoomId)
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "MainActivity: Share intent processed with ${shareItems.size} media items, targetRoom=$targetRoomId",
-        )
+                "Andromuks",
+                "MainActivity: Share intent processed with ${shareItems.size} media items, targetRoom=$targetRoomId",
+            )
         }
 
         if (!targetRoomId.isNullOrBlank()) {
@@ -774,13 +779,12 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    private fun getStreamUri(intent: Intent): Uri? =
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-        } else {
-            @Suppress("DEPRECATION")
-            intent.getParcelableExtra(Intent.EXTRA_STREAM)
-        }
+    private fun getStreamUri(intent: Intent): Uri? = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+    } else {
+        @Suppress("DEPRECATION")
+        intent.getParcelableExtra(Intent.EXTRA_STREAM)
+    }
 
     private fun registerNotificationBroadcastReceiver() {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Registering notification broadcast receiver")
@@ -788,9 +792,9 @@ class MainActivity : FragmentActivity() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "MainActivity: Broadcast receiver got intent: ${intent?.action}",
-                )
+                        "Andromuks",
+                        "MainActivity: Broadcast receiver got intent: ${intent?.action}",
+                    )
                 }
                 when (intent?.action) {
                     "net.vrkknn.andromuks.SEND_MESSAGE" -> {
@@ -798,23 +802,23 @@ class MainActivity : FragmentActivity() {
                         val messageText = intent.getStringExtra("message_text")
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "MainActivity: SEND_MESSAGE broadcast - roomId: $roomId, messageText: $messageText",
-                        )
+                                "Andromuks",
+                                "MainActivity: SEND_MESSAGE broadcast - roomId: $roomId, messageText: $messageText",
+                            )
                         }
                         if (roomId != null && messageText != null) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "MainActivity: Received send message broadcast for room $roomId: $messageText",
-                            )
+                                    "Andromuks",
+                                    "MainActivity: Received send message broadcast for room $roomId: $messageText",
+                                )
                             }
                             appViewModel.sendMessageFromNotification(roomId, messageText) {
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: Broadcast send message completed",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: Broadcast send message completed",
+                                    )
                                 }
                                 // Update the notification with the sent message
                                 try {
@@ -831,9 +835,9 @@ class MainActivity : FragmentActivity() {
                                         enhancedNotificationDisplay.updateNotificationWithReply(roomId, messageText)
                                         if (BuildConfig.DEBUG) {
                                             Log.d(
-                                            "Andromuks",
-                                            "MainActivity: Updated notification with reply for room: $roomId",
-                                        )
+                                                "Andromuks",
+                                                "MainActivity: Updated notification with reply for room: $roomId",
+                                            )
                                         }
                                     } else {
                                         Log.w(
@@ -858,16 +862,16 @@ class MainActivity : FragmentActivity() {
                         val eventId = intent.getStringExtra("event_id")
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "MainActivity: MARK_READ broadcast - roomId: $roomId, eventId: $eventId",
-                        )
+                                "Andromuks",
+                                "MainActivity: MARK_READ broadcast - roomId: $roomId, eventId: $eventId",
+                            )
                         }
                         if (roomId != null) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "MainActivity: Received mark read broadcast for room $roomId, event: $eventId",
-                            )
+                                    "Andromuks",
+                                    "MainActivity: Received mark read broadcast for room $roomId, event: $eventId",
+                                )
                             }
                             appViewModel.markRoomAsReadFromNotification(roomId, eventId ?: "") {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Broadcast mark read completed")
@@ -886,9 +890,9 @@ class MainActivity : FragmentActivity() {
                                         enhancedNotificationDisplay.updateNotificationAsRead(roomId)
                                         if (BuildConfig.DEBUG) {
                                             Log.d(
-                                            "Andromuks",
-                                            "MainActivity: Updated notification as read for room: $roomId",
-                                        )
+                                                "Andromuks",
+                                                "MainActivity: Updated notification as read for room: $roomId",
+                                            )
                                         }
                                     } else {
                                         Log.w(
@@ -909,16 +913,16 @@ class MainActivity : FragmentActivity() {
                         val roomId = intent.getStringExtra("room_id")
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "MainActivity: PREEMPTIVE_PAGINATE broadcast - roomId: $roomId",
-                        )
+                                "Andromuks",
+                                "MainActivity: PREEMPTIVE_PAGINATE broadcast - roomId: $roomId",
+                            )
                         }
                         if (roomId != null) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "MainActivity: Received preemptive pagination request for room $roomId",
-                            )
+                                    "Andromuks",
+                                    "MainActivity: Received preemptive pagination request for room $roomId",
+                                )
                             }
                             appViewModel.triggerPreemptivePagination(roomId)
                         } else {
@@ -941,9 +945,9 @@ class MainActivity : FragmentActivity() {
         ContextCompat.registerReceiver(this, notificationBroadcastReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "MainActivity: Notification broadcast receiver registered successfully",
-        )
+                "Andromuks",
+                "MainActivity: Notification broadcast receiver registered successfully",
+            )
         }
     }
 
@@ -954,9 +958,9 @@ class MainActivity : FragmentActivity() {
                     "net.vrkknn.andromuks.ACTION_REPLY" -> {
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "MainActivity: ACTION_REPLY received in broadcast receiver",
-                        )
+                                "Andromuks",
+                                "MainActivity: ACTION_REPLY received in broadcast receiver",
+                            )
                         }
 
                         // DEDUPLICATION: Check if this is a duplicate from NotificationReplyReceiver
@@ -964,23 +968,28 @@ class MainActivity : FragmentActivity() {
                         val fromReplyReceiver = intent.getBooleanExtra("from_reply_receiver", false)
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "MainActivity: ACTION_REPLY from_reply_receiver: $fromReplyReceiver",
-                        )
+                                "Andromuks",
+                                "MainActivity: ACTION_REPLY from_reply_receiver: $fromReplyReceiver",
+                            )
                         }
 
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
                         val replyText = getReplyText(intent)
 
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'")
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                            "Andromuks",
+                            "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'",
+                        )
+                        }
 
                         if (roomId != null && replyText != null) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "MainActivity: Calling appViewModel.sendMessageFromNotification for room: $roomId",
-                            )
+                                    "Andromuks",
+                                    "MainActivity: Calling appViewModel.sendMessageFromNotification for room: $roomId",
+                                )
                             }
 
                             // Mark that we're processing a reply to prevent notification updates during Android's processing window
@@ -1006,9 +1015,9 @@ class MainActivity : FragmentActivity() {
                             appViewModel.sendMessageFromNotification(roomId, replyText) {
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: Reply message sent successfully",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: Reply message sent successfully",
+                                    )
                                 }
                                 // Update the notification with the sent message
                                 // Add a delay to let Android finish processing the reply action first
@@ -1031,9 +1040,9 @@ class MainActivity : FragmentActivity() {
                                             enhancedNotificationDisplay.updateNotificationWithReply(roomId, replyText)
                                             if (BuildConfig.DEBUG) {
                                                 Log.d(
-                                                "Andromuks",
-                                                "MainActivity: Updated notification with reply for room: $roomId (after delay)",
-                                            )
+                                                    "Andromuks",
+                                                    "MainActivity: Updated notification with reply for room: $roomId (after delay)",
+                                                )
                                             }
                                         } else {
                                             Log.w(
@@ -1048,9 +1057,9 @@ class MainActivity : FragmentActivity() {
                             }
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "MainActivity: sendMessageFromNotification call completed",
-                            )
+                                    "Andromuks",
+                                    "MainActivity: sendMessageFromNotification call completed",
+                                )
                             }
                             // Abort broadcast to prevent other receivers from processing this reply
                             abortBroadcast()
@@ -1065,9 +1074,9 @@ class MainActivity : FragmentActivity() {
                     "net.vrkknn.andromuks.ACTION_MARK_READ" -> {
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "MainActivity: ACTION_MARK_READ received in broadcast receiver",
-                        )
+                                "Andromuks",
+                                "MainActivity: ACTION_MARK_READ received in broadcast receiver",
+                            )
                         }
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
@@ -1077,16 +1086,16 @@ class MainActivity : FragmentActivity() {
                         if (roomId != null && eventId != null && eventId.isNotEmpty()) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "MainActivity: Calling appViewModel.markRoomAsReadFromNotification for room: $roomId, event: $eventId",
-                            )
+                                    "Andromuks",
+                                    "MainActivity: Calling appViewModel.markRoomAsReadFromNotification for room: $roomId, event: $eventId",
+                                )
                             }
                             appViewModel.markRoomAsReadFromNotification(roomId, eventId) {
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "MainActivity: Mark read completed successfully",
-                                )
+                                        "Andromuks",
+                                        "MainActivity: Mark read completed successfully",
+                                    )
                                 }
                                 // Update the notification to show it's been read
                                 try {
@@ -1103,9 +1112,9 @@ class MainActivity : FragmentActivity() {
                                         enhancedNotificationDisplay.updateNotificationAsRead(roomId)
                                         if (BuildConfig.DEBUG) {
                                             Log.d(
-                                            "Andromuks",
-                                            "MainActivity: Updated notification as read for room: $roomId",
-                                        )
+                                                "Andromuks",
+                                                "MainActivity: Updated notification as read for room: $roomId",
+                                            )
                                         }
                                     } else {
                                         Log.w(
@@ -1167,16 +1176,16 @@ class MainActivity : FragmentActivity() {
             if (roomId != null && replyText != null && ::appViewModel.isInitialized) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "MainActivity: onNewIntent - Processing reply for room: $roomId",
-                )
+                        "Andromuks",
+                        "MainActivity: onNewIntent - Processing reply for room: $roomId",
+                    )
                 }
                 appViewModel.sendMessageFromNotification(roomId, replyText) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "MainActivity: onNewIntent - Reply message sent successfully",
-                    )
+                            "Andromuks",
+                            "MainActivity: onNewIntent - Reply message sent successfully",
+                        )
                     }
                 }
             } else {
@@ -1225,15 +1234,20 @@ class MainActivity : FragmentActivity() {
         // matrixUri already declared above for matrix:u/ URI handling
         val notificationEventId = intent.getStringExtra("event_id")
 
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
+        if (BuildConfig.DEBUG) {
+            Log.d(
+            "Andromuks",
+            "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri",
+        )
+        }
 
         val candidateRoomId = if (directNavigation && roomId != null) {
             // OPTIMIZATION #2: Fast path - room ID already extracted
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "MainActivity: onNewIntent - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId",
-            )
+                    "Andromuks",
+                    "MainActivity: onNewIntent - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId",
+                )
             }
             roomId
         } else {
@@ -1263,9 +1277,9 @@ class MainActivity : FragmentActivity() {
             if (::appViewModel.isInitialized) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "MainActivity: onNewIntent - Direct navigation to room: $roomId",
-                )
+                        "Andromuks",
+                        "MainActivity: onNewIntent - Direct navigation to room: $roomId",
+                    )
                 }
                 Androlog(
                     "FCMOpen",
@@ -1463,9 +1477,9 @@ class MainActivity : FragmentActivity() {
                         if (matrixUriString != null && matrixUriString.startsWith("matrix:u/")) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "MainActivity: Extracted Matrix URI from contact: $matrixUriString",
-                            )
+                                    "Andromuks",
+                                    "MainActivity: Extracted Matrix URI from contact: $matrixUriString",
+                                )
                             }
                             // Recursively call with the extracted Matrix URI
                             return extractRoomIdFromMatrixUri(android.net.Uri.parse(matrixUriString))
@@ -1483,9 +1497,9 @@ class MainActivity : FragmentActivity() {
             // The actual navigation to user info is handled in onCreate/onNewIntent
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "MainActivity: extractRoomIdFromMatrixUri - matrix:u/ URI detected, returning null (user info navigation handled separately)",
-            )
+                    "Andromuks",
+                    "MainActivity: extractRoomIdFromMatrixUri - matrix:u/ URI detected, returning null (user info navigation handled separately)",
+                )
             }
             return null
         }
@@ -1641,9 +1655,9 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             if (currentRoute != null && currentRoute != "auth_check") {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppNavigation: Navigating to user info for: $pendingUserId (currentRoute=$currentRoute)",
-                )
+                        "Andromuks",
+                        "AppNavigation: Navigating to user info for: $pendingUserId (currentRoute=$currentRoute)",
+                    )
                 }
                 appViewModel.clearPendingUserInfoNavigation()
                 val encodedUserId = java.net.URLEncoder.encode(pendingUserId, "UTF-8")
@@ -1654,9 +1668,9 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                 // Trigger is set but we're still on auth_check, navigation will happen in AuthCheck
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppNavigation: Pending user info navigation will be handled by AuthCheck (currentRoute=$currentRoute)",
-                )
+                        "Andromuks",
+                        "AppNavigation: Pending user info navigation will be handled by AuthCheck (currentRoute=$currentRoute)",
+                    )
                 }
             }
         }
@@ -1682,9 +1696,9 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             ) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "AppNavigation: NOTIFICATION to ${request.roomId} while room_timeline active — deferring to RoomTimelineScreen navTrigger handler",
-                )
+                        "Andromuks",
+                        "AppNavigation: NOTIFICATION to ${request.roomId} while room_timeline active — deferring to RoomTimelineScreen navTrigger handler",
+                    )
                 }
                 return@collectLatest
             }
@@ -1694,9 +1708,9 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             if (request.roomId == appViewModel.currentRoomId) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "AppNavigation: Same room already current (${request.roomId}), deferring to RoomTimelineScreen same-room handler",
-                )
+                        "Andromuks",
+                        "AppNavigation: Same room already current (${request.roomId}), deferring to RoomTimelineScreen same-room handler",
+                    )
                 }
                 return@collectLatest
             }
@@ -1707,9 +1721,9 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "AppNavigation: channel navigation request — room=$roomId source=${request.source} cached=$isRoomCached ($cachedEventCount events)",
-            )
+                    "Andromuks",
+                    "AppNavigation: channel navigation request — room=$roomId source=${request.source} cached=$isRoomCached ($cachedEventCount events)",
+                )
             }
 
             // Poll until both WS and (for uncached rooms) spacesLoaded are ready, or 10s elapses.
@@ -1747,9 +1761,9 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             if (request.roomId == appViewModel.currentRoomId) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "AppNavigation: $roomId is already current after poll — AuthCheck handled it, bailing",
-                )
+                        "Andromuks",
+                        "AppNavigation: $roomId is already current after poll — AuthCheck handled it, bailing",
+                    )
                 }
                 return@collectLatest
             }
@@ -1786,11 +1800,11 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                         route = "login?url={url}&username={username}",
                         arguments = listOf(
                             navArgument("url") {
-                                defaultValue = "https://";
+                                defaultValue = "https://"
                                 type = NavType.StringType
                             },
                             navArgument("username") {
-                                defaultValue = "";
+                                defaultValue = ""
                                 type = NavType.StringType
                             },
                         ),
@@ -2362,10 +2376,10 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                         route = "mentions?roomId={roomId}",
                         arguments = listOf(
                             navArgument("roomId") {
-                            type = NavType.StringType
-                            nullable = true
-                            defaultValue = null
-                        }
+                                type = NavType.StringType
+                                nullable = true
+                                defaultValue = null
+                            },
                         ),
                     ) { backStackEntry ->
                         MentionsScreen(
@@ -2379,10 +2393,10 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                         route = "search?roomId={roomId}",
                         arguments = listOf(
                             navArgument("roomId") {
-                            type = NavType.StringType
-                            nullable = true
-                            defaultValue = null
-                        }
+                                type = NavType.StringType
+                                nullable = true
+                                defaultValue = null
+                            },
                         ),
                     ) { backStackEntry ->
                         SearchResultsScreen(

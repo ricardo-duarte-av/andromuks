@@ -149,13 +149,18 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
     if (width <= 0 || height <= 0) {
         if (BuildConfig.DEBUG) {
             Log.w(
-            "Andromuks",
-            "StickerFunctions: Missing sticker dimensions, using defaults - width=$finalWidth, height=$finalHeight",
-        )
+                "Andromuks",
+                "StickerFunctions: Missing sticker dimensions, using defaults - width=$finalWidth, height=$finalHeight",
+            )
         }
     }
 
-    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x$finalHeight, mimeType=$mimeType, size=$size, hasEncryptedFile=$hasEncryptedFile")
+    if (BuildConfig.DEBUG) {
+        Log.d(
+        "Andromuks",
+        "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x$finalHeight, mimeType=$mimeType, size=$size, hasEncryptedFile=$hasEncryptedFile",
+    )
+    }
     return StickerMessage(url, body, finalWidth, finalHeight, hasEncryptedFile, mimeType, size)
 }
 
@@ -314,12 +319,11 @@ fun StickerMessage(
     }
 }
 
-fun stickerBubbleColorFor(colorScheme: ColorScheme, isMine: Boolean, isThreadMessage: Boolean): Color =
-    BubblePalette.colors(
-        colorScheme = colorScheme,
-        isMine = isMine,
-        isThreadMessage = isThreadMessage,
-    ).container
+fun stickerBubbleColorFor(colorScheme: ColorScheme, isMine: Boolean, isThreadMessage: Boolean): Color = BubblePalette.colors(
+    colorScheme = colorScheme,
+    isMine = isMine,
+    isThreadMessage = isThreadMessage,
+).container
 
 /**
  * Renders the actual sticker content with proper dimensions and caching.
@@ -399,9 +403,9 @@ private fun StickerContent(
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Using cached file: ${file.absolutePath}")
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "StickerMessage: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}, isEncrypted: $isEncrypted",
-                    )
+                            "Andromuks",
+                            "StickerMessage: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}, isEncrypted: $isEncrypted",
+                        )
                     }
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {
@@ -425,9 +429,9 @@ private fun StickerContent(
                         val encryptedUrl = "$httpUrl$separator" + "encrypted=true"
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "StickerMessage: Added encrypted=true to URL: $encryptedUrl",
-                        )
+                                "Andromuks",
+                                "StickerMessage: Added encrypted=true to URL: $encryptedUrl",
+                            )
                         }
                         encryptedUrl
                     } else {
@@ -512,13 +516,7 @@ private fun StickerContent(
  * @param onDismiss Callback when the dialog should be dismissed
  */
 @Composable
-private fun StickerViewerDialog(
-    stickerMessage: StickerMessage,
-    homeserverUrl: String,
-    authToken: String,
-    isEncrypted: Boolean,
-    onDismiss: () -> Unit,
-) {
+private fun StickerViewerDialog(stickerMessage: StickerMessage, homeserverUrl: String, authToken: String, isEncrypted: Boolean, onDismiss: () -> Unit) {
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
@@ -574,9 +572,9 @@ private fun StickerViewerDialog(
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: Using cached file: ${file.absolutePath}")
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "StickerViewer: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}",
-                    )
+                            "Andromuks",
+                            "StickerViewer: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}",
+                        )
                     }
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {

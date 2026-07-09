@@ -534,9 +534,9 @@ fun ThreadViewerScreen(
 
     if (BuildConfig.DEBUG) {
         Log.d(
-        "Andromuks",
-        "ThreadViewerScreen: Thread root: $threadRootEventId, messages count: ${threadMessages.size}",
-    )
+            "Andromuks",
+            "ThreadViewerScreen: Thread root: $threadRootEventId, messages count: ${threadMessages.size}",
+        )
     }
 
     // Delete state
@@ -713,9 +713,9 @@ fun ThreadViewerScreen(
                 )
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "ThreadViewerScreen: Added current user profile to memberMap - userId: $myUserId, displayName: ${currentProfile.displayName}",
-                )
+                        "Andromuks",
+                        "ThreadViewerScreen: Added current user profile to memberMap - userId: $myUserId, displayName: ${currentProfile.displayName}",
+                    )
                 }
             }
         }
@@ -793,19 +793,13 @@ fun ThreadViewerScreen(
         return null
     }
 
-    fun handleMentionSelection(
-        userId: String,
-        displayName: String?,
-        originalText: String,
-        startIndex: Int,
-        endIndex: Int,
-    ): String {
+    fun handleMentionSelection(userId: String, displayName: String?, originalText: String, startIndex: Int, endIndex: Int): String {
         // Escape square brackets in display name to prevent regex issues
         val escapedDisplayName = (
             displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix(
-            "@",
-        ).substringBefore(":")
-        )
+                "@",
+            ).substringBefore(":")
+            )
             .replace("[", "\\[")
             .replace("]", "\\]")
         val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
@@ -1087,8 +1081,8 @@ fun ThreadViewerScreen(
 
                 val timeDifference = if (previousEvent != null) {
                     kotlin.math.abs(
-                    event.timestamp - previousEvent.timestamp,
-                )
+                        event.timestamp - previousEvent.timestamp,
+                    )
                 } else {
                     0L
                 }
@@ -1139,9 +1133,9 @@ fun ThreadViewerScreen(
     LaunchedEffect(threadMessages, roomId) {
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "ThreadViewerScreen: Using opportunistic profile loading for $roomId (no bulk loading)",
-        )
+                "Andromuks",
+                "ThreadViewerScreen: Using opportunistic profile loading for $roomId (no bulk loading)",
+            )
         }
 
         // Only request profiles for users that are actually visible in the thread
@@ -1154,9 +1148,9 @@ fun ThreadViewerScreen(
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "ThreadViewerScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${threadMessages.size} events)",
-            )
+                    "Andromuks",
+                    "ThreadViewerScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${threadMessages.size} events)",
+                )
             }
 
             // Request profiles one by one as needed
@@ -1387,8 +1381,8 @@ fun ThreadViewerScreen(
 
                                             val timeDifference = if (previousEvent != null) {
                                                 kotlin.math.abs(
-                                                event.timestamp - previousEvent.timestamp,
-                                            )
+                                                    event.timestamp - previousEvent.timestamp,
+                                                )
                                             } else {
                                                 0L
                                             }
@@ -1601,8 +1595,8 @@ fun ThreadViewerScreen(
                                                 MaterialTheme.colorScheme.primary
                                             } else {
                                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                alpha = 0.38f,
-                                            )
+                                                    alpha = 0.38f,
+                                                )
                                             },
                                         )
                                     }
@@ -1936,16 +1930,16 @@ fun ThreadViewerScreen(
                                                     trimmedForPmp.equals("/profile", ignoreCase = true) ||
                                                     (
                                                         trimmedForPmp.startsWith(
-                                                        "/pmp ",
-                                                        ignoreCase = true,
-                                                    ) && trimmedForPmp.drop(5).isBlank()
-                                                    ) ||
+                                                            "/pmp ",
+                                                            ignoreCase = true,
+                                                        ) && trimmedForPmp.drop(5).isBlank()
+                                                        ) ||
                                                     (
                                                         trimmedForPmp.startsWith(
-                                                        "/profile ",
-                                                        ignoreCase = true,
-                                                    ) && trimmedForPmp.drop(9).isBlank()
-                                                    )
+                                                            "/profile ",
+                                                            ignoreCase = true,
+                                                        ) && trimmedForPmp.drop(9).isBlank()
+                                                        )
 
                                                 if (commandResult != null) {
                                                     val (query, startIndex) = commandResult
@@ -1953,9 +1947,9 @@ fun ThreadViewerScreen(
                                                     commandStartIndex = startIndex
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "ThreadViewerScreen: / detected, query='$query'",
-                                                    )
+                                                            "Andromuks",
+                                                            "ThreadViewerScreen: / detected, query='$query'",
+                                                        )
                                                     }
                                                     showCommandSuggestionList = !showPmpProfilePicker
                                                     // Hide other suggestion lists when command is active
@@ -2067,8 +2061,8 @@ fun ThreadViewerScreen(
                                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                                             } else {
                                                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                                alpha = 0.38f,
-                                                            )
+                                                                    alpha = 0.38f,
+                                                                )
                                                             },
                                                         )
                                                     }
@@ -2084,8 +2078,8 @@ fun ThreadViewerScreen(
                                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                                             } else {
                                                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                                alpha = 0.38f,
-                                                            )
+                                                                    alpha = 0.38f,
+                                                                )
                                                             },
                                                         )
                                                     }
@@ -2653,10 +2647,10 @@ fun ThreadViewerScreen(
                                     // The cursor should be positioned right after the inserted mention text
                                     val escapedDisplayName = (
                                         displayName?.takeIf { it.isNotBlank() }
-                                        ?: userId.removePrefix(
-                                            "@",
-                                        ).substringBefore(":")
-                                    )
+                                            ?: userId.removePrefix(
+                                                "@",
+                                            ).substringBefore(":")
+                                        )
                                         .replace("[", "\\[")
                                         .replace("]", "\\]")
                                     val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
@@ -2808,9 +2802,9 @@ fun ThreadViewerScreen(
                                                 if (attempt > 0) {
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "ThreadViewerScreen: Retrying $type upload (attempt $attempt/3)",
-                                                    )
+                                                            "Andromuks",
+                                                            "ThreadViewerScreen: Retrying $type upload (attempt $attempt/3)",
+                                                        )
                                                     }
                                                     appViewModel.setUploadRetryCount(roomId, attempt)
                                                     kotlinx.coroutines.delay(1000L * attempt)

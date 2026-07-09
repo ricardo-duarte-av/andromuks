@@ -85,12 +85,7 @@ sealed class SearchResultItem {
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchResultsScreen(
-    navController: NavController,
-    modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel(),
-    roomId: String? = null,
-) {
+fun SearchResultsScreen(navController: NavController, modifier: Modifier = Modifier, appViewModel: AppViewModel = viewModel(), roomId: String? = null) {
     val homeserverUrl = appViewModel.homeserverUrl
     val authToken = appViewModel.authToken
     val myUserId = appViewModel.currentUserId
@@ -375,12 +370,7 @@ fun SearchResultsScreen(
 }
 
 @Composable
-private fun SearchOptionRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-) {
+private fun SearchOptionRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit, enabled: Boolean = true) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

@@ -156,9 +156,9 @@ class AndromuksApplication : Application() {
                     legacyDir.deleteRecursively()
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "AndromuksApplication: deleted legacy cacheDir/image_cache",
-                    )
+                            "Andromuks",
+                            "AndromuksApplication: deleted legacy cacheDir/image_cache",
+                        )
                     }
                 } catch (e: Exception) {
                     Log.w("Andromuks", "AndromuksApplication: failed to delete legacy image cache", e)

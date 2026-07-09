@@ -200,9 +200,9 @@ fun ImageReaction(
             onSuccess = { state ->
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "ImageReaction: Successfully loaded image for $mxcUrl",
-                )
+                        "Andromuks",
+                        "ImageReaction: Successfully loaded image for $mxcUrl",
+                    )
                 }
                 if (adaptiveWidth && aspectRatio == null) {
                     val iSize = state.painter.intrinsicSize
@@ -443,11 +443,11 @@ fun processReactionEvent(
             // Add new reaction
             eventReactions.add(
                 MessageReaction(
-                emoji = reactionEvent.emoji,
-                count = 1,
-                users = listOf(reactionEvent.sender),
-                userReactions = listOf(net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp)),
-            )
+                    emoji = reactionEvent.emoji,
+                    count = 1,
+                    users = listOf(reactionEvent.sender),
+                    userReactions = listOf(net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp)),
+                ),
             )
         }
 

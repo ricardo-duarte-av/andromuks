@@ -76,41 +76,40 @@ private fun List<Address>.toSearchResults(): List<SearchResult> = mapNotNull { a
     )
 }
 
-private suspend fun geocodeQuery(query: String, geocoder: Geocoder, biasCenter: LatLng): List<SearchResult> =
-    withContext(Dispatchers.IO) {
-        try {
-            // Try biased search first (±1.5° ≈ 150 km around current map center).
-            // The bounds-biased overload has no async variant, so we call it on IO regardless
-            // of API level — the deprecation only forbids calling it on the main thread.
-            val delta = 1.5
+private suspend fun geocodeQuery(query: String, geocoder: Geocoder, biasCenter: LatLng): List<SearchResult> = withContext(Dispatchers.IO) {
+    try {
+        // Try biased search first (±1.5° ≈ 150 km around current map center).
+        // The bounds-biased overload has no async variant, so we call it on IO regardless
+        // of API level — the deprecation only forbids calling it on the main thread.
+        val delta = 1.5
 
-            @Suppress("DEPRECATION")
-            val biased = geocoder.getFromLocationName(
-                query,
-                8,
-                biasCenter.latitude - delta,
-                biasCenter.longitude - delta,
-                biasCenter.latitude + delta,
-                biasCenter.longitude + delta,
-            ) ?: emptyList()
+        @Suppress("DEPRECATION")
+        val biased = geocoder.getFromLocationName(
+            query,
+            8,
+            biasCenter.latitude - delta,
+            biasCenter.longitude - delta,
+            biasCenter.latitude + delta,
+            biasCenter.longitude + delta,
+        ) ?: emptyList()
 
-            if (biased.isNotEmpty()) return@withContext biased.toSearchResults()
+        if (biased.isNotEmpty()) return@withContext biased.toSearchResults()
 
-            // Nothing nearby — fall back to unbiased global search
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                suspendCancellableCoroutine { cont ->
-                    geocoder.getFromLocationName(query, 8) { addresses ->
-                        cont.resume(addresses.toSearchResults())
-                    }
+        // Nothing nearby — fall back to unbiased global search
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            suspendCancellableCoroutine { cont ->
+                geocoder.getFromLocationName(query, 8) { addresses ->
+                    cont.resume(addresses.toSearchResults())
                 }
-            } else {
-                @Suppress("DEPRECATION")
-                (geocoder.getFromLocationName(query, 8) ?: emptyList()).toSearchResults()
             }
-        } catch (_: Exception) {
-            emptyList()
+        } else {
+            @Suppress("DEPRECATION")
+            (geocoder.getFromLocationName(query, 8) ?: emptyList()).toSearchResults()
         }
+    } catch (_: Exception) {
+        emptyList()
     }
+}
 
 /**
  * Full-screen overlay for picking and captioning a location (MSC3488).
@@ -122,10 +121,7 @@ private suspend fun geocodeQuery(query: String, geocoder: Geocoder, biasCenter: 
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LocationPickerOverlay(
-    onDismiss: () -> Unit,
-    onSendLocation: (latitude: Double, longitude: Double, caption: String) -> Unit,
-) {
+fun LocationPickerOverlay(onDismiss: () -> Unit, onSendLocation: (latitude: Double, longitude: Double, caption: String) -> Unit) {
     val context = LocalContext.current
     val mapsApiKey = remember { context.getString(R.string.google_maps_api_key) }
     val geocoder = remember { Geocoder(context, Locale.getDefault()) }
@@ -233,8 +229,8 @@ fun LocationPickerOverlay(
             goToCurrentLocation()
         } else {
             locationPermissionLauncher.launch(
-            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
-        )
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+            )
         }
     }
 
@@ -253,10 +249,12 @@ fun LocationPickerOverlay(
     BackHandler {
         when {
             showDropdown -> {
-                focusManager.clearFocus();
+                focusManager.clearFocus()
                 searchResults = emptyList()
             }
+
             phase == LocationPickerPhase.PREVIEW -> phase = LocationPickerPhase.PICKING
+
             else -> onDismiss()
         }
     }
@@ -362,7 +360,7 @@ fun LocationPickerOverlay(
                                 title = result.displayName.substringBefore(" – "),
                                 snippet = result.displayName.substringAfter(" – ", ""),
                                 onClick = {
-                                    selectResult(result);
+                                    selectResult(result)
                                     true
                                 },
                             )

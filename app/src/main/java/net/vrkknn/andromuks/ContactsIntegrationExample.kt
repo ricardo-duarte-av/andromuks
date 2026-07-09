@@ -21,11 +21,7 @@ import net.vrkknn.andromuks.BuildConfig
  * The contacts will appear in Android's contacts app and other apps can
  * offer "Send Matrix message" as an option (like WhatsApp does).
  */
-class ContactsIntegrationExample(
-    private val context: Context,
-    private val appViewModel: AppViewModel,
-    private val homeserverUrl: String,
-) {
+class ContactsIntegrationExample(private val context: Context, private val appViewModel: AppViewModel, private val homeserverUrl: String) {
     companion object {
         private const val TAG = "ContactsIntegration"
     }

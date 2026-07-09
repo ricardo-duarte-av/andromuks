@@ -15,8 +15,7 @@ sealed class ConnectionState {
     /**
      * run_id received; waiting for init_complete / sync_completes per backend contract.
      */
-    data class Initializing(val runId: String, val pendingSyncCount: Int, val receivedSyncCount: Int) :
-        ConnectionState()
+    data class Initializing(val runId: String, val pendingSyncCount: Int, val receivedSyncCount: Int) : ConnectionState()
 
     object Ready : ConnectionState()
 

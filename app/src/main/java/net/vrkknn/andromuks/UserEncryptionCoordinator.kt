@@ -7,15 +7,12 @@ import org.json.JSONObject
  */
 internal class UserEncryptionCoordinator(private val vm: AppViewModel) {
 
-    fun requestUserEncryptionInfo(
-        userId: String,
-        callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit,
-    ) = with(vm) {
+    fun requestUserEncryptionInfo(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) = with(vm) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Requesting encryption info for user: $userId",
-        )
+                "Andromuks",
+                "AppViewModel: Requesting encryption info for user: $userId",
+            )
         }
 
         if (!isWebSocketConnected()) {
@@ -34,33 +31,32 @@ internal class UserEncryptionCoordinator(private val vm: AppViewModel) {
         )
     }
 
-    fun trackUserDevices(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) =
-        with(vm) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracking devices for user: $userId")
+    fun trackUserDevices(userId: String, callback: (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit) = with(vm) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracking devices for user: $userId")
 
-            if (!isWebSocketConnected()) {
-                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected")
-                callback(null, "WebSocket not connected")
-                return@with
-            }
-
-            val requestId = WebSocketService.allocateRequestId()
-            trackDevicesRequests[requestId] = callback
-
-            sendWebSocketCommand(
-                "track_user_devices",
-                requestId,
-                mapOf("user_id" to userId),
-            )
+        if (!isWebSocketConnected()) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected")
+            callback(null, "WebSocket not connected")
+            return@with
         }
+
+        val requestId = WebSocketService.allocateRequestId()
+        trackDevicesRequests[requestId] = callback
+
+        sendWebSocketCommand(
+            "track_user_devices",
+            requestId,
+            mapOf("user_id" to userId),
+        )
+    }
 
     fun handleUserEncryptionInfoResponse(requestId: Int, data: Any) = with(vm) {
         val callback = userEncryptionInfoRequests.remove(requestId) ?: return@with
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Handling encryption info response for requestId: $requestId",
-        )
+                "Andromuks",
+                "AppViewModel: Handling encryption info response for requestId: $requestId",
+            )
         }
 
         try {
@@ -76,9 +72,9 @@ internal class UserEncryptionCoordinator(private val vm: AppViewModel) {
         val callback = trackDevicesRequests.remove(requestId) ?: return@with
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Handling track devices response for requestId: $requestId",
-        )
+                "Andromuks",
+                "AppViewModel: Handling track devices response for requestId: $requestId",
+            )
         }
 
         try {

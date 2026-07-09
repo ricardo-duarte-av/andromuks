@@ -485,10 +485,7 @@ internal class EditVersionCoordinator(private val vm: AppViewModel) {
         return supersededEventIds
     }
 
-    fun findChainEndOptimized(
-        startEventId: String,
-        cache: MutableMap<String, AppViewModel.EventChainEntry?>,
-    ): AppViewModel.EventChainEntry? {
+    fun findChainEndOptimized(startEventId: String, cache: MutableMap<String, AppViewModel.EventChainEntry?>): AppViewModel.EventChainEntry? {
         if (cache.containsKey(startEventId)) {
             return cache[startEventId]
         }

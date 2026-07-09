@@ -49,36 +49,16 @@ object AdvancedExoPlayerManager {
      * @param mediaUrl Media URL for the player
      * @return ExoPlayer instance
      */
-    suspend fun getOrCreatePlayer(playerId: String, context: Context, mediaUrl: String): ExoPlayer =
-        playerMutex.withLock {
-            // Reuse existing player if available
-            playerPool[playerId]?.let { existingPlayer ->
-                updatePlayerUsage(playerId)
-                if (BuildConfig.DEBUG) Log.d(TAG, "Reusing existing player: $playerId")
-                return@withLock existingPlayer
-            }
+    suspend fun getOrCreatePlayer(playerId: String, context: Context, mediaUrl: String): ExoPlayer = playerMutex.withLock {
+        // Reuse existing player if available
+        playerPool[playerId]?.let { existingPlayer ->
+            updatePlayerUsage(playerId)
+            if (BuildConfig.DEBUG) Log.d(TAG, "Reusing existing player: $playerId")
+            return@withLock existingPlayer
+        }
 
-            // Create new player if pool not full
-            if (playerPool.size < MAX_PLAYERS) {
-                val newPlayer = createOptimizedPlayer(context, mediaUrl)
-                playerPool[playerId] = newPlayer
-                updatePlayerUsage(playerId)
-                playerStates[playerId] = PlayerState(
-                    isPlaying = false,
-                    lastUsed = System.currentTimeMillis(),
-                    mediaUrl = mediaUrl,
-                )
-                if (BuildConfig.DEBUG) Log.d(TAG, "Created new player: $playerId (pool size: ${playerPool.size})")
-                return@withLock newPlayer
-            }
-
-            // Replace least used player
-            val leastUsedPlayer = playerUsage.minByOrNull { it.value }?.key
-            leastUsedPlayer?.let { oldPlayerId ->
-                if (BuildConfig.DEBUG) Log.d(TAG, "Replacing least used player: $oldPlayerId")
-                releasePlayer(oldPlayerId)
-            }
-
+        // Create new player if pool not full
+        if (playerPool.size < MAX_PLAYERS) {
             val newPlayer = createOptimizedPlayer(context, mediaUrl)
             playerPool[playerId] = newPlayer
             updatePlayerUsage(playerId)
@@ -87,9 +67,28 @@ object AdvancedExoPlayerManager {
                 lastUsed = System.currentTimeMillis(),
                 mediaUrl = mediaUrl,
             )
-            if (BuildConfig.DEBUG) Log.d(TAG, "Created replacement player: $playerId")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Created new player: $playerId (pool size: ${playerPool.size})")
             return@withLock newPlayer
         }
+
+        // Replace least used player
+        val leastUsedPlayer = playerUsage.minByOrNull { it.value }?.key
+        leastUsedPlayer?.let { oldPlayerId ->
+            if (BuildConfig.DEBUG) Log.d(TAG, "Replacing least used player: $oldPlayerId")
+            releasePlayer(oldPlayerId)
+        }
+
+        val newPlayer = createOptimizedPlayer(context, mediaUrl)
+        playerPool[playerId] = newPlayer
+        updatePlayerUsage(playerId)
+        playerStates[playerId] = PlayerState(
+            isPlaying = false,
+            lastUsed = System.currentTimeMillis(),
+            mediaUrl = mediaUrl,
+        )
+        if (BuildConfig.DEBUG) Log.d(TAG, "Created replacement player: $playerId")
+        return@withLock newPlayer
+    }
 
     /**
      * Create an optimized ExoPlayer instance with performance settings.

@@ -18,9 +18,9 @@ class BootStartReceiver : BroadcastReceiver() {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "BootStartReceiver",
-                "Device boot completed - restarting WebSocketService via WorkManager",
-            )
+                    "BootStartReceiver",
+                    "Device boot completed - restarting WebSocketService via WorkManager",
+                )
             }
 
             // Use WorkManager to restart service (higher priority than BroadcastReceiver)

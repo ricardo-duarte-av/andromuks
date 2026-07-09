@@ -20,11 +20,7 @@ import androidx.compose.ui.unit.dp
  * message box has been removed — progress messages are no longer surfaced to the user.
  */
 @Composable
-fun StartupLoadingScreen(
-    modifier: Modifier = Modifier,
-    displayName: String? = null,
-    topContent: (@Composable () -> Unit)? = null,
-) {
+fun StartupLoadingScreen(modifier: Modifier = Modifier, displayName: String? = null, topContent: (@Composable () -> Unit)? = null) {
     Box(
         modifier = modifier
             .fillMaxSize()

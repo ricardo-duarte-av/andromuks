@@ -116,12 +116,7 @@ sealed class MentionTimelineItem {
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
-fun MentionsScreen(
-    navController: NavController,
-    modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel(),
-    roomId: String? = null,
-) {
+fun MentionsScreen(navController: NavController, modifier: Modifier = Modifier, appViewModel: AppViewModel = viewModel(), roomId: String? = null) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val homeserverUrl = appViewModel.homeserverUrl
@@ -568,13 +563,7 @@ fun MentionItem(
 
 /** Component to render message content preview for mentions */
 @Composable
-private fun MessageContentPreview(
-    event: TimelineEvent,
-    homeserverUrl: String,
-    authToken: String,
-    appViewModel: AppViewModel,
-    roomId: String,
-) {
+private fun MessageContentPreview(event: TimelineEvent, homeserverUrl: String, authToken: String, appViewModel: AppViewModel, roomId: String) {
     // Get body text - prefer decrypted content for encrypted events
     val content = event.decrypted ?: event.content
     val format = content?.optString("format", "")

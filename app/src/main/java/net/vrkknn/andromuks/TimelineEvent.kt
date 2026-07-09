@@ -230,22 +230,10 @@ data class TimelineEvent(
 data class UserReaction(val userId: String, val timestamp: Long)
 
 @Immutable
-data class MessageReaction(
-    val emoji: String,
-    val count: Int,
-    val users: List<String>,
-    val userReactions: List<UserReaction> = emptyList(),
-)
+data class MessageReaction(val emoji: String, val count: Int, val users: List<String>, val userReactions: List<UserReaction> = emptyList())
 
 @Immutable
-data class ReactionEvent(
-    val roomId: String,
-    val eventId: String,
-    val sender: String,
-    val emoji: String,
-    val relatesToEventId: String,
-    val timestamp: Long,
-)
+data class ReactionEvent(val roomId: String, val eventId: String, val sender: String, val emoji: String, val relatesToEventId: String, val timestamp: Long)
 
 @Immutable
 data class MediaInfo(

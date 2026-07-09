@@ -103,12 +103,7 @@ data class MessageMenuConfig(
  * 6 main buttons + More dropdown (Pin/Unpin, Source)
  */
 @Composable
-fun MessageMenuBar(
-    menuConfig: MessageMenuConfig?,
-    onDismiss: () -> Unit,
-    buttonsAlpha: Float = 1f,
-    modifier: Modifier = Modifier,
-) {
+fun MessageMenuBar(menuConfig: MessageMenuConfig?, onDismiss: () -> Unit, buttonsAlpha: Float = 1f, modifier: Modifier = Modifier) {
     if (menuConfig == null) return
 
     val event = menuConfig.event
@@ -213,9 +208,9 @@ fun MessageMenuBar(
                                 if (cachedEvents == null || cachedEvents.isEmpty()) {
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.w(
-                                        "MessageMenuBar",
-                                        "No cached events found for room ${event.roomId}",
-                                    )
+                                            "MessageMenuBar",
+                                            "No cached events found for room ${event.roomId}",
+                                        )
                                     }
                                     deletedError = "No cached events available"
                                     deletedLoading = false
@@ -225,9 +220,9 @@ fun MessageMenuBar(
                                 if (originalEvent == null) {
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.w(
-                                        "MessageMenuBar",
-                                        "Original event ${event.eventId} not found in cache",
-                                    )
+                                            "MessageMenuBar",
+                                            "Original event ${event.eventId} not found in cache",
+                                        )
                                     }
                                     deletedError = "Original event not found in cache"
                                     deletedLoading = false
@@ -392,8 +387,8 @@ fun MessageMenuBar(
                                 // Reactions option
                                 val hasReactions =
                                     remember(event.eventId, menuConfig.appViewModel?.reactionUpdateCounter) {
-                                    menuConfig.appViewModel?.messageReactions?.get(event.eventId)?.isNotEmpty() == true
-                                }
+                                        menuConfig.appViewModel?.messageReactions?.get(event.eventId)?.isNotEmpty() == true
+                                    }
                                 DropdownMenuItem(
                                     text = { Text("Reactions") },
                                     onClick = {

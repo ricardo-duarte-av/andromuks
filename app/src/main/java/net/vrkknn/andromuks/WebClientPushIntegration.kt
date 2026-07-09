@@ -44,9 +44,9 @@ class WebClientPushIntegration(private val context: Context) {
         prefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "Stored backend device ID: $deviceId (for reference only, FCM uses local device ID)",
-        )
+                TAG,
+                "Stored backend device ID: $deviceId (for reference only, FCM uses local device ID)",
+            )
         }
     }
 
@@ -103,9 +103,9 @@ class WebClientPushIntegration(private val context: Context) {
         prefs.edit().putString(KEY_LOCAL_DEVICE_ID, uniqueId).apply()
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "getLocalDeviceID: Generated new local device ID: $uniqueId (based on device: $deviceIdentifier, will persist for this device)",
-        )
+                TAG,
+                "getLocalDeviceID: Generated new local device ID: $uniqueId (based on device: $deviceIdentifier, will persist for this device)",
+            )
         }
 
         return uniqueId
@@ -122,9 +122,9 @@ class WebClientPushIntegration(private val context: Context) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: Reusing existing key from SharedPreferences")
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "getPushEncryptionKey: Existing key (first 20 chars): ${existingKey.take(20)}...",
-                )
+                        TAG,
+                        "getPushEncryptionKey: Existing key (first 20 chars): ${existingKey.take(20)}...",
+                    )
                 }
                 return existingKey
             }
@@ -136,9 +136,9 @@ class WebClientPushIntegration(private val context: Context) {
             if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: Generated new key of size ${keyBytes.size} bytes")
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "getPushEncryptionKey: Key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}",
-            )
+                    TAG,
+                    "getPushEncryptionKey: Key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}",
+                )
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: Base64 key: $base64Key")
 
@@ -181,11 +181,11 @@ class WebClientPushIntegration(private val context: Context) {
                     if (BuildConfig.DEBUG) Log.d(TAG, "Retrieved AndroidKeyStore key of size: ${keyBytes.size} bytes")
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "AndroidKeyStore key (first 8 bytes): ${keyBytes.take(
-                            8,
-                        ).joinToString { "%02x".format(it) }}",
-                    )
+                            TAG,
+                            "AndroidKeyStore key (first 8 bytes): ${keyBytes.take(
+                                8,
+                            ).joinToString { "%02x".format(it) }}",
+                        )
                     }
                     keyBytes
                 } else {
@@ -211,11 +211,11 @@ class WebClientPushIntegration(private val context: Context) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Generated new AndroidKeyStore key of size: ${keyBytes.size} bytes")
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "New AndroidKeyStore key (first 8 bytes): ${keyBytes.take(
-                        8,
-                    ).joinToString { "%02x".format(it) }}",
-                )
+                        TAG,
+                        "New AndroidKeyStore key (first 8 bytes): ${keyBytes.take(
+                            8,
+                        ).joinToString { "%02x".format(it) }}",
+                    )
                 }
                 keyBytes
             }
@@ -235,9 +235,9 @@ class WebClientPushIntegration(private val context: Context) {
         if (BuildConfig.DEBUG) Log.d(TAG, "Generated fallback encryption key of size ${fallbackKey.size} bytes")
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "Fallback key (first 8 bytes): ${fallbackKey.take(8).joinToString { "%02x".format(it) }}",
-        )
+                TAG,
+                "Fallback key (first 8 bytes): ${fallbackKey.take(8).joinToString { "%02x".format(it) }}",
+            )
         }
         if (BuildConfig.DEBUG) Log.d(TAG, "Fallback key stored as: $base64Key")
         return fallbackKey

@@ -29,13 +29,7 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 
 @Composable
-fun BridgeNetworkBadge(
-    bridgeInfo: BridgeInfo,
-    homeserverUrl: String,
-    authToken: String,
-    modifier: Modifier = Modifier,
-    onClick: (() -> Unit)? = null,
-) {
+fun BridgeNetworkBadge(bridgeInfo: BridgeInfo, homeserverUrl: String, authToken: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     if (!bridgeInfo.hasRenderableIcon) {
         return
     }

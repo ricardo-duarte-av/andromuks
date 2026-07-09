@@ -205,28 +205,27 @@ object IntelligentMediaCache {
      * @param file File to cache
      * @param fileType Type of file (image, video, audio, etc.)
      */
-    suspend fun cacheFile(context: Context, mxcUrl: String, file: File, fileType: String = "unknown") =
-        cacheMutex.withLock {
-            val entry = CacheEntry(
-                file = file,
-                mxcUrl = mxcUrl,
-                size = file.length(),
-                lastAccessed = System.currentTimeMillis(),
-                isVisible = visibleMedia.containsKey(mxcUrl),
-                accessCount = 1,
-                priority = calculatePriority(
-                    CacheEntry(file, mxcUrl, file.length(), System.currentTimeMillis()),
-                    visibleMedia.containsKey(mxcUrl),
-                ),
-                fileType = fileType,
-            )
+    suspend fun cacheFile(context: Context, mxcUrl: String, file: File, fileType: String = "unknown") = cacheMutex.withLock {
+        val entry = CacheEntry(
+            file = file,
+            mxcUrl = mxcUrl,
+            size = file.length(),
+            lastAccessed = System.currentTimeMillis(),
+            isVisible = visibleMedia.containsKey(mxcUrl),
+            accessCount = 1,
+            priority = calculatePriority(
+                CacheEntry(file, mxcUrl, file.length(), System.currentTimeMillis()),
+                visibleMedia.containsKey(mxcUrl),
+            ),
+            fileType = fileType,
+        )
 
-            cacheEntries[mxcUrl] = entry
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cached file for $mxcUrl (size: ${entry.size / 1024}KB, type: $fileType)")
+        cacheEntries[mxcUrl] = entry
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cached file for $mxcUrl (size: ${entry.size / 1024}KB, type: $fileType)")
 
-            // Ensure cache size is within limits
-            ensureCacheSize(context)
-        }
+        // Ensure cache size is within limits
+        ensureCacheSize(context)
+    }
 
     /**
      * Ensure cache size is within limits with intelligent eviction.
@@ -256,9 +255,9 @@ object IntelligentMediaCache {
                 evictedCount++
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "Evicted ${entry.mxcUrl} (priority: ${entry.priority}, size: ${entry.size / 1024}KB)",
-                )
+                        TAG,
+                        "Evicted ${entry.mxcUrl} (priority: ${entry.priority}, size: ${entry.size / 1024}KB)",
+                    )
                 }
             }
         }
@@ -269,8 +268,7 @@ object IntelligentMediaCache {
     /**
      * Check if MXC URL is cached.
      */
-    fun isCached(mxcUrl: String): Boolean =
-        cacheEntries.containsKey(mxcUrl) && cacheEntries[mxcUrl]?.file?.exists() == true
+    fun isCached(mxcUrl: String): Boolean = cacheEntries.containsKey(mxcUrl) && cacheEntries[mxcUrl]?.file?.exists() == true
 
     /**
      * Check if MXC URL is cached (compatibility method with context parameter).
@@ -288,105 +286,104 @@ object IntelligentMediaCache {
      * - Rejects non-image responses (captive-portal HTML, 302 login pages, error bodies)
      *   by sniffing magic bytes, then retries instead of caching the garbage.
      */
-    suspend fun downloadAndCache(context: Context, mxcUrl: String, httpUrl: String, authToken: String): File? =
-        withContext(Dispatchers.IO) {
-            val cachedFile = getCacheFile(context, mxcUrl)
-            cachedFile.parentFile?.mkdirs()
+    suspend fun downloadAndCache(context: Context, mxcUrl: String, httpUrl: String, authToken: String): File? = withContext(Dispatchers.IO) {
+        val cachedFile = getCacheFile(context, mxcUrl)
+        cachedFile.parentFile?.mkdirs()
 
-            // Already fully cached (non-empty) — register and return.
-            if (cachedFile.exists() && cachedFile.length() > 0L) {
-                cacheFile(context, mxcUrl, cachedFile, "unknown")
-                return@withContext cachedFile
-            }
+        // Already fully cached (non-empty) — register and return.
+        if (cachedFile.exists() && cachedFile.length() > 0L) {
+            cacheFile(context, mxcUrl, cachedFile, "unknown")
+            return@withContext cachedFile
+        }
 
-            val tmpFile = File(cachedFile.parentFile, "${cachedFile.name}.tmp")
+        val tmpFile = File(cachedFile.parentFile, "${cachedFile.name}.tmp")
 
-            repeat(DOWNLOAD_ATTEMPTS) { attempt ->
-                tmpFile.delete()
-                try {
-                    val request = Request.Builder()
-                        .url(httpUrl)
-                        .header("Cookie", "gomuks_auth=$authToken")
-                        .header("User-Agent", getUserAgent())
-                        .build()
+        repeat(DOWNLOAD_ATTEMPTS) { attempt ->
+            tmpFile.delete()
+            try {
+                val request = Request.Builder()
+                    .url(httpUrl)
+                    .header("Cookie", "gomuks_auth=$authToken")
+                    .header("User-Agent", getUserAgent())
+                    .build()
 
-                    downloadClient.newCall(request).execute().use { response ->
-                        if (!response.isSuccessful) {
-                            // Log enough to diagnose auth/URL failures without leaking the token: the full
-                            // URL (shows whether image_auth was appended), the cookie token length, and the
-                            // server's error body (gomuks returns e.g. FI.MAU.GOMUKS.INVALID_COOKIE here).
-                            val bodySnippet = try {
-                                response.body?.string()?.take(
+                downloadClient.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        // Log enough to diagnose auth/URL failures without leaking the token: the full
+                        // URL (shows whether image_auth was appended), the cookie token length, and the
+                        // server's error body (gomuks returns e.g. FI.MAU.GOMUKS.INVALID_COOKIE here).
+                        val bodySnippet = try {
+                            response.body?.string()?.take(
                                 300,
                             )
-                            } catch (e: Exception) {
-                                "<unreadable: ${e.message}>"
-                            }
-                            Log.w(
-                                TAG,
-                                "Media download HTTP ${response.code} for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS) " +
-                                    "url=$httpUrl hasImageAuth=${httpUrl.contains(
-                                        "image_auth=",
-                                    )} cookieLen=${authToken.length} body=$bodySnippet",
-                            )
-                            return@use
+                        } catch (e: Exception) {
+                            "<unreadable: ${e.message}>"
                         }
-
-                        val body = response.body ?: run {
-                            Log.w(TAG, "Empty body for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
-                            return@use
-                        }
-
-                        val expectedLength = body.contentLength() // -1 if unknown / chunked
-                        tmpFile.outputStream().use { output ->
-                            body.byteStream().use { input -> input.copyTo(output) }
-                        }
-
-                        // Validate before promoting the temp file to the real cache path.
-                        if (tmpFile.length() == 0L) {
-                            Log.w(TAG, "Zero-byte download for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
-                            return@use
-                        }
-                        if (expectedLength > 0 && tmpFile.length() != expectedLength) {
-                            Log.w(
-                                TAG,
-                                "Truncated download for $mxcUrl: got ${tmpFile.length()} of $expectedLength bytes (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)",
-                            )
-                            return@use
-                        }
-                        if (!looksLikeImage(tmpFile)) {
-                            Log.w(
-                                TAG,
-                                "Download for $mxcUrl is not an image (captive portal / error page?) (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)",
-                            )
-                            return@use
-                        }
-
-                        // Atomic-ish promotion: rename is atomic on the same filesystem; fall back to copy.
-                        cachedFile.delete()
-                        if (!tmpFile.renameTo(cachedFile)) {
-                            tmpFile.copyTo(cachedFile, overwrite = true)
-                            tmpFile.delete()
-                        }
-
-                        cacheFile(context, mxcUrl, cachedFile, "image")
-                        return@withContext cachedFile
+                        Log.w(
+                            TAG,
+                            "Media download HTTP ${response.code} for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS) " +
+                                "url=$httpUrl hasImageAuth=${httpUrl.contains(
+                                    "image_auth=",
+                                )} cookieLen=${authToken.length} body=$bodySnippet",
+                        )
+                        return@use
                     }
-                } catch (e: Exception) {
-                    Log.w(
-                        TAG,
-                        "Media download failed for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS): ${e.message}",
-                    )
-                }
 
-                // Short linear backoff between in-call attempts; the worker handles longer outages.
-                if (attempt < DOWNLOAD_ATTEMPTS - 1) delay(500L * (attempt + 1))
+                    val body = response.body ?: run {
+                        Log.w(TAG, "Empty body for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                        return@use
+                    }
+
+                    val expectedLength = body.contentLength() // -1 if unknown / chunked
+                    tmpFile.outputStream().use { output ->
+                        body.byteStream().use { input -> input.copyTo(output) }
+                    }
+
+                    // Validate before promoting the temp file to the real cache path.
+                    if (tmpFile.length() == 0L) {
+                        Log.w(TAG, "Zero-byte download for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
+                        return@use
+                    }
+                    if (expectedLength > 0 && tmpFile.length() != expectedLength) {
+                        Log.w(
+                            TAG,
+                            "Truncated download for $mxcUrl: got ${tmpFile.length()} of $expectedLength bytes (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)",
+                        )
+                        return@use
+                    }
+                    if (!looksLikeImage(tmpFile)) {
+                        Log.w(
+                            TAG,
+                            "Download for $mxcUrl is not an image (captive portal / error page?) (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)",
+                        )
+                        return@use
+                    }
+
+                    // Atomic-ish promotion: rename is atomic on the same filesystem; fall back to copy.
+                    cachedFile.delete()
+                    if (!tmpFile.renameTo(cachedFile)) {
+                        tmpFile.copyTo(cachedFile, overwrite = true)
+                        tmpFile.delete()
+                    }
+
+                    cacheFile(context, mxcUrl, cachedFile, "image")
+                    return@withContext cachedFile
+                }
+            } catch (e: Exception) {
+                Log.w(
+                    TAG,
+                    "Media download failed for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS): ${e.message}",
+                )
             }
 
-            tmpFile.delete()
-            Log.e(TAG, "Failed to cache media after $DOWNLOAD_ATTEMPTS attempts: $mxcUrl")
-            null
+            // Short linear backoff between in-call attempts; the worker handles longer outages.
+            if (attempt < DOWNLOAD_ATTEMPTS - 1) delay(500L * (attempt + 1))
         }
+
+        tmpFile.delete()
+        Log.e(TAG, "Failed to cache media after $DOWNLOAD_ATTEMPTS attempts: $mxcUrl")
+        null
+    }
 
     /**
      * Sniff the leading bytes of a file to decide whether it is a real raster image.
@@ -441,9 +438,9 @@ object IntelligentMediaCache {
             if (totalSize > MAX_CACHE_SIZE) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, cleaning up...",
-                )
+                        TAG,
+                        "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, cleaning up...",
+                    )
                 }
 
                 // Use intelligent eviction (uses in-memory cacheEntries map)

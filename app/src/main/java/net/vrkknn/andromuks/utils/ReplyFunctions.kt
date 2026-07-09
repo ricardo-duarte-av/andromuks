@@ -291,13 +291,7 @@ fun ReplyPreview(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun Modifier.messageBubbleMenu(
-    event: TimelineEvent,
-    onReply: () -> Unit,
-    onReact: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-): Modifier {
+fun Modifier.messageBubbleMenu(event: TimelineEvent, onReply: () -> Unit, onReact: () -> Unit, onEdit: () -> Unit, onDelete: () -> Unit): Modifier {
     var showMenu by remember { mutableStateOf(false) }
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorDialogText by remember { mutableStateOf<String?>(null) }
@@ -339,11 +333,7 @@ fun Modifier.messageBubbleMenu(
  * @param roomId Optional room ID for profile lookups
  * @return A string description of the event suitable for reply preview
  */
-fun formatEventForReplyPreview(
-    event: TimelineEvent,
-    appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-    roomId: String? = null,
-): String {
+fun formatEventForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.andromuks.AppViewModel? = null, roomId: String? = null): String {
     val eventType = event.type
     // CRITICAL FIX: For encrypted events, prioritize decrypted content over encrypted content
     // For encrypted messages, event.content contains encrypted data, not the actual message body
@@ -551,9 +541,9 @@ fun ReplyPreviewInput(
         LaunchedEffect(event.sender) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "ReplyPreviewInput",
-                "No display name for ${event.sender}, fetching profile...",
-            )
+                    "ReplyPreviewInput",
+                    "No display name for ${event.sender}, fetching profile...",
+                )
             }
             isFetchingProfile = true
             // Use opportunistic profile loading (same as timeline screens)
@@ -576,9 +566,9 @@ fun ReplyPreviewInput(
         LaunchedEffect(event.eventId) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "ReplyPreviewInput",
-                "Missing content or non-message event, fetching full event details for: ${event.eventId}, type: ${event.type}",
-            )
+                    "ReplyPreviewInput",
+                    "Missing content or non-message event, fetching full event details for: ${event.eventId}, type: ${event.type}",
+                )
             }
             isFetchingEvent = true
             appViewModel.getEvent(roomId, event.eventId) { fullEvent ->
@@ -586,9 +576,9 @@ fun ReplyPreviewInput(
                 if (fullEvent != null) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "ReplyPreviewInput",
-                        "Successfully fetched event: ${fullEvent.eventId}, type: ${fullEvent.type}",
-                    )
+                            "ReplyPreviewInput",
+                            "Successfully fetched event: ${fullEvent.eventId}, type: ${fullEvent.type}",
+                        )
                     }
                     fetchedEvent = fullEvent
                 } else {
@@ -1009,13 +999,19 @@ fun MessageBubbleWithMenu(
     }
     val effectiveOnReply: () -> Unit = if (isFailedEcho || isPendingEcho) {
         {}
-    } else onReply
+    } else {
+        onReply
+    }
     val effectiveOnReact: () -> Unit = if (isFailedEcho || isPendingEcho) {
         {}
-    } else onReact
+    } else {
+        onReact
+    }
     val effectiveOnEdit: () -> Unit = if (isFailedEcho || isPendingEcho) {
         {}
-    } else onEdit
+    } else {
+        onEdit
+    }
 
     // Calculate pin/unpin permissions
     val roomId = event.roomId
@@ -1263,18 +1259,18 @@ fun MessageBubbleWithMenu(
                     onClick = {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "ReplyFunctions",
-                            "MessageBubbleWithMenu: Regular tap detected",
-                        )
+                                "ReplyFunctions",
+                                "MessageBubbleWithMenu: Regular tap detected",
+                            )
                         }
                         onBubbleClick?.invoke()
                     },
                     onLongClick = {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "ReplyFunctions",
-                            "MessageBubbleWithMenu: Long press detected via combinedClickable",
-                        )
+                                "ReplyFunctions",
+                                "MessageBubbleWithMenu: Long press detected via combinedClickable",
+                            )
                         }
                         hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                         // Calculate menu config and trigger callback
@@ -1306,9 +1302,9 @@ fun MessageBubbleWithMenu(
                         onShowMenu?.invoke(menuConfig)
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "ReplyFunctions",
-                            "MessageBubbleWithMenu: Menu callback triggered",
-                        )
+                                "ReplyFunctions",
+                                "MessageBubbleWithMenu: Menu callback triggered",
+                            )
                         }
                     },
                 ),

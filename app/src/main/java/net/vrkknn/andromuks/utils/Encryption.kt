@@ -55,8 +55,7 @@ object Encryption {
         /**
          * Encrypt input as String
          */
-        fun encrypt(input: String): String =
-            Base64.encodeToString(encrypt(input.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+        fun encrypt(input: String): String = Base64.encodeToString(encrypt(input.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
 
         /**
          * Decrypt encrypted ByteArray

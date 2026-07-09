@@ -59,9 +59,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             if (!hasNotificationPermission) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "AuthCheckScreen",
-                    "Notification permission not granted, navigating to permissions screen",
-                )
+                        "AuthCheckScreen",
+                        "Notification permission not granted, navigating to permissions screen",
+                    )
                 }
                 appViewModel.isLoading = false
                 navController.navigate("permissions") {
@@ -138,28 +138,28 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     val currentRoute = navController.currentBackStackEntry?.destination?.route
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "AuthCheckScreen",
-                        "navigateToRoomListIfNeeded called (forceIfOnTimeline=$forceIfOnTimeline, currentRoute=$currentRoute)",
-                    )
+                            "AuthCheckScreen",
+                            "navigateToRoomListIfNeeded called (forceIfOnTimeline=$forceIfOnTimeline, currentRoute=$currentRoute)",
+                        )
                     }
 
                     if (currentRoute != null) {
                         if (currentRoute == "room_list") {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "AuthCheckScreen",
-                                "Already on room_list, ensuring isLoading is false",
-                            )
+                                    "AuthCheckScreen",
+                                    "Already on room_list, ensuring isLoading is false",
+                                )
                             }
                             appViewModel.isLoading = false
                             return
                         }
 
                         if (forceIfOnTimeline && (
-                            currentRoute.startsWith(
-                                "room_timeline/",
-                            ) || currentRoute.startsWith("chat_bubble/")
-                        )
+                                currentRoute.startsWith(
+                                    "room_timeline/",
+                                ) || currentRoute.startsWith("chat_bubble/")
+                                )
                         ) {
                             // Do NOT force-navigate if the user arrived here via a direct notification tap.
                             // AuthCheck already consumed directRoomNavigation and navigated to room_timeline —
@@ -167,9 +167,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                             if (appViewModel.openedViaDirectNotification) {
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "AuthCheckScreen",
-                                    "Skipping force navigation — user arrived via direct notification tap",
-                                )
+                                        "AuthCheckScreen",
+                                        "Skipping force navigation — user arrived via direct notification tap",
+                                    )
                                 }
                                 appViewModel.isLoading = false
                                 return
@@ -184,9 +184,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                             )
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "AuthCheckScreen",
-                                "Force navigating to room_list - clearing previous navigation stack (currentRoute=$currentRoute)",
-                            )
+                                    "AuthCheckScreen",
+                                    "Force navigating to room_list - clearing previous navigation stack (currentRoute=$currentRoute)",
+                                )
                             }
                             appViewModel.isLoading = false
                             navController.navigate("room_list") {
@@ -196,16 +196,16 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                         }
 
                         if (!forceIfOnTimeline && (
-                            currentRoute == "simple_room_list" ||
-                                currentRoute.startsWith("room_timeline/") ||
-                                currentRoute.startsWith("chat_bubble/")
+                                currentRoute == "simple_room_list" ||
+                                    currentRoute.startsWith("room_timeline/") ||
+                                    currentRoute.startsWith("chat_bubble/")
                                 )
                         ) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "AuthCheckScreen",
-                                "Skipping navigation to room_list because currentRoute=$currentRoute",
-                            )
+                                    "AuthCheckScreen",
+                                    "Skipping navigation to room_list because currentRoute=$currentRoute",
+                                )
                             }
                             appViewModel.isLoading = false
                             return
@@ -228,9 +228,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigation callback triggered")
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AuthCheck: Navigation callback - directRoomId: ${appViewModel.getDirectRoomNavigation()}, pendingRoomId: ${appViewModel.getPendingRoomNavigation()}",
-                    )
+                            "Andromuks",
+                            "AuthCheck: Navigation callback - directRoomId: ${appViewModel.getDirectRoomNavigation()}, pendingRoomId: ${appViewModel.getPendingRoomNavigation()}",
+                        )
                     }
                     appViewModel.isLoading = false
                     // Register FCM notifications after successful auth
@@ -247,18 +247,18 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                         if (appViewModel.pendingShareNavigationRequested) {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AuthCheck: Pending share needs room selection, navigating to simple_room_list",
-                            )
+                                    "Andromuks",
+                                    "AuthCheck: Pending share needs room selection, navigating to simple_room_list",
+                                )
                             }
                             navController.navigate("simple_room_list") { launchSingleTop = true }
                             appViewModel.markPendingShareNavigationHandled()
                         } else {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AuthCheck: Pending share in progress (navigation already handled) — skipping redirect",
-                            )
+                                    "Andromuks",
+                                    "AuthCheck: Pending share in progress (navigation already handled) — skipping redirect",
+                                )
                             }
                         }
                         return@setNavigationCallback
@@ -281,9 +281,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                         )
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AuthCheck: Direct room navigation detected (notification), navigating directly to room_timeline: $directRoomId",
-                        )
+                                "Andromuks",
+                                "AuthCheck: Direct room navigation detected (notification), navigating directly to room_timeline: $directRoomId",
+                            )
                         }
                         // Navigate directly to room timeline (like ShortcutActivity does)
                         // This bypasses RoomListScreen to avoid delays and missing rooms
@@ -302,9 +302,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                             )
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AuthCheck: room_timeline/$directRoomId already open (cache-first) — skipping re-navigation",
-                            )
+                                    "Andromuks",
+                                    "AuthCheck: room_timeline/$directRoomId already open (cache-first) — skipping re-navigation",
+                                )
                             }
                             appViewModel.openedViaDirectNotification = true
                             appViewModel.isLoading = false
@@ -340,9 +340,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                             )
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AuthCheck: Readiness check completed (isReady=$isReady) for $directRoomId",
-                            )
+                                    "Andromuks",
+                                    "AuthCheck: Readiness check completed (isReady=$isReady) for $directRoomId",
+                                )
                             }
 
                             // Synthesize a [room_list, room_timeline] back stack so Back returns to the
@@ -367,9 +367,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     if (pendingBubbleId != null) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AuthCheck: Navigating to pending bubble: $pendingBubbleId",
-                        )
+                                "Andromuks",
+                                "AuthCheck: Navigating to pending bubble: $pendingBubbleId",
+                            )
                         }
                         appViewModel.clearPendingBubbleNavigation()
                         navController.navigate("chat_bubble/$pendingBubbleId")
@@ -383,9 +383,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     if (pendingRoomId != null && appViewModel.getRoomById(pendingRoomId) == null) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AuthCheck: Shortcut room $pendingRoomId not found in room list",
-                        )
+                                "Andromuks",
+                                "AuthCheck: Shortcut room $pendingRoomId not found in room list",
+                            )
                         }
                         appViewModel.clearPendingRoomNavigation()
                         android.widget.Toast.makeText(
@@ -400,9 +400,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     if (pendingUserId != null) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AuthCheck: Navigating to user info for: $pendingUserId",
-                        )
+                                "Andromuks",
+                                "AuthCheck: Navigating to user info for: $pendingUserId",
+                            )
                         }
                         appViewModel.clearPendingUserInfoNavigation()
                         val encodedUserId = java.net.URLEncoder.encode(pendingUserId, "UTF-8")
@@ -448,15 +448,20 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 // Non-primary instances should attach to existing connection or wait for primary to connect
                 val isPrimary = appViewModel.isPrimaryInstance()
 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket connection check - isPrimary: $isPrimary, isAlreadyConnected: $isAlreadyConnected")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "AuthCheckScreen: WebSocket connection check - isPrimary: $isPrimary, isAlreadyConnected: $isAlreadyConnected",
+                )
+                }
 
                 if (isAlreadyConnected) {
                     // WebSocket is already connected (from primary AppViewModel instance), just attach to it
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AuthCheckScreen: WebSocket already connected, attaching to existing connection",
-                    )
+                            "Andromuks",
+                            "AuthCheckScreen: WebSocket already connected, attaching to existing connection",
+                        )
                     }
                     appViewModel.attachToExistingWebSocketIfAvailable()
                     appViewModel.isLoading = false
@@ -473,18 +478,18 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     // All setup (service start, reconnection params, health check, connection) is handled there
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AuthCheckScreen: Primary instance - delegating WebSocket connection to AppViewModel (survives activity recreation)",
-                    )
+                            "Andromuks",
+                            "AuthCheckScreen: Primary instance - delegating WebSocket connection to AppViewModel (survives activity recreation)",
+                        )
                     }
                     appViewModel.initializeWebSocketConnection(homeserverUrl, token)
                 } else {
                     // Non-primary instance and no connection exists - wait for primary to connect
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AuthCheckScreen: Non-primary instance - waiting for primary instance to establish WebSocket connection",
-                    )
+                            "Andromuks",
+                            "AuthCheckScreen: Non-primary instance - waiting for primary instance to establish WebSocket connection",
+                        )
                     }
 
                     // Wait for primary instance to connect (with timeout)
@@ -498,9 +503,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     if (WebSocketService.isWebSocketConnected()) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "AuthCheckScreen: Primary instance connected, attaching to WebSocket",
-                        )
+                                "Andromuks",
+                                "AuthCheckScreen: Primary instance connected, attaching to WebSocket",
+                            )
                         }
                         appViewModel.attachToExistingWebSocketIfAvailable()
                         appViewModel.isLoading = false
@@ -616,9 +621,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             // proceed to room_list using cached data.
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "AuthCheckScreen",
-                "Spaces loaded from cache - navigating to room_list (isWebSocketConnected=$isWebSocketConnected, network=$currentNetworkType)",
-            )
+                    "AuthCheckScreen",
+                    "Spaces loaded from cache - navigating to room_list (isWebSocketConnected=$isWebSocketConnected, network=$currentNetworkType)",
+                )
             }
             appViewModel.isLoading = false
             val currentRoute = navController.currentBackStackEntry?.destination?.route
@@ -647,9 +652,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     // Spaces loaded during timeout delay - navigate now
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "AuthCheckScreen",
-                        "Spaces loaded during timeout delay - navigating to room_list",
-                    )
+                            "AuthCheckScreen",
+                            "Spaces loaded during timeout delay - navigating to room_list",
+                        )
                     }
                 } else {
                     // Spaces not loaded but timeout expired - navigate anyway

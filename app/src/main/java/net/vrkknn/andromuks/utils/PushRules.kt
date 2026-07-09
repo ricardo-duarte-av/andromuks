@@ -177,10 +177,10 @@ data class PushRule(
             actions.isEmpty() || (dontNotify && !notify) -> if (sound ||
                 highlight
             ) {
-                    NotificationPreset.CUSTOM
-                } else {
-                    NotificationPreset.OFF
-                }
+                NotificationPreset.CUSTOM
+            } else {
+                NotificationPreset.OFF
+            }
 
             notify && highlight && !sound -> NotificationPreset.HIGHLIGHT
 

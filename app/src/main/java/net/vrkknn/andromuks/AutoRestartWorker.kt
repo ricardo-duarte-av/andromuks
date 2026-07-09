@@ -44,9 +44,9 @@ class AutoRestartWorker(context: Context, params: WorkerParameters) : CoroutineW
             if (homeserverUrl.isEmpty() || authToken.isEmpty()) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "No credentials found - user not logged in, skipping auto-restart check",
-                )
+                        TAG,
+                        "No credentials found - user not logged in, skipping auto-restart check",
+                    )
                 }
                 return@withContext Result.success()
             }

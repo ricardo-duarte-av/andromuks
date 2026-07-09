@@ -724,7 +724,12 @@ fun RoomInfoScreen(
                     .distinct()
                     .filter { it.isNotBlank() && it != appViewModel.currentUserId }
 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomInfoScreen: Triggering opportunistic profile loading for ${senders.size} pinned event senders")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                    "Andromuks",
+                    "RoomInfoScreen: Triggering opportunistic profile loading for ${senders.size} pinned event senders",
+                )
+                }
                 senders.forEach { sender ->
                     if (!requestedPinnedSenders.contains(sender)) {
                         requestedPinnedSenders = requestedPinnedSenders + sender
@@ -765,9 +770,9 @@ fun RoomInfoScreen(
                 // First refresh the room state to get updated pinned event IDs
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "RoomInfoScreen: Refreshing room state after unpin",
-                )
+                        "Andromuks",
+                        "RoomInfoScreen: Refreshing room state after unpin",
+                    )
                 }
                 appViewModel.requestRoomStateWithMembers(roomId) { stateInfo, error ->
                     if (error != null) {
@@ -780,9 +785,9 @@ fun RoomInfoScreen(
                         val pinnedIds = stateInfo?.pinnedEventIds ?: emptyList()
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
-                            "Andromuks",
-                            "RoomInfoScreen: Refreshed room state, found ${pinnedIds.size} pinned events",
-                        )
+                                "Andromuks",
+                                "RoomInfoScreen: Refreshed room state, found ${pinnedIds.size} pinned events",
+                            )
                         }
 
                         // Reload pinned events with updated IDs
@@ -874,11 +879,11 @@ private fun RoomPushRulesDialog(roomId: String, roomName: String, appViewModel: 
         allAffecting
     } else {
         allAffecting.filter { rule ->
-        val q = ruleQuery.trim().lowercase()
-        rule.ruleId.lowercase().contains(q) ||
-            rule.displayTitle().lowercase().contains(q) ||
-            rule.humanSummary().lowercase().contains(q)
-    }
+            val q = ruleQuery.trim().lowercase()
+            rule.ruleId.lowercase().contains(q) ||
+                rule.displayTitle().lowercase().contains(q) ||
+                rule.humanSummary().lowercase().contains(q)
+        }
     }
 
     AlertDialog(
@@ -911,9 +916,9 @@ private fun RoomPushRulesDialog(roomId: String, roomName: String, appViewModel: 
                             .clickable {
                                 if (level != currentLevel) {
                                     appViewModel.setRoomNotificationLevel(
-                                    roomId,
-                                    level,
-                                )
+                                        roomId,
+                                        level,
+                                    )
                                 }
                             },
                         verticalAlignment = Alignment.CenterVertically,
@@ -923,9 +928,9 @@ private fun RoomPushRulesDialog(roomId: String, roomName: String, appViewModel: 
                             onClick = {
                                 if (level != currentLevel) {
                                     appViewModel.setRoomNotificationLevel(
-                                    roomId,
-                                    level,
-                                )
+                                        roomId,
+                                        level,
+                                    )
                                 }
                             },
                         )
@@ -1002,12 +1007,7 @@ private fun RoomPushRulesDialog(roomId: String, roomName: String, appViewModel: 
 
 data class PinnedEventItem(val eventId: String, val timelineEvent: net.vrkknn.andromuks.TimelineEvent?)
 
-private fun loadPinnedEvents(
-    pinnedIds: List<String>,
-    roomId: String,
-    appViewModel: AppViewModel,
-    onResult: (List<PinnedEventItem>, String?) -> Unit,
-) {
+private fun loadPinnedEvents(pinnedIds: List<String>, roomId: String, appViewModel: AppViewModel, onResult: (List<PinnedEventItem>, String?) -> Unit) {
     if (pinnedIds.isEmpty()) {
         onResult(emptyList(), null)
         return
@@ -1020,9 +1020,9 @@ private fun loadPinnedEvents(
 
     if (BuildConfig.DEBUG) {
         android.util.Log.d(
-        "Andromuks",
-        "loadPinnedEvents: Loading ${pinnedIds.size} pinned events for room $roomId",
-    )
+            "Andromuks",
+            "loadPinnedEvents: Loading ${pinnedIds.size} pinned events for room $roomId",
+        )
     }
 
     pinnedIds.forEach { eventId ->
@@ -1037,17 +1037,17 @@ private fun loadPinnedEvents(
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "loadPinnedEvents: Successfully loaded event $eventId",
-                    )
+                            "Andromuks",
+                            "loadPinnedEvents: Successfully loaded event $eventId",
+                        )
                     }
                 }
 
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "loadPinnedEvents: Progress: ${pinnedIds.size - remaining}/${pinnedIds.size} events loaded",
-                )
+                        "Andromuks",
+                        "loadPinnedEvents: Progress: ${pinnedIds.size - remaining}/${pinnedIds.size} events loaded",
+                    )
                 }
 
                 if (remaining == 0) {
@@ -1067,16 +1067,23 @@ private fun loadPinnedEvents(
                         hasTimeout && results.all {
                             it.timelineEvent == null
                         } -> "All pinned events failed to load (timeout or not found)"
+
                         hasTimeout -> "Some pinned events failed to load (timeout or not found)"
+
                         else -> null
                     }
 
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "loadPinnedEvents: Completed loading pinned events. Success: ${results.count { it.timelineEvent != null }}/${pinnedIds.size}")
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                         "Andromuks",
-                        "loadPinnedEvents: Events ordered by timestamp (most recent first)",
+                        "loadPinnedEvents: Completed loading pinned events. Success: ${results.count { it.timelineEvent != null }}/${pinnedIds.size}",
                     )
+                    }
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "loadPinnedEvents: Events ordered by timestamp (most recent first)",
+                        )
                     }
                     onResult(ordered, finalErrorMessage)
                 }
@@ -1199,20 +1206,20 @@ private fun MembersDialog(
         // Sort active members: by power level (descending), then by room-specific displayname, then global displayname, then username
         val sortedActive = activeMembers.sortedWith(
             compareBy<RoomMember>(
-            { -(powerLevels?.users?.get(it.userId) ?: powerLevels?.usersDefault ?: 0) }, // Power level descending
-            { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
-            { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
-            { usernameFromMatrixId(it.userId).lowercase() }, // Username
-        )
+                { -(powerLevels?.users?.get(it.userId) ?: powerLevels?.usersDefault ?: 0) }, // Power level descending
+                { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
+                { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
+                { usernameFromMatrixId(it.userId).lowercase() }, // Username
+            ),
         )
 
         // Sort ban/leave members: alphabetically by room-specific displayname, then global displayname, then username
         val sortedBanLeave = banLeaveMembers.sortedWith(
             compareBy<RoomMember>(
-            { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
-            { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
-            { usernameFromMatrixId(it.userId).lowercase() }, // Username
-        )
+                { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
+                { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
+                { usernameFromMatrixId(it.userId).lowercase() }, // Username
+            ),
         )
 
         // Return active members first, then ban/leave members at the bottom
@@ -1324,9 +1331,9 @@ private fun PinnedEventItemView(
             val profile = memberMap[event.sender]
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "PinnedEventItemView: Event sender: ${event.sender}, Profile found: ${profile != null}, DisplayName: ${profile?.displayName}",
-            )
+                    "Andromuks",
+                    "PinnedEventItemView: Event sender: ${event.sender}, Profile found: ${profile != null}, DisplayName: ${profile?.displayName}",
+                )
             }
         }
     }
@@ -1433,13 +1440,7 @@ private fun PinnedEventItemView(
  * Composable for a single room member item
  */
 @Composable
-fun RoomMemberItem(
-    member: RoomMember,
-    homeserverUrl: String,
-    authToken: String,
-    powerLevel: Int?,
-    onUserClick: (String) -> Unit = {},
-) {
+fun RoomMemberItem(member: RoomMember, homeserverUrl: String, authToken: String, powerLevel: Int?, onUserClick: (String) -> Unit = {}) {
     val displayName = member.displayName ?: usernameFromMatrixId(member.userId)
     Row(
         modifier = Modifier
@@ -1654,9 +1655,9 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
             is org.json.JSONArray -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "parseRoomStateResponse: Received JSONArray with ${data.length()} events",
-                )
+                        "Andromuks",
+                        "parseRoomStateResponse: Received JSONArray with ${data.length()} events",
+                    )
                 }
                 data
             }
@@ -1664,9 +1665,9 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
             is List<*> -> {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "parseRoomStateResponse: Received List with ${data.size} events, converting to JSONArray",
-                )
+                        "Andromuks",
+                        "parseRoomStateResponse: Received List with ${data.size} events, converting to JSONArray",
+                    )
                 }
                 // Convert list to JSONArray
                 val jsonArray = org.json.JSONArray()
@@ -1865,10 +1866,10 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
         members.addAll(membersMap.values)
         members.sortWith(
             compareBy<RoomMember>(
-            { it.membership != "join" }, // Joined members first
-            { it.membership != "invite" }, // Then invited
-            { it.displayName?.lowercase() ?: it.userId.lowercase() }, // Then alphabetically
-        )
+                { it.membership != "join" }, // Joined members first
+                { it.membership != "invite" }, // Then invited
+                { it.displayName?.lowercase() ?: it.userId.lowercase() }, // Then alphabetically
+            ),
         )
 
         val invitedCount = members.count { it.membership == "invite" }
@@ -1876,9 +1877,9 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
         val bannedCount = members.count { it.membership == "ban" }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "parseRoomStateResponse: Parsed ${members.size} total members from $totalMemberEvents member events: $joinedMemberEvents joined, $invitedCount invited, $leftCount left, $bannedCount banned",
-        )
+                "Andromuks",
+                "parseRoomStateResponse: Parsed ${members.size} total members from $totalMemberEvents member events: $joinedMemberEvents joined, $invitedCount invited, $leftCount left, $bannedCount banned",
+            )
         }
 
         return RoomStateInfo(

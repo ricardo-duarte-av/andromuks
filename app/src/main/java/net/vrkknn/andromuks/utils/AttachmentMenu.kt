@@ -717,10 +717,10 @@ fun InAppVideoOverlay(visible: Boolean, onDismiss: () -> Unit, onCaptured: (uri:
                 color = if (activeRecording !=
                     null
                 ) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 80.dp)
@@ -812,11 +812,7 @@ fun InAppVideoOverlay(visible: Boolean, onDismiss: () -> Unit, onCaptured: (uri:
 }
 
 @Composable
-private fun InAppCameraPreview(
-    modifier: Modifier = Modifier,
-    useFrontCamera: Boolean,
-    onImageCaptureReady: (ImageCapture) -> Unit,
-) {
+private fun InAppCameraPreview(modifier: Modifier = Modifier, useFrontCamera: Boolean, onImageCaptureReady: (ImageCapture) -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     AndroidView(
@@ -876,11 +872,7 @@ private fun InAppCameraPreview(
 }
 
 @Composable
-private fun InAppVideoPreview(
-    modifier: Modifier = Modifier,
-    useFrontCamera: Boolean,
-    onVideoCaptureReady: (VideoCapture<Recorder>) -> Unit,
-) {
+private fun InAppVideoPreview(modifier: Modifier = Modifier, useFrontCamera: Boolean, onVideoCaptureReady: (VideoCapture<Recorder>) -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     AndroidView(

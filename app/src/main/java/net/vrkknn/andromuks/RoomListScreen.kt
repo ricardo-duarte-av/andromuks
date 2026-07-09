@@ -315,9 +315,9 @@ fun RoomListScreen(
                 // Timeout occurred - log warning but continue
                 if (BuildConfig.DEBUG) {
                     android.util.Log.w(
-                    "Andromuks",
-                    "RoomListScreen: Startup operations timed out after 3 seconds, continuing anyway",
-                )
+                        "Andromuks",
+                        "RoomListScreen: Startup operations timed out after 3 seconds, continuing anyway",
+                    )
                 }
             }
         } catch (e: Exception) {
@@ -436,9 +436,9 @@ fun RoomListScreen(
             stableSection = newSection
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: Section type changed to ${newSection.type}, animation started (gen=$animationGeneration)",
-            )
+                    "Andromuks",
+                    "RoomListScreen: Section type changed to ${newSection.type}, animation started (gen=$animationGeneration)",
+                )
             }
             return@LaunchedEffect
         }
@@ -448,9 +448,9 @@ fun RoomListScreen(
             pendingSectionUpdate = newSection
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: Animation in progress, queuing section update (rooms:${newSection.rooms.size})",
-            )
+                    "Andromuks",
+                    "RoomListScreen: Animation in progress, queuing section update (rooms:${newSection.rooms.size})",
+                )
             }
             return@LaunchedEffect
         }
@@ -464,9 +464,9 @@ fun RoomListScreen(
         if (roomsAdded.isNotEmpty() || roomsRemoved.isNotEmpty()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: Rooms added/removed – added:${roomsAdded.size} removed:${roomsRemoved.size}",
-            )
+                    "Andromuks",
+                    "RoomListScreen: Rooms added/removed – added:${roomsAdded.size} removed:${roomsRemoved.size}",
+                )
             }
             stableSection = newSection
             return@LaunchedEffect
@@ -497,17 +497,17 @@ fun RoomListScreen(
                 stableSection = newSection.copy(rooms = reorderedRooms)
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "RoomListScreen: Order changed only – preserved ${reorderedRooms.size} room instances",
-                )
+                        "Andromuks",
+                        "RoomListScreen: Order changed only – preserved ${reorderedRooms.size} room instances",
+                    )
                 }
             } else {
                 stableSection = newSection
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "RoomListScreen: Section data changed – rooms:$roomsChanged order:$orderChanged spaces:$spacesChanged",
-                )
+                        "Andromuks",
+                        "RoomListScreen: Section data changed – rooms:$roomsChanged order:$orderChanged spaces:$spacesChanged",
+                    )
                 }
             }
         } else if (stableSection.rooms.isEmpty() && stableSection.spaces.isEmpty()) {
@@ -686,9 +686,9 @@ fun RoomListScreen(
             pendingSectionUpdate?.let { pending ->
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "RoomListScreen: Animation completed (gen=$animationGeneration), applying pending section update (${pending.rooms.size} rooms)",
-                )
+                        "Andromuks",
+                        "RoomListScreen: Animation completed (gen=$animationGeneration), applying pending section update (${pending.rooms.size} rooms)",
+                    )
                 }
                 stableSection = pending
                 pendingSectionUpdate = null
@@ -718,17 +718,17 @@ fun RoomListScreen(
         if (appViewModel.openedFromExternalApp) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: Back button pressed, opened from external app - finishing activity",
-            )
+                    "Andromuks",
+                    "RoomListScreen: Back button pressed, opened from external app - finishing activity",
+                )
             }
             (context as? ComponentActivity)?.finish()
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: Back button pressed, suspending app",
-            )
+                    "Andromuks",
+                    "RoomListScreen: Back button pressed, suspending app",
+                )
             }
             appViewModel.suspendApp() // Start 15-second timer to close websocket
             // Move app to background instead of closing completely
@@ -762,9 +762,9 @@ fun RoomListScreen(
             // Load rooms from singleton cache to populate roomMap
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: RoomMap has $initialRoomCount rooms but cache has $cacheRoomCount rooms (likely from notification/shortcut navigation), loading from singleton cache",
-            )
+                    "Andromuks",
+                    "RoomListScreen: RoomMap has $initialRoomCount rooms but cache has $cacheRoomCount rooms (likely from notification/shortcut navigation), loading from singleton cache",
+                )
             }
             appViewModel.populateRoomMapFromCache()
             appViewModel.populateSpacesFromCache()
@@ -773,18 +773,18 @@ fun RoomListScreen(
             stableSection = loadedSnapshot
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: Loaded ${loadedSnapshot.rooms.size} rooms from singleton cache",
-            )
+                    "Andromuks",
+                    "RoomListScreen: Loaded ${loadedSnapshot.rooms.size} rooms from singleton cache",
+                )
             }
         } else {
             // Normal case - use existing roomMap
             stableSection = initialSnapshot
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: Using existing roomMap with $initialRoomCount rooms (cache has $cacheRoomCount rooms)",
-            )
+                    "Andromuks",
+                    "RoomListScreen: Using existing roomMap with $initialRoomCount rooms (cache has $cacheRoomCount rooms)",
+                )
             }
         }
 
@@ -881,18 +881,18 @@ fun RoomListScreen(
         if (isFull) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: Pull-to-refresh confirmed - performing full refresh",
-            )
+                    "Andromuks",
+                    "RoomListScreen: Pull-to-refresh confirmed - performing full refresh",
+                )
             }
             // Perform full refresh which clears all state and triggers reconnection
             appViewModel.performFullRefresh()
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: Pull-to-refresh confirmed - performing quick refresh (resume)",
-            )
+                    "Andromuks",
+                    "RoomListScreen: Pull-to-refresh confirmed - performing quick refresh (resume)",
+                )
             }
             // Perform quick refresh which keeps local caches and resumes session
             appViewModel.performQuickRefresh()
@@ -918,9 +918,9 @@ fun RoomListScreen(
             if (!actuallyAtTop) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "RoomListScreen: Pull-to-refresh blocked - not at top of list",
-                )
+                        "Andromuks",
+                        "RoomListScreen: Pull-to-refresh blocked - not at top of list",
+                    )
                 }
                 return@rememberPullRefreshState
             }
@@ -938,9 +938,9 @@ fun RoomListScreen(
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "RoomListScreen: Received FOREGROUND_REFRESH broadcast, refreshing UI from cache",
-                    )
+                            "Andromuks",
+                            "RoomListScreen: Received FOREGROUND_REFRESH broadcast, refreshing UI from cache",
+                        )
                     }
                     // Lightweight refresh from cached sync data (no WebSocket restart needed)
                     appViewModel.refreshUIFromCache()
@@ -952,9 +952,9 @@ fun RoomListScreen(
         ContextCompat.registerReceiver(context, foregroundRefreshReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver",
-        )
+                "Andromuks",
+                "RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver",
+            )
         }
 
         onDispose {
@@ -962,9 +962,9 @@ fun RoomListScreen(
                 context.unregisterReceiver(foregroundRefreshReceiver)
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "RoomListScreen: Unregistered FOREGROUND_REFRESH broadcast receiver",
-                )
+                        "Andromuks",
+                        "RoomListScreen: Unregistered FOREGROUND_REFRESH broadcast receiver",
+                    )
                 }
             } catch (e: Exception) {
                 android.util.Log.w("Andromuks", "RoomListScreen: Error unregistering foreground refresh receiver", e)
@@ -1013,9 +1013,9 @@ fun RoomListScreen(
         if (newSenders.isNotEmpty()) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${newSenders.size} new message senders (${messageSenders.size} total, ${processedMessageSenders.size} already processed)",
-            )
+                    "Andromuks",
+                    "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${newSenders.size} new message senders (${messageSenders.size} total, ${processedMessageSenders.size} already processed)",
+                )
             }
 
             // Request profiles for each new message sender
@@ -1777,13 +1777,7 @@ fun RoomListScreen(
 }
 
 @Composable
-fun SpaceListItem(
-    space: SpaceItem,
-    isSelected: Boolean,
-    onClick: () -> Unit,
-    homeserverUrl: String,
-    authToken: String,
-) {
+fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit, homeserverUrl: String, authToken: String) {
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceListItem: Called for space: ${space.name}")
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceListItem: Using homeserver URL: $homeserverUrl")
 
@@ -2582,9 +2576,9 @@ fun RoomListItem(
                                             } else {
                                                 if (BuildConfig.DEBUG) {
                                                     android.util.Log.w(
-                                                    "Andromuks",
-                                                    "RoomListScreen: Cannot mark room as read - no latest event_id for room ${room.id}",
-                                                )
+                                                        "Andromuks",
+                                                        "RoomListScreen: Cannot mark room as read - no latest event_id for room ${room.id}",
+                                                    )
                                                 }
                                             }
                                         }
@@ -2733,11 +2727,7 @@ fun formatTimeAgo(timestamp: Long?): String {
  * resolve to the generic overload instead of the shadowed RowScope one.
  */
 @Composable
-private fun ConnectionStatusIndicator(
-    connectionState: ConnectionState,
-    roomListUpdateCounter: Int,
-    onClick: () -> Unit,
-) {
+private fun ConnectionStatusIndicator(connectionState: ConnectionState, roomListUpdateCounter: Int, onClick: () -> Unit) {
     val isConnecting = connectionState.isDialOrSyncing() ||
         connectionState is ConnectionState.QuickReconnecting ||
         connectionState is ConnectionState.FullReconnecting
@@ -3277,9 +3267,9 @@ fun RoomListContent(
                         if (roomOpenInProgress != null) {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "RoomListScreen: Room open already in progress, ignoring tap on ${room.id}",
-                            )
+                                    "Andromuks",
+                                    "RoomListScreen: Room open already in progress, ignoring tap on ${room.id}",
+                                )
                             }
                             return@RoomListItem
                         }
@@ -3297,9 +3287,9 @@ fun RoomListContent(
                                 // NOTE: markRoomAsRead is handled by navigateToRoomWithCache, so we don't need to call it here
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "RoomListScreen: opening room $roomIdForNavigation with sharedKey = avatar-$roomIdForNavigation",
-                                )
+                                        "Andromuks",
+                                        "RoomListScreen: opening room $roomIdForNavigation with sharedKey = avatar-$roomIdForNavigation",
+                                    )
                                 }
                                 appViewModel.navigateToRoomWithCache(roomIdForNavigation)
                                 // Room opened from room_list — room_list IS in the back stack,
@@ -3470,10 +3460,10 @@ fun InviteListItem(invite: RoomInvite, onClick: () -> Unit, homeserverUrl: Strin
                 userId = if (invite.isDirectMessage &&
                     invite.roomAvatar.isNullOrBlank()
                 ) {
-                        invite.inviterUserId
-                    } else {
-                        invite.roomId
-                    },
+                    invite.inviterUserId
+                } else {
+                    invite.roomId
+                },
                 displayName = displayName,
             )
 

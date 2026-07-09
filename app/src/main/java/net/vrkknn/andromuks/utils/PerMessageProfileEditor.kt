@@ -89,17 +89,14 @@ fun readPerMessageProfiles(): Map<String, PerMessageProfileEntry> {
     return result
 }
 
-private fun buildProfilesContentMap(profiles: Map<String, PerMessageProfileEntry>): Map<String, Any> =
-    profiles.mapValues {
-            (_, entry),
-        ->
-        val m = mutableMapOf<String, Any>(
-            "id" to entry.id,
-            "displayname" to entry.displayname,
-        )
-        if (entry.avatarUrl.isNotBlank()) m["avatar_url"] = entry.avatarUrl
-        m
-    }
+private fun buildProfilesContentMap(profiles: Map<String, PerMessageProfileEntry>): Map<String, Any> = profiles.mapValues { (_, entry) ->
+    val m = mutableMapOf<String, Any>(
+        "id" to entry.id,
+        "displayname" to entry.displayname,
+    )
+    if (entry.avatarUrl.isNotBlank()) m["avatar_url"] = entry.avatarUrl
+    m
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -229,12 +226,7 @@ fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: Ap
 }
 
 @Composable
-private fun ProfileListItem(
-    profile: PerMessageProfileEntry,
-    appViewModel: AppViewModel,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-) {
+private fun ProfileListItem(profile: PerMessageProfileEntry, appViewModel: AppViewModel, onEdit: () -> Unit, onDelete: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -459,11 +451,7 @@ private fun AddEditProfileDialog(
  * Displays all available profiles with avatar images; selecting one fills in the shortcode.
  */
 @Composable
-fun PerMessageProfilePicker(
-    appViewModel: AppViewModel,
-    onProfileSelected: (PerMessageProfileEntry) -> Unit,
-    modifier: Modifier = Modifier,
-) {
+fun PerMessageProfilePicker(appViewModel: AppViewModel, onProfileSelected: (PerMessageProfileEntry) -> Unit, modifier: Modifier = Modifier) {
     val profiles = remember { readPerMessageProfiles().values.sortedBy { it.shortcode } }
 
     androidx.compose.material3.Surface(
@@ -505,11 +493,7 @@ fun PerMessageProfilePicker(
 }
 
 @Composable
-private fun PerMessageProfilePickerItem(
-    profile: PerMessageProfileEntry,
-    appViewModel: AppViewModel,
-    onSelected: () -> Unit,
-) {
+private fun PerMessageProfilePickerItem(profile: PerMessageProfileEntry, appViewModel: AppViewModel, onSelected: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()

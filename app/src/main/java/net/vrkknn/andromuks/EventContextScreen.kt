@@ -45,13 +45,7 @@ import net.vrkknn.andromuks.utils.navigateToUserInfo
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun EventContextScreen(
-    roomId: String,
-    eventId: String,
-    navController: NavController,
-    modifier: Modifier = Modifier,
-    appViewModel: AppViewModel,
-) {
+fun EventContextScreen(roomId: String, eventId: String, navController: NavController, modifier: Modifier = Modifier, appViewModel: AppViewModel) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val sharedPreferences = remember(context) {
         context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
@@ -97,9 +91,9 @@ fun EventContextScreen(
     LaunchedEffect(roomId, eventId) {
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "EventContextScreen: Fetching event context for roomId: $roomId, eventId: $eventId",
-        )
+                "Andromuks",
+                "EventContextScreen: Fetching event context for roomId: $roomId, eventId: $eventId",
+            )
         }
         isLoading = true
         errorMessage = null
@@ -113,25 +107,25 @@ fun EventContextScreen(
                 // treat rowid <= 0 as a fallback-to-timestamp case so they sort correctly.
                 contextEvents = events.sortedWith(
                     compareBy(
-                    { it.eventId.startsWith("~") },
-                    { if (it.timelineRowid > 0L) it.timelineRowid else Long.MAX_VALUE },
-                    { it.timestamp },
-                    { it.eventId },
-                )
+                        { it.eventId.startsWith("~") },
+                        { if (it.timelineRowid > 0L) it.timelineRowid else Long.MAX_VALUE },
+                        { it.timestamp },
+                        { it.eventId },
+                    ),
                 )
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "EventContextScreen: Received ${events.size} events in context",
-                )
+                        "Andromuks",
+                        "EventContextScreen: Received ${events.size} events in context",
+                    )
                 }
             } else {
                 errorMessage = error ?: "Failed to load event context"
                 if (BuildConfig.DEBUG) {
                     Log.w(
-                    "Andromuks",
-                    "EventContextScreen: Failed to load event context: ${error ?: "unknown error"}",
-                )
+                        "Andromuks",
+                        "EventContextScreen: Failed to load event context: ${error ?: "unknown error"}",
+                    )
                 }
             }
         }

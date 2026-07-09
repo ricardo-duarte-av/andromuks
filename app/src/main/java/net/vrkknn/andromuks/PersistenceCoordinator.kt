@@ -13,10 +13,7 @@ import java.util.ConcurrentModificationException
  */
 internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
-    fun addPendingOperation(
-        operation: AppViewModel.PendingWebSocketOperation,
-        saveToStorage: Boolean = false,
-    ): Boolean = with(
+    fun addPendingOperation(operation: AppViewModel.PendingWebSocketOperation, saveToStorage: Boolean = false): Boolean = with(
         vm,
     ) {
         synchronized(pendingOperationsLock) {
@@ -102,9 +99,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                 if (operationsJson == null || operationsJson.isEmpty()) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: No pending WebSocket operations found in storage",
-                    )
+                            "Andromuks",
+                            "AppViewModel: No pending WebSocket operations found in storage",
+                        )
                     }
                     return@with
                 }
@@ -131,9 +128,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                         } else {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Removed old pending operation (age: ${age / 1000 / 60} minutes): ${operation.type}",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Removed old pending operation (age: ${age / 1000 / 60} minutes): ${operation.type}",
+                                )
                             }
                         }
                     }
@@ -158,9 +155,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: No valid pending WebSocket operations to load",
-                    )
+                            "Andromuks",
+                            "AppViewModel: No valid pending WebSocket operations to load",
+                        )
                     }
                 }
             } catch (e: Exception) {
@@ -178,9 +175,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         if (pendingSize == 0) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: No pending operations to retry after reconnection",
-            )
+                    "Andromuks",
+                    "AppViewModel: No pending operations to retry after reconnection",
+                )
             }
             return@with
         }
@@ -191,9 +188,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         if (unacknowledgedCount == 0) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: All pending operations already acknowledged, no retry needed",
-            )
+                    "Andromuks",
+                    "AppViewModel: All pending operations already acknowledged, no retry needed",
+                )
             }
             return@with
         }
@@ -227,9 +224,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         if (!canSendCommandsToBackend) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Deferring offline ops retry — canSendCommandsToBackend=false, will retry from flushPendingQueue()",
-            )
+                    "Andromuks",
+                    "AppViewModel: Deferring offline ops retry — canSendCommandsToBackend=false, will retry from flushPendingQueue()",
+                )
             }
             return@with
         }
@@ -238,9 +235,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         if (pendingSize == 0) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: No pending WebSocket operations to retry",
-            )
+                    "Andromuks",
+                    "AppViewModel: No pending WebSocket operations to retry",
+                )
             }
             return@with
         }
@@ -275,9 +272,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
             }
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: No operations ready to retry (acknowledged: $acknowledgedCount, waiting for timeout: $waitingCount, total: $total)",
-            )
+                    "Andromuks",
+                    "AppViewModel: No operations ready to retry (acknowledged: $acknowledgedCount, waiting for timeout: $waitingCount, total: $total)",
+                )
             }
             return@with
         }
@@ -333,9 +330,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                             if (roomId != null && eventId != null) {
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
-                                    "Andromuks",
-                                    "AppViewModel: Retrying markRoomAsRead for room $roomId (attempt ${operation.retryCount + 1})",
-                                )
+                                        "Andromuks",
+                                        "AppViewModel: Retrying markRoomAsRead for room $roomId (attempt ${operation.retryCount + 1})",
+                                    )
                                 }
                                 readReceiptsTypingCoordinator.markRoomAsReadInternal(roomId, eventId)
                             }
@@ -352,9 +349,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                 if (command != null && requestId != null && data != null) {
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command (attempt ${operation.retryCount + 1})",
-                                    )
+                                            "Andromuks",
+                                            "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command (attempt ${operation.retryCount + 1})",
+                                        )
                                     }
                                     val newRequestId = WebSocketService.allocateRequestId()
                                     val result = sendWebSocketCommand(command, newRequestId, data)
@@ -421,9 +418,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: PHASE 5.4 - Finished retrying ${operationsToRetry.size} operations, ${pendingWebSocketOperations.size} remain queued",
-            )
+                    "Andromuks",
+                    "AppViewModel: PHASE 5.4 - Finished retrying ${operationsToRetry.size} operations, ${pendingWebSocketOperations.size} remain queued",
+                )
             }
         }
     }
@@ -475,9 +472,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
                     operationsToRetry.add(
                         operation.copy(
-                        retryCount = newRetryCount,
-                        acknowledgmentTimeout = newTimeout,
-                    )
+                            retryCount = newRetryCount,
+                            acknowledgmentTimeout = newTimeout,
+                        ),
                     )
                     operationsToRemove.add(operation)
                 } else {
@@ -539,9 +536,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                         if (command != null && requestId != null && data != null) {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Retrying offline command: $command (attempt ${operation.retryCount + 1})",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Retrying offline command: $command (attempt ${operation.retryCount + 1})",
+                                )
                             }
                             val newRequestId = WebSocketService.allocateRequestId()
                             val result = sendWebSocketCommand(command, newRequestId, data)
@@ -620,9 +617,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: PHASE 5.4 - No acknowledged messages to clean up",
-            )
+                    "Andromuks",
+                    "AppViewModel: PHASE 5.4 - No acknowledged messages to clean up",
+                )
             }
         }
     }
@@ -647,9 +644,9 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
         } else {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: PHASE 5.3 - No pending operation found for requestId: $requestId (may have been already acknowledged, not tracked, or request_id=0)",
-            )
+                    "Andromuks",
+                    "AppViewModel: PHASE 5.3 - No pending operation found for requestId: $requestId (may have been already acknowledged, not tracked, or request_id=0)",
+                )
             }
         }
     }

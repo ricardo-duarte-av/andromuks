@@ -196,6 +196,5 @@ object BubblePalette {
      * Generate background color for reply previews.
      * Uses subtle blending between surface and bubble container.
      */
-    fun replyPreviewBackground(colorScheme: ColorScheme, bubbleColors: BubbleColors): Color =
-        lerp(colorScheme.surface, bubbleColors.container, 0.5f)
+    fun replyPreviewBackground(colorScheme: ColorScheme, bubbleColors: BubbleColors): Color = lerp(colorScheme.surface, bubbleColors.container, 0.5f)
 }

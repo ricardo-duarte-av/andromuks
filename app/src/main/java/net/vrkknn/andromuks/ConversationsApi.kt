@@ -477,9 +477,9 @@ class ConversationsApi(
             if (storedVersion != SHORTCUTS_SCHEMA_VERSION) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "initializeShortcutCache: schema version mismatch ($storedVersion vs $SHORTCUTS_SCHEMA_VERSION), wiping all shortcuts",
-                )
+                        TAG,
+                        "initializeShortcutCache: schema version mismatch ($storedVersion vs $SHORTCUTS_SCHEMA_VERSION), wiping all shortcuts",
+                    )
                 }
                 ShortcutManagerCompat.removeAllDynamicShortcuts(context)
                 lastShortcutData = emptyMap()
@@ -525,9 +525,9 @@ class ConversationsApi(
                         // This is a person shortcut - skip it
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            TAG,
-                            "Skipping person shortcut during cache initialization: $shortcutId",
-                        )
+                                TAG,
+                                "Skipping person shortcut during cache initialization: $shortcutId",
+                            )
                         }
                         continue
                     }
@@ -536,14 +536,19 @@ class ConversationsApi(
                         // Not a valid conversation shortcut (room IDs start with !)
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            TAG,
-                            "Skipping invalid conversation shortcut (doesn't start with !): $shortcutId",
-                        )
+                                TAG,
+                                "Skipping invalid conversation shortcut (doesn't start with !): $shortcutId",
+                            )
                         }
                         continue
                     }
 
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Loading conversation shortcut: $shortcutId (label: ${shortcut.shortLabel}, categories: ${shortcut.categories})")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                        TAG,
+                        "Loading conversation shortcut: $shortcutId (label: ${shortcut.shortLabel}, categories: ${shortcut.categories})",
+                    )
+                    }
 
                     val roomId = shortcutId
                     val roomName = shortcut.shortLabel?.toString() ?: ""
@@ -970,20 +975,20 @@ class ConversationsApi(
             .filter { it.sortingTimestamp != null && it.sortingTimestamp > 0 }
             .sortedWith(
                 compareByDescending<RoomItem> { room ->
-                // Primary sort: unread count (rooms with unread come first)
-                room.unreadCount ?: 0
-            }.thenByDescending { room ->
-                // Secondary sort: recent activity (within 30 days gets priority)
-                val timestamp = room.sortingTimestamp ?: 0L
-                if (timestamp >= thirtyDaysAgo) {
-                    // Recent activity: use timestamp as-is
-                    timestamp
-                } else {
-                    // Old activity: reduce priority by subtracting a large offset
-                    // This ensures recent rooms always come before old ones
-                    timestamp - (365L * 24 * 60 * 60 * 1000) // Subtract 1 year to deprioritize
-                }
-            }
+                    // Primary sort: unread count (rooms with unread come first)
+                    room.unreadCount ?: 0
+                }.thenByDescending { room ->
+                    // Secondary sort: recent activity (within 30 days gets priority)
+                    val timestamp = room.sortingTimestamp ?: 0L
+                    if (timestamp >= thirtyDaysAgo) {
+                        // Recent activity: use timestamp as-is
+                        timestamp
+                    } else {
+                        // Old activity: reduce priority by subtracting a large offset
+                        // This ensures recent rooms always come before old ones
+                        timestamp - (365L * 24 * 60 * 60 * 1000) // Subtract 1 year to deprioritize
+                    }
+                },
             )
             .take(MAX_SHORTCUTS)
 
@@ -1041,9 +1046,9 @@ class ConversationsApi(
                         avatarsNeedDownload = true
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            TAG,
-                            "Shortcut ${s.roomId} has avatar URL but not cached - forcing update",
-                        )
+                                TAG,
+                                "Shortcut ${s.roomId} has avatar URL but not cached - forcing update",
+                            )
                         }
                         break
                     }
@@ -1182,8 +1187,8 @@ class ConversationsApi(
                 // IMPORTANT: Preserve existing shortcuts in their current order, add new ones at the end
                 val mergedShortcuts = (
                     shortcutsToKeep.values +
-                    shortcutsToUpdate.filter { it.roomId !in shortcutsToKeep.keys }
-                )
+                        shortcutsToUpdate.filter { it.roomId !in shortcutsToKeep.keys }
+                    )
                     .take(MAX_SHORTCUTS) // Ensure we don't exceed MAX_SHORTCUTS
 
                 // Update cache with merged shortcuts
@@ -1297,9 +1302,9 @@ class ConversationsApi(
                 if (cachedFile == null || !cachedFile.exists()) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "Avatar not in IntelligentMediaCache, downloading for shortcut: ${shortcut.roomId}",
-                    )
+                            TAG,
+                            "Avatar not in IntelligentMediaCache, downloading for shortcut: ${shortcut.roomId}",
+                        )
                     }
 
                     // Convert MXC URL to HTTP URL
@@ -1320,9 +1325,9 @@ class ConversationsApi(
                     if (httpUrl != null) {
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            TAG,
-                            "Downloading avatar for shortcut ${shortcut.roomId} from: $httpUrl",
-                        )
+                                TAG,
+                                "Downloading avatar for shortcut ${shortcut.roomId} from: $httpUrl",
+                            )
                         }
                         // Download and cache using IntelligentMediaCache
                         cachedFile = IntelligentMediaCache.downloadAndCache(
@@ -1334,9 +1339,9 @@ class ConversationsApi(
                         if (cachedFile != null) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                TAG,
-                                "✓ Successfully downloaded and cached avatar for shortcut: ${shortcut.roomId} (${cachedFile.length()} bytes)",
-                            )
+                                    TAG,
+                                    "✓ Successfully downloaded and cached avatar for shortcut: ${shortcut.roomId} (${cachedFile.length()} bytes)",
+                                )
                             }
                         } else {
                             Log.w(TAG, "✗ Failed to download avatar for shortcut: ${shortcut.roomId} from: $httpUrl")
@@ -1356,9 +1361,9 @@ class ConversationsApi(
                         if (circularBitmap != null) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                TAG,
-                                "✓✓✓ SUCCESS: Created shortcut icon with avatar for: ${shortcut.roomId}",
-                            )
+                                    TAG,
+                                    "✓✓✓ SUCCESS: Created shortcut icon with avatar for: ${shortcut.roomId}",
+                                )
                             }
                             IconCompat.createWithAdaptiveBitmap(circularBitmap)
                         } else {
@@ -1520,9 +1525,9 @@ class ConversationsApi(
         // Regular shortcut updates via updateConversationShortcuts() handle everything properly
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "updateShortcutForNewMessage called for $roomId - using regular update flow instead",
-        )
+                TAG,
+                "updateShortcutForNewMessage called for $roomId - using regular update flow instead",
+            )
         }
     }
 

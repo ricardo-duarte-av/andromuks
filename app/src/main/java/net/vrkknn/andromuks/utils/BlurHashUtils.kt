@@ -17,9 +17,9 @@ object BlurHashUtils {
     fun decodeBlurHash(blurHash: String, width: Int = 32, height: Int = 32): Bitmap? = try {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "BlurHashUtils: Decoding '$blurHash' to ${width}x$height",
-        )
+                "Andromuks",
+                "BlurHashUtils: Decoding '$blurHash' to ${width}x$height",
+            )
         }
         val result = BlurHashDecoder.decode(blurHash, width, height)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BlurHashUtils: Decode result: ${result != null}")
@@ -32,8 +32,7 @@ object BlurHashUtils {
     /**
      * Convert BlurHash to Compose ImageBitmap
      */
-    fun blurHashToImageBitmap(blurHash: String, width: Int = 32, height: Int = 32): ImageBitmap? =
-        decodeBlurHash(blurHash, width, height)?.asImageBitmap()
+    fun blurHashToImageBitmap(blurHash: String, width: Int = 32, height: Int = 32): ImageBitmap? = decodeBlurHash(blurHash, width, height)?.asImageBitmap()
 
     /**
      * Create a placeholder bitmap with a solid color

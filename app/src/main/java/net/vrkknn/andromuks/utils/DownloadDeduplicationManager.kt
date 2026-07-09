@@ -27,13 +27,7 @@ object DownloadDeduplicationManager {
     private const val BASE_RETRY_DELAY = 1000L
     private const val MAX_CONCURRENT_DOWNLOADS = 3
 
-    data class DownloadInfo(
-        val mxcUrl: String,
-        val httpUrl: String,
-        val authToken: String,
-        val startTime: Long,
-        val retryCount: Int = 0,
-    )
+    data class DownloadInfo(val mxcUrl: String, val httpUrl: String, val authToken: String, val startTime: Long, val retryCount: Int = 0)
 
     // Thread-safe collections for download management
     private val activeDownloads = ConcurrentHashMap<String, Deferred<File>>()
@@ -56,59 +50,58 @@ object DownloadDeduplicationManager {
      * @param authToken Authentication token
      * @return Downloaded file
      */
-    suspend fun downloadMedia(context: Context, mxcUrl: String, httpUrl: String, authToken: String): File =
-        withContext(Dispatchers.IO) {
-            // Check if already cached
-            IntelligentMediaCache.getCachedFile(context, mxcUrl)?.let { cachedFile ->
-                if (BuildConfig.DEBUG) Log.d(TAG, "Using cached file for $mxcUrl")
-                return@withContext cachedFile
-            }
+    suspend fun downloadMedia(context: Context, mxcUrl: String, httpUrl: String, authToken: String): File = withContext(Dispatchers.IO) {
+        // Check if already cached
+        IntelligentMediaCache.getCachedFile(context, mxcUrl)?.let { cachedFile ->
+            if (BuildConfig.DEBUG) Log.d(TAG, "Using cached file for $mxcUrl")
+            return@withContext cachedFile
+        }
 
-            // Check if download is already in progress
-            activeDownloads[mxcUrl]?.let { deferred ->
-                if (BuildConfig.DEBUG) Log.d(TAG, "Download already in progress for $mxcUrl")
-                duplicatePrevented++
-                return@withContext deferred.await()
-            }
+        // Check if download is already in progress
+        activeDownloads[mxcUrl]?.let { deferred ->
+            if (BuildConfig.DEBUG) Log.d(TAG, "Download already in progress for $mxcUrl")
+            duplicatePrevented++
+            return@withContext deferred.await()
+        }
 
-            // Check if we've reached the concurrent download limit
-            if (activeDownloads.size >= MAX_CONCURRENT_DOWNLOADS) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "Download queue full, queuing $mxcUrl")
-                downloadQueue[mxcUrl] = DownloadInfo(mxcUrl, httpUrl, authToken, System.currentTimeMillis())
+        // Check if we've reached the concurrent download limit
+        if (activeDownloads.size >= MAX_CONCURRENT_DOWNLOADS) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "Download queue full, queuing $mxcUrl")
+            downloadQueue[mxcUrl] = DownloadInfo(mxcUrl, httpUrl, authToken, System.currentTimeMillis())
 
-                // Wait for a slot to become available
-                while (activeDownloads.size >= MAX_CONCURRENT_DOWNLOADS) {
-                    delay(100)
-                }
-            }
-
-            // Start new download
-            val downloadJob = async {
-                performDownload(context, mxcUrl, httpUrl, authToken)
-            }
-
-            activeDownloads[mxcUrl] = downloadJob
-            totalDownloads++
-
-            try {
-                val result = downloadJob.await()
-                IntelligentMediaCache.cacheFile(context, mxcUrl, result)
-                downloadHistory[mxcUrl] = System.currentTimeMillis()
-                successfulDownloads++
-
-                if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded $mxcUrl")
-                result
-            } catch (e: Exception) {
-                failedDownloads++
-                Log.e(TAG, "Failed to download $mxcUrl", e)
-                throw e
-            } finally {
-                activeDownloads.remove(mxcUrl)
-
-                // Process queued downloads
-                processDownloadQueue(context)
+            // Wait for a slot to become available
+            while (activeDownloads.size >= MAX_CONCURRENT_DOWNLOADS) {
+                delay(100)
             }
         }
+
+        // Start new download
+        val downloadJob = async {
+            performDownload(context, mxcUrl, httpUrl, authToken)
+        }
+
+        activeDownloads[mxcUrl] = downloadJob
+        totalDownloads++
+
+        try {
+            val result = downloadJob.await()
+            IntelligentMediaCache.cacheFile(context, mxcUrl, result)
+            downloadHistory[mxcUrl] = System.currentTimeMillis()
+            successfulDownloads++
+
+            if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded $mxcUrl")
+            result
+        } catch (e: Exception) {
+            failedDownloads++
+            Log.e(TAG, "Failed to download $mxcUrl", e)
+            throw e
+        } finally {
+            activeDownloads.remove(mxcUrl)
+
+            // Process queued downloads
+            processDownloadQueue(context)
+        }
+    }
 
     /**
      * Process queued downloads when slots become available.
@@ -131,54 +124,53 @@ object DownloadDeduplicationManager {
     /**
      * Perform the actual download with retry logic.
      */
-    private suspend fun performDownload(context: Context, mxcUrl: String, httpUrl: String, authToken: String): File =
-        withContext(Dispatchers.IO) {
-            val cacheDir = IntelligentMediaCache.getCacheDir(context)
-            val cacheKey = IntelligentMediaCache.getCacheKey(mxcUrl)
-            val cachedFile = File(cacheDir, cacheKey)
+    private suspend fun performDownload(context: Context, mxcUrl: String, httpUrl: String, authToken: String): File = withContext(Dispatchers.IO) {
+        val cacheDir = IntelligentMediaCache.getCacheDir(context)
+        val cacheKey = IntelligentMediaCache.getCacheKey(mxcUrl)
+        val cachedFile = File(cacheDir, cacheKey)
 
-            // Ensure parent directory exists (server subdirectory)
-            cachedFile.parentFile?.mkdirs()
+        // Ensure parent directory exists (server subdirectory)
+        cachedFile.parentFile?.mkdirs()
 
-            var retryCount = 0
-            var lastException: Exception? = null
+        var retryCount = 0
+        var lastException: Exception? = null
 
-            while (retryCount < MAX_RETRIES) {
-                try {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Downloading $mxcUrl (attempt ${retryCount + 1}/$MAX_RETRIES)")
+        while (retryCount < MAX_RETRIES) {
+            try {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Downloading $mxcUrl (attempt ${retryCount + 1}/$MAX_RETRIES)")
 
-                    val connection = URL(httpUrl).openConnection().apply {
-                        setRequestProperty("Cookie", "gomuks_auth=$authToken")
-                        setRequestProperty("User-Agent", getUserAgent())
-                        setRequestProperty("Accept", "*/*")
-                        connectTimeout = 10000
-                        readTimeout = 30000
-                    }
+                val connection = URL(httpUrl).openConnection().apply {
+                    setRequestProperty("Cookie", "gomuks_auth=$authToken")
+                    setRequestProperty("User-Agent", getUserAgent())
+                    setRequestProperty("Accept", "*/*")
+                    connectTimeout = 10000
+                    readTimeout = 30000
+                }
 
-                    cachedFile.outputStream().use { output ->
-                        connection.getInputStream().use { input ->
-                            input.copyTo(output)
-                        }
-                    }
-
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded $mxcUrl (${cachedFile.length() / 1024}KB)")
-                    return@withContext cachedFile
-                } catch (e: Exception) {
-                    lastException = e
-                    retryCount++
-
-                    Log.w(TAG, "Download failed for $mxcUrl (attempt $retryCount/$MAX_RETRIES): ${e.message}")
-
-                    if (retryCount < MAX_RETRIES) {
-                        val delay = BASE_RETRY_DELAY * (1L shl retryCount) // Exponential backoff
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Retrying download for $mxcUrl in ${delay}ms")
-                        delay(delay)
+                cachedFile.outputStream().use { output ->
+                    connection.getInputStream().use { input ->
+                        input.copyTo(output)
                     }
                 }
-            }
 
-            throw Exception("Failed to download $mxcUrl after $MAX_RETRIES attempts", lastException)
+                if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded $mxcUrl (${cachedFile.length() / 1024}KB)")
+                return@withContext cachedFile
+            } catch (e: Exception) {
+                lastException = e
+                retryCount++
+
+                Log.w(TAG, "Download failed for $mxcUrl (attempt $retryCount/$MAX_RETRIES): ${e.message}")
+
+                if (retryCount < MAX_RETRIES) {
+                    val delay = BASE_RETRY_DELAY * (1L shl retryCount) // Exponential backoff
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Retrying download for $mxcUrl in ${delay}ms")
+                    delay(delay)
+                }
+            }
         }
+
+        throw Exception("Failed to download $mxcUrl after $MAX_RETRIES attempts", lastException)
+    }
 
     /**
      * Cancel a specific download.
@@ -263,8 +255,7 @@ object DownloadDeduplicationManager {
     /**
      * Check if a download is in progress.
      */
-    fun isDownloadInProgress(mxcUrl: String): Boolean =
-        activeDownloads.containsKey(mxcUrl) || downloadQueue.containsKey(mxcUrl)
+    fun isDownloadInProgress(mxcUrl: String): Boolean = activeDownloads.containsKey(mxcUrl) || downloadQueue.containsKey(mxcUrl)
 
     /**
      * Get the number of active downloads.

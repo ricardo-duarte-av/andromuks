@@ -35,10 +35,7 @@ import androidx.compose.ui.unit.dp
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-fun ExpressiveLoadingIndicator(
-    modifier: Modifier = Modifier,
-    indicatorColor: Color = LoadingIndicatorDefaults.indicatorColor,
-) {
+fun ExpressiveLoadingIndicator(modifier: Modifier = Modifier, indicatorColor: Color = LoadingIndicatorDefaults.indicatorColor) {
     val infiniteTransition = rememberInfiniteTransition(label = "expressive_loading")
     val progress by infiniteTransition.animateFloat(
         initialValue = 0f,

@@ -1366,11 +1366,7 @@ private fun buildPlainTextAnnotatedString(text: String, linkStyle: SpanStyle): A
     }
 }
 
-private fun buildPlainTextAnnotatedStringWithCode(
-    text: String,
-    linkStyle: SpanStyle,
-    codeStyle: SpanStyle,
-): AnnotatedString {
+private fun buildPlainTextAnnotatedStringWithCode(text: String, linkStyle: SpanStyle, codeStyle: SpanStyle): AnnotatedString {
     if (text.isEmpty()) return AnnotatedString("")
     return buildAnnotatedString {
         var inCodeBlock = false
@@ -1513,9 +1509,9 @@ private fun AnnotatedString.Builder.appendAnchor(
         pop()
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "appendAnchor: URL annotation added from $annotationStart to $annotationEnd for href=$href",
-        )
+                "Andromuks",
+                "appendAnchor: URL annotation added from $annotationStart to $annotationEnd for href=$href",
+            )
         }
     } else {
         if (BuildConfig.DEBUG) Log.w("Andromuks", "appendAnchor: Empty href, not adding URL annotation")
@@ -1537,11 +1533,7 @@ private fun AnnotatedString.Builder.appendAnchor(
     }
 }
 
-private fun AnnotatedString.Builder.appendImage(
-    tag: HtmlNode.Tag,
-    inlineImages: MutableMap<String, InlineImageData>,
-    hideContent: Boolean,
-) {
+private fun AnnotatedString.Builder.appendImage(tag: HtmlNode.Tag, inlineImages: MutableMap<String, InlineImageData>, hideContent: Boolean) {
     val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: ""
     val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
     val height = tag.attributes["height"]?.toIntOrNull() ?: 32
@@ -1550,9 +1542,9 @@ private fun AnnotatedString.Builder.appendImage(
         inlineImages[id] = InlineImageData(src, alt, height, isHidden = hideContent)
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "HtmlParser: Added inline image id=$id, src=$src, alt=$alt, height=$height",
-        )
+                "Andromuks",
+                "HtmlParser: Added inline image id=$id, src=$src, alt=$alt, height=$height",
+            )
         }
         appendInlineContent(id, "\u200B")
     } else {
@@ -1806,7 +1798,7 @@ fun HtmlMessageText(
     htmlContent: String? = null, // Optional HTML content (e.g., from edit) to override event extraction
     onCodeBlockClick: (String) -> Unit = {}, // Callback for code block clicks
     onInlineImageClick: (InlineImageData) -> Unit = {
-        }, // Callback for tapping an mxc-backed inline image (custom emoji / inline <img>)
+    }, // Callback for tapping an mxc-backed inline image (custom emoji / inline <img>)
 ) {
     // Don't render HTML for redacted messages
     // The parent composable should handle showing the deletion message
@@ -1820,11 +1812,11 @@ fun HtmlMessageText(
         val result = if (htmlContent != null && htmlContent.isNotBlank()) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "HtmlMessageText: Using provided htmlContent for event ${event.eventId}, length: ${htmlContent.length}, preview: ${htmlContent.take(
-                    100,
-                )}",
-            )
+                    "Andromuks",
+                    "HtmlMessageText: Using provided htmlContent for event ${event.eventId}, length: ${htmlContent.length}, preview: ${htmlContent.take(
+                        100,
+                    )}",
+                )
             }
             // Pass raw markup to the parser; entities are decoded at leaf text nodes.
             htmlContent
@@ -1834,11 +1826,11 @@ fun HtmlMessageText(
             if (sanitized != null) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "HtmlMessageText: Using sanitized_html for event ${event.eventId}, length: ${sanitized.length}, preview: ${sanitized.take(
-                        100,
-                    )}",
-                )
+                        "Andromuks",
+                        "HtmlMessageText: Using sanitized_html for event ${event.eventId}, length: ${sanitized.length}, preview: ${sanitized.take(
+                            100,
+                        )}",
+                    )
                 }
                 sanitized
             } else {
@@ -1847,20 +1839,20 @@ fun HtmlMessageText(
                 if (formattedBody != null) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "HtmlMessageText: Using formatted_body for event ${event.eventId}, length: ${formattedBody.length}, preview: ${formattedBody.take(
-                            100,
-                        )}",
-                    )
+                            "Andromuks",
+                            "HtmlMessageText: Using formatted_body for event ${event.eventId}, length: ${formattedBody.length}, preview: ${formattedBody.take(
+                                100,
+                            )}",
+                        )
                     }
                     // Pass raw markup to the parser; entities are decoded at leaf text nodes.
                     formattedBody
                 } else {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "HtmlMessageText: No HTML content found for event ${event.eventId}",
-                    )
+                            "Andromuks",
+                            "HtmlMessageText: No HTML content found for event ${event.eventId}",
+                        )
                     }
                     null
                 }
@@ -1913,13 +1905,13 @@ fun HtmlMessageText(
             nodes
         } else {
             nodes.filter {
-            !(
-                it is HtmlNode.Tag && (
-                    it.name == "table" ||
-                (it.name == "hicli-math" && !it.attributes["displaymode"].equals("inline", ignoreCase = true))
-                )
-            )
-        }
+                !(
+                    it is HtmlNode.Tag && (
+                        it.name == "table" ||
+                            (it.name == "hicli-math" && !it.attributes["displaymode"].equals("inline", ignoreCase = true))
+                        )
+                    )
+            }
         }
     }
     val tableDatas = remember(tableNodes) {
@@ -1937,9 +1929,9 @@ fun HtmlMessageText(
                 if (existingProfile == null) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "HtmlMessageText: Requesting profile on-demand for $userId from HTML",
-                    )
+                            "Andromuks",
+                            "HtmlMessageText: Requesting profile on-demand for $userId from HTML",
+                        )
                     }
                     vm.requestUserProfileOnDemand(userId, event.roomId)
                 }
@@ -2134,133 +2126,133 @@ fun HtmlMessageText(
     }
     val inlineContentMap =
         remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, handleInlineImageClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken, mathColorArgb, mathTextSizePx) {
-        val map = mutableMapOf<String, InlineTextContent>()
-        inlineImagesSnapshot.forEach { (id, imageData) ->
-            // MSC2191 maths: render the LaTeX to a JLaTeXMath drawable instead of a network image.
-            val latex = imageData.latex
-            if (latex != null) {
-                val drawable = runCatching {
-                    JLatexMathDrawable.builder(latex)
-                        .textSize(mathTextSizePx)
-                        .color(mathColorArgb)
-                        .align(JLatexMathDrawable.ALIGN_LEFT)
-                        .build()
-                }.getOrNull()
-                if (drawable != null) {
-                    val widthSp = with(density) { drawable.intrinsicWidth.toDp().value.sp }
-                    val heightSp = with(density) { drawable.intrinsicHeight.toDp().value.sp }
-                    map[id] = InlineTextContent(
-                        Placeholder(
-                            width = widthSp,
-                            height = heightSp,
-                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
-                        ),
-                    ) {
-                        LatexDrawableImage(drawable = drawable, modifier = Modifier.fillMaxSize())
+            val map = mutableMapOf<String, InlineTextContent>()
+            inlineImagesSnapshot.forEach { (id, imageData) ->
+                // MSC2191 maths: render the LaTeX to a JLaTeXMath drawable instead of a network image.
+                val latex = imageData.latex
+                if (latex != null) {
+                    val drawable = runCatching {
+                        JLatexMathDrawable.builder(latex)
+                            .textSize(mathTextSizePx)
+                            .color(mathColorArgb)
+                            .align(JLatexMathDrawable.ALIGN_LEFT)
+                            .build()
+                    }.getOrNull()
+                    if (drawable != null) {
+                        val widthSp = with(density) { drawable.intrinsicWidth.toDp().value.sp }
+                        val heightSp = with(density) { drawable.intrinsicHeight.toDp().value.sp }
+                        map[id] = InlineTextContent(
+                            Placeholder(
+                                width = widthSp,
+                                height = heightSp,
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                            ),
+                        ) {
+                            LatexDrawableImage(drawable = drawable, modifier = Modifier.fillMaxSize())
+                        }
+                    } else {
+                        // Malformed LaTeX: fall back to monospace source so nothing blanks out.
+                        val fallbackStyle = bodyTextStyle.copy(fontFamily = FontFamily.Monospace, color = mathColor)
+                        val textLayout = textMeasurer.measure(text = AnnotatedString(latex), style = fallbackStyle)
+                        map[id] = InlineTextContent(
+                            Placeholder(
+                                width = with(density) { textLayout.size.width.toDp().value.sp },
+                                height = with(density) { textLayout.size.height.toDp().value.sp },
+                                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                            ),
+                        ) {
+                            Text(text = latex, style = fallbackStyle)
+                        }
                     }
-                } else {
-                    // Malformed LaTeX: fall back to monospace source so nothing blanks out.
-                    val fallbackStyle = bodyTextStyle.copy(fontFamily = FontFamily.Monospace, color = mathColor)
-                    val textLayout = textMeasurer.measure(text = AnnotatedString(latex), style = fallbackStyle)
-                    map[id] = InlineTextContent(
-                        Placeholder(
-                            width = with(density) { textLayout.size.width.toDp().value.sp },
-                            height = with(density) { textLayout.size.height.toDp().value.sp },
-                            placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
-                        ),
-                    ) {
-                        Text(text = latex, style = fallbackStyle)
-                    }
+                    return@forEach
                 }
-                return@forEach
+                // Limit image height to text line height, but use 2x size for emoji-only messages
+                val baseMaxHeight = minOf(imageData.height, textLineHeight)
+                val maxHeight = if (isEmojiOnly) {
+                    baseMaxHeight * 2
+                } else {
+                    baseMaxHeight
+                }
+                map[id] = InlineTextContent(
+                    Placeholder(
+                        width = maxHeight.sp,
+                        height = maxHeight.sp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                    ),
+                ) {
+                    InlineImage(
+                        src = imageData.src,
+                        alt = imageData.alt,
+                        height = maxHeight,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        isHidden = imageData.isHidden,
+                        onClick = { handleInlineImageClick(imageData) },
+                    )
+                }
             }
-            // Limit image height to text line height, but use 2x size for emoji-only messages
-            val baseMaxHeight = minOf(imageData.height, textLineHeight)
-            val maxHeight = if (isEmojiOnly) {
-                baseMaxHeight * 2
-            } else {
-                baseMaxHeight
-            }
-            map[id] = InlineTextContent(
-                Placeholder(
-                    width = maxHeight.sp,
-                    height = maxHeight.sp,
-                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
-                ),
-            ) {
-                InlineImage(
-                    src = imageData.src,
-                    alt = imageData.alt,
-                    height = maxHeight,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    isHidden = imageData.isHidden,
-                    onClick = { handleInlineImageClick(imageData) },
+            inlineMatrixUsers.forEach { (id, chip) ->
+                val textLayout = textMeasurer.measure(
+                    text = AnnotatedString(chip.displayText),
+                    style = chipTextStyle.copy(color = primaryColor),
                 )
-            }
-        }
-        inlineMatrixUsers.forEach { (id, chip) ->
-            val textLayout = textMeasurer.measure(
-                text = AnnotatedString(chip.displayText),
-                style = chipTextStyle.copy(color = primaryColor),
-            )
-            val textWidthDp = with(density) { textLayout.size.width.toDp() }
-            val widthSp = with(density) { textWidthDp.value.sp }
-            val heightSp = with(density) { textLayout.size.height.toDp().value.sp }
-            map[id] = InlineTextContent(
-                Placeholder(
-                    width = widthSp,
-                    height = heightSp,
-                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
-                ),
-            ) {
-                Text(
-                    text = chip.displayText,
-                    style = chipTextStyle,
-                    color = primaryColor,
-                    modifier = Modifier.clickable { onMatrixUserClick(chip.userId) },
-                )
-            }
-        }
-        inlineMatrixRooms.forEach { (id, chip) ->
-            // Measure text with padding included to get accurate size
-            val horizontalPadding = 4.dp
-            val verticalPadding = 0.dp // No vertical padding to keep text aligned with baseline
-            val textLayout = textMeasurer.measure(
-                text = AnnotatedString(chip.displayText),
-                style = chipTextStyle.copy(color = roomChipTextColor),
-                constraints = Constraints(maxWidth = Int.MAX_VALUE),
-            )
-            val textWidthDp = with(density) { textLayout.size.width.toDp() }
-            val textHeightDp = with(density) { textLayout.size.height.toDp() }
-            // Add padding to dimensions, with a small extra margin to prevent clipping
-            val widthSp = with(density) { (textWidthDp + horizontalPadding * 2 + 2.dp).value.sp }
-            val heightSp = with(density) { textHeightDp.value.sp } // No vertical padding, so use text height directly
-            map[id] = InlineTextContent(
-                Placeholder(
-                    width = widthSp,
-                    height = heightSp,
-                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
-                ),
-            ) {
-                Surface(
-                    color = roomChipColor,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.clickable { onRoomLinkClick(chip.roomLink) },
+                val textWidthDp = with(density) { textLayout.size.width.toDp() }
+                val widthSp = with(density) { textWidthDp.value.sp }
+                val heightSp = with(density) { textLayout.size.height.toDp().value.sp }
+                map[id] = InlineTextContent(
+                    Placeholder(
+                        width = widthSp,
+                        height = heightSp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                    ),
                 ) {
                     Text(
                         text = chip.displayText,
                         style = chipTextStyle,
-                        color = roomChipTextColor,
-                        modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding),
+                        color = primaryColor,
+                        modifier = Modifier.clickable { onMatrixUserClick(chip.userId) },
                     )
                 }
             }
+            inlineMatrixRooms.forEach { (id, chip) ->
+                // Measure text with padding included to get accurate size
+                val horizontalPadding = 4.dp
+                val verticalPadding = 0.dp // No vertical padding to keep text aligned with baseline
+                val textLayout = textMeasurer.measure(
+                    text = AnnotatedString(chip.displayText),
+                    style = chipTextStyle.copy(color = roomChipTextColor),
+                    constraints = Constraints(maxWidth = Int.MAX_VALUE),
+                )
+                val textWidthDp = with(density) { textLayout.size.width.toDp() }
+                val textHeightDp = with(density) { textLayout.size.height.toDp() }
+                // Add padding to dimensions, with a small extra margin to prevent clipping
+                val widthSp = with(density) { (textWidthDp + horizontalPadding * 2 + 2.dp).value.sp }
+                val heightSp = with(density) { textHeightDp.value.sp } // No vertical padding, so use text height directly
+                map[id] = InlineTextContent(
+                    Placeholder(
+                        width = widthSp,
+                        height = heightSp,
+                        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                    ),
+                ) {
+                    Surface(
+                        color = roomChipColor,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.clickable { onRoomLinkClick(chip.roomLink) },
+                    ) {
+                        Text(
+                            text = chip.displayText,
+                            style = chipTextStyle,
+                            color = roomChipTextColor,
+                            modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding),
+                        )
+                    }
+                }
+            }
+            // Code blocks are now rendered directly in the text flow, not as inline content
+            // The inlineCodeBlocks map is still used to store full code for click handling
+            map
         }
-        // Code blocks are now rendered directly in the text flow, not as inline content
-        // The inlineCodeBlocks map is still used to store full code for click handling
-        map
-    }
 
     // Table dialog open/close state — one entry per table in the message
     val tableDialogStates = remember(tableNodes.size) {
@@ -2308,11 +2300,11 @@ fun HtmlMessageText(
                                         end = offset,
                                     ).firstOrNull()
                                     if (spoilerAnnotation != null) {
-                                        up.consume();
+                                        up.consume()
                                         spoilerContext.toggle(
-                                        spoilerAnnotation.item,
-                                    );
-                                    return@awaitEachGesture
+                                            spoilerAnnotation.item,
+                                        )
+                                        return@awaitEachGesture
                                     }
                                     val codeBlockAnnotation = annotatedString.getStringAnnotations(
                                         tag = "CODE_BLOCK",
@@ -2322,17 +2314,17 @@ fun HtmlMessageText(
                                     if (codeBlockAnnotation !=
                                         null
                                     ) {
-                                            up.consume();
-                                            val cb = inlineCodeBlocks[codeBlockAnnotation.item];
-                                            if (cb !=
-                                        null
-                                            ) {
+                                        up.consume()
+                                        val cb = inlineCodeBlocks[codeBlockAnnotation.item]
+                                        if (cb !=
+                                            null
+                                        ) {
                                             onCodeBlockClick(
-                                        cb.fullCode,
-                                    )
-                                        };
-                                        return@awaitEachGesture
+                                                cb.fullCode,
+                                            )
                                         }
+                                        return@awaitEachGesture
+                                    }
                                     val hasInteractive = annotatedString.getStringAnnotations(
                                         tag = "MATRIX_USER",
                                         start = offset,
@@ -2355,7 +2347,7 @@ fun HtmlMessageText(
                                             start = offset,
                                             end = offset,
                                         ).firstOrNull()?.let {
-                                            onMatrixUserClick(it.item);
+                                            onMatrixUserClick(it.item)
                                             return@awaitEachGesture
                                         }
                                         annotatedString.getStringAnnotations(
@@ -2365,9 +2357,9 @@ fun HtmlMessageText(
                                         ).firstOrNull()?.let {
                                             val rl = extractRoomLink(
                                                 it.item,
-                                            );
+                                            )
                                             if (rl != null) {
-                                                onRoomLinkClick(rl);
+                                                onRoomLinkClick(rl)
                                                 return@awaitEachGesture
                                             }
                                         }
@@ -2382,53 +2374,53 @@ fun HtmlMessageText(
                                                     "matrix:u/",
                                                 ) -> {
                                                     val uid = url.removePrefix(
-                                                    "matrix:u/",
-                                                ).let {
-                                                    if (it.startsWith(
-                                                            "@",
-                                                        )
-                                                    ) {
+                                                        "matrix:u/",
+                                                    ).let {
+                                                        if (it.startsWith(
+                                                                "@",
+                                                            )
+                                                        ) {
                                                             it
                                                         } else {
                                                             "@$it"
                                                         }
-                                                };
-                                                onMatrixUserClick(uid)
+                                                    }
+                                                    onMatrixUserClick(uid)
                                                 }
 
                                                 url.startsWith(
                                                     "https://matrix.to/#/",
                                                 ) -> {
                                                     val dec = runCatching {
-                                                    URLDecoder.decode(
+                                                        URLDecoder.decode(
+                                                            url.removePrefix("https://matrix.to/#/"),
+                                                            Charsets.UTF_8.name(),
+                                                        )
+                                                    }.getOrDefault(
                                                         url.removePrefix("https://matrix.to/#/"),
-                                                        Charsets.UTF_8.name(),
                                                     )
-                                                }.getOrDefault(
-                                                    url.removePrefix("https://matrix.to/#/"),
-                                                );
-                                                if (dec.startsWith(
-                                                        "@",
-                                                    )
-                                                ) {
+                                                    if (dec.startsWith(
+                                                            "@",
+                                                        )
+                                                    ) {
                                                         onMatrixUserClick(
-                                                    dec,
-                                                )
+                                                            dec,
+                                                        )
                                                     } else {
                                                         val rl = extractRoomLink(
-                                                    url,
-                                                );
-                                                if (rl != null) {
-                                                    onRoomLinkClick(
-                                                    rl,
-                                                )
-                                                } else {
-                                                    try {
-                                                        context.startActivity(
-                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                                                )
-                                                    } catch (_: Exception) {}
-                                                }
+                                                            url,
+                                                        )
+                                                        if (rl != null) {
+                                                            onRoomLinkClick(
+                                                                rl,
+                                                            )
+                                                        } else {
+                                                            try {
+                                                                context.startActivity(
+                                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                                                )
+                                                            } catch (_: Exception) {}
+                                                        }
                                                     }
                                                 }
 
@@ -2442,25 +2434,25 @@ fun HtmlMessageText(
                                                     "matrix:/r/",
                                                 ) -> {
                                                     val rl = extractRoomLink(
-                                                    url,
-                                                );
-                                                if (rl != null) {
-                                                    onRoomLinkClick(
-                                                    rl,
-                                                )
-                                                } else {
-                                                    try {
-                                                        context.startActivity(
-                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                                                )
-                                                    } catch (_: Exception) {}
-                                                }
+                                                        url,
+                                                    )
+                                                    if (rl != null) {
+                                                        onRoomLinkClick(
+                                                            rl,
+                                                        )
+                                                    } else {
+                                                        try {
+                                                            context.startActivity(
+                                                                Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                                            )
+                                                        } catch (_: Exception) {}
+                                                    }
                                                 }
 
                                                 else -> try {
                                                     context.startActivity(
-                                                    Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                                                )
+                                                        Intent(Intent.ACTION_VIEW, Uri.parse(url)),
+                                                    )
                                                 } catch (_: Exception) {}
                                             }
                                         }
@@ -2471,9 +2463,9 @@ fun HtmlMessageText(
                     },
                     style = if (isEmojiOnly) {
                         MaterialTheme.typography.bodyMedium.copy(
-                        color = color,
-                        fontSize = MaterialTheme.typography.bodyMedium.fontSize * 3,
-                    )
+                            color = color,
+                            fontSize = MaterialTheme.typography.bodyMedium.fontSize * 3,
+                        )
                     } else {
                         MaterialTheme.typography.bodyMedium.copy(color = color)
                     },
@@ -2632,9 +2624,9 @@ fun HtmlMessageText(
                                         if (roomLink != null) {
                                             if (BuildConfig.DEBUG) {
                                                 Log.d(
-                                                "Andromuks",
-                                                "HtmlMessageText: room link tapped for ${roomLink.roomIdOrAlias}",
-                                            )
+                                                    "Andromuks",
+                                                    "HtmlMessageText: room link tapped for ${roomLink.roomIdOrAlias}",
+                                                )
                                             }
                                             onRoomLinkClick(roomLink)
                                             return@awaitEachGesture
@@ -2651,9 +2643,9 @@ fun HtmlMessageText(
                                                 val userId = if (rawId.startsWith("@")) rawId else "@$rawId"
                                                 if (BuildConfig.DEBUG) {
                                                     Log.d(
-                                                    "Andromuks",
-                                                    "HtmlMessageText: matrix:u link tapped for $userId",
-                                                )
+                                                        "Andromuks",
+                                                        "HtmlMessageText: matrix:u link tapped for $userId",
+                                                    )
                                                 }
                                                 onMatrixUserClick(userId)
                                             }
@@ -2671,9 +2663,9 @@ fun HtmlMessageText(
                                                     // User link
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "HtmlMessageText: matrix.to link tapped for $decoded",
-                                                    )
+                                                            "Andromuks",
+                                                            "HtmlMessageText: matrix.to link tapped for $decoded",
+                                                        )
                                                     }
                                                     onMatrixUserClick(decoded)
                                                 } else {
@@ -2682,9 +2674,9 @@ fun HtmlMessageText(
                                                     if (roomLink != null) {
                                                         if (BuildConfig.DEBUG) {
                                                             Log.d(
-                                                            "Andromuks",
-                                                            "HtmlMessageText: matrix.to room link tapped for ${roomLink.roomIdOrAlias}",
-                                                        )
+                                                                "Andromuks",
+                                                                "HtmlMessageText: matrix.to room link tapped for ${roomLink.roomIdOrAlias}",
+                                                            )
                                                         }
                                                         onRoomLinkClick(roomLink)
                                                     } else {
@@ -2694,9 +2686,9 @@ fun HtmlMessageText(
                                                             context.startActivity(intent)
                                                             if (BuildConfig.DEBUG) {
                                                                 Log.d(
-                                                                "Andromuks",
-                                                                "Opening URL: $url",
-                                                            )
+                                                                    "Andromuks",
+                                                                    "Opening URL: $url",
+                                                                )
                                                             }
                                                         } catch (e: Exception) {
                                                             Log.e("Andromuks", "Failed to open URL: $url", e)
@@ -2715,9 +2707,9 @@ fun HtmlMessageText(
                                                 if (roomLink != null) {
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "HtmlMessageText: matrix: room link tapped for ${roomLink.roomIdOrAlias}",
-                                                    )
+                                                            "Andromuks",
+                                                            "HtmlMessageText: matrix: room link tapped for ${roomLink.roomIdOrAlias}",
+                                                        )
                                                     }
                                                     onRoomLinkClick(roomLink)
                                                 } else {
@@ -2871,15 +2863,7 @@ private fun BlockMath(latex: String, colorArgb: Int, textSizePx: Float, modifier
  * Composable for rendering inline images in HTML content
  */
 @Composable
-private fun InlineImage(
-    src: String,
-    alt: String,
-    height: Int,
-    homeserverUrl: String,
-    authToken: String,
-    isHidden: Boolean,
-    onClick: (() -> Unit)? = null,
-) {
+private fun InlineImage(src: String, alt: String, height: Int, homeserverUrl: String, authToken: String, isHidden: Boolean, onClick: (() -> Unit)? = null) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 

@@ -299,9 +299,9 @@ fun StickerImage(mxcUrl: String, homeserverUrl: String, authToken: String) {
             onSuccess = {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "StickerImage: Successfully loaded sticker for $mxcUrl",
-                )
+                        "Andromuks",
+                        "StickerImage: Successfully loaded sticker for $mxcUrl",
+                    )
                 }
             },
             onError = {

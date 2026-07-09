@@ -87,11 +87,7 @@ internal class RoomInvitesCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun joinRoomWithCallback(
-        roomIdOrAlias: String,
-        viaServers: List<String>,
-        callback: (Pair<String?, String?>?) -> Unit,
-    ) {
+    fun joinRoomWithCallback(roomIdOrAlias: String, viaServers: List<String>, callback: (Pair<String?, String?>?) -> Unit) {
         with(vm) {
             val requestId = WebSocketService.allocateRequestId()
             joinRoomCallbacks[requestId] = callback

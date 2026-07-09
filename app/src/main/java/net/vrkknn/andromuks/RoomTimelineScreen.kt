@@ -259,12 +259,7 @@ private class ReadMarkerDecision {
  * restoration clears that flag in a separate effect, and a bare boolean read there would not
  * otherwise re-emit this snapshotFlow, stalling the chain.
  */
-private data class PaginateSnapshot(
-    val total: Int,
-    val lastVisible: Int,
-    val isPaginating: Boolean,
-    val pendingScrollRestoration: Boolean,
-)
+private data class PaginateSnapshot(val total: Int, val lastVisible: Int, val isPaginating: Boolean, val pendingScrollRestoration: Boolean)
 
 private val dateFormatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
 
@@ -305,20 +300,20 @@ suspend fun processTimelineEvents(
 ): List<TimelineEvent> = withContext(Dispatchers.Default) {
     if (BuildConfig.DEBUG) {
         Log.d(
-        "Andromuks",
-        "RoomTimelineScreen: Background processing ${timelineEvents.size} timeline events",
-    )
+            "Andromuks",
+            "RoomTimelineScreen: Background processing ${timelineEvents.size} timeline events",
+        )
     }
 
     // Debug: Log event types in timeline
     val eventTypes = timelineEvents.groupBy { it.type }
     if (BuildConfig.DEBUG) {
         Log.d(
-        "Andromuks",
-        "RoomTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(
-            ", ",
-        )}",
-    )
+            "Andromuks",
+            "RoomTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(
+                ", ",
+            )}",
+        )
     }
     // Debug: Check specifically for tombstone events
     val tombstoneEvents = timelineEvents.filter { it.type == "m.room.tombstone" }
@@ -379,9 +374,9 @@ suspend fun processTimelineEvents(
                 if (isEditEvent) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Filtering out edit event (m.replace) ${event.eventId}",
-                    )
+                            "Andromuks",
+                            "RoomTimelineScreen: Filtering out edit event (m.replace) ${event.eventId}",
+                        )
                     }
                 }
                 !isEditEvent
@@ -393,9 +388,9 @@ suspend fun processTimelineEvents(
                 if (isEditEvent) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Filtering out encrypted edit event ${event.eventId}",
-                    )
+                            "Andromuks",
+                            "RoomTimelineScreen: Filtering out encrypted edit event ${event.eventId}",
+                        )
                     }
                 }
                 !isEditEvent
@@ -407,20 +402,20 @@ suspend fun processTimelineEvents(
 
     if (BuildConfig.DEBUG) {
         Log.d(
-        "Andromuks",
-        "RoomTimelineScreen: After edit filtering: ${eventsWithoutEdits.size} events",
-    )
+            "Andromuks",
+            "RoomTimelineScreen: After edit filtering: ${eventsWithoutEdits.size} events",
+        )
     }
 
     // Sort by timeline_rowid (server order) while ensuring pending echoes (~ prefixed IDs)
     // sort last. Chronicled backfilled events (negative rowid, lower=older) sort first.
     val sorted = eventsWithoutEdits.sortedWith(
         compareBy(
-        { it.eventId.startsWith("~") },
-        { it.timelineRowid },
-        { it.timestamp },
-        { it.eventId },
-    )
+            { it.eventId.startsWith("~") },
+            { it.timelineRowid },
+            { it.timestamp },
+            { it.eventId },
+        ),
     )
     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Final sorted events: ${sorted.size} events")
 
@@ -782,9 +777,9 @@ fun RoomTimelineScreen(
         if (currentSize != previousSize || currentIsLoading != previousIsLoading) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Timeline events count: $currentSize, isLoading: $currentIsLoading",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Timeline events count: $currentSize, isLoading: $currentIsLoading",
+                )
             }
             previousSize = currentSize
             previousIsLoading = currentIsLoading
@@ -826,9 +821,9 @@ fun RoomTimelineScreen(
         val consumed = appViewModel.consumePendingHighlightEvent(roomId)
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "RoomTimelineScreen: remember(roomId=$roomId) pendingNotificationJumpEventId = ${consumed ?: "NULL"}",
-        )
+                "Andromuks",
+                "RoomTimelineScreen: remember(roomId=$roomId) pendingNotificationJumpEventId = ${consumed ?: "NULL"}",
+            )
         }
         mutableStateOf(consumed)
     }
@@ -866,9 +861,9 @@ fun RoomTimelineScreen(
                 if (eventId != null) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Notification tap while room $roomId is open — highlighting event $eventId",
-                    )
+                            "Andromuks",
+                            "RoomTimelineScreen: Notification tap while room $roomId is open — highlighting event $eventId",
+                        )
                     }
                     pendingNotificationJumpEventId = eventId
                 }
@@ -888,9 +883,9 @@ fun RoomTimelineScreen(
                 // handler can read null and skip navigation entirely.
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Navigation for different room $targetRoomId (current=$roomId)",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Navigation for different room $targetRoomId (current=$roomId)",
+                    )
                 }
                 val notificationTimestamp = claim?.timestamp
                 // Set currentRoomId to targetRoomId BEFORE suspending in flushSyncBatchForRoom.
@@ -914,9 +909,9 @@ fun RoomTimelineScreen(
                 )
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Room $targetRoomId readiness=$isReady before navigating (hot-swap)",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Room $targetRoomId readiness=$isReady before navigating (hot-swap)",
+                    )
                 }
 
                 appViewModel.openedViaDirectNotification = true
@@ -1009,9 +1004,9 @@ fun RoomTimelineScreen(
         if (sharePayload != null) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Received pending share for room $roomId with ${sharePayload.items.size} items",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Received pending share for room $roomId with ${sharePayload.items.size} items",
+                )
             }
             if (!sharePayload.text.isNullOrBlank() && draft.isBlank()) {
                 draft = sharePayload.text
@@ -1061,10 +1056,10 @@ fun RoomTimelineScreen(
                     } catch (e: Exception) {
                         if (BuildConfig.DEBUG) {
                             Log.w(
-                            "Andromuks",
-                            "RoomTimelineScreen: Failed to resolve shared media URI",
-                            e,
-                        )
+                                "Andromuks",
+                                "RoomTimelineScreen: Failed to resolve shared media URI",
+                                e,
+                            )
                         }
                     }
                 }
@@ -1162,9 +1157,9 @@ fun RoomTimelineScreen(
             if (memberMap.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Full member list loaded (${memberMap.size} members), showing mention list",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Full member list loaded (${memberMap.size} members), showing mention list",
+                    )
                 }
                 showMentionList = true
                 isWaitingForFullMemberList = false
@@ -1808,19 +1803,13 @@ fun RoomTimelineScreen(
         )
     }
 
-    fun handleMentionSelection(
-        userId: String,
-        displayName: String?,
-        originalText: String,
-        startIndex: Int,
-        endIndex: Int,
-    ): String {
+    fun handleMentionSelection(userId: String, displayName: String?, originalText: String, startIndex: Int, endIndex: Int): String {
         // Escape square brackets in display name to prevent regex issues
         val escapedDisplayName = (
             displayName?.takeIf { it.isNotBlank() } ?: userId.removePrefix(
-            "@",
-        ).substringBefore(":")
-        )
+                "@",
+            ).substringBefore(":")
+            )
             .replace("[", "\\[")
             .replace("]", "\\]")
         val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
@@ -2025,8 +2014,8 @@ fun RoomTimelineScreen(
                 // Check if this is a consecutive message from the same sender
                 val timeDifference = if (previousEvent != null) {
                     kotlin.math.abs(
-                    event.timestamp - previousEvent.timestamp,
-                )
+                        event.timestamp - previousEvent.timestamp,
+                    )
                 } else {
                     0L
                 }
@@ -2037,11 +2026,11 @@ fun RoomTimelineScreen(
                 // Add the event with pre-computed flags
                 items.add(
                     TimelineItem.Event(
-                    event = event,
-                    isConsecutive = isConsecutive,
-                    hasPerMessageProfile = hasPerMessageProfile,
-                    absorbedReceiptEventIds = absorbedByAnchor[event.eventId] ?: emptyList(),
-                )
+                        event = event,
+                        isConsecutive = isConsecutive,
+                        hasPerMessageProfile = hasPerMessageProfile,
+                        absorbedReceiptEventIds = absorbedByAnchor[event.eventId] ?: emptyList(),
+                    ),
                 )
 
                 previousEvent = event
@@ -2239,9 +2228,9 @@ fun RoomTimelineScreen(
                 expectedTimelineSizeBeforePagination = timelineItems.size
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Pull-to-refresh triggered, capturing highest visible index: $highestVisibleIndex (out of ${timelineItems.size} items)",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Pull-to-refresh triggered, capturing highest visible index: $highestVisibleIndex (out of ${timelineItems.size} items)",
+                    )
                 }
             } else {
                 // Fallback: use first visible item index
@@ -2251,9 +2240,9 @@ fun RoomTimelineScreen(
                 expectedTimelineSizeBeforePagination = timelineItems.size
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Pull-to-refresh triggered, no visible items, using first visible index: ${listState.firstVisibleItemIndex}",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Pull-to-refresh triggered, no visible items, using first visible index: ${listState.firstVisibleItemIndex}",
+                    )
                 }
             }
 
@@ -2262,9 +2251,9 @@ fun RoomTimelineScreen(
             // the absolute oldest event to avoid requesting duplicates
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest cached event",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest cached event",
+                )
             }
             isRefreshingPull = true
             appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
@@ -2301,9 +2290,9 @@ fun RoomTimelineScreen(
                 isAttachedToBottom = true
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Set initial scroll position to bottom (index=0, items=${timelineItems.size}) - reverseLayout anchors at bottom",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Set initial scroll position to bottom (index=0, items=${timelineItems.size}) - reverseLayout anchors at bottom",
+                    )
                 }
             }
             hasSetInitialScrollPosition = true
@@ -2333,9 +2322,9 @@ fun RoomTimelineScreen(
                 listState.scrollToItem(0)
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Adjusted scroll position for new items (was at index=$currentFirstVisible, scrolled to 0) - reverseLayout",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Adjusted scroll position for new items (was at index=$currentFirstVisible, scrolled to 0) - reverseLayout",
+                    )
                 }
             }
         }
@@ -2374,9 +2363,9 @@ fun RoomTimelineScreen(
                     animatedScrollTo(0)
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: App resumed, animating scroll to bottom (index=0, items=${timelineItems.size}) - reverseLayout",
-                    )
+                            "Andromuks",
+                            "RoomTimelineScreen: App resumed, animating scroll to bottom (index=0, items=${timelineItems.size}) - reverseLayout",
+                        )
                     }
                 }
             }
@@ -2395,9 +2384,9 @@ fun RoomTimelineScreen(
                         animatedScrollTo(0)
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: App resumed, adjusted animated scroll after batch (was at index=$currentFirstVisible, scrolled to 0)",
-                        )
+                                "Andromuks",
+                                "RoomTimelineScreen: App resumed, adjusted animated scroll after batch (was at index=$currentFirstVisible, scrolled to 0)",
+                            )
                         }
                     }
                 }
@@ -2504,9 +2493,9 @@ fun RoomTimelineScreen(
                 ) {
                     if (isRefillingBuffer && BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages})",
-                    )
+                            "Andromuks",
+                            "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages})",
+                        )
                     }
                     isRefillingBuffer = false
                 }
@@ -2542,16 +2531,16 @@ fun RoomTimelineScreen(
                         expectedTimelineSizeBeforePagination = timelineItems.size
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, highestVisible=$highestVisible)",
-                        )
+                                "Andromuks",
+                                "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, highestVisible=$highestVisible)",
+                            )
                         }
                     } else {
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total) — skipping scroll restoration",
-                        )
+                                "Andromuks",
+                                "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total) — skipping scroll restoration",
+                            )
                         }
                     }
                     refillRoundCount++
@@ -2582,9 +2571,9 @@ fun RoomTimelineScreen(
             // With reverseLayout, index 0 is bottom
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Keyboard open, attached to bottom, new message arrived. Scrolling to bottom (index=0)",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Keyboard open, attached to bottom, new message arrived. Scrolling to bottom (index=0)",
+                )
             }
             coroutineScope.launch {
                 // Small delay to let message render
@@ -2611,9 +2600,9 @@ fun RoomTimelineScreen(
                     // We're attached but not actually at bottom - scroll to bottom
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Keyboard closed, attached to bottom but not at bottom (firstVisible=$currentFirstVisible). Auto-scrolling to show new items.",
-                    )
+                            "Andromuks",
+                            "RoomTimelineScreen: Keyboard closed, attached to bottom but not at bottom (firstVisible=$currentFirstVisible). Auto-scrolling to show new items.",
+                        )
                     }
                     coroutineScope.launch {
                         listState.scrollToItem(0)
@@ -2650,10 +2639,10 @@ fun RoomTimelineScreen(
 
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Pagination completed, restoring scroll. " +
-                        "Old highest visible index: $highestIndex, old size: $oldSize, new size: $newSize",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Pagination completed, restoring scroll. " +
+                            "Old highest visible index: $highestIndex, old size: $oldSize, new size: $newSize",
+                    )
                 }
 
                 // Wait for timelineItems to be rebuilt from timelineEvents
@@ -2679,9 +2668,9 @@ fun RoomTimelineScreen(
 
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: ✅ Scroll position restored to index $targetIndex (old highest visible index) at top of viewport",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: ✅ Scroll position restored to index $targetIndex (old highest visible index) at top of viewport",
+                    )
                 }
 
                 // Wait for animation to complete (default is ~300-500ms) plus a bit more for layout to settle
@@ -2690,10 +2679,10 @@ fun RoomTimelineScreen(
                 // Fallback: maintain current scroll position
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Pagination completed, but no valid index captured or no new events. " +
-                        "highestIndex=$highestIndex, oldSize=$oldSize, newSize=$newSize",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Pagination completed, but no valid index captured or no new events. " +
+                            "highestIndex=$highestIndex, oldSize=$oldSize, newSize=$newSize",
+                    )
                 }
                 kotlinx.coroutines.delay(100)
                 val currentFirstIndex = listState.firstVisibleItemIndex
@@ -2723,9 +2712,9 @@ fun RoomTimelineScreen(
             listState.scrollToItem(0, 0)
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Manual refresh loaded ${timelineItems.size} items - scrolled to bottom (index=0)",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Manual refresh loaded ${timelineItems.size} items - scrolled to bottom (index=0)",
+                )
             }
             isAttachedToBottom = true
             hasInitialSnapCompleted = true
@@ -2757,9 +2746,9 @@ fun RoomTimelineScreen(
     ) {
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted",
-        )
+                "Andromuks",
+                "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted",
+            )
         }
 
         // UNIFIED OPEN PATH: a notification's target event no longer hijacks the initial scroll.
@@ -2786,9 +2775,9 @@ fun RoomTimelineScreen(
                 if (timelineItems.isEmpty() || (isLoading && waitCount >= maxWaitAttempts)) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})",
-                    )
+                            "Andromuks",
+                            "RoomTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})",
+                        )
                     }
                     // Still mark as completed to avoid infinite loop
                     hasInitialSnapCompleted = true
@@ -2801,9 +2790,9 @@ fun RoomTimelineScreen(
                 val threadReturnEventId = appViewModel.threadReturnScrollEventId
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Initial scroll check - threadReturnScrollEventId=$threadReturnEventId, timelineItems=${timelineItems.size}",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Initial scroll check - threadReturnScrollEventId=$threadReturnEventId, timelineItems=${timelineItems.size}",
+                    )
                 }
                 if (threadReturnEventId != null) {
                     // Suppress all other scroll effects BEFORE suspending at scrollToItem.
@@ -2824,9 +2813,9 @@ fun RoomTimelineScreen(
                         isAttachedToBottom = false
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: ✅ Restored scroll to thread-tapped event $threadReturnEventId at index=$targetIndex (reversedIndex=$reversedIndex) after returning from thread viewer",
-                        )
+                                "Andromuks",
+                                "RoomTimelineScreen: ✅ Restored scroll to thread-tapped event $threadReturnEventId at index=$targetIndex (reversedIndex=$reversedIndex) after returning from thread viewer",
+                            )
                         }
                     } else {
                         // Event not found (e.g. paginated away) — fall back to bottom
@@ -2835,9 +2824,9 @@ fun RoomTimelineScreen(
                         isAttachedToBottom = true
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Thread return event $threadReturnEventId not found, falling back to bottom",
-                        )
+                                "Andromuks",
+                                "RoomTimelineScreen: Thread return event $threadReturnEventId not found, falling back to bottom",
+                            )
                         }
                     }
                 } else {
@@ -2858,9 +2847,9 @@ fun RoomTimelineScreen(
 
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items) - reverseLayout",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items) - reverseLayout",
+                    )
                 }
             }
             return@LaunchedEffect
@@ -2872,9 +2861,9 @@ fun RoomTimelineScreen(
         if (pendingScrollRestoration) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Skipping new items handling - pending scroll restoration",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Skipping new items handling - pending scroll restoration",
+                )
             }
             return@LaunchedEffect
         }
@@ -2894,9 +2883,9 @@ fun RoomTimelineScreen(
                 listState.animateScrollToItem(0)
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: New message arrived (keyboard closed), animateScrollToItem to bottom (index=0, attached=$isAttachedToBottom)",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: New message arrived (keyboard closed), animateScrollToItem to bottom (index=0, attached=$isAttachedToBottom)",
+                    )
                 }
             }
             lastKnownTimelineEventId = lastEventId
@@ -2979,30 +2968,30 @@ fun RoomTimelineScreen(
             !mustFetchFreshTimeline &&
             (
                 appViewModel.timelineEvents.isNotEmpty() || appViewModel.isTimelineLoading ||
-                appViewModel.isPendingNavigationFromNotification
-            )
+                    appViewModel.isPendingNavigationFromNotification
+                )
         if (!isAlreadyLoaded) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Room $roomId not yet loaded, calling navigateToRoomWithCache",
+                )
             }
             appViewModel.navigateToRoomWithCache(roomId)
         } else if (mustFetchFreshTimeline) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: WS was down — forcing requestRoomTimeline for $roomId",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: WS was down — forcing requestRoomTimeline for $roomId",
+                )
             }
             appViewModel.requestRoomTimeline(roomId)
         } else {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Room $roomId already loaded/loading (${appViewModel.timelineEvents.size} events, isTimelineLoading=${appViewModel.isTimelineLoading}, isPendingNavFromNotif=${appViewModel.isPendingNavigationFromNotification}), skipping navigateToRoomWithCache",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Room $roomId already loaded/loading (${appViewModel.timelineEvents.size} events, isTimelineLoading=${appViewModel.isTimelineLoading}, isPendingNavFromNotif=${appViewModel.isPendingNavigationFromNotification}), skipping navigateToRoomWithCache",
+                )
             }
         }
 
@@ -3025,9 +3014,9 @@ fun RoomTimelineScreen(
             } else {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Data already ready for $roomId (${appViewModel.timelineEvents.size} events), skipping readiness wait",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Data already ready for $roomId (${appViewModel.timelineEvents.size} events), skipping readiness wait",
+                    )
                 }
             }
             readinessCheckComplete = true
@@ -3100,17 +3089,17 @@ fun RoomTimelineScreen(
             if (!keepWarm && appViewModel.currentRoomId == roomId) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Disposing - clearing currentRoomId for room: $roomId",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Disposing - clearing currentRoomId for room: $roomId",
+                    )
                 }
                 appViewModel.clearCurrentRoomId()
             } else {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Disposing - not clearing currentRoomId (current: ${appViewModel.currentRoomId}, this room: $roomId)",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Disposing - not clearing currentRoomId (current: ${appViewModel.currentRoomId}, this room: $roomId)",
+                    )
                 }
             }
         }
@@ -3139,9 +3128,9 @@ fun RoomTimelineScreen(
         ) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId",
+                )
             }
             appViewModel.requestRoomTimeline(roomId)
         }
@@ -3157,9 +3146,9 @@ fun RoomTimelineScreen(
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Received FOREGROUND_REFRESH broadcast, restoring timeline from cache for room: $roomId",
-                    )
+                            "Andromuks",
+                            "RoomTimelineScreen: Received FOREGROUND_REFRESH broadcast, restoring timeline from cache for room: $roomId",
+                        )
                     }
                     // Guard: only restore if this screen's room is still the current room.
                     // Without this, a FOREGROUND_REFRESH racing with a pending FCM/shortcut
@@ -3177,9 +3166,9 @@ fun RoomTimelineScreen(
         ContextCompat.registerReceiver(context, foregroundRefreshReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED)
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "RoomTimelineScreen: Registered FOREGROUND_REFRESH broadcast receiver",
-        )
+                "Andromuks",
+                "RoomTimelineScreen: Registered FOREGROUND_REFRESH broadcast receiver",
+            )
         }
 
         onDispose {
@@ -3187,9 +3176,9 @@ fun RoomTimelineScreen(
                 context.unregisterReceiver(foregroundRefreshReceiver)
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Unregistered FOREGROUND_REFRESH broadcast receiver",
-                )
+                        "Andromuks",
+                        "RoomTimelineScreen: Unregistered FOREGROUND_REFRESH broadcast receiver",
+                    )
                 }
             } catch (e: Exception) {
                 Log.w("Andromuks", "RoomTimelineScreen: Error unregistering foreground refresh receiver", e)
@@ -3226,9 +3215,9 @@ fun RoomTimelineScreen(
         lastValidatedSenderSetHash = hash
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "RoomTimelineScreen: Validating user profiles for ${sortedEvents.size} events (${senderSet.size} distinct senders)",
-        )
+                "Andromuks",
+                "RoomTimelineScreen: Validating user profiles for ${sortedEvents.size} events (${senderSet.size} distinct senders)",
+            )
         }
         appViewModel.validateAndRequestMissingProfiles(roomId, sortedEvents)
     }
@@ -3243,9 +3232,9 @@ fun RoomTimelineScreen(
 
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "RoomTimelineScreen: Using opportunistic profile loading for $roomId (no bulk loading)",
-        )
+                "Andromuks",
+                "RoomTimelineScreen: Using opportunistic profile loading for $roomId (no bulk loading)",
+            )
         }
 
         // Only request profiles for users that are actually visible in the timeline
@@ -3260,9 +3249,9 @@ fun RoomTimelineScreen(
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)",
+                )
             }
 
             // Request profiles one by one as needed (including current user if missing)
@@ -3288,15 +3277,15 @@ fun RoomTimelineScreen(
         if (appViewModel.currentRoomId == roomId && appViewModel.isAppVisible) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId",
+                )
             }
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events",
+                )
             }
 
             // Force recomposition when timeline events change
@@ -3409,9 +3398,9 @@ fun RoomTimelineScreen(
         pendingInterRoomJumpEventId = null
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "RoomTimelineScreen: Inter-room link landing on event=$targetEventId in room=$roomId",
-        )
+                "Andromuks",
+                "RoomTimelineScreen: Inter-room link landing on event=$targetEventId in room=$roomId",
+            )
         }
         jumpToLocalEvent(targetEventId)
     }
@@ -3446,9 +3435,9 @@ fun RoomTimelineScreen(
             pendingNotificationJumpEventId = null
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Highlighting notification target event=$targetEventId in place (no scroll)",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Highlighting notification target event=$targetEventId in place (no scroll)",
+                )
             }
         }
         // Not (yet) loaded: leave pendingNotificationJumpEventId set so a subsequent timeline
@@ -3478,9 +3467,9 @@ fun RoomTimelineScreen(
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Keyboard opening - captured scroll position: index=$firstVisibleIndex, offset=$scrollOffset, attached=$isAttachedToBottom",
-            )
+                    "Andromuks",
+                    "RoomTimelineScreen: Keyboard opening - captured scroll position: index=$firstVisibleIndex, offset=$scrollOffset, attached=$isAttachedToBottom",
+                )
             }
 
             // Wait for layout to adjust after keyboard opens
@@ -3508,9 +3497,9 @@ fun RoomTimelineScreen(
                         animatedScrollTo(0)
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Keyboard opened, animated scroll to bottom (index=0) after layout settled - reverseLayout",
-                        )
+                                "Andromuks",
+                                "RoomTimelineScreen: Keyboard opened, animated scroll to bottom (index=0) after layout settled - reverseLayout",
+                            )
                         }
                     }
                 } else {
@@ -3524,9 +3513,9 @@ fun RoomTimelineScreen(
                             animatedScrollTo(validIndex, savedOffset)
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "RoomTimelineScreen: Keyboard opened, maintained scroll position: index=$validIndex, offset=$savedOffset after layout settled",
-                            )
+                                    "Andromuks",
+                                    "RoomTimelineScreen: Keyboard opened, maintained scroll position: index=$validIndex, offset=$savedOffset after layout settled",
+                                )
                             }
                         }
                     }
@@ -3561,9 +3550,9 @@ fun RoomTimelineScreen(
                         isAttachedToBottom = true
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Keyboard closed, animated scroll to bottom (index=0) - reverseLayout",
-                        )
+                                "Andromuks",
+                                "RoomTimelineScreen: Keyboard closed, animated scroll to bottom (index=0) - reverseLayout",
+                            )
                         }
                     }
                 } else if (scrollPositionBeforeKeyboard != null) {
@@ -3578,9 +3567,9 @@ fun RoomTimelineScreen(
                             isAttachedToBottom = false // Keep detached state
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "RoomTimelineScreen: Keyboard closed, restored scroll position: index=$validIndex, offset=$savedOffset (was NOT attached)",
-                            )
+                                    "Andromuks",
+                                    "RoomTimelineScreen: Keyboard closed, restored scroll position: index=$validIndex, offset=$savedOffset (was NOT attached)",
+                                )
                             }
                         }
                     }
@@ -3655,9 +3644,9 @@ fun RoomTimelineScreen(
                                 // Full refresh: drop all on-disk and in-RAM data, then fetch 100 events
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
-                                    "Andromuks",
-                                    "RoomTimelineScreen: Full refresh button clicked for room $roomId",
-                                )
+                                        "Andromuks",
+                                        "RoomTimelineScreen: Full refresh button clicked for room $roomId",
+                                    )
                                 }
                                 isRefreshing = true
                                 appViewModel.setAutoPaginationEnabled(false, "manual_refresh_ui_$roomId")
@@ -3758,10 +3747,10 @@ fun RoomTimelineScreen(
                                                     roomId,
                                                 )
                                             ) {
-                                                    "Waiting for room data"
-                                                } else {
-                                                    "Room loading..."
-                                                },
+                                                "Waiting for room data"
+                                            } else {
+                                                "Room loading..."
+                                            },
                                             style = MaterialTheme.typography.bodyLarge,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
@@ -3942,9 +3931,9 @@ fun RoomTimelineScreen(
                                                             onUserAvatarClick = { userId, tappedEventId ->
                                                                 if (BuildConfig.DEBUG) {
                                                                     Log.d(
-                                                                    "Andromuks",
-                                                                    "RoomTimelineScreen: onUserAvatarClick -> userId=$userId, tappedEventId=$tappedEventId",
-                                                                )
+                                                                        "Andromuks",
+                                                                        "RoomTimelineScreen: onUserAvatarClick -> userId=$userId, tappedEventId=$tappedEventId",
+                                                                    )
                                                                 }
                                                                 navController.navigateToUserInfo(userId, roomId, tappedEventId)
                                                             },
@@ -3952,18 +3941,18 @@ fun RoomTimelineScreen(
                                                                 // Pass eventId for shared transition animation
                                                                 if (BuildConfig.DEBUG) {
                                                                     Log.d(
-                                                                    "Andromuks",
-                                                                    "RoomTimelineScreen: Navigating to user info - userId=$userId, eventId=${event.eventId}",
-                                                                )
+                                                                        "Andromuks",
+                                                                        "RoomTimelineScreen: Navigating to user info - userId=$userId, eventId=${event.eventId}",
+                                                                    )
                                                                 }
                                                                 navController.navigateToUserInfo(userId, roomId, event.eventId)
                                                             },
                                                             onRoomLinkClick = { roomLink ->
                                                                 if (BuildConfig.DEBUG) {
                                                                     Log.d(
-                                                                    "Andromuks",
-                                                                    "RoomTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}",
-                                                                )
+                                                                        "Andromuks",
+                                                                        "RoomTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}",
+                                                                    )
                                                                 }
 
                                                                 // Extract server from message sender (format: @user:server.com)
@@ -3996,9 +3985,9 @@ fun RoomTimelineScreen(
                                                                     // Permalink into the room we're already viewing — jump in place, no renavigation.
                                                                     if (BuildConfig.DEBUG) {
                                                                         Log.d(
-                                                                        "Andromuks",
-                                                                        "RoomTimelineScreen: Same-room event permalink, jumping to $jumpEventId",
-                                                                    )
+                                                                            "Andromuks",
+                                                                            "RoomTimelineScreen: Same-room event permalink, jumping to $jumpEventId",
+                                                                        )
                                                                     }
                                                                     jumpToLocalEvent(jumpEventId)
                                                                 } else {
@@ -4007,17 +3996,17 @@ fun RoomTimelineScreen(
                                                                         val room = appViewModel.getRoomById(enhancedRoomLink.roomIdOrAlias)
                                                                         if (BuildConfig.DEBUG) {
                                                                             Log.d(
-                                                                            "Andromuks",
-                                                                            "RoomTimelineScreen: Checked for existing room ${enhancedRoomLink.roomIdOrAlias}, found: ${room != null}",
-                                                                        )
+                                                                                "Andromuks",
+                                                                                "RoomTimelineScreen: Checked for existing room ${enhancedRoomLink.roomIdOrAlias}, found: ${room != null}",
+                                                                            )
                                                                         }
                                                                         room
                                                                     } else {
                                                                         if (BuildConfig.DEBUG) {
                                                                             Log.d(
-                                                                            "Andromuks",
-                                                                            "RoomTimelineScreen: Room link is an alias, showing joiner",
-                                                                        )
+                                                                                "Andromuks",
+                                                                                "RoomTimelineScreen: Room link is an alias, showing joiner",
+                                                                            )
                                                                         }
                                                                         null
                                                                     }
@@ -4027,17 +4016,17 @@ fun RoomTimelineScreen(
                                                                         val targetRoomId = enhancedRoomLink.roomIdOrAlias
                                                                         if (BuildConfig.DEBUG) {
                                                                             Log.d(
-                                                                            "Andromuks",
-                                                                            "RoomTimelineScreen: Already joined, navigating to $targetRoomId",
-                                                                        )
+                                                                                "Andromuks",
+                                                                                "RoomTimelineScreen: Already joined, navigating to $targetRoomId",
+                                                                            )
                                                                         }
                                                                         // If this is an event permalink, stash the jump so the target room lands on it
                                                                         // (scroll if in the loaded window, else EventContextScreen) once it opens.
                                                                         if (jumpEventId != null) {
                                                                             appViewModel.setPendingInterRoomJump(
-                                                                            targetRoomId,
-                                                                            jumpEventId,
-                                                                        )
+                                                                                targetRoomId,
+                                                                                jumpEventId,
+                                                                            )
                                                                         }
                                                                         // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
                                                                         // and navigate via room_list, letting RoomListScreen handle the final navigation.
@@ -4051,9 +4040,9 @@ fun RoomTimelineScreen(
                                                                         // EventContextScreen (a fresh join may not have the referenced history yet).
                                                                         if (BuildConfig.DEBUG) {
                                                                             Log.d(
-                                                                            "Andromuks",
-                                                                            "RoomTimelineScreen: Not joined, showing room joiner with via servers: $enhancedViaServers",
-                                                                        )
+                                                                                "Andromuks",
+                                                                                "RoomTimelineScreen: Not joined, showing room joiner with via servers: $enhancedViaServers",
+                                                                            )
                                                                         }
                                                                         roomLinkToJoin = enhancedRoomLink
                                                                         showRoomJoiner = true
@@ -4066,9 +4055,9 @@ fun RoomTimelineScreen(
                                                                 if (threadInfo != null) {
                                                                     if (BuildConfig.DEBUG) {
                                                                         Log.d(
-                                                                        "Andromuks",
-                                                                        "RoomTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}",
-                                                                    )
+                                                                            "Andromuks",
+                                                                            "RoomTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}",
+                                                                        )
                                                                     }
                                                                     val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
                                                                     val encodedThreadRoot = java.net.URLEncoder.encode(
@@ -4078,9 +4067,9 @@ fun RoomTimelineScreen(
                                                                     appViewModel.threadReturnScrollEventId = threadEvent.eventId
                                                                     if (BuildConfig.DEBUG) {
                                                                         Log.d(
-                                                                        "Andromuks",
-                                                                        "RoomTimelineScreen: Set threadReturnScrollEventId=${threadEvent.eventId}",
-                                                                    )
+                                                                            "Andromuks",
+                                                                            "RoomTimelineScreen: Set threadReturnScrollEventId=${threadEvent.eventId}",
+                                                                        )
                                                                     }
                                                                     navController.navigate(
                                                                         "thread_viewer/$encodedRoomId/$encodedThreadRoot",
@@ -4281,8 +4270,8 @@ fun RoomTimelineScreen(
                                                 MaterialTheme.colorScheme.primary
                                             } else {
                                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                alpha = 0.38f,
-                                            )
+                                                    alpha = 0.38f,
+                                                )
                                             },
                                         )
                                     }
@@ -4517,16 +4506,16 @@ fun RoomTimelineScreen(
                                                     trimmedForPmp.equals("/profile", ignoreCase = true) ||
                                                     (
                                                         trimmedForPmp.startsWith(
-                                                        "/pmp ",
-                                                        ignoreCase = true,
-                                                    ) && trimmedForPmp.drop(5).isBlank()
-                                                    ) ||
+                                                            "/pmp ",
+                                                            ignoreCase = true,
+                                                        ) && trimmedForPmp.drop(5).isBlank()
+                                                        ) ||
                                                     (
                                                         trimmedForPmp.startsWith(
-                                                        "/profile ",
-                                                        ignoreCase = true,
-                                                    ) && trimmedForPmp.drop(9).isBlank()
-                                                    )
+                                                            "/profile ",
+                                                            ignoreCase = true,
+                                                        ) && trimmedForPmp.drop(9).isBlank()
+                                                        )
 
                                                 if (commandResult != null) {
                                                     val (query, startIndex) = commandResult
@@ -4534,9 +4523,9 @@ fun RoomTimelineScreen(
                                                     commandStartIndex = startIndex
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "RoomTimelineScreen: / detected, query='$query'",
-                                                    )
+                                                            "Andromuks",
+                                                            "RoomTimelineScreen: / detected, query='$query'",
+                                                        )
                                                     }
                                                     showCommandSuggestionList = !showPmpProfilePicker
                                                     // Hide other suggestion lists when command is active
@@ -4557,9 +4546,9 @@ fun RoomTimelineScreen(
                                                         roomStartIndex = startIndex
                                                         if (BuildConfig.DEBUG) {
                                                             Log.d(
-                                                            "Andromuks",
-                                                            "RoomTimelineScreen: # detected, query='$query', roomsWithAliases.size=${roomsWithAliases.size}",
-                                                        )
+                                                                "Andromuks",
+                                                                "RoomTimelineScreen: # detected, query='$query', roomsWithAliases.size=${roomsWithAliases.size}",
+                                                            )
                                                         }
                                                         showRoomSuggestionList = true
                                                         // Hide other suggestion lists when room mention is active
@@ -4588,9 +4577,9 @@ fun RoomTimelineScreen(
                                                                     // Request fresh data from server (will update when it arrives)
                                                                     if (BuildConfig.DEBUG) {
                                                                         Log.d(
-                                                                        "Andromuks",
-                                                                        "RoomTimelineScreen: @ detected, requesting fresh member list for room $roomId",
-                                                                    )
+                                                                            "Andromuks",
+                                                                            "RoomTimelineScreen: @ detected, requesting fresh member list for room $roomId",
+                                                                        )
                                                                     }
                                                                     isWaitingForFullMemberList = true
                                                                     lastMemberUpdateCounterBeforeMention =
@@ -4632,10 +4621,10 @@ fun RoomTimelineScreen(
                                                         isProcessingBatch -> if (processingBatchSize >
                                                             0
                                                         ) {
-                                                                "Rushing $processingBatchSize messages..."
-                                                            } else {
-                                                                "Rushing messages..."
-                                                            }
+                                                            "Rushing $processingBatchSize messages..."
+                                                        } else {
+                                                            "Rushing messages..."
+                                                        }
 
                                                         else -> {
                                                             val networkName = currentRoomState?.bridgeInfo?.displayName
@@ -4683,8 +4672,8 @@ fun RoomTimelineScreen(
                                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                                             } else {
                                                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                                alpha = 0.38f,
-                                                            )
+                                                                    alpha = 0.38f,
+                                                                )
                                                             },
                                                         )
                                                     }
@@ -4701,8 +4690,8 @@ fun RoomTimelineScreen(
                                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                                             } else {
                                                                 MaterialTheme.colorScheme.onSurfaceVariant.copy(
-                                                                alpha = 0.38f,
-                                                            )
+                                                                    alpha = 0.38f,
+                                                                )
                                                             },
                                                         )
                                                     }
@@ -5370,10 +5359,10 @@ fun RoomTimelineScreen(
                                     // The cursor should be positioned right after the inserted mention text
                                     val escapedDisplayName = (
                                         displayName?.takeIf { it.isNotBlank() }
-                                        ?: userId.removePrefix(
-                                            "@",
-                                        ).substringBefore(":")
-                                    )
+                                            ?: userId.removePrefix(
+                                                "@",
+                                            ).substringBefore(":")
+                                        )
                                         .replace("[", "\\[")
                                         .replace("]", "\\]")
                                     val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
@@ -5555,9 +5544,9 @@ fun RoomTimelineScreen(
                                                 if (attempt > 0) {
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "RoomTimelineScreen: Retrying $type upload (attempt $attempt/3)",
-                                                    )
+                                                            "Andromuks",
+                                                            "RoomTimelineScreen: Retrying $type upload (attempt $attempt/3)",
+                                                        )
                                                     }
                                                     appViewModel.setUploadRetryCount(roomId, attempt)
                                                     kotlinx.coroutines.delay(1000L * attempt)
@@ -5764,9 +5753,9 @@ fun RoomTimelineScreen(
                                                 if (attempt > 0) {
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "RoomTimelineScreen: Retrying $type upload (attempt $attempt/3)",
-                                                    )
+                                                            "Andromuks",
+                                                            "RoomTimelineScreen: Retrying $type upload (attempt $attempt/3)",
+                                                        )
                                                     }
                                                     appViewModel.setUploadRetryCount(roomId, attempt)
                                                     kotlinx.coroutines.delay(1000L * attempt)
@@ -5801,9 +5790,9 @@ fun RoomTimelineScreen(
                                                 if (videoResult != null) {
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "RoomTimelineScreen: Video upload successful, sending message",
-                                                    )
+                                                            "Andromuks",
+                                                            "RoomTimelineScreen: Video upload successful, sending message",
+                                                        )
                                                     }
                                                     // Send video message with metadata
                                                     appViewModel.sendVideoMessage(
@@ -5854,9 +5843,9 @@ fun RoomTimelineScreen(
                                                 if (audioResult != null) {
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "RoomTimelineScreen: Audio upload successful, sending message",
-                                                    )
+                                                            "Andromuks",
+                                                            "RoomTimelineScreen: Audio upload successful, sending message",
+                                                        )
                                                     }
                                                     // Send audio message with metadata
                                                     appViewModel.sendAudioMessage(
@@ -5901,9 +5890,9 @@ fun RoomTimelineScreen(
                                                 if (fileResult != null) {
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "RoomTimelineScreen: File upload successful, sending message",
-                                                    )
+                                                            "Andromuks",
+                                                            "RoomTimelineScreen: File upload successful, sending message",
+                                                        )
                                                     }
                                                     // Send file message with metadata
                                                     appViewModel.sendFileMessage(
@@ -5948,9 +5937,9 @@ fun RoomTimelineScreen(
                                                 if (uploadResult != null) {
                                                     if (BuildConfig.DEBUG) {
                                                         Log.d(
-                                                        "Andromuks",
-                                                        "RoomTimelineScreen: Image upload successful, sending message",
-                                                    )
+                                                            "Andromuks",
+                                                            "RoomTimelineScreen: Image upload successful, sending message",
+                                                        )
                                                     }
                                                     // Send image message with metadata
                                                     appViewModel.sendImageMessage(
@@ -6116,9 +6105,9 @@ fun RoomHeader(
                     val sharedKey = "avatar-$roomId"
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "RoomHeader: composing avatar for $roomId with sharedKey = $sharedKey",
-                    )
+                            "Andromuks",
+                            "RoomHeader: composing avatar for $roomId with sharedKey = $sharedKey",
+                        )
                     }
                     with(sharedTransitionScope) {
                         AvatarImage(
@@ -6150,9 +6139,9 @@ fun RoomHeader(
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "RoomHeader: failed, we loaded the ELSE block",
-                    )
+                            "Andromuks",
+                            "RoomHeader: failed, we loaded the ELSE block",
+                        )
                     }
                     AvatarImage(
                         mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,

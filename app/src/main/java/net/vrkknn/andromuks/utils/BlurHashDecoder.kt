@@ -96,14 +96,7 @@ object BlurHashDecoder {
 
     private fun signedPow2(value: Float) = value.pow(2f).withSign(value)
 
-    private fun composeBitmap(
-        width: Int,
-        height: Int,
-        numCompX: Int,
-        numCompY: Int,
-        colors: Array<FloatArray>,
-        useCache: Boolean,
-    ): Bitmap {
+    private fun composeBitmap(width: Int, height: Int, numCompX: Int, numCompY: Int, colors: Array<FloatArray>, useCache: Boolean): Bitmap {
         // use an array for better performance when writing pixel colors
         val imageArray = IntArray(width * height)
         val calculateCosX = !useCache || !cacheCosinesX.containsKey(width * numCompX)

@@ -209,8 +209,7 @@ object AutoStartPermissionHelper {
     /**
      * Check if an intent can be resolved
      */
-    private fun isIntentAvailable(context: Context, intent: Intent): Boolean =
-        context.packageManager.queryIntentActivities(intent, 0).isNotEmpty()
+    private fun isIntentAvailable(context: Context, intent: Intent): Boolean = context.packageManager.queryIntentActivities(intent, 0).isNotEmpty()
 
     /**
      * Get human-readable description of auto-start permission for current device

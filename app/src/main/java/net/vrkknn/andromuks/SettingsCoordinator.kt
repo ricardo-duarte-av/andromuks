@@ -48,9 +48,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
 
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Restarting WebSocket due to compression setting change (value: $enableCompression)",
-                )
+                        "Andromuks",
+                        "AppViewModel: Restarting WebSocket due to compression setting change (value: $enableCompression)",
+                    )
                 }
                 logActivity("Compression Setting Changed - Restarting", null)
                 restartWebSocket(ReconnectTrigger.Unclassified("Compression setting changed"))
@@ -70,9 +70,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved enterKeySendsMessage setting: $enterKeySendsMessage",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved enterKeySendsMessage setting: $enterKeySendsMessage",
+                )
             }
         }
     }
@@ -87,9 +87,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable",
+                )
             }
         }
     }
@@ -104,9 +104,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved renderThumbnailsAlways setting: $renderThumbnailsAlways",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved renderThumbnailsAlways setting: $renderThumbnailsAlways",
+                )
             }
         }
     }
@@ -119,9 +119,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
             prefs.edit().putBoolean("use_battery_saver_mode", useBatterySaverMode).apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved useBatterySaverMode setting: $useBatterySaverMode",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved useBatterySaverMode setting: $useBatterySaverMode",
+                )
             }
         }
         // The lifecycle change (close-on-background / cold-start-on-FCM-open) is handled
@@ -139,9 +139,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved showAllRoomListTabs setting: $showAllRoomListTabs",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved showAllRoomListTabs setting: $showAllRoomListTabs",
+                )
             }
         }
     }
@@ -156,9 +156,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved requireBiometricUnlock setting: $enabled",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved requireBiometricUnlock setting: $enabled",
+                )
             }
         }
     }
@@ -173,9 +173,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved moveReadReceiptsToEdge setting: $moveReadReceiptsToEdge",
+                )
             }
         }
     }
@@ -190,9 +190,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved trimLongDisplayNames setting: $trimLongDisplayNames",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved trimLongDisplayNames setting: $trimLongDisplayNames",
+                )
             }
         }
     }
@@ -207,9 +207,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved displayNameColorMode setting: ${mode.prefValue}",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved displayNameColorMode setting: ${mode.prefValue}",
+                )
             }
         }
     }
@@ -224,9 +224,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved showLinkPreviews setting: $showLinkPreviews",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved showLinkPreviews setting: $showLinkPreviews",
+                )
             }
         }
     }
@@ -241,9 +241,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved sendLinkPreviews setting: $sendLinkPreviews",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved sendLinkPreviews setting: $sendLinkPreviews",
+                )
             }
         }
     }
@@ -257,9 +257,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved elementCallBaseUrl setting: $elementCallBaseUrl",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved elementCallBaseUrl setting: $elementCallBaseUrl",
+                )
             }
         }
     }
@@ -276,9 +276,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: backgroundPurgeIntervalMinutes=$clamped → ${syncBatchProcessor.batchIntervalMs}ms",
-        )
+                "Andromuks",
+                "AppViewModel: backgroundPurgeIntervalMinutes=$clamped → ${syncBatchProcessor.batchIntervalMs}ms",
+            )
         }
     }
 
@@ -294,9 +294,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         }
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: backgroundPurgeMessageThreshold=$clamped",
-        )
+                "Andromuks",
+                "AppViewModel: backgroundPurgeMessageThreshold=$clamped",
+            )
         }
     }
 
@@ -337,9 +337,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved crashReportingEnabled setting: $enabled",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved crashReportingEnabled setting: $enabled",
+                )
             }
         }
     }
@@ -355,9 +355,9 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
                 .apply()
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Saved performanceMonitoringEnabled setting: $enabled",
-            )
+                    "Andromuks",
+                    "AppViewModel: Saved performanceMonitoringEnabled setting: $enabled",
+                )
             }
         }
     }

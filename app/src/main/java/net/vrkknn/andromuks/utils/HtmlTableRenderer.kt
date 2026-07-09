@@ -230,14 +230,7 @@ fun HtmlTableContent(tableData: TableData, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun HtmlTableRow(
-    cells: List<String>,
-    colWidths: List<Dp>,
-    colCount: Int,
-    backgroundColor: Color,
-    colDividerColor: Color,
-    isHeader: Boolean,
-) {
+private fun HtmlTableRow(cells: List<String>, colWidths: List<Dp>, colCount: Int, backgroundColor: Color, colDividerColor: Color, isHeader: Boolean) {
     Row(
         modifier = Modifier
             .background(backgroundColor)

@@ -45,9 +45,9 @@ private fun getExistingPushEncryptionKey(context: Context): ByteArray? = try {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "FCMService: Decoded key of size: ${decodedKey.size} bytes")
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "FCMService: Decoded key (first 8 bytes): ${decodedKey.take(8).joinToString { "%02x".format(it) }}",
-        )
+                "Andromuks",
+                "FCMService: Decoded key (first 8 bytes): ${decodedKey.take(8).joinToString { "%02x".format(it) }}",
+            )
         }
         decodedKey
     } else {
@@ -170,15 +170,15 @@ class FCMService : FirebaseMessagingService() {
 
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}",
-        )
+                TAG,
+                "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}",
+            )
         }
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "FCM priority=${remoteMessage.priority}, originalPriority=${remoteMessage.originalPriority} (1=HIGH, 2=NORMAL) - priority is FCM-delivered, originalPriority is sender-requested",
-        )
+                TAG,
+                "FCM priority=${remoteMessage.priority}, originalPriority=${remoteMessage.originalPriority} (1=HIGH, 2=NORMAL) - priority is FCM-delivered, originalPriority is sender-requested",
+            )
         }
 
         // Handle data payload (matches the other Gomuks client approach)
@@ -202,9 +202,9 @@ class FCMService : FirebaseMessagingService() {
             if (BuildConfig.DEBUG) Log.d(TAG, "Using push encryption key of size: ${pushEncKey.size} bytes")
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Key (first 8 bytes): ${pushEncKey.take(8).joinToString { "%02x".format(it) }}",
-            )
+                    TAG,
+                    "Key (first 8 bytes): ${pushEncKey.take(8).joinToString { "%02x".format(it) }}",
+                )
             }
             if (BuildConfig.DEBUG) Log.d(TAG, "Encrypted payload length: ${encryptedPayload.length}")
             if (BuildConfig.DEBUG) Log.d(TAG, "Encrypted payload (first 50 chars): ${encryptedPayload.take(50)}")
@@ -285,16 +285,16 @@ class FCMService : FirebaseMessagingService() {
                                 if (lowPriorityRooms.contains(notificationData.roomId)) {
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        TAG,
-                                        "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})",
-                                    )
+                                            TAG,
+                                            "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})",
+                                        )
                                     }
                                 } else if (shouldSuppressNotification(notificationData.roomId)) {
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
-                                        TAG,
-                                        "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground",
-                                    )
+                                            TAG,
+                                            "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground",
+                                        )
                                     }
                                 } else {
                                     // RACE CONDITION FIX: Mark notification as pending before showing
@@ -320,9 +320,9 @@ class FCMService : FirebaseMessagingService() {
                                         } else {
                                             if (BuildConfig.DEBUG) {
                                                 Log.d(
-                                                TAG,
-                                                "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping",
-                                            )
+                                                    TAG,
+                                                    "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping",
+                                                )
                                             }
                                         }
                                     } catch (e: Exception) {
@@ -347,9 +347,9 @@ class FCMService : FirebaseMessagingService() {
         remoteMessage.notification?.let { notification ->
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Processing notification payload - title: ${notification.title}, body: ${notification.body}",
-            )
+                    TAG,
+                    "Processing notification payload - title: ${notification.title}, body: ${notification.body}",
+                )
             }
             showNotification(
                 title = notification.title ?: "New message",
@@ -429,9 +429,9 @@ class FCMService : FirebaseMessagingService() {
             if (isForeground) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "shouldSuppressNotification: SharedPreferences says app not visible, but ActivityManager says app is in foreground - using ActivityManager result",
-                )
+                        TAG,
+                        "shouldSuppressNotification: SharedPreferences says app not visible, but ActivityManager says app is in foreground - using ActivityManager result",
+                    )
                 }
             }
             isForeground
@@ -441,19 +441,19 @@ class FCMService : FirebaseMessagingService() {
 
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "shouldSuppressNotification: roomId='$roomId' (normalized='$normalizedRoomId'), " +
-                "currentOpenRoomId='$currentOpenRoomId' (normalized='$normalizedCurrentRoomId'), " +
-                "isAppVisiblePrefs=$isAppVisiblePrefs, isAppVisible=$isAppVisible, roomMatches=$roomMatches, shouldSuppress=$shouldSuppress",
-        )
+                TAG,
+                "shouldSuppressNotification: roomId='$roomId' (normalized='$normalizedRoomId'), " +
+                    "currentOpenRoomId='$currentOpenRoomId' (normalized='$normalizedCurrentRoomId'), " +
+                    "isAppVisiblePrefs=$isAppVisiblePrefs, isAppVisible=$isAppVisible, roomMatches=$roomMatches, shouldSuppress=$shouldSuppress",
+            )
         }
 
         if (shouldSuppress) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "✅ Suppressing notification for room $roomId - room is open AND app is in foreground",
-            )
+                    TAG,
+                    "✅ Suppressing notification for room $roomId - room is open AND app is in foreground",
+                )
             }
         } else {
             val reason = when {
@@ -518,9 +518,9 @@ class FCMService : FirebaseMessagingService() {
                     if (currentUserId.isNotEmpty() && selfId != currentUserId) {
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            TAG,
-                            "Discarding notification for wrong account: self.id=$selfId, our userId=$currentUserId",
-                        )
+                                TAG,
+                                "Discarding notification for wrong account: self.id=$selfId, our userId=$currentUserId",
+                            )
                         }
                         continue
                     }
@@ -570,9 +570,9 @@ class FCMService : FirebaseMessagingService() {
 
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl",
-                )
+                        TAG,
+                        "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl",
+                    )
                 }
 
                 val notificationData = NotificationData(
@@ -599,9 +599,9 @@ class FCMService : FirebaseMessagingService() {
                 if (lowPriorityRooms.contains(roomId)) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "Skipping notification for low priority room: $roomId ($roomName)",
-                    )
+                            TAG,
+                            "Skipping notification for low priority room: $roomId ($roomName)",
+                        )
                     }
                     continue
                 }
@@ -610,9 +610,9 @@ class FCMService : FirebaseMessagingService() {
                 if (shouldSuppressNotification(roomId)) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "Suppressing notification for room: $roomId ($roomName) - room is open and app is in foreground",
-                    )
+                            TAG,
+                            "Suppressing notification for room: $roomId ($roomName) - room is open and app is in foreground",
+                        )
                     }
                     continue
                 }
@@ -640,9 +640,9 @@ class FCMService : FirebaseMessagingService() {
                     } else {
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            TAG,
-                            "Notification for room $roomId was cancelled before showing - skipping",
-                        )
+                                TAG,
+                                "Notification for room $roomId was cancelled before showing - skipping",
+                            )
                         }
                     }
                 } catch (e: Exception) {
@@ -684,9 +684,9 @@ class FCMService : FirebaseMessagingService() {
         if (RoomTimelineCache.getCachedEventCount(roomId) == 0) {
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Hydrating timeline cache via /exec paginate for $roomId (cold cache — full window seed)",
-            )
+                    TAG,
+                    "Hydrating timeline cache via /exec paginate for $roomId (cold cache — full window seed)",
+                )
             }
             viewModel.paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
             return
@@ -694,9 +694,9 @@ class FCMService : FirebaseMessagingService() {
 
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "Hydrating timeline cache via /exec paginate for $roomId (warm cache — small window, expecting event $eventId)",
-        )
+                TAG,
+                "Hydrating timeline cache via /exec paginate for $roomId (warm cache — small window, expecting event $eventId)",
+            )
         }
         // Warm cache: a small window is enough to catch the pushed event (it's the newest, so
         // max_timeline_id=0 returns it). expectedEventId lets handlePaginationMerge escalate to a
@@ -815,16 +815,16 @@ class FCMService : FirebaseMessagingService() {
                     if (isBubbleOpen) {
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            TAG,
-                            "No notification found for room: $roomId but bubble is open - not cancelling",
-                        )
+                                TAG,
+                                "No notification found for room: $roomId but bubble is open - not cancelling",
+                            )
                         }
                     } else {
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            TAG,
-                            "No notification found for room: $roomId in activeNotifications - attempting cancel anyway (may be stale)",
-                        )
+                                TAG,
+                                "No notification found for room: $roomId in activeNotifications - attempting cancel anyway (may be stale)",
+                            )
                         }
                         // Record the dismiss even though nothing is on screen: a message post for
                         // this room may still be in flight (Race 1). The tombstone lets that post
@@ -847,9 +847,9 @@ class FCMService : FirebaseMessagingService() {
                 if (isPending && existingNotification == null) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "Notification for room $roomId is pending - cancelling before it's shown",
-                    )
+                            TAG,
+                            "Notification for room $roomId is pending - cancelling before it's shown",
+                        )
                     }
                     synchronized(pendingNotificationsLock) {
                         pendingNotifications.remove(roomId)
@@ -882,9 +882,9 @@ class FCMService : FirebaseMessagingService() {
                 if (isReplyProtected(roomId)) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "Room $roomId - NOT dismissing - within reply protection window (own reply triggered mark-read)",
-                    )
+                            TAG,
+                            "Room $roomId - NOT dismissing - within reply protection window (own reply triggered mark-read)",
+                        )
                     }
                     continue
                 }
@@ -921,15 +921,15 @@ class FCMService : FirebaseMessagingService() {
                     // Bubble is actually open - don't dismiss to preserve bubble
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "Room $roomId - NOT dismissing notification (bubble is actually open)",
-                    )
+                            TAG,
+                            "Room $roomId - NOT dismissing notification (bubble is actually open)",
+                        )
                     }
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "This prevents the bubble from disappearing when conversation is marked as read",
-                    )
+                            TAG,
+                            "This prevents the bubble from disappearing when conversation is marked as read",
+                        )
                     }
                 } else {
                     // Safe to dismiss - no active bubble. Conversation has been marked read
@@ -1006,9 +1006,9 @@ class FCMService : FirebaseMessagingService() {
             if (shouldSuppressNotification(roomId)) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "Suppressing background notification for room: $roomId - room is open and app is in foreground",
-                )
+                        TAG,
+                        "Suppressing background notification for room: $roomId - room is open and app is in foreground",
+                    )
                 }
                 return
             }

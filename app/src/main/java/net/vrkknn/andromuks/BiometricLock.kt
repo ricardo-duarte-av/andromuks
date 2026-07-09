@@ -55,8 +55,7 @@ private fun allowedAuthenticators(): Int = if (Build.VERSION.SDK_INT >= Build.VE
 }
 
 /** True when the device can satisfy [allowedAuthenticators] (enrolled biometric or device credential). */
-fun canAuthenticate(context: Context): Boolean =
-    BiometricManager.from(context).canAuthenticate(allowedAuthenticators()) == BiometricManager.BIOMETRIC_SUCCESS
+fun canAuthenticate(context: Context): Boolean = BiometricManager.from(context).canAuthenticate(allowedAuthenticators()) == BiometricManager.BIOMETRIC_SUCCESS
 
 private fun Context.findFragmentActivity(): FragmentActivity? {
     var ctx: Context? = this
@@ -74,25 +73,20 @@ private const val TAG = "BiometricLock"
  * or user cancellation. Any exception from [BiometricPrompt.authenticate] (e.g. an unsupported
  * authenticator combination) is caught and routed to [onFail] so callers never wedge.
  */
-fun runBiometricPrompt(
-    activity: FragmentActivity,
-    title: String,
-    subtitle: String,
-    onSuccess: () -> Unit,
-    onFail: () -> Unit,
-) {
+fun runBiometricPrompt(activity: FragmentActivity, title: String, subtitle: String, onSuccess: () -> Unit, onFail: () -> Unit) {
     val executor = ContextCompat.getMainExecutor(activity)
     val prompt = BiometricPrompt(
-        activity, executor,
+        activity,
+        executor,
         object : BiometricPrompt.AuthenticationCallback() {
-        override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
-        override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-            Log.w(TAG, "Biometric error $errorCode: $errString")
-            onFail()
-        }
-        // onAuthenticationFailed (a single non-matching attempt) is intentionally ignored — the
-        // prompt stays up and the user can retry.
-    }
+            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) = onSuccess()
+            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                Log.w(TAG, "Biometric error $errorCode: $errString")
+                onFail()
+            }
+            // onAuthenticationFailed (a single non-matching attempt) is intentionally ignored — the
+            // prompt stays up and the user can retry.
+        },
     )
     val builder = BiometricPrompt.PromptInfo.Builder()
         .setTitle(title)
@@ -159,7 +153,7 @@ fun BiometricLockGate(appViewModel: AppViewModel, content: @Composable () -> Uni
             title = "Unlock Andromuks",
             subtitle = "Authenticate to access your messages",
             onSuccess = {
-                promptInFlight = false;
+                promptInFlight = false
                 unlocked = true
             },
             onFail = { promptInFlight = false },

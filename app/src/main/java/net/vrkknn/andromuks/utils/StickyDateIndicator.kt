@@ -43,12 +43,7 @@ import java.util.Locale
  *   for top-down layouts (Thread/EventContext) where it *decreases*.
  */
 @Composable
-fun StickyDateIndicator(
-    oldestVisibleDate: String?,
-    scrollPositionKey: Int = 0,
-    reverseScrollLayout: Boolean = true,
-    modifier: Modifier = Modifier,
-) {
+fun StickyDateIndicator(oldestVisibleDate: String?, scrollPositionKey: Int = 0, reverseScrollLayout: Boolean = true, modifier: Modifier = Modifier) {
     val today = remember {
         SimpleDateFormat("dd / MM / yyyy", Locale.getDefault()).format(Date())
     }

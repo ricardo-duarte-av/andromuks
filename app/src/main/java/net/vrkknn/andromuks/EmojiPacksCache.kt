@@ -48,17 +48,17 @@ object EmojiPacksCache {
                 packsList[existingIndex] = pack
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "EmojiPacksCache: updatePack - updated pack ${pack.packName} in room ${pack.roomId}",
-                )
+                        TAG,
+                        "EmojiPacksCache: updatePack - updated pack ${pack.packName} in room ${pack.roomId}",
+                    )
                 }
             } else {
                 packsList.add(pack)
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "EmojiPacksCache: updatePack - added new pack ${pack.packName} in room ${pack.roomId}",
-                )
+                        TAG,
+                        "EmojiPacksCache: updatePack - added new pack ${pack.packName} in room ${pack.roomId}",
+                    )
                 }
             }
         }

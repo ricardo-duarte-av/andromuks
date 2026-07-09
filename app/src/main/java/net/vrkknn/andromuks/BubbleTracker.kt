@@ -55,9 +55,9 @@ object BubbleTracker {
                 visibleBubbles.add(roomId)
                 if (BuildConfig.DEBUG) {
                     Log.d(
-                    TAG,
-                    "Bubble became visible for room: $roomId (total visible: ${visibleBubbles.size})",
-                )
+                        TAG,
+                        "Bubble became visible for room: $roomId (total visible: ${visibleBubbles.size})",
+                    )
                 }
             } else {
                 Log.w(TAG, "Bubble visibility set for room $roomId but bubble is not tracked as open")
@@ -74,9 +74,9 @@ object BubbleTracker {
             visibleBubbles.remove(roomId)
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Bubble became invisible for room: $roomId (total visible: ${visibleBubbles.size})",
-            )
+                    TAG,
+                    "Bubble became invisible for room: $roomId (total visible: ${visibleBubbles.size})",
+                )
             }
         }
     }
@@ -164,9 +164,9 @@ object BubbleTracker {
             visibleBubbles.clear()
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Cleared all bubble tracking (was tracking $count bubbles, $visibleCount visible)",
-            )
+                    TAG,
+                    "Cleared all bubble tracking (was tracking $count bubbles, $visibleCount visible)",
+                )
             }
         }
     }

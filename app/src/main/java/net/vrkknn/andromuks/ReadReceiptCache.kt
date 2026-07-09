@@ -38,9 +38,9 @@ object ReadReceiptCache {
             userEventIndex[roomId] = HashMap(userIndex)
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "setForRoom $roomId: ${roomCache.size} events, ${userIndex.size} indexed users",
-            )
+                    TAG,
+                    "setForRoom $roomId: ${roomCache.size} events, ${userIndex.size} indexed users",
+                )
             }
         }
     }

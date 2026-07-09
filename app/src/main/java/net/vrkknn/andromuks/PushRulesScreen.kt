@@ -101,11 +101,7 @@ fun PushRulesScreen(appViewModel: AppViewModel, navController: NavController) {
 }
 
 @Composable
-private fun PushRuleKindPicker(
-    ruleset: net.vrkknn.andromuks.utils.PushRuleset,
-    modifier: Modifier = Modifier,
-    onSelect: (PushRuleKind) -> Unit,
-) {
+private fun PushRuleKindPicker(ruleset: net.vrkknn.andromuks.utils.PushRuleset, modifier: Modifier = Modifier, onSelect: (PushRuleKind) -> Unit) {
     Column(
         modifier = modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -153,13 +149,7 @@ private fun PushRuleKindPicker(
 }
 
 @Composable
-private fun PushRuleKindList(
-    kind: PushRuleKind,
-    rules: List<PushRule>,
-    appViewModel: AppViewModel,
-    modifier: Modifier = Modifier,
-    onAdd: () -> Unit,
-) {
+private fun PushRuleKindList(kind: PushRuleKind, rules: List<PushRule>, appViewModel: AppViewModel, modifier: Modifier = Modifier, onAdd: () -> Unit) {
     var query by remember(kind) { mutableStateOf("") }
     // memberUpdateCounter so resolved room/user names participate in filtering as profiles load.
     val counter = appViewModel.memberUpdateCounter
@@ -286,7 +276,7 @@ private fun PushRuleCard(rule: PushRule, appViewModel: AppViewModel) {
                         DropdownMenuItem(
                             text = { Text("Edit raw JSON") },
                             onClick = {
-                                menuOpen = false;
+                                menuOpen = false
                                 showRawEditor = true
                             },
                         )
@@ -294,7 +284,7 @@ private fun PushRuleCard(rule: PushRule, appViewModel: AppViewModel) {
                             DropdownMenuItem(
                                 text = { Text("Delete") },
                                 onClick = {
-                                    menuOpen = false;
+                                    menuOpen = false
                                     showDeleteConfirm = true
                                 },
                             )
@@ -515,7 +505,7 @@ private fun RawRuleEditorDialog(
                 OutlinedTextField(
                     value = text,
                     onValueChange = {
-                        text = it;
+                        text = it
                         error = null
                     },
                     textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
@@ -572,7 +562,7 @@ private fun AddPushRuleDialog(
                 OutlinedTextField(
                     value = ruleId,
                     onValueChange = {
-                        ruleId = it;
+                        ruleId = it
                         error = null
                     },
                     label = { Text(idLabel) },
@@ -583,7 +573,7 @@ private fun AddPushRuleDialog(
                     OutlinedTextField(
                         value = pattern,
                         onValueChange = {
-                            pattern = it;
+                            pattern = it
                             error = null
                         },
                         label = { Text("Pattern (glob, e.g. *keyword*)") },
@@ -595,7 +585,7 @@ private fun AddPushRuleDialog(
                     OutlinedTextField(
                         value = conditionsText,
                         onValueChange = {
-                            conditionsText = it;
+                            conditionsText = it
                             error = null
                         },
                         label = { Text("Conditions (JSON array)") },
@@ -624,20 +614,20 @@ private fun AddPushRuleDialog(
             TextButton(onClick = {
                 val id = ruleId.trim()
                 if (id.isEmpty()) {
-                    error = "Rule ID is required";
+                    error = "Rule ID is required"
                     return@TextButton
                 }
                 if (kind == PushRuleKind.CONTENT &&
                     pattern.isBlank()
                 ) {
-                        error = "Pattern is required";
-                        return@TextButton
-                    }
+                    error = "Pattern is required"
+                    return@TextButton
+                }
                 val conditions = if (kind == PushRuleKind.OVERRIDE || kind == PushRuleKind.UNDERRIDE) {
                     try {
                         jsonArrayToConditions(JSONArray(conditionsText))
                     } catch (e: Exception) {
-                        error = "Invalid conditions JSON: ${e.message}";
+                        error = "Invalid conditions JSON: ${e.message}"
                         return@TextButton
                     }
                 } else {

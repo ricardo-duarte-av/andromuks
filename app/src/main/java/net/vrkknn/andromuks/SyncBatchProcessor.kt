@@ -258,18 +258,18 @@ class SyncBatchProcessor(
                                         messageSender = if (room.messagePreview !=
                                             null
                                         ) {
-                                                room.messageSender
-                                            } else {
-                                                existing.messageSender
-                                            },
+                                            room.messageSender
+                                        } else {
+                                            existing.messageSender
+                                        },
                                         // Carry the resolved display name with the sender it belongs to.
                                         senderDisplayName = if (room.messagePreview !=
                                             null
                                         ) {
-                                                room.senderDisplayName
-                                            } else {
-                                                existing.senderDisplayName
-                                            },
+                                            room.senderDisplayName
+                                        } else {
+                                            existing.senderDisplayName
+                                        },
                                         latestEventId = room.latestEventId ?: existing.latestEventId,
                                     )
                                 }
@@ -289,17 +289,17 @@ class SyncBatchProcessor(
                                         messageSender = if (room.messagePreview !=
                                             null
                                         ) {
-                                                room.messageSender
-                                            } else {
-                                                existing.messageSender
-                                            },
+                                            room.messageSender
+                                        } else {
+                                            existing.messageSender
+                                        },
                                         senderDisplayName = if (room.messagePreview !=
                                             null
                                         ) {
-                                                room.senderDisplayName
-                                            } else {
-                                                existing.senderDisplayName
-                                            },
+                                            room.senderDisplayName
+                                        } else {
+                                            existing.senderDisplayName
+                                        },
                                         latestEventId = room.latestEventId ?: existing.latestEventId,
                                     )
                                 }
@@ -460,9 +460,9 @@ class SyncBatchProcessor(
         appVisible.set(nowEffectivelyVisible)
         if (BuildConfig.DEBUG) {
             Log.d(
-            TAG,
-            "Bubble visibility changed — appVisible now: $nowEffectivelyVisible (mainApp=${mainAppVisible.get()}, visibleBubbles=${BubbleTracker.getVisibleBubbles().size})",
-        )
+                TAG,
+                "Bubble visibility changed — appVisible now: $nowEffectivelyVisible (mainApp=${mainAppVisible.get()}, visibleBubbles=${BubbleTracker.getVisibleBubbles().size})",
+            )
         }
     }
 
