@@ -9190,6 +9190,37 @@ class AppViewModel : ViewModel() {
             activeCallRooms = activeCallRooms - roomId
         }
 
+        // get_room_state responses frequently omit the m.bridge state event (see the write-only
+        // bridge-avatar preservation below). When that happens for a known-bridged room, the
+        // parsed bridgeInfo is null, so currentRoomState.bridgeInfo — which drives the header
+        // BridgeNetworkBadge and the network-aware composer placeholder — would drop even though
+        // the persisted room-list badge survives. Reconstruct a minimal protocol-only BridgeInfo
+        // from the persisted BridgeInfoCache so those affordances survive an incomplete response.
+        if (bridgeInfo == null) {
+            appContext?.let { context ->
+                val cachedAvatar = net.vrkknn.andromuks.utils.BridgeInfoCache
+                    .getBridgeAvatarUrl(context, roomId)?.takeIf { it.isNotEmpty() }
+                val cachedName = net.vrkknn.andromuks.utils.BridgeInfoCache
+                    .getBridgeDisplayName(context, roomId)
+                if (cachedAvatar != null || cachedName != null) {
+                    bridgeInfo = BridgeInfo(
+                        stateKey = null,
+                        bridgeBot = null,
+                        creator = null,
+                        roomType = null,
+                        roomTypeV2 = null,
+                        channel = null,
+                        protocol = BridgeProtocolInfo(
+                            id = null,
+                            displayName = cachedName,
+                            avatarUrl = cachedAvatar,
+                            externalUrl = null,
+                        ),
+                    )
+                }
+            }
+        }
+
         // Create room state object
         val roomState = RoomState(
             roomId = roomId,
