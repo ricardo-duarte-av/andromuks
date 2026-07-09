@@ -20,12 +20,11 @@ import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -169,7 +168,6 @@ import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
 import net.vrkknn.andromuks.ui.theme.scaledColumnExit
-import net.vrkknn.andromuks.ui.theme.scaledStiffness
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.CodeViewer
@@ -6125,10 +6123,9 @@ fun RoomHeader(
                                     rememberSharedContentState(key = sharedKey),
                                     animatedVisibilityScope = animatedVisibilityScope,
                                     boundsTransform = { _, _ ->
-                                        spring(
-                                            dampingRatio = Spring.DampingRatioLowBouncy,
-                                            stiffness = scaledStiffness(Spring.StiffnessLow),
-                                        )
+                                        // Unified shared-element flight spec (RL↔RT, RT↔RoomInfo, RT↔UserInfo):
+                                        // a single non-bouncy tween bound to the duration slider.
+                                        tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                                     },
                                     renderInOverlayDuringTransition = true,
                                     zIndexInOverlay = 1f,
@@ -6298,10 +6295,8 @@ fun RoomHeader(
                             rememberSharedContentState(key = "bridge-badge-$roomId"),
                             animatedVisibilityScope = animatedVisibilityScope,
                             boundsTransform = { _, _ ->
-                                spring(
-                                    dampingRatio = Spring.DampingRatioLowBouncy,
-                                    stiffness = scaledStiffness(Spring.StiffnessLow),
-                                )
+                                // Unified shared-element flight spec (see room avatar above).
+                                tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                             },
                             renderInOverlayDuringTransition = true,
                             zIndexInOverlay = 2f,

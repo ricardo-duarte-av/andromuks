@@ -5,8 +5,7 @@ import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,7 +45,6 @@ import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.components.FullImageDialog
-import net.vrkknn.andromuks.ui.theme.scaledStiffness
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import org.json.JSONObject
@@ -339,10 +337,10 @@ fun RoomInfoScreen(
                                             rememberSharedContentState(key = sharedKey),
                                             animatedVisibilityScope = animatedVisibilityScope,
                                             boundsTransform = { _, _ ->
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioLowBouncy,
-                                                    stiffness = scaledStiffness(Spring.StiffnessLow),
-                                                )
+                                                // Unified shared-element flight spec (RL↔RT, RT↔RoomInfo,
+                                                // RT↔UserInfo): a single non-bouncy tween bound to the
+                                                // duration slider.
+                                                tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                                             },
                                             renderInOverlayDuringTransition = true,
                                             zIndexInOverlay = 1f,

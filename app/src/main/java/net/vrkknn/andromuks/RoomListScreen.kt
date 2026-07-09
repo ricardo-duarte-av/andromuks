@@ -16,12 +16,12 @@ import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -159,7 +159,6 @@ import net.vrkknn.andromuks.ui.components.rememberRoomListUiState
 import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
 import net.vrkknn.andromuks.ui.theme.scaledColumnExit
 import net.vrkknn.andromuks.ui.theme.scaledSpring
-import net.vrkknn.andromuks.ui.theme.scaledStiffness
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
@@ -2028,12 +2027,10 @@ fun RoomListItem(
                                         rememberSharedContentState(key = sharedKey),
                                         animatedVisibilityScope = animatedVisibilityScope,
                                         boundsTransform = { _, _ ->
-                                            androidx.compose.animation.core.spring(
-                                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                                                stiffness = scaledStiffness(
-                                                    androidx.compose.animation.core.Spring.StiffnessMedium,
-                                                ),
-                                            )
+                                            // Unified shared-element flight spec (RL↔RT, RT↔RoomInfo, RT↔UserInfo):
+                                            // a single non-bouncy tween bound to the duration slider. See RoomInfo /
+                                            // RoomTimeline / UserInfo for the matching value.
+                                            tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                                         },
                                         renderInOverlayDuringTransition = true,
                                         zIndexInOverlay = 1f,
@@ -2079,10 +2076,8 @@ fun RoomListItem(
                                         rememberSharedContentState(key = "bridge-badge-${room.id}"),
                                         animatedVisibilityScope = animatedVisibilityScope,
                                         boundsTransform = { _, _ ->
-                                            spring(
-                                                dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                stiffness = scaledStiffness(Spring.StiffnessMedium),
-                                            )
+                                            // Unified shared-element flight spec (see room avatar above).
+                                            tween(durationMillis = scaledTweenMs(380), easing = LinearEasing)
                                         },
                                         renderInOverlayDuringTransition = true,
                                         zIndexInOverlay = 2f,
