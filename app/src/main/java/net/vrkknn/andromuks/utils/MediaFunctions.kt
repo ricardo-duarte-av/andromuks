@@ -246,6 +246,18 @@ val STANDARD_MEDIA_WIDTH = 288.dp
 private const val THUMBNAIL_MAX_STRETCH = 2.0f
 
 /**
+ * When an image has no usable thumbnail dimensions, we fall back to the original if it is cheap
+ * enough to fetch: either it fits within a 1080p box (1920×1080 in either orientation, i.e. longest
+ * edge ≤ [SMALL_ORIGINAL_MAX_LONG_EDGE] and shortest edge ≤ [SMALL_ORIGINAL_MAX_SHORT_EDGE]) or its
+ * byte size is under [SMALL_ORIGINAL_MAX_BYTES]. This keeps timeline loading snappy — small
+ * originals load fine, but we avoid pulling multi-megabyte originals just because a thumbnail's
+ * width/height wasn't advertised. Video never uses this fallback (its "original" is the full clip).
+ */
+private const val SMALL_ORIGINAL_MAX_LONG_EDGE = 1920
+private const val SMALL_ORIGINAL_MAX_SHORT_EDGE = 1080
+private const val SMALL_ORIGINAL_MAX_BYTES = 100L * 1024L
+
+/**
  * Decides whether to render the pre-baked thumbnail or the real image for a timeline media item.
  *
  * Gomuks does not resize regular media server-side, so we can only pick which of the two existing
@@ -253,18 +265,34 @@ private const val THUMBNAIL_MAX_STRETCH = 2.0f
  * [THUMBNAIL_MAX_STRETCH] to fill [STANDARD_MEDIA_WIDTH], in which case the real image is loaded for
  * quality. Videos always use the thumbnail regardless of stretch; animated images never use the
  * thumbnail (MSC4230, so the animation plays).
+ *
+ * For images whose thumbnail advertises no usable width/height, we can't judge the stretch, so we
+ * prefer the original when it is small enough to load quickly (see [SMALL_ORIGINAL_MAX_LONG_EDGE] /
+ * [SMALL_ORIGINAL_MAX_SHORT_EDGE] / [SMALL_ORIGINAL_MAX_BYTES]); otherwise we keep the thumbnail to
+ * avoid pulling a huge original.
  */
 fun shouldUseTimelineThumbnail(mediaMessage: MediaMessage, loadThumbnailsIfAvailable: Boolean): Boolean {
     val info = mediaMessage.info
     val thumbnailUsable = loadThumbnailsIfAvailable && info.thumbnailUrl != null && info.isAnimated != true
     if (!thumbnailUsable) return false
+    val isVideo = mediaMessage.msgType == "m.video"
     // Video always uses the thumbnail. For images, keep the thumbnail unless it would stretch past
     // THUMBNAIL_MAX_STRETCH to fill STANDARD_MEDIA_WIDTH (logical dp) — then load the real image.
-    // A missing/zero thumbnail width can't be judged, so the thumbnail is trusted.
     val thumbWidth = info.thumbnailWidth
-    val stretchAcceptable = thumbWidth == null || thumbWidth <= 0 ||
-        (STANDARD_MEDIA_WIDTH.value / thumbWidth.toFloat()) <= THUMBNAIL_MAX_STRETCH
-    return mediaMessage.msgType == "m.video" || stretchAcceptable
+    return if (thumbWidth != null && thumbWidth > 0) {
+        val stretchAcceptable = (STANDARD_MEDIA_WIDTH.value / thumbWidth.toFloat()) <= THUMBNAIL_MAX_STRETCH
+        isVideo || stretchAcceptable
+    } else {
+        // No usable thumbnail dimensions. Video can't fall back to its original, so trust the
+        // thumbnail. For images, prefer the original when it is small (fits a 1080p box, or under
+        // 100 KB) — otherwise keep the thumbnail so we don't pull a multi-megabyte original.
+        val longEdge = maxOf(info.width, info.height)
+        val shortEdge = minOf(info.width, info.height)
+        val fitsResolution = longEdge in 1..SMALL_ORIGINAL_MAX_LONG_EDGE &&
+            shortEdge in 1..SMALL_ORIGINAL_MAX_SHORT_EDGE
+        val smallBytes = info.size in 1..SMALL_ORIGINAL_MAX_BYTES
+        isVideo || !(fitsResolution || smallBytes)
+    }
 }
 
 /**
