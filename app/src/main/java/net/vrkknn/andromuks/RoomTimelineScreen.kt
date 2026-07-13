@@ -3833,7 +3833,15 @@ fun RoomTimelineScreen(
 
                                                     // Add a little extra spacing before non-consecutive messages
                                                     // (only when the previous timeline item is also an event).
-                                                    val previousItem = if (index > 0) timelineItems[index - 1] else null
+                                                    // "Previous" = the chronologically-older item rendered directly
+                                                    // above this one. With reverseLayout the older neighbour is at the
+                                                    // HIGHER reversed index (see the oldest-visible note above), so it's
+                                                    // reversedTimelineItems[index + 1]. Read from the same list the
+                                                    // lambda iterates and use getOrNull: a retained/prefetched item can
+                                                    // recompose at a stale index while the backing list is mid-swap
+                                                    // (e.g. cleared to empty on a room switch), and indexing the other
+                                                    // list crashed with IndexOutOfBounds there.
+                                                    val previousItem = reversedTimelineItems.getOrNull(index + 1)
                                                     val addTopSpacing =
                                                         previousItem is TimelineItem.Event && !isConsecutive
 
