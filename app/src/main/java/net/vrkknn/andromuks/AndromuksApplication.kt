@@ -42,6 +42,15 @@ class AndromuksApplication : Application() {
         if (BuildConfig.DEBUG) {
             Log.d("Andromuks", "AndromuksApplication: onCreate()")
         }
+        // Force-disable pausable composition in LazyLayout prefetch. This framework optimization
+        // (foundation 1.10.0-alpha05+) precomposes a LazyColumn's next item across multiple frames,
+        // but it crashes when the item participates in reuse — our room-list items carry
+        // sharedElement/sharedBounds modifiers, whose movable-content mechanics trip an internal
+        // "Cannot disable reuse from root" invariant on the paused prefetch path
+        // (endReuseFromRoot). Google disabled the flag by default in 1.10.6 for the same stability
+        // reason (b/482223006, b/488433633); we pin it off explicitly so a future BOM that flips
+        // the default back on can't reintroduce the crash. Read once at process start.
+        disablePausablePrefetchComposition()
         // Pre-warm SharedPreferences synchronously here so the first main-thread read in
         // MainActivity.onCreate / FCMNotificationManager.<init> hits the in-process cache
         // instead of doing disk I/O on the UI thread. Wrapped in allowThreadDiskReads
@@ -100,6 +109,20 @@ class AndromuksApplication : Application() {
             }
         } catch (e: Exception) {
             Log.w("Andromuks", "AndromuksApplication: failed to prime Firebase observability", e)
+        }
+    }
+
+    /**
+     * Turn off [androidx.compose.foundation.ComposeFoundationFlags.isPausableCompositionInPrefetchEnabled].
+     * See the call site in [onCreate] for the full rationale. Wrapped defensively: this is an
+     * experimental global flag and we never want a flag read/set to be what crashes startup.
+     */
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    private fun disablePausablePrefetchComposition() {
+        try {
+            androidx.compose.foundation.ComposeFoundationFlags.isPausableCompositionInPrefetchEnabled = false
+        } catch (e: Throwable) {
+            Log.w("Andromuks", "AndromuksApplication: failed to disable pausable prefetch composition", e)
         }
     }
 
