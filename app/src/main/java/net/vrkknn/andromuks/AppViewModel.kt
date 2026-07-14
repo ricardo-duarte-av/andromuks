@@ -891,6 +891,34 @@ class AppViewModel : ViewModel() {
     // lets us remap those receipts to the original message so they render on the correct bubble.
     internal val bridgeStatusEventToMessageId = mutableMapOf<String, String>()
 
+    /**
+     * Pre-scan a room's raw sync events for `com.beeper.message_send_status` and record each
+     * status-event → original-message mapping in [bridgeStatusEventToMessageId] BEFORE receipts are
+     * processed for that room.
+     *
+     * `processParsedSyncResult` handles receipts (recording `receiptMovements` and firing
+     * `receiptAnimationTrigger`) ahead of `checkAndUpdateCurrentRoomTimelineOptimized`, which is
+     * where this mapping is normally learned (`processSyncEventsArray` → `processBridgeSendStatus`).
+     * A bridge bot advances its own m.read receipt onto each fresh status event, so within a single
+     * sync the receipt movement (S_old → S_new) is animated while S_new is still unknown to the
+     * flatten map — `getReceiptMovements()` can't collapse the new endpoint onto the rendered
+     * message, and the avatar animates "to nowhere". Reopening the room paints the correct static
+     * position because the map is populated by then. Recording the mapping up front lets the flatten
+     * drop the hop onto the same bubble on this very frame, so no bogus animation fires.
+     */
+    internal fun prepopulateBridgeStatusMap(roomData: JSONObject) {
+        val events = roomData.optJSONArray("events") ?: return
+        for (i in 0 until events.length()) {
+            val event = events.optJSONObject(i) ?: continue
+            if (event.optString("type") != "com.beeper.message_send_status") continue
+            val relatesTo = event.optJSONObject("content")?.optJSONObject("m.relates_to") ?: continue
+            if (relatesTo.optString("rel_type") != "m.reference") continue
+            val relatedEventId = relatesTo.optString("event_id").takeIf { it.isNotBlank() } ?: continue
+            val statusEventId = event.optString("event_id").takeIf { it.isNotBlank() } ?: continue
+            bridgeStatusEventToMessageId[statusEventId] = relatedEventId
+        }
+    }
+
     // Bridge send status: eventId -> "sent" | "delivered" | "error_retriable" | "error_permanent"
     // "sent"            = bridge confirmed message reached the other network (SUCCESS, no/empty delivery list)
     // "delivered"       = all expected recipients confirmed delivery (SUCCESS + full delivered_to_users)
@@ -5250,6 +5278,21 @@ class AppViewModel : ViewModel() {
         // Update typing users for the new room when switching
         val previousRoomId = currentRoomId
         currentRoomId = roomId
+
+        // Drop any pending receipt-movement animations when the open room changes. Movements are
+        // recorded for every actively-cached room (SyncRoomsCoordinator), but bridgeStatusEventToMessageId
+        // is only populated for the room that is currently open (processSyncEventsArray runs for
+        // currentRoomId). So a bridge bot receipt that hopped onto a fresh com.beeper.message_send_status
+        // event while this room was off-screen leaves a movement whose target the render-time flatten
+        // can't resolve — the avatar then animates "to nowhere" on the room's first paint. These
+        // movements describe transitions the user never watched, so we discard them on entry and let the
+        // receipts render in their final (flattened) positions. Live in-room movements recorded after
+        // this point (previousRoomId == roomId) still animate.
+        if (previousRoomId != roomId) {
+            synchronized(readReceiptsLock) {
+                receiptMovements.clear()
+            }
+        }
 
         // Clear stale room state when switching to a different room.
         // Without this, the header shows the previous room's name/avatar until the new room's

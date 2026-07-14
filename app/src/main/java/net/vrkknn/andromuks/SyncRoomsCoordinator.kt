@@ -1092,6 +1092,14 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                             continue
                         }
 
+                        // Learn this batch's bridge status-event → message mappings BEFORE processing
+                        // receipts. Receipt processing (below) records receiptMovements and fires the
+                        // animation for a bridge bot's read-marker hop, but the mapping that flattens the
+                        // hop's endpoints is otherwise only learned later in
+                        // checkAndUpdateCurrentRoomTimelineOptimized — too late, so the marker animates
+                        // "to nowhere" on this frame. See prepopulateBridgeStatusMap.
+                        prepopulateBridgeStatusMap(roomData)
+
                         val receipts = roomData.optJSONObject("receipts")
                         if (receipts != null && receipts.length() > 0) {
                             if (BuildConfig.DEBUG) {
