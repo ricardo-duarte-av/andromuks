@@ -87,13 +87,6 @@ object ReceiptFunctions {
         onMovementDetected: ((String, String?, String) -> Unit)? = null,
         roomId: String = "",
     ): Boolean {
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                "Andromuks",
-                "ReceiptFunctions: processReadReceiptsFromSyncComplete called with ${receiptsJson.length()} event receipts for roomId=$roomId",
-            )
-        }
-
         var hasChanges = false
         val keys = receiptsJson.keys()
 
@@ -123,12 +116,6 @@ object ReceiptFunctions {
                             prevList.remove(old)
                             if (prevList.isEmpty()) readReceiptsMap.remove(previousEventId)
                             hasChanges = true
-                            if (BuildConfig.DEBUG) {
-                                Log.d(
-                                    "Andromuks",
-                                    "ReceiptFunctions: Moved ${receipt.userId} from $previousEventId → ${receipt.eventId} in $roomId",
-                                )
-                            }
                         }
                     }
                     onMovementDetected?.invoke(receipt.userId, previousEventId, receipt.eventId)
@@ -140,12 +127,6 @@ object ReceiptFunctions {
                         if (existing.timestamp == receipt.timestamp) continue // no change
                         existingList.remove(existing)
                         hasChanges = true
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                "Andromuks",
-                                "ReceiptFunctions: Updated timestamp for ${receipt.userId} on ${receipt.eventId} in $roomId",
-                            )
-                        }
                     }
                 }
 
@@ -155,12 +136,6 @@ object ReceiptFunctions {
                 if (existing == null) {
                     list.add(receipt)
                     hasChanges = true
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            "Andromuks",
-                            "ReceiptFunctions: Added ${receipt.userId} to ${receipt.eventId} in $roomId",
-                        )
-                    }
                 } else if (existing.timestamp != receipt.timestamp) {
                     list.remove(existing)
                     list.add(receipt)
@@ -172,12 +147,6 @@ object ReceiptFunctions {
             }
         }
 
-        if (BuildConfig.DEBUG) {
-            Log.d(
-                "Andromuks",
-                "ReceiptFunctions: processReadReceiptsFromSyncComplete completed - hasChanges: $hasChanges",
-            )
-        }
         if (hasChanges) updateCounter()
         return hasChanges
     }

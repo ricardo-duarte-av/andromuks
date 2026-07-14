@@ -1132,14 +1132,8 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                         // a non-rendered event, and we skip firing the animation for it.
                                         val flatPrev = previousEventId?.let { bridgeStatusEventToMessageId[it] ?: it }
                                         val flatNew = bridgeStatusEventToMessageId[newEventId] ?: newEventId
-                                        if (flatPrev == flatNew) {
-                                            if (BuildConfig.DEBUG) {
-                                                android.util.Log.d(
-                                                    "Andromuks",
-                                                    "AppViewModel: Receipt hop $userId $previousEventId → $newEventId collapses onto $flatNew, no animation",
-                                                )
-                                            }
-                                        } else {
+                                        // Skip firing an animation for a hop that collapses onto the same bubble.
+                                        if (flatPrev != flatNew) {
                                             synchronized(readReceiptsLock) {
                                                 receiptMovements[userId] = Triple(
                                                     flatPrev,
@@ -1148,12 +1142,6 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                                 )
                                             }
                                             receiptAnimationTrigger = System.currentTimeMillis()
-                                            if (BuildConfig.DEBUG) {
-                                                android.util.Log.d(
-                                                    "Andromuks",
-                                                    "AppViewModel: Receipt movement detected: $userId from $flatPrev to $flatNew (raw $previousEventId → $newEventId)",
-                                                )
-                                            }
                                         }
                                     },
                                     roomId = roomId,
