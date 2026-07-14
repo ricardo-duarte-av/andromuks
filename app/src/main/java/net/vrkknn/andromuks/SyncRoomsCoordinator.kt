@@ -1118,19 +1118,42 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                     roomUserIndex,
                                     { readReceiptsUpdateCounter++ },
                                     { userId: String, previousEventId: String?, newEventId: String ->
-                                        synchronized(readReceiptsLock) {
-                                            receiptMovements[userId] = Triple(
-                                                previousEventId,
-                                                newEventId,
-                                                System.currentTimeMillis(),
-                                            )
-                                        }
-                                        receiptAnimationTrigger = System.currentTimeMillis()
-                                        if (BuildConfig.DEBUG) {
-                                            android.util.Log.d(
-                                                "Andromuks",
-                                                "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId",
-                                            )
+                                        // Flatten bridge status-event endpoints NOW, while
+                                        // bridgeStatusEventToMessageId is freshly populated by
+                                        // prepopulateBridgeStatusMap (above). A bridge bot advances its own
+                                        // m.read receipt across successive com.beeper.message_send_status
+                                        // events that all map to the same original message. Recording the
+                                        // raw hop and flattening only at render time is fragile: the read
+                                        // side depends on the map being populated at the exact (async,
+                                        // coalesced) recomposition frame, and when it loses that race the
+                                        // avatar animates toward an unrendered status event ("to nowhere").
+                                        // Flattening at record time and dropping a hop that collapses onto
+                                        // the same bubble means we never store a movement whose endpoint is
+                                        // a non-rendered event, and we skip firing the animation for it.
+                                        val flatPrev = previousEventId?.let { bridgeStatusEventToMessageId[it] ?: it }
+                                        val flatNew = bridgeStatusEventToMessageId[newEventId] ?: newEventId
+                                        if (flatPrev == flatNew) {
+                                            if (BuildConfig.DEBUG) {
+                                                android.util.Log.d(
+                                                    "Andromuks",
+                                                    "AppViewModel: Receipt hop $userId $previousEventId → $newEventId collapses onto $flatNew, no animation",
+                                                )
+                                            }
+                                        } else {
+                                            synchronized(readReceiptsLock) {
+                                                receiptMovements[userId] = Triple(
+                                                    flatPrev,
+                                                    flatNew,
+                                                    System.currentTimeMillis(),
+                                                )
+                                            }
+                                            receiptAnimationTrigger = System.currentTimeMillis()
+                                            if (BuildConfig.DEBUG) {
+                                                android.util.Log.d(
+                                                    "Andromuks",
+                                                    "AppViewModel: Receipt movement detected: $userId from $flatPrev to $flatNew (raw $previousEventId → $newEventId)",
+                                                )
+                                            }
                                         }
                                     },
                                     roomId = roomId,
