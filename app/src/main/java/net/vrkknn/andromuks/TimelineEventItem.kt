@@ -3133,6 +3133,11 @@ private fun EncryptedMessageContent(
                 else -> bubbleColors.content
             }
 
+            // Track rendered bubble width so reactions can overhang a short encrypted bubble the
+            // same way plaintext messages do (see RoomTextMessageContent). Whichever of the two
+            // bubbles below renders writes this; the reaction shelf reads it for per-badge shape.
+            var encryptedTextBubbleWidthPx by remember { mutableIntStateOf(0) }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement =
@@ -3163,7 +3168,8 @@ private fun EncryptedMessageContent(
                         event = event,
                         bubbleColor = bubbleColor,
                         bubbleShape = bubbleShape,
-                        modifier = Modifier.widthIn(max = 300.dp),
+                        modifier = Modifier.widthIn(max = 300.dp)
+                            .onSizeChanged { encryptedTextBubbleWidthPx = it.width },
                         isMine = actualIsMine,
                         myUserId = myUserId,
                         powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -3267,7 +3273,8 @@ private fun EncryptedMessageContent(
                         event = event,
                         bubbleColor = bubbleColor,
                         bubbleShape = bubbleShape,
-                        modifier = Modifier.widthIn(max = 300.dp),
+                        modifier = Modifier.widthIn(max = 300.dp)
+                            .onSizeChanged { encryptedTextBubbleWidthPx = it.width },
                         isMine = actualIsMine,
                         myUserId = myUserId,
                         powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -3379,6 +3386,7 @@ private fun EncryptedMessageContent(
                             authToken = authToken,
                             isMine = actualIsMine,
                             bubbleColor = bubbleColor,
+                            bubbleWidthPx = encryptedTextBubbleWidthPx,
                             onReactionClick = { emoji ->
                                 appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                             },
