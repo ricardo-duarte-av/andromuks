@@ -19,6 +19,15 @@ In `AppViewModel.processSyncEventsArray`, when `event.type == "m.reaction"`:
 
 `processReactionEvent` uses a `processedReactions: MutableSet<String>` dedup guard keyed on `"${sender}_${emoji}_${relatesToEventId}"` to prevent double-counting when the same reaction arrives in multiple sync batches. The dedup guard is LRU-trimmed to the last 100 entries.
 
+## Paginate Path (`m.reaction` in a paginate/timeline response)
+
+A paginate response carries reactions **twice**: as a flattened `reactions: {emoji: count}` map on the target message event, *and* as the individual `m.reaction` events (with their event IDs and `m.relates_to`) inside the `events` array. `TimelineCacheCoordinator.processEventsArray` handles the individual events:
+
+1. `reactionCoordinator.processReactionFromTimeline(event)` → `processReactionEvent(isHistorical = true)` → per-user buckets in `messageReactions` (skips events with `redactedBy != null`)
+2. The event is collected into `paginatedReactionEvents` and, after the loop, merged via `RoomTimelineCache.mergePaginatedEvents` into `cache.reactionEvents`
+
+**Step 2 is load-bearing and easy to miss:** reaction events are filtered out of `timelineList` (they must never render as timeline rows), and every *other* cache write in this path operates on `timelineList`. Without the explicit merge, paginated reaction events are processed into `messageReactions` but **never persisted to `RoomTimelineCache.reactionEvents`** — so a later live `m.room.redaction` for one of them can't be resolved by `findEventForReply` and the reaction can never be removed until the room is re-paginated. (The live sync path avoids this because it merges the full event set, including reactions, via `mergePaginatedEvents`.)
+
 ## Reaction Redaction Path (`m.room.redaction` via `sync_complete`)
 
 **Critical invariant:** when `m.room.redaction` arrives, the live sync handler looks for the redacted event in `timelineEvents`. Because reactions are **not** in `timelineEvents`, this lookup always fails for reaction redactions.

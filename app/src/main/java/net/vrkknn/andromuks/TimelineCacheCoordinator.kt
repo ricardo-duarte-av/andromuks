@@ -1540,6 +1540,13 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 }
                 val timelineList = mutableListOf<TimelineEvent>()
                 val allEvents = mutableListOf<TimelineEvent>() // For version processing
+                // Reaction events are filtered out of timelineList (so they never render as
+                // timeline rows), but they must still be persisted to RoomTimelineCache.reactionEvents
+                // so a later live m.room.redaction can be resolved back to (emoji, target) via
+                // findEventForReply. Without this, redactions of reactions that arrived from
+                // pagination silently no-op (the live sync path caches its own reactions, but the
+                // paginate path did not). Collect them here and merge once after the loop.
+                val paginatedReactionEvents = mutableListOf<TimelineEvent>()
                 val memberMap = RoomMemberCache.getRoomMembers(roomId)
 
                 var ownMessageCount = 0
@@ -1590,6 +1597,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 if (reactionCoordinator.processReactionFromTimeline(event)) {
                                     reactionProcessedCount++
                                 }
+                                // Persist so findEventForReply can resolve a later redaction of
+                                // this reaction (see paginatedReactionEvents declaration above).
+                                paginatedReactionEvents.add(event)
                                 filteredByType++
                             } else if (event.type == "com.beeper.message_send_status") {
                                 // Bridge delivery confirmation from paginated history
@@ -1646,6 +1656,14 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         "Andromuks",
                         "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}, ownMessages=$ownMessageCount, reactions=$reactionProcessedCount, filteredByRowId=$filteredByRowId, filteredByType=$filteredByType",
                     )
+                }
+
+                // Persist paginated reaction events to RoomTimelineCache.reactionEvents so a later
+                // live redaction can resolve them via findEventForReply. mergePaginatedEvents routes
+                // m.reaction events into the dedicated reactionEvents bucket (upsert by event_id),
+                // leaving the timeline event list untouched.
+                if (paginatedReactionEvents.isNotEmpty()) {
+                    RoomTimelineCache.mergePaginatedEvents(roomId, paginatedReactionEvents)
                 }
                 if (ownMessageCount > 0) {
                     if (BuildConfig.DEBUG) {
