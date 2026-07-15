@@ -44,11 +44,23 @@ When a room is opened or `restoreFromLruCache` is called, `ReactionCoordinator.r
 ## `removeReaction` Internals
 
 `ReactionCoordinator.removeReaction`:
-1. Removes the logical key from `processedReactions` (so the sender can re-react with the same emoji later without being blocked by the dedup guard)
-2. Looks up `messageReactions[relatesToEventId]` — returns early if the target message has no reactions
-3. Finds the emoji bucket and the user's entry; removes the user
-4. If the bucket is now empty, removes it entirely
-5. Increments `reactionUpdateCounter` and `updateCounter` to trigger UI refresh
+1. **Idempotency guard** — adds the redacted reaction's `eventId` to `AppViewModel.redactedReactionEventIds` (LRU-trimmed to 200/100) and returns early if it was already present. A single logical redaction reaches `removeReaction` twice: once from the `m.room.redaction` handler (via `findEventForReply`) and once from the `m.reaction`-with-`redactedBy` branch when the backend re-sends the reaction event in the same sync batch. Both derive the same reaction `eventId`, so the guard collapses them into one decrement. (Falls back to the logical `sender_emoji_target` key only if `eventId` is blank.)
+2. Removes the logical key from `processedReactions` (so the sender can re-react with the same emoji later without being blocked by the dedup guard)
+3. Looks up `messageReactions[relatesToEventId]` — returns early if the target message has no reactions
+4. Finds the emoji bucket. Removes the sender from `users`/`userReactions` **if present**, then **decrements `count` regardless**: `newCount = (count - 1).coerceAtLeast(userReactions.size)`
+5. If `newCount <= 0`, removes the bucket entirely; otherwise writes it back with the new count
+6. Increments `reactionUpdateCounter` and `updateCounter` to trigger UI refresh
+
+### Why step 4 decrements count even when the sender isn't found
+
+A `MessageReaction` bucket has two possible shapes:
+
+| Shape | Origin | `users` / `userReactions` | `count` |
+|---|---|---|---|
+| **Per-user** | live `m.reaction` via `processReactionEvent` | populated | `== userReactions.size` |
+| **Count-only** | backend-normalized `aggregatedReactions` via `applyAggregatedReactionsFromEvents` (runs at room open, initial build, related-events) | **empty** | from the backend |
+
+The old code identified the reaction to strip solely by finding the sender in `userReactions` and returned early when absent. That silently failed for **count-only** buckets, which have no per-user entries. Repro: react A, react B, delete A while the room is opening — the aggregation snapshot (taken before the delete propagates) populates `{A, B}` as count-only buckets, then the live redaction of A no-ops, leaving **A + B**. Decrementing `count` unconditionally (guarded for idempotency by step 1) fixes both shapes.
 
 ## `MessageReaction` Data Model
 
@@ -61,4 +73,4 @@ data class MessageReaction(
 )
 ```
 
-There is no per-reaction `eventId` stored in `MessageReaction`. Reaction identity for removal is therefore `(sender, emoji, relatesToEventId)`, not event ID.
+There is no per-reaction `eventId` stored in `MessageReaction`. Which *bucket* a removal targets is located by `(emoji, relatesToEventId)`, and the sender is removed from that bucket when present. The redacted reaction's own `eventId` (carried on the `ReactionEvent`, not on `MessageReaction`) is used only as the idempotency key in `redactedReactionEventIds` — see [`removeReaction` Internals](#removereaction-internals).

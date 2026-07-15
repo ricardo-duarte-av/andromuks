@@ -877,6 +877,12 @@ class AppViewModel : ViewModel() {
     // Track processed reaction events to prevent duplicate processing
     internal val processedReactions = mutableSetOf<String>()
 
+    // Track redacted reaction event IDs so removeReaction is idempotent. A single logical
+    // redaction can invoke removeReaction twice (m.room.redaction handler via findEventForReply,
+    // plus the m.reaction-with-redactedBy branch when the backend re-sends the reaction event in
+    // the same batch); without this guard the count-decrement below would over-subtract.
+    internal val redactedReactionEventIds = mutableSetOf<String>()
+
     // Functional (service) members per room — from io.element.functional_members state events (MSC4171).
     // These are bridge bots / service accounts that must be excluded from delivery calculations.
     internal val functionalMembersCache = mutableMapOf<String, Set<String>>()

@@ -271,6 +271,26 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
     }
 
     fun removeReaction(reactionEvent: ReactionEvent) {
+        // Idempotency: a single logical redaction can reach here twice (redaction handler +
+        // re-sent redacted m.reaction event). Guard on the redacted reaction's event ID so the
+        // count decrement below is applied exactly once. Fall back to the logical key when no
+        // event ID is available (older callers), which stays best-effort idempotent.
+        val dedupKey = reactionEvent.eventId.takeIf { it.isNotBlank() }
+            ?: "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
+        if (!vm.redactedReactionEventIds.add(dedupKey)) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: removeReaction - skipping already-processed redaction $dedupKey",
+                )
+            }
+            return
+        }
+        if (vm.redactedReactionEventIds.size > 200) {
+            val toRemove = vm.redactedReactionEventIds.take(vm.redactedReactionEventIds.size - 100)
+            vm.redactedReactionEventIds.removeAll(toRemove.toSet())
+        }
+
         val reactionKey = "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
 
         // Remove from dedup set so a future re-add (e.g. user reacts again) is not blocked.
@@ -286,17 +306,21 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
         val updatedUsers = existing.users.toMutableList()
         val updatedUserReactions = existing.userReactions.toMutableList()
 
+        // The bucket may be per-user (live path: count == userReactions.size) or count-only
+        // (aggregated/normalized path: users/userReactions empty, count from the backend). Remove
+        // the sender when present, but always decrement count so count-only buckets shrink too.
         val userIndex = updatedUserReactions.indexOfFirst { it.userId == reactionEvent.sender }
-        if (userIndex < 0) return
+        if (userIndex >= 0) {
+            updatedUsers.remove(reactionEvent.sender)
+            updatedUserReactions.removeAt(userIndex)
+        }
 
-        updatedUsers.remove(reactionEvent.sender)
-        updatedUserReactions.removeAt(userIndex)
-
-        if (updatedUserReactions.isEmpty()) {
+        val newCount = (existing.count - 1).coerceAtLeast(updatedUserReactions.size)
+        if (newCount <= 0) {
             eventReactions.removeAt(existingIndex)
         } else {
             eventReactions[existingIndex] = existing.copy(
-                count = updatedUserReactions.size,
+                count = newCount,
                 users = updatedUsers,
                 userReactions = updatedUserReactions,
             )
