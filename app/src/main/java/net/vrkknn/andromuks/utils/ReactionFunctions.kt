@@ -285,10 +285,15 @@ fun ReactionBadges(
     SubcomposeLayout(modifier = modifier) { constraints ->
         val spacingPx = 4.dp.roundToPx()
         val rowSpacingPx = 2.dp.roundToPx()
+        // Option A: reactions may overhang a short bubble. Wrap at the message-column max
+        // width (the same 300dp cap the bubble uses), NOT the bubble's own width. A short
+        // bubble then gets a horizontal reaction strip that overhangs the bubble instead of a
+        // narrow stacked column of pills dangling below it. bubbleWidthPx is still used below
+        // to decide per-badge shape (tab where it's under the bubble, pill where it overhangs).
+        val bubbleMaxWidthPx = 300.dp.roundToPx()
         val maxWidth = when {
-            bubbleWidthPx > 0 -> bubbleWidthPx
-            constraints.hasBoundedWidth -> constraints.maxWidth
-            else -> Int.MAX_VALUE
+            constraints.hasBoundedWidth -> minOf(constraints.maxWidth, bubbleMaxWidthPx)
+            else -> bubbleMaxWidthPx
         }
 
         // --- Pass 1: measure all badges (shape doesn't affect width) to get widths ---
@@ -339,16 +344,31 @@ fun ReactionBadges(
         val placedBadges = mutableListOf<androidx.compose.ui.layout.Placeable>()
 
         rows.forEachIndexed { rowIndex, rowItems ->
-            val shape = if (rowIndex == 0) badgeShape else pillShape
             val rowY = rowIndex * (badgeHeightPx + rowSpacingPx)
             val rowWidth = rowItems.sumOf { measuredWidths.getOrElse(it) { 0 } } +
                 maxOf(0, rowItems.size - 1) * spacingPx
-            // For "mine" messages, right-align each row within the composable bounds.
+            // For "mine" messages, right-align each row within the composable bounds. The
+            // composable's right edge aligns with the bubble's right edge, so "under the
+            // bubble" is the rightmost bubbleWidthPx band; for "theirs" it's the leftmost.
             val rowStartX = if (isMine) maxRowWidth - rowWidth else 0
 
-            val rowPlaceables = subcompose("row_$rowIndex") {
-                rowItems.forEach { i ->
-                    val reaction = reactions[i]
+            var x = rowStartX
+            rowItems.forEach { i ->
+                val w = measuredWidths.getOrElse(i) { 0 }
+                // Only the top row hangs from the bubble, and within it only badges physically
+                // under the bubble get the flat-top tab; badges that overhang the bubble edge
+                // round off into pills so nothing appears to hang from empty space. When the
+                // bubble width is unknown (0), fall back to the old row-based rule.
+                val underBubble = rowIndex == 0 && bubbleWidthPx > 0 && run {
+                    if (isMine) x >= (maxRowWidth - bubbleWidthPx) else (x + w) <= bubbleWidthPx
+                }
+                val shape = when {
+                    bubbleWidthPx <= 0 -> if (rowIndex == 0) badgeShape else pillShape
+                    underBubble -> badgeShape
+                    else -> pillShape
+                }
+                val reaction = reactions[i]
+                val placeable = subcompose("badge_${rowIndex}_$i") {
                     ReactionBadge(
                         emoji = reaction.emoji,
                         count = reaction.count,
@@ -359,11 +379,7 @@ fun ReactionBadges(
                         onClick = { onReactionClick(reaction.emoji) },
                         shape = shape,
                     )
-                }
-            }.map { it.measure(Constraints()) }
-
-            var x = rowStartX
-            rowPlaceables.forEach { placeable ->
+                }.first().measure(Constraints())
                 placedBadges.add(placeable)
                 xPositions.add(x)
                 yPositions.add(rowY)
