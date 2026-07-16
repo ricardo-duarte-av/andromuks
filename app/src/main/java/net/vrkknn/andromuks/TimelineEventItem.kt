@@ -40,6 +40,7 @@ import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.AlertDialog
@@ -3434,11 +3435,94 @@ private fun EncryptedMessageContent(
             )
         }
     } else {
-        Text(
-            text = "Encrypted message",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        // Undecryptable m.room.encrypted event (missing Megolm session). Render it as a real
+        // bubble so the long-press menu is available — the "Request Keys" item (wired in
+        // MessageBubbleWithMenu for undecrypted encrypted events) re-requests the missing session.
+        val bubbleShape =
+            if (actualIsMine) {
+                RoundedCornerShape(
+                    topStart = 12.dp,
+                    topEnd = 2.dp,
+                    bottomEnd = 8.dp,
+                    bottomStart = 12.dp,
+                )
+            } else {
+                RoundedCornerShape(
+                    topStart = 2.dp,
+                    topEnd = 12.dp,
+                    bottomEnd = 12.dp,
+                    bottomStart = 8.dp,
+                )
+            }
+        val undecryptedColors = BubblePalette.colors(
+            colorScheme = colorScheme,
+            isMine = actualIsMine,
+            isEdited = false,
+            mentionsMe = mentionsMe,
         )
+        val bubbleColor = undecryptedColors.container
+        val textColor = undecryptedColors.content
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+            if (actualIsMine) Arrangement.End else Arrangement.Start,
+        ) {
+            MessageBubbleWithMenu(
+                event = event,
+                bubbleColor = bubbleColor,
+                bubbleShape = bubbleShape,
+                modifier = Modifier.widthIn(max = 300.dp),
+                isMine = actualIsMine,
+                myUserId = myUserId,
+                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                onReply = { onReply(event) },
+                onReact = { onReact(event) },
+                onEdit = { onEdit(event) },
+                onDelete = { onDelete(event) },
+                appViewModel = appViewModel,
+                onBubbleClick = null,
+                mentionBorder = undecryptedColors.mentionBorder,
+                threadBorder = undecryptedColors.threadBorder,
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Lock,
+                        contentDescription = null,
+                        tint = textColor.copy(alpha = 0.7f),
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = "Encrypted message",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontStyle = FontStyle.Italic,
+                        color = textColor,
+                    )
+                }
+            }
+
+            if (!actualIsMine && readReceipts.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(ReadReceiptGap))
+                AnimatedInlineReadReceiptAvatars(
+                    receipts = readReceipts,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    appViewModel = appViewModel,
+                    messageSender = event.sender,
+                    eventId = event.eventId,
+                    roomId = event.roomId,
+                    onUserClick = onUserClick,
+                    isMine = false,
+                )
+            }
+        }
     }
 }
 

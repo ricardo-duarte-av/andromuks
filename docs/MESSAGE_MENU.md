@@ -15,6 +15,7 @@ The message long-press menu is implemented as a bottom bar (`MessageMenuBar`) dr
 | Text | Opens rendered text in `CodeViewer` |
 | Thread | Navigates to `ThreadViewerScreen` for a message that is **itself a thread reply**; only shown when `onViewInThread != null` |
 | Start thread / View thread | Navigates to `ThreadViewerScreen` rooted at **this** message; only shown when `onStartOrViewThread != null`. Label is "View thread" when `startThreadIsExisting`, otherwise "Start thread" |
+| Request Keys | Shown only for an undecryptable `m.room.encrypted` event (`onRequestKeys != null`). Sends `rerequest_session` with `room_id` / `session_id` (from the still-encrypted `content`) / `sender` to re-request the missing Megolm session |
 | Delivery Info | Shown only for bridge messages with send-status data (`onShowBridgeDeliveryInfo != null`) |
 | Send Error | Shown only when the event has a local send error |
 

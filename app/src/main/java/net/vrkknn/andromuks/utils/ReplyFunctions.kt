@@ -1030,6 +1030,22 @@ fun MessageBubbleWithMenu(
     }
     val canUnpin = canPin
 
+    // "Request Keys" is only meaningful for an m.room.encrypted event we couldn't decrypt.
+    // The Megolm session id lives in the still-encrypted content; without it there's nothing
+    // to re-request, so leave the callback null (hides the dropdown item).
+    val undecryptedSessionId = remember(event.eventId, event.decryptedType) {
+        if (event.type == "m.room.encrypted" && event.decryptedType == null) {
+            event.content?.optString("session_id")?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
+    }
+    val onRequestKeys: (() -> Unit)? = if (undecryptedSessionId != null && appViewModel != null) {
+        { appViewModel.requestRoomKeys(event.roomId, undecryptedSessionId, event.sender) }
+    } else {
+        null
+    }
+
     // Watch external trigger and show menu when it changes
     LaunchedEffect(externalMenuTrigger) {
         if (externalMenuTrigger > 0) {
@@ -1059,6 +1075,7 @@ fun MessageBubbleWithMenu(
                 onShowEditHistory = onShowEditHistory,
                 appViewModel = appViewModel,
                 onShowReactions = onShowReactions,
+                onRequestKeys = onRequestKeys,
             )
             onShowMenu?.invoke(menuConfig)
         }

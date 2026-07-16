@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.TagFaces
 import androidx.compose.material.icons.filled.TextFields
@@ -96,6 +97,9 @@ data class MessageMenuConfig(
     val onStartOrViewThread: (() -> Unit)? = null,
     val startThreadIsExisting: Boolean = false,
     val onShowBridgeDeliveryInfo: (() -> Unit)? = null,
+    // Re-request Megolm keys for an event that failed to decrypt. Only set for undecrypted
+    // m.room.encrypted events; null hides the "Request Keys" dropdown item.
+    val onRequestKeys: (() -> Unit)? = null,
 )
 
 /**
@@ -449,6 +453,19 @@ fun MessageMenuBar(menuConfig: MessageMenuConfig?, onDismiss: () -> Unit, button
                                         Icon(Icons.Filled.TextFields, contentDescription = null)
                                     },
                                 )
+                                if (menuConfig.onRequestKeys != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("Request Keys") },
+                                        onClick = {
+                                            moreExpanded = false
+                                            onDismiss()
+                                            menuConfig.onRequestKeys.invoke()
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.Key, contentDescription = null)
+                                        },
+                                    )
+                                }
                                 if (menuConfig.onViewInThread != null) {
                                     DropdownMenuItem(
                                         text = { Text("Thread") },

@@ -12377,6 +12377,37 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Re-request the Megolm session keys for an event that could not be decrypted.
+     *
+     * Sends `rerequest_session` with the room id, the undecryptable event's `session_id`
+     * (read from its still-encrypted `content`), and the original `sender` so the backend
+     * can ask that device (and our other sessions) to forward the missing session.
+     */
+    fun requestRoomKeys(roomId: String, sessionId: String, sender: String) {
+        if (sessionId.isBlank()) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Cannot request keys - missing session_id for room $roomId",
+            )
+            return
+        }
+        val requestId = WebSocketService.allocateRequestId()
+        sendWebSocketCommand(
+            "rerequest_session",
+            requestId,
+            mapOf(
+                "room_id" to roomId,
+                "session_id" to sessionId,
+                "sender" to sender,
+            ),
+        )
+        android.util.Log.i(
+            "Andromuks",
+            "AppViewModel: Requested keys for session $sessionId in room $roomId (sender $sender, reqId: $requestId)",
+        )
+    }
+
     fun setRoomTag(roomId: String, tagType: String, enabled: Boolean, triggerSort: Boolean = true) =
         accountDataCoordinator.setRoomTag(roomId, tagType, enabled, triggerSort)
 
