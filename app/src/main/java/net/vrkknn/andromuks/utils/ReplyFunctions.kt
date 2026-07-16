@@ -1315,6 +1315,7 @@ fun MessageBubbleWithMenu(
                             onShowEditHistory = onShowEditHistory,
                             appViewModel = appViewModel,
                             onShowReactions = onShowReactions,
+                            onRequestKeys = onRequestKeys,
                         )
                         onShowMenu?.invoke(menuConfig)
                         if (BuildConfig.DEBUG) {
