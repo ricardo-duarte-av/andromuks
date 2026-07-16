@@ -595,8 +595,20 @@ fun ThreadViewerScreen(
         }
     }
 
-    // Messages typed while the WebSocket is down are buffered and sent on reconnect.
-    val isInputEnabled = true
+    // Messages typed while the WebSocket is down are buffered and sent on reconnect,
+    // so we only gate the input on send permission.
+    val canSendMessage = remember(appViewModel.currentRoomState, myUserId) {
+        val pl = appViewModel.currentRoomState?.powerLevels ?: return@remember true
+        if (myUserId.isBlank()) return@remember true
+        val myPl = pl.users[myUserId] ?: pl.usersDefault
+        // In E2EE rooms the client sends m.room.encrypted, so the homeserver enforces power
+        // levels against that event type — not m.room.message (which never reaches the server).
+        val messageEventType =
+            if (appViewModel.currentRoomState?.isEncrypted == true) "m.room.encrypted" else "m.room.message"
+        val required = pl.events[messageEventType] ?: pl.eventsDefault
+        myPl >= required
+    }
+    val isInputEnabled = canSendMessage
 
     // Text input state (moved here to be accessible by mention handler)
     val urlPreviewController = remember { UrlPreviewController() }
