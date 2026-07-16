@@ -1201,6 +1201,17 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 }
 
                 if (!isWebSocketConnected()) {
+                    // WS was down, so the probe/paginate block above (gated on isWebSocketConnected)
+                    // sent nothing — yet we still hold the roomsWithPendingPaginate reservation made
+                    // at :1134. Nothing will ever clear it (only a paginate/probe RESPONSE does), so
+                    // the onInitComplete retry's roomsWithPendingPaginate.add() would return false and
+                    // no-op: the freshness probe never fires, the room stays pinned on the stale
+                    // (e.g. FCM-hydrated) window, and forceFreshPaginateAfterWsDown stays latched.
+                    // Release the reservation THIS call made so the retry can re-reserve and fetch.
+                    // Only when wasAdded — a false wasAdded means another in-flight paginate owns it.
+                    if (wasAdded) {
+                        roomsWithPendingPaginate.remove(roomId)
+                    }
                     roomsAwaitingInitCompletePaginate.add(roomId)
                 }
 
