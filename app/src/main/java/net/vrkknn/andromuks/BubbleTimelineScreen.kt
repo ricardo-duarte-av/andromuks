@@ -661,7 +661,11 @@ fun BubbleTimelineScreen(
         val me = myUserId
         if (me.isNullOrBlank()) return@remember true
         val myPl = pl.users[me] ?: pl.usersDefault
-        val required = pl.events["m.room.message"] ?: pl.eventsDefault
+        // In E2EE rooms the client sends m.room.encrypted, so the homeserver enforces power
+        // levels against that event type — not m.room.message (which never reaches the server).
+        val messageEventType =
+            if (appViewModel.currentRoomState?.isEncrypted == true) "m.room.encrypted" else "m.room.message"
+        val required = pl.events[messageEventType] ?: pl.eventsDefault
         myPl >= required
     }
 
