@@ -54,8 +54,11 @@ internal class ExecCommandCoordinator(private val vm: AppViewModel) {
         }
 
         // Synthetic request_id: a local routing token only. The /exec endpoint ignores request_id;
-        // the WS dispatcher uses it to find the registered handler.
-        val requestId = WebSocketService.allocateRequestId()
+        // the WS dispatcher uses it to find the registered handler. Allocated from the dedicated
+        // NEGATIVE space (not the shared WS counter) so an async /exec response in flight across a
+        // reconnect can never collide with a WS-reissued id after resetRequestIdCounter() — see
+        // WebSocketService.allocateExecRequestId.
+        val requestId = WebSocketService.allocateExecRequestId()
         register(requestId)
 
         vm.viewModelScope.launch(Dispatchers.Default) {

@@ -630,6 +630,25 @@ class WebSocketService : Service() {
             globalRequestIdCounter.set(0)
         }
 
+        // Local-only routing ids for HTTP /exec responses (battery-saver mode). The /exec endpoint
+        // ignores request_id entirely — it never goes on the wire (see ExecCommandCoordinator), so
+        // the id only has to be unique against the WS allocator *within this process* to route the
+        // async HTTP response back to the right handler map.
+        //
+        // It must NOT come from globalRequestIdCounter: that counter is reset to 0 on every reconnect
+        // (setWebSocket), and an /exec response still in flight across a reconnect would then collide
+        // with a WS-reissued id and misroute into the wrong room's paginate/state entry (worst-timed
+        // on a cold-start-via-FCM, where /exec fires at low ids before the socket connects and resets).
+        // Negative ids are provably sign-disjoint from the WS positive space forever, regardless of
+        // resets. gomuks' own negative request_ids only appear in sync_complete (→
+        // updateLastReceivedRequestId), never in the response-routing request maps, so there is no
+        // routing collision with those either; and handleResponse/handleError route by map presence
+        // (the `requestId > 0` guards are only the ack/stale-detection path, which negatives skip).
+        private val execRequestIdCounter = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /** Allocate a negative, reset-immune local routing id for an /exec response. */
+        fun allocateExecRequestId(): Int = execRequestIdCounter.decrementAndGet()
+
         fun isBatterySaverUserDisconnected(context: Context): Boolean = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             .getBoolean(PREF_BATTERY_SAVER_USER_DISCONNECTED, false)
 
