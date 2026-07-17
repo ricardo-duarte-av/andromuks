@@ -121,6 +121,13 @@ class AppViewModel : ViewModel() {
     // (i.e. the app was cold-started from a notification). Cleared once the user is sent back to
     // room_list on the next foreground resume (app-icon tap after minimising).
     var openedViaDirectNotification: Boolean = false
+
+    // Set when a pending share is consumed into a room_timeline (the user deliberately opened that
+    // room to share media). Suppresses the one-shot navigation callback's forceIfOnTimeline redirect
+    // to room_list, which would otherwise yank the user off the share media preview when spaces load
+    // after the share was already consumed (Direct Share cold-start race). Reset on the next foreground
+    // resume / room_list entry, like openedViaDirectNotification.
+    var openedViaShare: Boolean = false
     var returnToRoomListOnResume: Boolean by mutableStateOf(false)
 
 // Tracks which sender profiles have been processed per room to avoid duplicate fetches.
@@ -742,6 +749,9 @@ class AppViewModel : ViewModel() {
             pendingShare = null
             pendingShareTargetRoomId = null
             pendingShareUpdateCounter++
+            // Mark that we're on this room_timeline deliberately (share flow) so the navigation
+            // callback doesn't force-redirect back to room_list once spaces load.
+            openedViaShare = true
             share
         } else {
             null

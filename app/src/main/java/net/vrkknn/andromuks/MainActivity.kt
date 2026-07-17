@@ -1638,6 +1638,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                 return@LaunchedEffect
             }
             appViewModel.openedViaDirectNotification = false
+            appViewModel.openedViaShare = false
             navController.navigate("room_list") {
                 popUpTo(navController.graph.id) { inclusive = true }
             }

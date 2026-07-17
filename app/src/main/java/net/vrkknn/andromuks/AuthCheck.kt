@@ -174,6 +174,20 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                                 appViewModel.isLoading = false
                                 return
                             }
+                            // Do NOT force-navigate if the user deliberately opened this room to share
+                            // media. The pending share was already consumed (so pendingShare is null and
+                            // the earlier guard missed it); redirecting to room_list would yank the user
+                            // off the share media preview — the Direct Share cold-start race.
+                            if (appViewModel.openedViaShare) {
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(
+                                        "AuthCheckScreen",
+                                        "Skipping force navigation — user arrived via share-to-room",
+                                    )
+                                }
+                                appViewModel.isLoading = false
+                                return
+                            }
                             // Force-redirecting off a live timeline back to room_list. This is
                             // correct for a normal app-icon relaunch, but if it ever fires while a
                             // notification open was in flight (openedViaDirectNotification lost/reset,

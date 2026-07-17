@@ -3340,6 +3340,7 @@ fun RoomListContent(
                                 // Room opened from room_list — room_list IS in the back stack,
                                 // so Back should pop back to it, not finish the Activity.
                                 appViewModel.openedViaDirectNotification = false
+                                appViewModel.openedViaShare = false
                                 navController.navigate("room_timeline/$roomIdForNavigation")
 
                                 launch(Dispatchers.IO) {
