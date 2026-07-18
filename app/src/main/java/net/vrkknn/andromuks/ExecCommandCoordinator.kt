@@ -72,6 +72,11 @@ internal class ExecCommandCoordinator(private val vm: AppViewModel) {
                 is ExecApi.ExecResult.AuthMissing ->
                     vm.handleError(requestId, "exec $command: auth cookie missing")
 
+                // Not reachable here (we pass no idempotency envelope), but the sealed `when` must
+                // stay exhaustive.
+                is ExecApi.ExecResult.IdempotencyRejected ->
+                    vm.handleError(requestId, "exec $command: idempotency rejected (${result.errcode})")
+
                 is ExecApi.ExecResult.HttpError ->
                     vm.handleError(requestId, "exec $command: HTTP ${result.code} ${result.message}")
 

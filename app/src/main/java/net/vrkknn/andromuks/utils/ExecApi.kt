@@ -3,6 +3,7 @@ package net.vrkknn.andromuks.utils
 import android.content.Context
 import android.util.Log
 import net.vrkknn.andromuks.BuildConfig
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -10,6 +11,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.IOException
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /**
@@ -25,11 +27,38 @@ import java.util.concurrent.TimeUnit
  * 418 command error, 401 missing auth cookie.
  *
  * Auth is the existing gomuks_auth token stored in SharedPreferences.
+ *
+ * ## Idempotency / de-duplication (optional `txn_id`)
+ *
+ * gomuks' `/exec` accepts an optional `?txn_id=<id>&start_ts=<clientMillis>` query pair (server
+ * commit "server: add optional transaction ID to /exec request"). When present, the server keeps a
+ * 5-minute execution buffer keyed by `txn_id`: the first request runs the command; any *retry*
+ * carrying the same `txn_id` within that window blocks on the in-flight call and returns the first
+ * attempt's cached result instead of re-executing. This is what makes retrying a *non-idempotent*
+ * command such as `send_message` safe — a lost HTTP response no longer risks a double-send.
+ *
+ * We only attach the envelope to commands we retry ([sendMessage], [markRead]); read-only or
+ * response-plumbed commands ([ExecCommandCoordinator]) omit it and are unaffected. Omitting the
+ * params is fully backward compatible: an older server (or a call with no [Idempotency]) behaves
+ * exactly as before. See docs/EXEC_ENDPOINT.md for the full contract, including the clock-skew
+ * rules that back `start_ts`.
  */
 object ExecApi {
     private const val TAG = "ExecApi"
     private const val PATH_EXEC = "/_gomuks/exec/"
     private val JSON = "application/json; charset=utf-8".toMediaType()
+
+    /** Errcode returned (HTTP 400) when the device clock is too far ahead of the server. */
+    private const val ERRCODE_TIME_DESYNC = "FI.MAU.GOMUKS.TIME_DESYNC"
+
+    /** Errcode returned (HTTP 400) when the device clock is too far behind / the buffer entry expired. */
+    private const val ERRCODE_REQUEST_EXPIRED = "FI.MAU.GOMUKS.REQUEST_EXPIRED"
+
+    /** Max attempts for an idempotent retry loop (1 initial + retries). */
+    private const val MAX_RETRY_ATTEMPTS = 3
+
+    /** Backoff between idempotent retry attempts. */
+    private const val RETRY_BACKOFF_MS = 750L
 
     private val client: OkHttpClient by lazy {
         OkHttpClient.Builder()
@@ -41,6 +70,18 @@ object ExecApi {
 
     data class Credentials(val homeserverUrl: String, val authToken: String) {
         fun isValid(): Boolean = homeserverUrl.isNotBlank() && authToken.isNotBlank()
+    }
+
+    /**
+     * De-duplication envelope for a retried `/exec` call. [txnId] must stay identical across every
+     * retry of one logical action so the server collapses them; [startTs] is the device wall-clock
+     * (millis) at the *first* attempt and must also be reused unchanged, otherwise a slow retry
+     * could age past the server's expiry window. Build one per logical action with [new].
+     */
+    data class Idempotency(val txnId: String, val startTs: Long) {
+        companion object {
+            fun new(): Idempotency = Idempotency(UUID.randomUUID().toString(), System.currentTimeMillis())
+        }
     }
 
     /**
@@ -57,6 +98,14 @@ object ExecApi {
 
         /** Auth cookie missing or rejected (HTTP 401). */
         object AuthMissing : ExecResult()
+
+        /**
+         * The idempotency envelope was rejected on clock-skew grounds (HTTP 400,
+         * [ERRCODE_TIME_DESYNC] or [ERRCODE_REQUEST_EXPIRED]). The command did *not* run. Retrying
+         * with the same envelope is pointless; the caller should fall back to a plain (no-`txn_id`)
+         * call so the action still goes through.
+         */
+        data class IdempotencyRejected(val errcode: String, val message: String) : ExecResult()
 
         /** Any other non-2xx HTTP status. */
         data class HttpError(val code: Int, val message: String) : ExecResult()
@@ -77,15 +126,24 @@ object ExecApi {
     /**
      * Execute [command] with [body] as its `data`, parsing the response. Blocking — must be called
      * off the main thread. This is the generic transport that every command goes through.
+     *
+     * @param idempotency When non-null, attaches `?txn_id&start_ts` so the server de-duplicates
+     *   retries carrying the same envelope. Only pass it for commands you may retry — see the
+     *   class-level "Idempotency" note. A [ExecResult.IdempotencyRejected] result means the envelope
+     *   was refused (clock skew); re-issue without one.
      */
-    fun execRaw(creds: Credentials, command: String, body: JSONObject): ExecResult {
+    fun execRaw(creds: Credentials, command: String, body: JSONObject, idempotency: Idempotency? = null): ExecResult {
         if (!creds.isValid()) {
             Log.e(TAG, "execRaw($command): missing credentials")
             return ExecResult.AuthMissing
         }
-        val url = creds.homeserverUrl.trimEnd('/') + PATH_EXEC + command
+        val urlBuilder = (creds.homeserverUrl.trimEnd('/') + PATH_EXEC + command).toHttpUrl().newBuilder()
+        if (idempotency != null) {
+            urlBuilder.addQueryParameter("txn_id", idempotency.txnId)
+            urlBuilder.addQueryParameter("start_ts", idempotency.startTs.toString())
+        }
         val request = Request.Builder()
-            .url(url)
+            .url(urlBuilder.build())
             .post(body.toString().toRequestBody(JSON))
             .header("Cookie", "gomuks_auth=${creds.authToken}")
             .header("User-Agent", getUserAgent())
@@ -111,6 +169,16 @@ object ExecApi {
                     resp.code == 401 -> {
                         Log.w(TAG, "exec $command: auth cookie missing/rejected")
                         ExecResult.AuthMissing
+                    }
+
+                    // A clock-skew rejection of the idempotency envelope: the command did NOT run.
+                    // Surface it distinctly so the retry helper can fall back to a plain call.
+                    resp.code == 400 && parseErrcode(payload)?.let {
+                        it == ERRCODE_TIME_DESYNC || it == ERRCODE_REQUEST_EXPIRED
+                    } == true -> {
+                        val errcode = parseErrcode(payload).orEmpty()
+                        Log.w(TAG, "exec $command idempotency rejected ($errcode): $payload")
+                        ExecResult.IdempotencyRejected(errcode, payload)
                     }
 
                     else -> {
@@ -141,7 +209,9 @@ object ExecApi {
                 },
             )
         }
-        return execRaw(creds, "send_message", body) is ExecResult.Success
+        // send_message is non-idempotent, so retry under a stable txn_id: a lost response no longer
+        // risks a double-send — the server collapses the retry onto the first attempt's result.
+        return execWithIdempotentRetry(creds, "send_message", body) is ExecResult.Success
     }
 
     /** Fire-and-forget mark-read. Blocking — must be called off the main thread. Returns true on success. */
@@ -151,6 +221,53 @@ object ExecApi {
             put("event_id", eventId)
             put("receipt_type", "m.read")
         }
-        return execRaw(creds, "mark_read", body) is ExecResult.Success
+        // mark_read is naturally idempotent; the envelope just makes the retry a cheap server-side
+        // no-op instead of a second real receipt write.
+        return execWithIdempotentRetry(creds, "mark_read", body) is ExecResult.Success
+    }
+
+    /**
+     * Run [command] with a de-duplication envelope, retrying transient network failures under the
+     * *same* [Idempotency] so a landed-but-unacknowledged attempt is collapsed by the server rather
+     * than re-executed. Terminal outcomes (success, command error, auth) return immediately. A
+     * clock-skew [ExecResult.IdempotencyRejected] falls back to a single plain call so the action
+     * still goes through on a skewed device. Blocking — call off the main thread.
+     */
+    private fun execWithIdempotentRetry(creds: Credentials, command: String, body: JSONObject): ExecResult {
+        val envelope = Idempotency.new()
+        var last: ExecResult = ExecResult.NetworkError("no attempt made")
+        repeat(MAX_RETRY_ATTEMPTS) { attempt ->
+            when (val result = execRaw(creds, command, body, envelope)) {
+                is ExecResult.NetworkError -> {
+                    last = result
+                    if (attempt < MAX_RETRY_ATTEMPTS - 1) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "exec $command network error, retrying (attempt ${attempt + 1})")
+                        try {
+                            Thread.sleep(RETRY_BACKOFF_MS)
+                        } catch (e: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            return result
+                        }
+                    }
+                }
+
+                is ExecResult.IdempotencyRejected -> {
+                    // Clock skew: the envelope is unusable. The command never ran, so a plain call
+                    // is safe and gets the message/receipt out on a mis-clocked device.
+                    Log.w(TAG, "exec $command idempotency rejected (${result.errcode}); retrying without txn_id")
+                    return execRaw(creds, command, body, idempotency = null)
+                }
+
+                else -> return result
+            }
+        }
+        return last
+    }
+
+    /** Pulls the `errcode` field out of a gomuks/mautrix `RespError` JSON body, or null if absent. */
+    private fun parseErrcode(payload: String): String? = try {
+        (JSONTokener(payload).nextValue() as? JSONObject)?.optString("errcode")?.ifBlank { null }
+    } catch (e: org.json.JSONException) {
+        null
     }
 }
