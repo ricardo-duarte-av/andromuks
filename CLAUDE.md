@@ -183,3 +183,4 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Location sharing (MSC3488, picker overlay, Geocoder search, Static Maps thumbnails, GCP setup) | [docs/LOCATION_SHARING.md](docs/LOCATION_SHARING.md) |
 | Push rules editor (m.push_rules ingest, global editor, per-room level selector, `update_push_rule`) | [docs/PUSH_RULES.md](docs/PUSH_RULES.md) |
 | `/exec` HTTP endpoint (`ExecApi`, off-socket commands, optional `txn_id` de-duplication + retry) | [docs/EXEC_ENDPOINT.md](docs/EXEC_ENDPOINT.md) |
+| `/sse` endpoint (Server-Sent Events; unused today; potential off-socket snapshot refresh) | [docs/SSE_ENDPOINT.md](docs/SSE_ENDPOINT.md) |
