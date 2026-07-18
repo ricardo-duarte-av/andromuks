@@ -191,7 +191,10 @@ jobs:
           packageName: pt.aguiarvieira.andromuks
           releaseFiles: ${{ env.AAB_PATH }}
           track: internal
-          status: draft
+          # `completed` publishes the release live on the internal track (internal has no staged
+          # rollout, so completed == available to internal testers immediately). `draft` would park
+          # it in the Play Console for a manual publish.
+          status: completed
 
   # ---------------------------------------------------------------------------------------------
   # Phase 4 — Side-by-side variants a/b/c. Release only (no debug builds/deploys for these). One job
