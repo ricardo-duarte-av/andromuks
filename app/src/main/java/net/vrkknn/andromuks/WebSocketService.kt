@@ -1846,6 +1846,7 @@ class WebSocketService : Service() {
             trigger: ReconnectTrigger = ReconnectTrigger.Unclassified("Service-initiated connection"),
             lastReceivedId: Int = 0,
             isReconnection: Boolean = false,
+            catchupSince: Long = 0L,
         ) {
             // Must not require [instance] here: [startForegroundService] returns before [onCreate] sets [instance].
             // Launch on [getServiceScope] (service or application fallback), then wait for the instance inside.
@@ -1999,6 +2000,7 @@ class WebSocketService : Service() {
                         appViewModel,
                         reason = reason,
                         isReconnection = effectiveIsReconnection,
+                        catchupSince = catchupSince,
                     )
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
@@ -2161,6 +2163,58 @@ class WebSocketService : Service() {
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("WebSocketService", "Cleared last_received_request_id (cold start detected)")
+            }
+        }
+
+        /**
+         * Record the server_timestamp of a processed sync_complete, keeping the highest value seen.
+         * Every sync_complete (initial batch and live) carries server_timestamp; the max is the
+         * point a later catchup sync resumes from.
+         *
+         * @param serverTimestamp The server_timestamp (epoch millis) from the sync_complete's data
+         */
+        fun updateLastServerTimestamp(serverTimestamp: Long, context: Context) {
+            if (serverTimestamp <= 0L) {
+                return
+            }
+            val current = instance?.lastServerTimestamp ?: 0L
+            if (serverTimestamp <= current) {
+                return
+            }
+            instance?.lastServerTimestamp = serverTimestamp
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit().putLong("last_server_ts", serverTimestamp).apply()
+        }
+
+        /**
+         * Get the highest server_timestamp seen (for the last_server_ts catchup URL parameter).
+         * Returns 0 if no sync_complete with a server_timestamp has been processed yet.
+         *
+         * First checks RAM (fast), then falls back to SharedPreferences (survives restarts).
+         */
+        fun getLastServerTimestamp(context: Context): Long {
+            val ramValue = instance?.lastServerTimestamp ?: 0L
+            if (ramValue != 0L) {
+                return ramValue
+            }
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val persistedValue = prefs.getLong("last_server_ts", 0L)
+            if (persistedValue != 0L && instance != null) {
+                instance!!.lastServerTimestamp = persistedValue
+            }
+            return persistedValue
+        }
+
+        /**
+         * Clear last_server_ts. Called when the client throws away all state (login / force-fresh),
+         * so a subsequent connect does a full initial sync rather than a catchup against stale data.
+         */
+        fun clearLastServerTimestamp(context: Context) {
+            instance?.lastServerTimestamp = 0L
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit().remove("last_server_ts").apply()
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("WebSocketService", "Cleared last_server_ts")
             }
         }
 
@@ -2907,6 +2961,12 @@ class WebSocketService : Service() {
 
     // Last received request_id from sync_complete (stored in RAM for faster reconnections)
     private var lastReceivedRequestId: Int = 0
+
+    // Highest server_timestamp seen across all sync_complete messages (RAM cache of the
+    // "last_server_ts" pref). Sent as the last_server_ts URL param to request a catchup sync
+    // after a deliberate teardown, so the backend replies with a compact diff instead of a
+    // full clear_state initial sync. See docs/WEBSOCKET_LIFECYCLE.md catchup notes.
+    private var lastServerTimestamp: Long = 0L
 
     // Fallback network validation state (exponential backoff)
     private var fallbackBackoffDelayMs = 1000L // Start with 1 second

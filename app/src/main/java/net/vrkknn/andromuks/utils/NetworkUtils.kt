@@ -639,6 +639,7 @@ fun connectToWebsocket(
     appViewModel: AppViewModel? = null, // Optional - only needed for message routing callbacks
     reason: String = "Initial connection",
     isReconnection: Boolean = false,
+    catchupSince: Long = 0L,
 ) {
     if (BuildConfig.DEBUG) {
         Log.d(
@@ -726,7 +727,18 @@ fun connectToWebsocket(
     }
 
     val queryParams = mutableListOf<String>()
-    if (isReconnection && actualRunId.isNotEmpty()) {
+    if (catchupSince > 0L) {
+        // Catchup connect: request a compact diff since the last server_timestamp instead of a
+        // full initial sync. We deliberately do NOT send last_received_event, so the backend
+        // skips stream-resume event replay and generates a catchup sync (catchup:true, no
+        // clear_state). The backend still sends init_complete after the single catchup payload,
+        // so this is handled like an initial connect on the client side (not a resume).
+        queryParams.add("last_server_ts=$catchupSince")
+        WebSocketService.setReconnectingWithLastReceivedEvent(false)
+        if (BuildConfig.DEBUG) {
+            Log.d("NetworkUtils", "Catchup connect: last_server_ts=$catchupSince, compression: $compressionEnabled")
+        }
+    } else if (isReconnection && actualRunId.isNotEmpty()) {
         queryParams.add("run_id=$actualRunId")
         if (BuildConfig.DEBUG) {
             Log.d("NetworkUtils", "Reconnection: run_id=$actualRunId, compression: $compressionEnabled")

@@ -123,6 +123,63 @@ object SpaceRoomParser {
     }
 
     /**
+     * Result of applying a room object's `account_data` delta: the favourite / low-priority
+     * tag state, plus [hasTags] indicating whether an `m.tag` event was actually present.
+     *
+     * When [hasTags] is false the delta didn't touch tags, so callers must preserve the
+     * room's existing favourite / low-priority flags rather than clearing them. The
+     * side effect of the call is writing `fi.mau.gomuks.preferences` and `m.fully_read`
+     * into [net.vrkknn.andromuks.RoomAccountDataCache].
+     */
+    private data class RoomAccountDataResult(val isFavourite: Boolean, val isLowPriority: Boolean, val hasTags: Boolean)
+
+    /**
+     * Applies a room object's `account_data` to [net.vrkknn.andromuks.RoomAccountDataCache]
+     * and extracts tag state. Safe to call for room objects that have no `meta` — catchup
+     * syncs (and, since the omit-fields change, any sync) may send a room object carrying
+     * only `account_data` when just the room's account data changed. Such objects must not
+     * be dropped, or per-room tags / fully-read markers / gomuks preferences that changed
+     * while disconnected would be lost.
+     */
+    private fun applyRoomAccountData(roomId: String, accountData: JSONObject?): RoomAccountDataResult {
+        if (accountData == null) {
+            return RoomAccountDataResult(isFavourite = false, isLowPriority = false, hasTags = false)
+        }
+        var isFavourite = false
+        var isLowPriority = false
+        var hasTags = false
+        val tagData = accountData.optJSONObject("m.tag")
+        if (tagData != null) {
+            hasTags = true
+            val tags = tagData.optJSONObject("content")?.optJSONObject("tags")
+            if (tags != null) {
+                if (tags.has("m.favourite")) {
+                    isFavourite = true
+                }
+                if (tags.has("m.lowpriority")) {
+                    isLowPriority = true
+                }
+            }
+        }
+        val gomuksPrefData = accountData.optJSONObject("fi.mau.gomuks.preferences")
+        if (gomuksPrefData != null) {
+            net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(
+                roomId,
+                "fi.mau.gomuks.preferences",
+                gomuksPrefData,
+            )
+        }
+        // m.fully_read: the read-up-to marker. Cached so the timeline can draw an
+        // "unread" divider at this position. May be advanced by another client and
+        // arrive here via a later sync_complete.
+        val fullyReadData = accountData.optJSONObject("m.fully_read")
+        if (fullyReadData != null) {
+            net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "m.fully_read", fullyReadData)
+        }
+        return RoomAccountDataResult(isFavourite, isLowPriority, hasTags)
+    }
+
+    /**
      * Parses the sync JSON and returns a list of all non-space rooms.
      * Ignores spaces for now and just shows a flat list of rooms.
      *
@@ -448,16 +505,36 @@ object SpaceRoomParser {
         // Process updated/new rooms
         val roomsJson = data.optJSONObject("rooms")
         if (roomsJson != null) {
-            // PERFORMANCE: Extract all room data upfront to avoid repeated JSON operations
-            val roomsToParse = roomsJson.keys().asSequence().mapNotNull { roomId ->
-                val roomObj = roomsJson.optJSONObject(roomId)
-                val meta = roomObj?.optJSONObject("meta")
-                if (roomObj != null && meta != null) {
-                    Triple(roomId, roomObj, meta)
-                } else {
-                    null
+            // PERFORMANCE: Extract all room data upfront to avoid repeated JSON operations.
+            // A room object without `meta` is NOT dropped: catchup syncs (and any sync since the
+            // omit-fields change) send account-data-only room objects with no meta. We apply their
+            // account_data to the caches here, and — if the room is already known and the delta
+            // touched tags — emit a tag-only RoomItem update. A meta-less object for an unknown
+            // room can't be materialised into a RoomItem, so it stays cache-only (matching the
+            // gomuks web frontend, which skips unknown meta-less rooms).
+            val roomsToParse = mutableListOf<Triple<String, JSONObject, JSONObject>>()
+            val roomKeys = roomsJson.keys()
+            while (roomKeys.hasNext()) {
+                val roomId = roomKeys.next()
+                val roomObj = roomsJson.optJSONObject(roomId) ?: continue
+                val meta = roomObj.optJSONObject("meta")
+                if (meta != null) {
+                    roomsToParse.add(Triple(roomId, roomObj, meta))
+                    continue
                 }
-            }.toList()
+                val accountData = roomObj.optJSONObject("account_data") ?: continue
+                val tagState = applyRoomAccountData(roomId, accountData)
+                if (tagState.hasTags) {
+                    existingRooms?.get(roomId)?.let { existing ->
+                        updatedRooms.add(
+                            existing.copy(
+                                isFavourite = tagState.isFavourite,
+                                isLowPriority = tagState.isLowPriority,
+                            ),
+                        )
+                    }
+                }
+            }
 
             // PERFORMANCE: Parse rooms in parallel using coroutines
             // This significantly speeds up processing when there are many rooms (e.g., 100+)
@@ -511,18 +588,10 @@ object SpaceRoomParser {
             }
         }
 
-        // Process invited rooms (treat as new rooms for now)
-        val invitedRooms = data.optJSONArray("invited_rooms")
-        if (invitedRooms != null) {
-            for (i in 0 until invitedRooms.length()) {
-                val roomId = invitedRooms.optString(i)
-                if (roomId.isNotBlank()) {
-                    // For invited rooms, we might want to show them differently
-                    // For now, we'll just log them
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "SpaceRoomParser: Invited room: $roomId")
-                }
-            }
-        }
+        // NOTE: invited_rooms are NOT handled here. Each entry is an InvitedRoom object
+        // ({ room_id, invite_state, ... }), not a room-id string, and real invite ingestion is
+        // SyncIngestor.processInvitedRooms → PendingInvitesCache. This applies equally to catchup
+        // syncs, whose invited_rooms carry only invites changed since last_server_ts.
 
         // Debug: Log rooms with null messageSender (this is normal for receipt-only syncs)
         val roomsWithNullSender = updatedRooms.filter { it.messageSender == null }
@@ -631,41 +700,10 @@ object SpaceRoomParser {
             // Extract sorting_timestamp from meta
             val sortingTimestamp = meta.optLong("sorting_timestamp", 0L).takeIf { it != 0L }
 
-            // Extract tags from account_data.m.tag
-            var isFavourite = false
-            var isLowPriority = false
-
-            val accountData = roomObj.optJSONObject("account_data")
-            if (accountData != null) {
-                val tagData = accountData.optJSONObject("m.tag")
-                if (tagData != null) {
-                    val content = tagData.optJSONObject("content")
-                    if (content != null) {
-                        val tags = content.optJSONObject("tags")
-                        if (tags != null) {
-                            if (tags.has("m.favourite")) {
-                                isFavourite = true
-                            }
-                            if (tags.has("m.lowpriority")) {
-                                isLowPriority = true
-                            }
-                        }
-                    }
-                }
-                val gomuksPrefData = accountData.optJSONObject("fi.mau.gomuks.preferences")
-                if (gomuksPrefData != null) {
-                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(
-                        roomId,
-                        "fi.mau.gomuks.preferences",
-                        gomuksPrefData,
-                    )
-                }
-                // m.fully_read: the read-up-to marker (see the full-parse path above).
-                val fullyReadData = accountData.optJSONObject("m.fully_read")
-                if (fullyReadData != null) {
-                    net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "m.fully_read", fullyReadData)
-                }
-            }
+            // Extract tags from account_data.m.tag and populate RoomAccountDataCache.
+            val roomAccountData = applyRoomAccountData(roomId, roomObj.optJSONObject("account_data"))
+            val isFavourite = roomAccountData.isFavourite
+            val isLowPriority = roomAccountData.isLowPriority
 
             // Resolve sender's display name. gomuks delivers per-room summary events
             // inline in roomObj.events: one m.room.member for the sender + one preview

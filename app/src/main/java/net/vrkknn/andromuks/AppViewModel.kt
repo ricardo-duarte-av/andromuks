@@ -1051,6 +1051,18 @@ class AppViewModel : ViewModel() {
     // Null means follow the default logic (resume if cache exists).
     private var reconnectWithResume: Boolean? = null
 
+    // Flag to request the next connection use a catchup sync (last_server_ts) instead of a full
+    // initial sync. Set by the foreground-after-teardown re-dial: the backend replies with a
+    // compact diff (catchup:true, no clear_state) applied on top of the existing caches, instead
+    // of re-sending the entire room list. Consumed once in initializeWebSocketConnection. Only
+    // honoured when a last_server_ts has actually been recorded.
+    private var reconnectWithCatchup: Boolean = false
+
+    /** Request that the next [initializeWebSocketConnection] attempt a catchup sync. */
+    fun requestCatchupOnNextConnect() {
+        reconnectWithCatchup = true
+    }
+
     // Track uploads in progress per room (roomId -> count)
     internal val uploadInProgressCount = mutableStateMapOf<String, Int>()
 
@@ -6538,6 +6550,10 @@ class AppViewModel : ViewModel() {
 
             // Clear run_id
             editor.remove("ws_run_id")
+
+            // Clear last_server_ts so a different account logging in gets a full initial sync,
+            // never a catchup diffed against the previous account's data.
+            editor.remove("last_server_ts")
 
             // CRITICAL FIX: Use commit() instead of apply() to ensure credentials are cleared synchronously
             // This prevents credential loss if the app crashes/terminates right after 401 error
@@ -13526,6 +13542,11 @@ class AppViewModel : ViewModel() {
      * @param isReconnection Whether to attempt to resume the previous session (run_id + last_received_event)
      */
     fun initializeWebSocketConnection(homeserverUrl: String, token: String, isReconnection: Boolean? = null) {
+        // Consume the catchup request unconditionally so it can't leak past an early return
+        // (non-primary / already-connected) into a later unrelated connect.
+        val wantCatchup = reconnectWithCatchup
+        reconnectWithCatchup = false
+
         // Only primary instance should connect
         if (instanceRole != InstanceRole.PRIMARY) {
             // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
@@ -13572,7 +13593,22 @@ class AppViewModel : ViewModel() {
             null -> isReconnection ?: false
         }
 
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: initializeWebSocketConnection - isReconnection: $finalIsReconnection")
+        // Resolve catchup: honoured only when a last_server_ts has been recorded. A catchup connect
+        // requests a compact diff (last_server_ts) rather than a full initial sync; it takes
+        // precedence over a plain cold connect but is skipped if we're resuming (finalIsReconnection
+        // with an event cursor already covers that case more cheaply).
+        val catchupSince = if (wantCatchup && !finalIsReconnection && appContext != null) {
+            WebSocketService.getLastServerTimestamp(appContext!!)
+        } else {
+            0L
+        }
+
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: initializeWebSocketConnection - isReconnection: $finalIsReconnection, catchupSince: $catchupSince",
+            )
+        }
 
         // REFACTORING: Delegate connection to service
         // The service now owns the WebSocket connection lifecycle
@@ -13583,6 +13619,7 @@ class AppViewModel : ViewModel() {
             this@AppViewModel,
             trigger = ReconnectTrigger.Unclassified("Initial connection from AppViewModel"),
             isReconnection = finalIsReconnection,
+            catchupSince = catchupSince,
         )
     }
 

@@ -309,6 +309,11 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                         "FCMOpen: onAppBecameVisible re-dial haveCreds=$haveCreds → ${if (haveCreds) "initializeWebSocketConnection" else "startWebSocketService"}",
                     )
                     if (haveCreds) {
+                        // Foreground re-dial after a deliberate teardown (battery-saver linger, or a
+                        // socket that died while backgrounded): prefer a catchup sync over a full
+                        // initial sync. The request is self-guarding — if no last_server_ts has been
+                        // recorded yet, initializeWebSocketConnection falls back to a cold connect.
+                        requestCatchupOnNextConnect()
                         initializeWebSocketConnection(homeserverUrl, authToken)
                     } else {
                         startWebSocketService()

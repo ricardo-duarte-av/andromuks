@@ -154,11 +154,61 @@ The app supports two connection modes, controlled by the `useBatterySaverMode` s
 - A chat bubble being open extends the lifetime: `scheduleBatterySaverLinger` re-checks `BubbleTracker.anyBubbleOpen()` at expiry and skips teardown if any bubble is alive. `cancelBatterySaverLinger` is called whenever a surface (main activity or bubble) becomes visible.
 - Notification reply and mark-as-read while disconnected are routed through the gomuks backend's official one-off command endpoint `POST <homeserver>/_gomuks/exec/{command}` (`ExecApi.sendMessage` → `send_message`, `ExecApi.markRead` → `mark_read`); the raw JSON body is the command's `data`, identical to the WebSocket frame's `data`, authed with the same `gomuks_auth` cookie. FCM provides push delivery, so no socket is needed in steady-state.
 - Other state-updating commands take the same `/exec` route while disconnected via `ExecCommandCoordinator`, which allocates a synthetic `request_id`, registers it in the same request-tracking map(s) the WS path uses, and feeds the parsed body back through `handleResponse`/`handleError` (the `/exec` body is byte-identical to a WS `response` frame's `data`, so no handler changes are needed): `paginate` (timeline-cache hydration on FCM wake-up, `paginateViaExec`) and `get_specific_room_state` (on-demand user-profile fetch — `flushProfileBatch` falls back to `/exec` when the socket is down; see [USER_PROFILES.md](USER_PROFILES.md#when-get_specific_room_state-is-requested)).
-- **No batching:** `SyncBatchProcessor.batterySaverModeEnabled = true` makes `processSyncComplete` always take the immediate path, even while backgrounded. Within the 15 s linger window every arriving `sync_complete` is applied straight to the caches; no `batchJob` is ever scheduled, so there is no future wakeup queued against a socket that is about to die. Any sync the user missed while disconnected is re-delivered on the next connect — the backend sends `clear_state=true` followed by a fresh sync (or a resume via `last_received_event` if eligible), not a replay of the missed stream.
+- **No batching:** `SyncBatchProcessor.batterySaverModeEnabled = true` makes `processSyncComplete` always take the immediate path, even while backgrounded. Within the 15 s linger window every arriving `sync_complete` is applied straight to the caches; no `batchJob` is ever scheduled, so there is no future wakeup queued against a socket that is about to die. Any sync the user missed while disconnected is re-delivered on the next connect — a **catchup sync** (compact delta via `last_server_ts`; see [Catchup Sync](#catchup-sync-fast-foreground-after-a-deliberate-teardown) below), falling back to a full `clear_state=true` sync when no `last_server_ts` has been recorded — not a replay of the missed stream.
 - At linger expiry the service flips `PREF_BATTERY_SAVER_USER_DISCONNECTED` and either calls `primaryVm.markForceFreshPaginateAfterWsDown()` (if a VM is attached) or sets `PREF_FORCE_FRESH_TIMELINE_PAGINATE` (consumed by the next VM open via `consumeForceFreshTimelinePaginatePending`). The next room open then bypasses the timeline cache fast path and paginates fresh, so a stale snapshot from before the disconnect cannot leak into the UI.
 - On foreground resume, `onAppBecameVisible` clears `PREF_BATTERY_SAVER_USER_DISCONNECTED`, reschedules `WebSocketHealthCheckWorker`, and runs the same `pingNowWithWatchdog` re-dial that the always-on path uses.
 
 The setting can be toggled at runtime. The lifecycle change takes effect on the next background/foreground transition; no service restart is forced. No connectivity probe is needed when enabling battery-saver mode — `/_gomuks/exec` is served by the main gomuks backend, which is reachable whenever the homeserver is.
+
+## Catchup Sync (fast foreground after a deliberate teardown)
+
+When the socket is deliberately torn down (battery-saver linger, or a socket that died while backgrounded) and the app is later foregrounded, the naive reconnect is a **cold connect**: the backend sends `clear_state=true` followed by the entire room list (observed as 7–8 × ~500 KB `sync_complete` messages). A catchup sync replaces that with a single compact delta.
+
+### The three connect modes
+
+| Mode | URL params | Backend response |
+|---|---|---|
+| Cold (first login / forced fresh) | none | `clear_state=true` full initial sync |
+| Resume (network blip, socket was up) | `run_id` + `last_received_event` | replay of buffered events since the cursor; **no** `init_complete` (first `sync_complete` acts as it) |
+| **Catchup (foreground after teardown)** | `last_server_ts` | one `sync_complete` with `catchup:true` (no `clear_state`), then a normal `init_complete` |
+
+Catchup keys on `last_server_ts` **only** — `run_id` is irrelevant to the backend's catchup decision. We deliberately do **not** send `last_received_event`, so the backend skips stream-resume event replay (which can be arbitrarily large after a long background) and instead diffs its DB by modification timestamp.
+
+### High-water `server_timestamp`
+
+Every `sync_complete` — initial batch and live — carries a top-level `data.server_timestamp` (epoch millis). Example live payload:
+
+```json
+{"command":"sync_complete","request_id":-1908,"data":{
+  "since":"s12974186_…","server_timestamp":1784494882970,
+  "rooms":{ "!SAwLbTTygRriVkdOVq:matrix.org":{ "meta":{ … }, "receipts":{ … } } }
+}}
+```
+
+`SyncRoomsCoordinator.processSyncCompleteAtomic` records the max into the `last_server_ts` pref (RAM-cached in `WebSocketService.lastServerTimestamp`; helpers `updateLastServerTimestamp` / `getLastServerTimestamp` / `clearLastServerTimestamp`). It is cleared in `clearCredentialsAndNavigateToLogin` (alongside `ws_run_id`) so a different account logging in gets a full sync, never a catchup diffed against the previous account's data. Re-auth keeps it (same account) and cold-connects anyway.
+
+### What a catchup payload contains
+
+`GetCatchupSync` (gomuks `pkg/hicli/init.go`) returns, since the timestamp:
+- **rooms** whose metadata changed — each a full room object (meta present); **plus** rooms where only account data changed, sent as a room object with **only `account_data`, `meta` absent**
+- **account_data** — changed global account data
+- **top_level_spaces** + **space_edges** — full replace (all of them)
+- **invited_rooms** — invites received/updated since (delta)
+- **left_rooms** — rooms left / invites declined since (from the backend's `left_room` table)
+- **server_timestamp** — the new high-water mark
+
+### Wiring (client)
+
+- `AppViewModel.requestCatchupOnNextConnect()` sets a one-shot `reconnectWithCatchup` flag, consumed unconditionally at the top of `initializeWebSocketConnection` (so it can't leak past an early return). When set (and a `last_server_ts` exists and we're not resuming), `catchupSince` is threaded through `WebSocketService.connectWebSocket` → `NetworkUtils.connectToWebsocket`, which emits `last_server_ts` and marks `setReconnectingWithLastReceivedEvent(false)` (catchup ends with a real `init_complete`).
+- `ViewModelLifecycleCoordinator.onAppBecameVisible`'s re-dial branch (socket down on foreground) calls `requestCatchupOnNextConnect()` before dialing. It is self-guarding: no recorded `last_server_ts` ⇒ `catchupSince = 0` ⇒ ordinary cold connect.
+
+### Why it applies safely as a delta
+
+A catchup batch has **no `clear_state`**, so `isClearState = false` throughout ingest and it flows through the normal incremental path on top of the kept caches (`roomMap` is not cleared on re-dial). The critical safety property: the **stale-room diff-prune** in `onInitComplete` runs only when `isClearStateBatch` is true (msg 1 had `clear_state`) — a `catchup` batch never sets it, so the prune (which would wrongly delete every room absent from the delta) is structurally skipped. Deletions instead come from the explicit `left_rooms` list (→ `removedRoomIds`, which also removes declined invites from `PendingInvitesCache`).
+
+Meta-less account-data-only room objects are applied by `SpaceRoomParser.parseSyncUpdate` via `applyRoomAccountData` (tags / `m.fully_read` / `fi.mau.gomuks.preferences` → caches) instead of being dropped. See [SETTINGS_PREFS.md](SETTINGS_PREFS.md) for the account-data caches.
+
+A catchup connect is visible in a release logcat dump via `Log.i` (`"processSyncCompleteAtomic: catchup=true batch RECEIVED …"`).
 
 ## Service Lifetime & Auto-Restart
 

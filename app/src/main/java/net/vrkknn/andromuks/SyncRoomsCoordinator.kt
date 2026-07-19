@@ -675,6 +675,26 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             // clear_state must be handled BEFORE parsing/ingesting (atomic reset)
             val data = syncJson.optJSONObject("data")
             val isClearState = data?.optBoolean("clear_state") == true
+
+            // Track the highest server_timestamp seen. Every sync_complete (initial + live) carries
+            // it; the max becomes the last_server_ts we send to request a catchup sync on the next
+            // deliberate-teardown reconnect (compact diff instead of a full initial sync).
+            val serverTimestamp = data?.optLong("server_timestamp", 0L) ?: 0L
+            if (serverTimestamp > 0L) {
+                WebSocketService.updateLastServerTimestamp(serverTimestamp, context)
+            }
+
+            // A catchup batch is a delta (only rooms/account-data changed since last_server_ts) with
+            // no clear_state, applied on top of the kept caches. It flows through the normal
+            // incremental path; the clear_state diff-prune is (correctly) skipped because
+            // onInitComplete only prunes when the batch began with clear_state, not catchup.
+            // Log.i so a catchup connect is visible in a release logcat dump.
+            if (data?.optBoolean("catchup") == true) {
+                android.util.Log.i(
+                    "Andromuks",
+                    "processSyncCompleteAtomic: catchup=true batch RECEIVED - applying delta on top of existing caches (request_id=$requestId, server_ts=$serverTimestamp)",
+                )
+            }
             if (isClearState) {
                 // We intentionally do NOT purge here (handleClearStateReset) — that would wipe the
                 // cache-first room list and cause a cold-start flash. Staleness is instead reconciled
