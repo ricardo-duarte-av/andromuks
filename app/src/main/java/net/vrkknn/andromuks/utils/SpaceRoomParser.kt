@@ -501,6 +501,11 @@ object SpaceRoomParser {
         val updatedRooms = mutableListOf<RoomItem>()
         val newRooms = mutableListOf<RoomItem>()
         val removedRoomIds = mutableListOf<String>()
+        // Rooms whose m.tag was present in this delta → their favourite/low-priority flags are
+        // authoritative (see SyncUpdateResult.authoritativeTagRoomIds). Only ever written from the
+        // sequential meta-less loop and the sequential result-collection loop below (never from the
+        // parallel async parse bodies), so a plain set is safe.
+        val authoritativeTagRoomIds = mutableSetOf<String>()
 
         // Process updated/new rooms
         val roomsJson = data.optJSONObject("rooms")
@@ -525,6 +530,10 @@ object SpaceRoomParser {
                 val accountData = roomObj.optJSONObject("account_data") ?: continue
                 val tagState = applyRoomAccountData(roomId, accountData)
                 if (tagState.hasTags) {
+                    // m.tag present → authoritative, even if the room is unknown (record it
+                    // regardless so a tag-only delta for a not-yet-materialised room still marks
+                    // the flags authoritative should the room appear later in the same batch).
+                    authoritativeTagRoomIds.add(roomId)
                     existingRooms?.get(roomId)?.let { existing ->
                         updatedRooms.add(
                             existing.copy(
@@ -544,21 +553,26 @@ object SpaceRoomParser {
                         // Check if this is a space (skip spaces for now)
                         val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
                         if (type == "m.space") {
-                            Pair(roomId, null as RoomItem?)
+                            Triple(roomId, null as RoomItem?, false)
                         } else {
-                            // Parse the room (always parse message previews)
-                            val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel)
-                            Pair(roomId, room)
+                            // Parse the room (always parse message previews). The Boolean is
+                            // whether m.tag was present (→ authoritative favourite/low-priority).
+                            val parsed = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel)
+                            Triple(roomId, parsed?.first, parsed?.second ?: false)
                         }
                     }
                 }
 
                 // Collect results (maintains order)
-                for ((roomId, room) in roomResults.map { it.await() }) {
+                for ((roomId, room, hasTags) in roomResults.map { it.await() }) {
                     if (room == null) {
                         // This is a space
                         discoveredSpaceIds.add(roomId)
                         continue
+                    }
+
+                    if (hasTags) {
+                        authoritativeTagRoomIds.add(roomId)
                     }
 
                     // Determine if this is a new room or updated room
@@ -603,16 +617,27 @@ object SpaceRoomParser {
         // }
 
         // Log.d("Andromuks", "SpaceRoomParser: Sync update - updated: ${updatedRooms.size}, removed: ${removedRoomIds.size}")
-        return SyncUpdateResult(updatedRooms, newRooms, removedRoomIds)
+        return SyncUpdateResult(
+            updatedRooms,
+            newRooms,
+            removedRoomIds,
+            authoritativeTagRoomIds = authoritativeTagRoomIds,
+        )
     }
 
+    /**
+     * @return the parsed [RoomItem] paired with whether `account_data.m.tag` was present in this
+     * room object. When the Boolean is true the room's favourite/low-priority flags are
+     * authoritative and may be applied directly; when false the delta didn't touch tags and the
+     * merge must preserve the existing flags. `null` on parse failure.
+     */
     private fun parseRoomFromJson(
         roomId: String,
         roomObj: JSONObject,
         meta: JSONObject,
         memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null,
         appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-    ): RoomItem? {
+    ): Pair<RoomItem, Boolean>? {
         try {
             // This is a regular room
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
@@ -729,21 +754,24 @@ object SpaceRoomParser {
                 appViewModel?.getUserProfile(sender, roomId)?.displayName?.takeIf { it.isNotBlank() }
             }
 
-            return RoomItem(
-                id = roomId,
-                name = name,
-                messagePreview = messagePreview,
-                messageSender = messageSender,
-                unreadCount = if (unreadMessages > 0) unreadMessages else null,
-                highlightCount = if (unreadHighlights > 0) unreadHighlights else null,
-                avatarUrl = avatar,
-                sortingTimestamp = sortingTimestamp,
-                isDirectMessage = isDirectMessage,
-                isFavourite = isFavourite,
-                isLowPriority = isLowPriority,
-                canonicalAlias = canonicalAlias,
-                latestEventId = latestEventId,
-                senderDisplayName = senderDisplayName,
+            return Pair(
+                RoomItem(
+                    id = roomId,
+                    name = name,
+                    messagePreview = messagePreview,
+                    messageSender = messageSender,
+                    unreadCount = if (unreadMessages > 0) unreadMessages else null,
+                    highlightCount = if (unreadHighlights > 0) unreadHighlights else null,
+                    avatarUrl = avatar,
+                    sortingTimestamp = sortingTimestamp,
+                    isDirectMessage = isDirectMessage,
+                    isFavourite = isFavourite,
+                    isLowPriority = isLowPriority,
+                    canonicalAlias = canonicalAlias,
+                    latestEventId = latestEventId,
+                    senderDisplayName = senderDisplayName,
+                ),
+                roomAccountData.hasTags,
             )
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing room $roomId", e)

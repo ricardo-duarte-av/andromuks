@@ -1338,6 +1338,11 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             // Update existing rooms
             syncResult.updatedRooms.forEach { room ->
                 val existingRoom = roomMap[room.id]
+                // When this delta carried an m.tag for the room, room.isFavourite/isLowPriority are
+                // the complete truth (including a REMOVAL made on another client while we were
+                // disconnected, delivered via catchup). Take them directly. Otherwise the delta
+                // didn't mention tags, so preserve the existing flags via OR.
+                val tagAuthoritative = syncResult.authoritativeTagRoomIds.contains(room.id)
                 if (existingRoom != null) {
                     // Preserve existing message preview and sender if new room data doesn't have one
                     // CRITICAL: Also preserve isFavourite and isLowPriority flags if sync doesn't include account_data.m.tag
@@ -1376,12 +1381,17 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         // Preserve last known event_id when sync doesn't include new events
                         // (e.g. a sync with only reactions/joins has no latestEventId from the parser)
                         latestEventId = room.latestEventId ?: existingRoom.latestEventId,
-                        // Preserve favorite and low priority flags if sync doesn't explicitly update them
-                        // SpaceRoomParser only sets these to true if account_data.m.tag is present
-                        // If sync doesn't include account_data, we preserve the existing values
-                        isFavourite = room.isFavourite || existingRoom.isFavourite, // Keep true if either is true
-                        isLowPriority = room.isLowPriority || existingRoom.isLowPriority, // Keep true if either is true
-                        isDirectMessage = room.isDirectMessage || existingRoom.isDirectMessage, // Preserve DM status
+                        // Favorite / low-priority: authoritative when this delta carried m.tag
+                        // (take the incoming value, honouring removals), else preserve via OR.
+                        isFavourite = if (tagAuthoritative) room.isFavourite else room.isFavourite || existingRoom.isFavourite,
+                        isLowPriority = if (tagAuthoritative) {
+                            room.isLowPriority
+                        } else {
+                            room.isLowPriority || existingRoom.isLowPriority
+                        },
+                        // DM status is reconciled authoritatively (both directions) by
+                        // updateRoomsDirectMessageStatus from m.direct, so OR-preserve here.
+                        isDirectMessage = room.isDirectMessage || existingRoom.isDirectMessage,
                         // WRITE-ONLY BRIDGE INFO: Preserve bridge protocol avatar if it was previously set
                         // Bridge info comes from get_room_state (m.bridge event), not from sync_complete
                         // Once set, it's never removed (will be resolved on app restart if room is no longer bridged)
@@ -1469,6 +1479,7 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 // may have already stored a preserved entry for this room (from pre-clear-state
                 // roomMap data), and the newRooms loop must not silently overwrite it with null.
                 val existingInRoomMap = roomMap[room.id]
+                val tagAuthoritative = syncResult.authoritativeTagRoomIds.contains(room.id)
                 val roomWithPreservation = if (existingInRoomMap != null) {
                     room.copy(
                         messagePreview = if (room.messagePreview.isNullOrBlank() &&
@@ -1498,8 +1509,16 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                     }
                                 )
                         },
-                        isFavourite = room.isFavourite || existingInRoomMap.isFavourite,
-                        isLowPriority = room.isLowPriority || existingInRoomMap.isLowPriority,
+                        isFavourite = if (tagAuthoritative) {
+                            room.isFavourite
+                        } else {
+                            room.isFavourite || existingInRoomMap.isFavourite
+                        },
+                        isLowPriority = if (tagAuthoritative) {
+                            room.isLowPriority
+                        } else {
+                            room.isLowPriority || existingInRoomMap.isLowPriority
+                        },
                         isDirectMessage = room.isDirectMessage || existingInRoomMap.isDirectMessage,
                         latestEventId = room.latestEventId ?: existingInRoomMap.latestEventId,
                     )

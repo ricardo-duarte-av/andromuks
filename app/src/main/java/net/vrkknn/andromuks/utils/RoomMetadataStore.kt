@@ -31,7 +31,7 @@ object RoomMetadataStore {
     private const val TAG = "RoomMetadataStore"
 
     private const val DB_NAME = "room_metadata.db"
-    private const val DB_VERSION = 3
+    private const val DB_VERSION = 4
 
     private const val TABLE = "room_metadata"
     private const val COL_ROOM_ID = "room_id"
@@ -53,6 +53,15 @@ object RoomMetadataStore {
     // ConversationsApi.updateSingleShortcut().
     private const val COL_SHORTCUT_HAS_AVATAR = "shortcut_has_avatar"
 
+    // v4: the sticky room-list section flags (mirror RoomItem.isFavourite / isLowPriority /
+    // isDirectMessage). Persisted so the Favourites / DM / low-priority pseudo-tabs are correct on
+    // cold start — before any sync_complete. Without this, a catchup reconnect (which only re-sends
+    // rooms that CHANGED) leaves every unchanged favourite/DM room flag-less after process death,
+    // dropping them from those tabs. 0 = false/unknown, 1 = true.
+    private const val COL_IS_FAVOURITE = "is_favourite"
+    private const val COL_IS_LOW_PRIORITY = "is_low_priority"
+    private const val COL_IS_DIRECT = "is_direct"
+
     data class Row(
         val roomId: String,
         val name: String?,
@@ -61,6 +70,9 @@ object RoomMetadataStore {
         val bridgeDisplayName: String?,
         val sortTs: Long = 0L,
         val shortcutHasAvatar: Boolean = false,
+        val isFavourite: Boolean = false,
+        val isLowPriority: Boolean = false,
+        val isDirect: Boolean = false,
     )
 
     private val initialized = AtomicBoolean(false)
@@ -103,6 +115,9 @@ object RoomMetadataStore {
                 COL_BRIDGE_DISPLAY_NAME,
                 COL_SORT_TS,
                 COL_SHORTCUT_HAS_AVATAR,
+                COL_IS_FAVOURITE,
+                COL_IS_LOW_PRIORITY,
+                COL_IS_DIRECT,
             ),
             null,
             null,
@@ -117,6 +132,9 @@ object RoomMetadataStore {
             val iBridgeName = c.getColumnIndexOrThrow(COL_BRIDGE_DISPLAY_NAME)
             val iSortTs = c.getColumnIndexOrThrow(COL_SORT_TS)
             val iShortcutAvatar = c.getColumnIndexOrThrow(COL_SHORTCUT_HAS_AVATAR)
+            val iFavourite = c.getColumnIndexOrThrow(COL_IS_FAVOURITE)
+            val iLowPriority = c.getColumnIndexOrThrow(COL_IS_LOW_PRIORITY)
+            val iDirect = c.getColumnIndexOrThrow(COL_IS_DIRECT)
             while (c.moveToNext()) {
                 val roomId = c.getString(iRoomId) ?: continue
                 // Skip-existing: never clobber a Row a backend write already populated. hydrate runs
@@ -134,6 +152,9 @@ object RoomMetadataStore {
                     bridgeDisplayName = if (c.isNull(iBridgeName)) null else c.getString(iBridgeName),
                     sortTs = if (c.isNull(iSortTs)) 0L else c.getLong(iSortTs),
                     shortcutHasAvatar = !c.isNull(iShortcutAvatar) && c.getInt(iShortcutAvatar) != 0,
+                    isFavourite = !c.isNull(iFavourite) && c.getInt(iFavourite) != 0,
+                    isLowPriority = !c.isNull(iLowPriority) && c.getInt(iLowPriority) != 0,
+                    isDirect = !c.isNull(iDirect) && c.getInt(iDirect) != 0,
                 )
             }
         }
@@ -208,7 +229,17 @@ object RoomMetadataStore {
      * [RoomListCache] persists per sync_complete. Null [name]/[avatarMxc] means "leave that
      * column untouched"; [sortTs] only advances forward (older/zero values are dropped).
      */
-    data class MetaUpdate(val roomId: String, val name: String? = null, val avatarMxc: String? = null, val sortTs: Long? = null)
+    data class MetaUpdate(
+        val roomId: String,
+        val name: String? = null,
+        val avatarMxc: String? = null,
+        val sortTs: Long? = null,
+        // Sticky section flags. Null = "leave the column untouched"; a non-null value is written
+        // only when it differs from the mirror (so a steady favourite doesn't rewrite every sync).
+        val isFavourite: Boolean? = null,
+        val isLowPriority: Boolean? = null,
+        val isDirect: Boolean? = null,
+    )
 
     /**
      * Hot-path batched upsert: merges every update into the in-memory mirror synchronously
@@ -230,14 +261,34 @@ object RoomMetadataStore {
         for (u in updates) {
             val existing = mirror[u.roomId]
             val effectiveSortTs = u.sortTs?.takeIf { it > 0L && (existing == null || existing.sortTs < it) }
-            if (u.name == null && u.avatarMxc == null && effectiveSortTs == null) continue
+            // Only treat a flag as changed (worth a write) when it actually differs from the mirror.
+            val favChanged = u.isFavourite != null && (existing == null || existing.isFavourite != u.isFavourite)
+            val lowChanged = u.isLowPriority != null && (existing == null || existing.isLowPriority != u.isLowPriority)
+            val dmChanged = u.isDirect != null && (existing == null || existing.isDirect != u.isDirect)
+            if (u.name == null && u.avatarMxc == null && effectiveSortTs == null &&
+                !favChanged && !lowChanged && !dmChanged
+            ) {
+                continue
+            }
             mergeIntoMirror(
                 roomId = u.roomId,
                 name = u.name,
                 avatarMxc = u.avatarMxc,
                 sortTs = effectiveSortTs,
+                isFavourite = u.isFavourite,
+                isLowPriority = u.isLowPriority,
+                isDirect = u.isDirect,
             )
-            toPersist.add(if (effectiveSortTs == u.sortTs) u else u.copy(sortTs = effectiveSortTs))
+            // Persist only the flags that changed (leave unchanged columns untouched) and drop a
+            // non-advancing sortTs.
+            toPersist.add(
+                u.copy(
+                    sortTs = effectiveSortTs,
+                    isFavourite = u.isFavourite.takeIf { favChanged },
+                    isLowPriority = u.isLowPriority.takeIf { lowChanged },
+                    isDirect = u.isDirect.takeIf { dmChanged },
+                ),
+            )
         }
         if (toPersist.isEmpty() || helper == null) return
         ioScope.launch {
@@ -252,6 +303,9 @@ object RoomMetadataStore {
                         if (u.name != null) put(COL_NAME, u.name)
                         if (u.avatarMxc != null) put(COL_AVATAR_MXC, u.avatarMxc)
                         if (u.sortTs != null) put(COL_SORT_TS, u.sortTs)
+                        if (u.isFavourite != null) put(COL_IS_FAVOURITE, if (u.isFavourite) 1 else 0)
+                        if (u.isLowPriority != null) put(COL_IS_LOW_PRIORITY, if (u.isLowPriority) 1 else 0)
+                        if (u.isDirect != null) put(COL_IS_DIRECT, if (u.isDirect) 1 else 0)
                     }
                     val inserted = db.insertWithOnConflict(TABLE, null, values, SQLiteDatabase.CONFLICT_IGNORE)
                     if (inserted == -1L) {
@@ -355,6 +409,9 @@ object RoomMetadataStore {
         bridgeDisplayName: String? = null,
         sortTs: Long? = null,
         shortcutHasAvatar: Boolean? = null,
+        isFavourite: Boolean? = null,
+        isLowPriority: Boolean? = null,
+        isDirect: Boolean? = null,
     ): Row = mirror.compute(roomId) { _, existing ->
         Row(
             roomId = roomId,
@@ -364,6 +421,9 @@ object RoomMetadataStore {
             bridgeDisplayName = bridgeDisplayName ?: existing?.bridgeDisplayName,
             sortTs = sortTs ?: existing?.sortTs ?: 0L,
             shortcutHasAvatar = shortcutHasAvatar ?: existing?.shortcutHasAvatar ?: false,
+            isFavourite = isFavourite ?: existing?.isFavourite ?: false,
+            isLowPriority = isLowPriority ?: existing?.isLowPriority ?: false,
+            isDirect = isDirect ?: existing?.isDirect ?: false,
         )
     }!!
 
@@ -399,7 +459,10 @@ object RoomMetadataStore {
                     $COL_BRIDGE_DISPLAY_NAME TEXT,
                     $COL_UPDATED_AT INTEGER NOT NULL,
                     $COL_SORT_TS INTEGER NOT NULL DEFAULT 0,
-                    $COL_SHORTCUT_HAS_AVATAR INTEGER NOT NULL DEFAULT 0
+                    $COL_SHORTCUT_HAS_AVATAR INTEGER NOT NULL DEFAULT 0,
+                    $COL_IS_FAVOURITE INTEGER NOT NULL DEFAULT 0,
+                    $COL_IS_LOW_PRIORITY INTEGER NOT NULL DEFAULT 0,
+                    $COL_IS_DIRECT INTEGER NOT NULL DEFAULT 0
                 )
                 """.trimIndent(),
             )
@@ -414,6 +477,14 @@ object RoomMetadataStore {
             // shortcut icon rebuilds when the avatar is already published.
             if (oldVersion < 3) {
                 db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_SHORTCUT_HAS_AVATAR INTEGER NOT NULL DEFAULT 0")
+            }
+            // v3 → v4: add the sticky section flags so Favourites / DM / low-priority tabs are
+            // correct on cold start (before sync). Existing rows default to 0/false and are
+            // corrected by the first sync_complete that carries their m.tag / dm_user_id.
+            if (oldVersion < 4) {
+                db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_IS_FAVOURITE INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_IS_LOW_PRIORITY INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_IS_DIRECT INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

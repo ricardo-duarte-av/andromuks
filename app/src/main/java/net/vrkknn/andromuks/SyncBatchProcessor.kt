@@ -64,6 +64,9 @@ class SyncBatchProcessor(
             val updatedRooms: MutableMap<String, RoomItem> = mutableMapOf(),
             val newRooms: MutableMap<String, RoomItem> = mutableMapOf(),
             val removedRoomIds: MutableSet<String> = mutableSetOf(),
+            // Union of every per-message authoritativeTagRoomIds seen in this batch, forwarded
+            // to the final apply so an authoritative tag change (incl. removal) isn't OR-re-stuck.
+            val authoritativeTagRoomIds: MutableSet<String> = mutableSetOf(),
         )
 
         private fun shouldReplaceRoomItem(existing: RoomItem, candidate: RoomItem): Boolean {
@@ -241,16 +244,24 @@ class SyncBatchProcessor(
                         val result = processSyncImmediately(msg.syncJson, msg.requestId, msg.runId, false)
                         if (result != null) {
                             for (room in result.updatedRooms) {
+                                // Authoritative when THIS message carried m.tag for the room: its
+                                // favourite/low-priority values win (honouring removals) instead of
+                                // being OR-preserved. Non-authoritative false flags never clobber
+                                // an existing true (which can only have come from an earlier
+                                // authoritative message).
+                                val tagAuth = result.authoritativeTagRoomIds.contains(room.id)
+                                if (tagAuth) accumulator.authoritativeTagRoomIds.add(room.id)
                                 val existing = accumulator.updatedRooms[room.id]
                                 if (existing == null) {
                                     accumulator.updatedRooms[room.id] = room
                                 } else if (shouldReplaceRoomItem(existing, room)) {
-                                    // Preserve sticky flags that only arrive in certain syncs
-                                    // (account_data.m.tag / m.favourite comes once; later syncs with
-                                    // higher timestamps must not overwrite it with false).
                                     accumulator.updatedRooms[room.id] = room.copy(
-                                        isFavourite = room.isFavourite || existing.isFavourite,
-                                        isLowPriority = room.isLowPriority || existing.isLowPriority,
+                                        isFavourite = if (tagAuth) room.isFavourite else room.isFavourite || existing.isFavourite,
+                                        isLowPriority = if (tagAuth) {
+                                            room.isLowPriority
+                                        } else {
+                                            room.isLowPriority || existing.isLowPriority
+                                        },
                                         isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
                                         bridgeProtocolAvatarUrl =
                                         room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
@@ -272,16 +283,30 @@ class SyncBatchProcessor(
                                         },
                                         latestEventId = room.latestEventId ?: existing.latestEventId,
                                     )
+                                } else if (tagAuth) {
+                                    // Not preview-newer, so we keep the existing entry — but this
+                                    // message still carried an authoritative tag change (e.g. a
+                                    // tag-only un-favourite with no message), so apply its flags.
+                                    accumulator.updatedRooms[room.id] = existing.copy(
+                                        isFavourite = room.isFavourite,
+                                        isLowPriority = room.isLowPriority,
+                                    )
                                 }
                             }
                             for (room in result.newRooms) {
+                                val tagAuth = result.authoritativeTagRoomIds.contains(room.id)
+                                if (tagAuth) accumulator.authoritativeTagRoomIds.add(room.id)
                                 val existing = accumulator.newRooms[room.id]
                                 if (existing == null) {
                                     accumulator.newRooms[room.id] = room
                                 } else if (shouldReplaceRoomItem(existing, room)) {
                                     accumulator.newRooms[room.id] = room.copy(
-                                        isFavourite = room.isFavourite || existing.isFavourite,
-                                        isLowPriority = room.isLowPriority || existing.isLowPriority,
+                                        isFavourite = if (tagAuth) room.isFavourite else room.isFavourite || existing.isFavourite,
+                                        isLowPriority = if (tagAuth) {
+                                            room.isLowPriority
+                                        } else {
+                                            room.isLowPriority || existing.isLowPriority
+                                        },
                                         isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
                                         bridgeProtocolAvatarUrl =
                                         room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
@@ -301,6 +326,11 @@ class SyncBatchProcessor(
                                             existing.senderDisplayName
                                         },
                                         latestEventId = room.latestEventId ?: existing.latestEventId,
+                                    )
+                                } else if (tagAuth) {
+                                    accumulator.newRooms[room.id] = existing.copy(
+                                        isFavourite = room.isFavourite,
+                                        isLowPriority = room.isLowPriority,
                                     )
                                 }
                             }
@@ -348,6 +378,7 @@ class SyncBatchProcessor(
                     updatedRooms = accumulator.updatedRooms.values.toList(),
                     newRooms = accumulator.newRooms.values.toList(),
                     removedRoomIds = accumulator.removedRoomIds.toList(),
+                    authoritativeTagRoomIds = accumulator.authoritativeTagRoomIds.toSet(),
                 )
                 onBatchRoomListApply?.invoke(mergedResult)
             }

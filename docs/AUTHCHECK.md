@@ -269,6 +269,12 @@ Adds `shortcut_has_avatar INTEGER NOT NULL DEFAULT 0` (`0`/unknown = lettermark 
 
 The point is cross-instance persistence: `NotificationImageWorker` constructs a throwaway `ConversationsApi` per notification, so without persistence it always thinks the shortcut needs its avatar (re)applied. Combined with dropping the old `removeDynamicShortcuts()`→`pushDynamicShortcut()` "force icon refresh" churn (which momentarily dropped the conversation's People Space status and **blanked any pinned Conversation widget** bound to the room), the worker now refreshes the shortcut icon in place and skips the rebuild entirely when the avatar is already published. The flag is wiped on logout by `RoomMetadataStore.clearAll()`.
 
+### `RoomMetadataStore` v4 schema
+
+Adds `is_favourite`, `is_low_priority`, `is_direct` (all `INTEGER NOT NULL DEFAULT 0`), mirroring `RoomItem.isFavourite` / `isLowPriority` / `isDirectMessage`. `RoomListCache.metaUpdateFor` writes them alongside name/avatar (a flag is only persisted when it actually changed vs the mirror, so a steady favourite doesn't rewrite its row every sync); `hydrateFromDisk` restores them into the stub `RoomItem`s.
+
+**Why:** the pseudo-tabs Favourites / DM / low-priority are derived by filtering the room list on these flags. Before v4 they weren't persisted, so a cold start hydrated every room with the flags at `false`. That was masked while the foreground re-dial was a full cold connect (which re-sent every room's `m.tag` / `dm_user_id` / global `m.direct`), but the **catchup sync** (see [WEBSOCKET_LIFECYCLE.md](WEBSOCKET_LIFECYCLE.md)) only re-sends rooms that *changed* — so after process death, any unchanged favourite/DM room stayed flag-less and silently dropped out of those tabs. Persisting the flags fixes it; the first sync that carries a room's `m.tag` / `dm_user_id` corrects any stale value (and `updateRoomsDirectMessageStatus` reconciles DM from `m.direct` when it's present). Wiped on logout by `clearAll()`.
+
 ### `clear_state` staleness handled by diff-prune (not purge)
 
 On WS open the first `sync_complete` arrives with `clear_state=true`. Historically this called `handleClearStateReset()` to wipe `roomMap`/caches and rebuild from the batch — but that wipe blanks the just-painted cache-first list (a flash), so it is **not** wired into the sync path. `handleClearStateReset()` survives only as a reusable hard-reset utility (e.g. logout); `processSyncCompleteAtomic` no longer calls it.

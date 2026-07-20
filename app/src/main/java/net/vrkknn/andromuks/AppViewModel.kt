@@ -3778,10 +3778,12 @@ class AppViewModel : ViewModel() {
                             val updatedRooms = mutableMapOf<String, RoomItem>()
                             val newRooms = mutableMapOf<String, RoomItem>()
                             val removedRoomIds = mutableSetOf<String>()
+                            val authoritativeTagRoomIds = mutableSetOf<String>()
                             for (result in partialResults.filterNotNull()) {
                                 for (room in result.updatedRooms) updatedRooms[room.id] = room
                                 for (room in result.newRooms) newRooms[room.id] = room
                                 removedRoomIds.addAll(result.removedRoomIds)
+                                authoritativeTagRoomIds.addAll(result.authoritativeTagRoomIds)
                             }
                             if (updatedRooms.isNotEmpty() || newRooms.isNotEmpty() ||
                                 removedRoomIds.isNotEmpty()
@@ -3790,6 +3792,7 @@ class AppViewModel : ViewModel() {
                                     updatedRooms = updatedRooms.values.toList(),
                                     newRooms = newRooms.values.toList(),
                                     removedRoomIds = removedRoomIds.toList(),
+                                    authoritativeTagRoomIds = authoritativeTagRoomIds,
                                 )
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
@@ -4946,6 +4949,7 @@ class AppViewModel : ViewModel() {
                             val updatedRooms = mutableMapOf<String, RoomItem>()
                             val newRooms = mutableMapOf<String, RoomItem>()
                             val removedRoomIds = mutableSetOf<String>()
+                            val authoritativeTagRoomIds = mutableSetOf<String>()
                             fun shouldReplace(existing: RoomItem, candidate: RoomItem): Boolean {
                                 val candidateHasMsg = candidate.messagePreview != null
                                 val existingHasMsg = existing.messagePreview != null
@@ -4967,6 +4971,11 @@ class AppViewModel : ViewModel() {
                                             )
                                             if (result != null) {
                                                 for (room in result.updatedRooms) {
+                                                    // Authoritative when this message carried m.tag: take its
+                                                    // favourite/low-priority (honours removals); else OR-preserve.
+                                                    val tagAuth =
+                                                        result.authoritativeTagRoomIds.contains(room.id)
+                                                    if (tagAuth) authoritativeTagRoomIds.add(room.id)
                                                     val existing = updatedRooms[room.id]
                                                     if (existing == null) {
                                                         updatedRooms[room.id] = room
@@ -4976,8 +4985,16 @@ class AppViewModel : ViewModel() {
                                                         //  subsequent syncs don't re-send it, so a newer-timestamp room
                                                         //  would incorrectly overwrite isFavourite/isDirectMessage with false).
                                                         updatedRooms[room.id] = room.copy(
-                                                            isFavourite = room.isFavourite || existing.isFavourite,
-                                                            isLowPriority = room.isLowPriority || existing.isLowPriority,
+                                                            isFavourite = if (tagAuth) {
+                                                                room.isFavourite
+                                                            } else {
+                                                                room.isFavourite || existing.isFavourite
+                                                            },
+                                                            isLowPriority = if (tagAuth) {
+                                                                room.isLowPriority
+                                                            } else {
+                                                                room.isLowPriority || existing.isLowPriority
+                                                            },
                                                             isDirectMessage =
                                                             room.isDirectMessage || existing.isDirectMessage,
                                                             bridgeProtocolAvatarUrl =
@@ -4994,17 +5011,33 @@ class AppViewModel : ViewModel() {
                                                             },
                                                             latestEventId = room.latestEventId ?: existing.latestEventId,
                                                         )
+                                                    } else if (tagAuth) {
+                                                        updatedRooms[room.id] = existing.copy(
+                                                            isFavourite = room.isFavourite,
+                                                            isLowPriority = room.isLowPriority,
+                                                        )
                                                     }
                                                 }
                                                 for (room in result.newRooms) {
+                                                    val tagAuth =
+                                                        result.authoritativeTagRoomIds.contains(room.id)
+                                                    if (tagAuth) authoritativeTagRoomIds.add(room.id)
                                                     val existing = newRooms[room.id]
                                                     if (existing == null) {
                                                         newRooms[room.id] = room
                                                     } else if (shouldReplace(existing, room)) {
                                                         // Preserve sticky flags (same rationale as updatedRooms above).
                                                         newRooms[room.id] = room.copy(
-                                                            isFavourite = room.isFavourite || existing.isFavourite,
-                                                            isLowPriority = room.isLowPriority || existing.isLowPriority,
+                                                            isFavourite = if (tagAuth) {
+                                                                room.isFavourite
+                                                            } else {
+                                                                room.isFavourite || existing.isFavourite
+                                                            },
+                                                            isLowPriority = if (tagAuth) {
+                                                                room.isLowPriority
+                                                            } else {
+                                                                room.isLowPriority || existing.isLowPriority
+                                                            },
                                                             isDirectMessage =
                                                             room.isDirectMessage || existing.isDirectMessage,
                                                             bridgeProtocolAvatarUrl =
@@ -5020,6 +5053,11 @@ class AppViewModel : ViewModel() {
                                                                 existing.messageSender
                                                             },
                                                             latestEventId = room.latestEventId ?: existing.latestEventId,
+                                                        )
+                                                    } else if (tagAuth) {
+                                                        newRooms[room.id] = existing.copy(
+                                                            isFavourite = room.isFavourite,
+                                                            isLowPriority = room.isLowPriority,
                                                         )
                                                     }
                                                 }
@@ -5042,6 +5080,7 @@ class AppViewModel : ViewModel() {
                                         updatedRooms = updatedRooms.values.toList(),
                                         newRooms = newRooms.values.toList(),
                                         removedRoomIds = removedRoomIds.toList(),
+                                        authoritativeTagRoomIds = authoritativeTagRoomIds,
                                     ),
                                 )
                             }

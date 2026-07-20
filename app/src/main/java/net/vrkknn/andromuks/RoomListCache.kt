@@ -67,7 +67,18 @@ object RoomListCache {
         val avatar = room.avatarUrl
         val sortTs = room.sortingTimestamp?.takeIf { it > 0L }
         if (name == null && avatar == null && sortTs == null) return null
-        return RoomMetadataStore.MetaUpdate(room.id, name, avatar, sortTs)
+        // Persist the sticky section flags alongside name/avatar so the Favourites / DM /
+        // low-priority tabs survive a cold start (RoomMetadataStore only writes a flag when it
+        // actually changed, so a steady favourite doesn't rewrite its row every sync).
+        return RoomMetadataStore.MetaUpdate(
+            room.id,
+            name,
+            avatar,
+            sortTs,
+            isFavourite = room.isFavourite,
+            isLowPriority = room.isLowPriority,
+            isDirect = room.isDirectMessage,
+        )
     }
 
     /**
@@ -173,6 +184,9 @@ object RoomListCache {
                     avatarUrl = row.avatarMxc?.takeIf { it.isNotEmpty() },
                     sortingTimestamp = row.sortTs.takeIf { it > 0L },
                     bridgeProtocolAvatarUrl = bridgeAvatar,
+                    isFavourite = row.isFavourite,
+                    isLowPriority = row.isLowPriority,
+                    isDirectMessage = row.isDirect,
                 )
                 seeded++
             }

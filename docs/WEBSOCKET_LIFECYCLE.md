@@ -197,6 +197,14 @@ Every `sync_complete` — initial batch and live — carries a top-level `data.s
 - **left_rooms** — rooms left / invites declined since (from the backend's `left_room` table)
 - **server_timestamp** — the new high-water mark
 
+Because `account_data` and per-room `account_data` are **delta with full-replace semantics** (the whole content of a changed event is re-sent), a catchup *does* carry tag/DM **removals** made on another client while disconnected: an un-favourite arrives as the room's new `m.tag` (now without `m.favourite`); an un-DM arrives as the full new global `m.direct`.
+
+### Sticky flag merge (favourite / low-priority / DM) must honour removals
+
+The room-list merge historically OR-ed these flags (`room.isFavourite || existing.isFavourite`) to stop a metadata-only sync — which parses tags to `false` when it omits `m.tag` — from wrongly clearing a favourite. But OR can't represent a *removal*: a catchup-delivered un-favourite would be re-stuck. The fix threads `SyncUpdateResult.authoritativeTagRoomIds` — the set of rooms whose `m.tag` was actually present in the delta — from `SpaceRoomParser.parseSyncUpdate` through every accumulator (`SyncBatchProcessor`, `onInitComplete`, attach-pending) to the final apply in `SyncRoomsCoordinator.processParsedSyncResult`. For a room **in** the set the incoming favourite/low-priority value wins (honouring removals); otherwise the OR-preserve is kept. DM stays OR-preserve everywhere because `m.direct` reconciles it authoritatively (both directions) via `updateRoomsDirectMessageStatus`.
+
+Complementarily, the flags are persisted in `RoomMetadataStore` v4 (see [AUTHCHECK.md](AUTHCHECK.md)), so a room **absent** from the catchup delta (unchanged, so never re-sent) keeps its correct section membership across process death instead of hydrating flag-less.
+
 ### Wiring (client)
 
 - `AppViewModel.requestCatchupOnNextConnect()` sets a one-shot `reconnectWithCatchup` flag, consumed unconditionally at the top of `initializeWebSocketConnection` (so it can't leak past an early return). When set (and a `last_server_ts` exists and we're not resuming), `catchupSince` is threaded through `WebSocketService.connectWebSocket` → `NetworkUtils.connectToWebsocket`, which emits `last_server_ts` and marks `setReconnectingWithLastReceivedEvent(false)` (catchup ends with a real `init_complete`).

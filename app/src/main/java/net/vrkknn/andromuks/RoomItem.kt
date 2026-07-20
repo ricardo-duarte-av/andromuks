@@ -54,7 +54,19 @@ enum class RoomSectionType {
 }
 
 @Immutable
-data class SyncUpdateResult(val updatedRooms: List<RoomItem>, val newRooms: List<RoomItem>, val removedRoomIds: List<String>)
+data class SyncUpdateResult(
+    val updatedRooms: List<RoomItem>,
+    val newRooms: List<RoomItem>,
+    val removedRoomIds: List<String>,
+    // Room IDs whose `account_data.m.tag` was actually present in this delta, so their
+    // isFavourite/isLowPriority values are AUTHORITATIVE (a complete truth, including
+    // removals). For rooms NOT in this set the delta didn't mention tags, so the merge must
+    // preserve the existing flags instead of overwriting them. See the merge sites in
+    // SyncRoomsCoordinator.processParsedSyncResult — without this a tag REMOVAL made on
+    // another client while disconnected (delivered by a catchup sync) would be re-stuck by
+    // the OR-merge.
+    val authoritativeTagRoomIds: Set<String> = emptySet(),
+)
 
 @Immutable
 data class RoomState(
