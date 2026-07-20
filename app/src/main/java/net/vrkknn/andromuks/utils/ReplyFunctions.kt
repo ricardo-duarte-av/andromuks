@@ -213,13 +213,28 @@ fun ReplyPreview(
         ?: originalBody
         ?: "Reply to unknown event"
 
+    // Per-message profile (e.g. from the Beeper bridge): the replied-to message may have been sent
+    // under a "fake" identity ("Alphauser") relayed by the real Matrix sender ("Omegauser"). Mirror
+    // the main-timeline header so the reply preview reads "Alphauser, sent by Omegauser" instead of
+    // attributing the message to the bridge account alone. The profile lives in content (plain) or
+    // decrypted (encrypted); prefer encrypted.
+    val perMessageProfile = latestOriginalEvent?.decrypted?.optJSONObject("com.beeper.per_message_profile")
+        ?: latestOriginalEvent?.content?.optJSONObject("com.beeper.per_message_profile")
+    val perMessageDisplayName = perMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
+
     val memberProfile = userProfileCache[originalSender]
     val baseSenderName = memberProfile?.displayName ?: originalSender
-    val senderName = if (appViewModel?.trimLongDisplayNames == true && baseSenderName.length > 40) {
-        baseSenderName.take(40) + "..."
-    } else {
-        baseSenderName
+
+    val trimLong = appViewModel?.trimLongDisplayNames == true
+    val trimmedRealSender = if (trimLong && baseSenderName.length > 40) baseSenderName.take(40) + "..." else baseSenderName
+    val trimmedFakeSender = perMessageDisplayName?.let {
+        if (trimLong && it.length > 40) it.take(40) + "..." else it
     }
+
+    // When a per-message profile supplies a display name, show that as the primary name and append
+    // the real sender. Otherwise keep the plain single-name rendering.
+    val senderName = trimmedFakeSender ?: trimmedRealSender
+    val senderSuffix = trimmedFakeSender?.let { ", sent by $trimmedRealSender" }
 
     val colorScheme = MaterialTheme.colorScheme
     Row(
@@ -253,7 +268,7 @@ fun ReplyPreview(
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
             ) {
                 Text(
-                    text = senderName,
+                    text = if (senderSuffix != null) senderName + senderSuffix else senderName,
                     style = MaterialTheme.typography.labelMedium,
                     color = previewColors.accent,
                     fontWeight = FontWeight.Medium,
