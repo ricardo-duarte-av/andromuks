@@ -3079,11 +3079,13 @@ internal fun ImageViewerDialog(
     val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
         resetButtonTimer() // Reset timer on zoom/pan
         scale = (scale * zoomChange).coerceIn(0.5f, 5f)
-        // Keep pan speed consistent regardless of zoom level by scaling the offset
-        val panScale = scale
+        // offsetChange is reported in raw screen pixels by the (untransformed) gesture layer, and
+        // the pan translation is applied on an unscaled layer, so add it 1:1 to track the finger
+        // exactly. Multiplying by scale would make the image slide faster than the finger as you
+        // zoom in — the pan would no longer be linear with finger movement.
         val maxPan = 4000f * scale
-        offsetX = (offsetX + offsetChange.x * panScale).coerceIn(-maxPan, maxPan)
-        offsetY = (offsetY + offsetChange.y * panScale).coerceIn(-maxPan, maxPan)
+        offsetX = (offsetX + offsetChange.x).coerceIn(-maxPan, maxPan)
+        offsetY = (offsetY + offsetChange.y).coerceIn(-maxPan, maxPan)
     }
 
     val coroutineScope = rememberCoroutineScope()
@@ -3316,12 +3318,12 @@ internal fun ImageViewerDialog(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            // Outer layer: pan only. Translation here is applied in screen space,
-                            // so pan direction stays correct regardless of the inner rotation.
-                            .graphicsLayer(
-                                translationX = offsetX,
-                                translationY = offsetY,
-                            )
+                            // Gesture layer: fills the whole viewport and is never translated, so
+                            // its hit region always covers the screen. The pan translation lives on
+                            // the inner content box below instead — if it lived here, panning would
+                            // slide this box's hit region off screen and expose the dismiss-on-tap
+                            // background underneath, so a tap near an edge (while panning) closed the
+                            // viewer.
                             .transformable(state = transformableState)
                             .pointerInput(Unit) {
                                 detectTapGestures(
@@ -3335,11 +3337,19 @@ internal fun ImageViewerDialog(
                                 )
                             },
                     ) {
-                        // Inner layer: scale + rotation. Kept separate from pan so that
-                        // rotating the image does not rotate the pan axes.
+                        // Content box. Two chained graphicsLayers, outer-to-inner:
+                        //  1. pan (translation) — applied in screen space, above the scale/rotation
+                        //     layer, so pan direction stays correct regardless of the inner rotation
+                        //     and the pan magnitude is independent of zoom.
+                        //  2. scale + rotation — kept a separate layer so rotating the image does
+                        //     not rotate the pan axes.
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
+                                .graphicsLayer(
+                                    translationX = offsetX,
+                                    translationY = offsetY,
+                                )
                                 .graphicsLayer(
                                     scaleX = scale,
                                     scaleY = scale,
