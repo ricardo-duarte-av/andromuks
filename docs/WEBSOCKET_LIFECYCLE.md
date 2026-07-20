@@ -187,6 +187,25 @@ Every `sync_complete` — initial batch and live — carries a top-level `data.s
 
 `SyncRoomsCoordinator.processSyncCompleteAtomic` records the max into the `last_server_ts` pref (RAM-cached in `WebSocketService.lastServerTimestamp`; helpers `updateLastServerTimestamp` / `getLastServerTimestamp` / `clearLastServerTimestamp`). It is cleared in `clearCredentialsAndNavigateToLogin` (alongside `ws_run_id`) so a different account logging in gets a full sync, never a catchup diffed against the previous account's data. Re-auth keeps it (same account) and cold-connects anyway.
 
+### Account data: user vs room, and how each is delivered
+
+Two distinct kinds of "account data" are easy to conflate — they live in different stores, ride different fields of `sync_complete`, and are handled by different client code:
+
+| Kind | Examples | Wire location | Client path |
+|---|---|---|---|
+| **User (global) account data** | `m.direct`, `m.push_rules`, `io.element.recent_emoji`, ignore list, emote/image packs | top-level `account_data` in `sync_complete` (`SyncComplete.AccountData`) | `SyncRoomsCoordinator.processAccountData` → `AccountDataCache.setAllAccountData` |
+| **Room account data** | `m.tag`, `m.fully_read` | inside a room object (`SyncRoom.AccountData`) — **never** a standalone top-level field | `SpaceRoomParser.applyRoomAccountData` (reads each room's `account_data` sub-object) |
+
+Both kinds are **push-delivered by the backend via `sync_complete`** — you never poll for them. Room account data specifically arrives bundled in a room object on all three occasions:
+
+1. **Live** — a favourite/read-marker change on another client flows through the homeserver `/sync` into hicli, which emits a `sync_complete` whose `SyncRoom.AccountData` carries the new `m.tag`. That room object is often **meta-less** (only account data changed).
+2. **Catchup connect** — `GetAllRoomSince` → changed rooms as meta-less `account_data`-only objects.
+3. **`clear_state=true`** — `getInitialSyncRoom` → `GetAllRoom` bundles each room's account data with its full object.
+
+All three funnel through the same `applyRoomAccountData` → `authoritativeTagRoomIds` → authoritative-merge path (see below), so tag adds/removals behave identically regardless of which occasion delivered them.
+
+> **Not delivered this way:** `get_room_state` returns **only room *state* events** (`[]*database.Event` — members, power levels, encryption, **`m.bridge`**, name/topic/avatar). It carries **no** account data, so opening a room does **not** refresh `m.tag`/`m.fully_read`. (`m.bridge` is a *state* event, which is why bridge info *does* refresh on room open while tags do not.) Tag/read-marker state for a room is only ever as fresh as the last `sync_complete` that included that room's object.
+
 ### What a catchup payload contains
 
 `GetCatchupSync` (gomuks `pkg/hicli/init.go`) returns, since the timestamp:
