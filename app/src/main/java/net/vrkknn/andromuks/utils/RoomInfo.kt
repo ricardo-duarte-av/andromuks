@@ -1197,9 +1197,13 @@ private fun MembersDialog(
             }
         }
 
-        // Separate BAN and LEAVE members
-        val activeMembers = filtered.filter { it.membership != "ban" && it.membership != "leave" }
-        val banLeaveMembers = filtered.filter { it.membership == "ban" || it.membership == "leave" }
+        // Drop members who have left — they are no longer in the room.
+        // Group the rest: active members, then banned, then knockers at the very bottom.
+        val activeMembers = filtered.filter {
+            it.membership != "ban" && it.membership != "leave" && it.membership != "knock"
+        }
+        val banMembers = filtered.filter { it.membership == "ban" }
+        val knockMembers = filtered.filter { it.membership == "knock" }
 
         // Sort active members: by power level (descending), then by room-specific displayname, then global displayname, then username
         val sortedActive = activeMembers.sortedWith(
@@ -1211,27 +1215,29 @@ private fun MembersDialog(
             ),
         )
 
-        // Sort ban/leave members: alphabetically by room-specific displayname, then global displayname, then username
-        val sortedBanLeave = banLeaveMembers.sortedWith(
-            compareBy<RoomMember>(
-                { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
-                { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
-                { usernameFromMatrixId(it.userId).lowercase() }, // Username
-            ),
+        // Sort banned/knocking members alphabetically by room-specific displayname, then global displayname, then username
+        val alphabetical = compareBy<RoomMember>(
+            { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
+            { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
+            { usernameFromMatrixId(it.userId).lowercase() }, // Username
         )
+        val sortedBan = banMembers.sortedWith(alphabetical)
+        val sortedKnock = knockMembers.sortedWith(alphabetical)
 
-        // Return active members first, then ban/leave members at the bottom
-        sortedActive + sortedBanLeave
+        // Active members first, then banned, then knockers at the bottom
+        sortedActive + sortedBan + sortedKnock
     }
 
     val joinedCount = members.count { it.membership == "join" }
     val invitedCount = members.count { it.membership == "invite" }
+    // Members still in the room (everyone except those who have left)
+    val presentCount = members.count { it.membership != "leave" }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Room Members (${members.size})")
+                Text("Room Members ($presentCount)")
                 if (invitedCount > 0) {
                     Text(
                         text = "$joinedCount joined, $invitedCount invited",
@@ -1480,6 +1486,7 @@ fun RoomMemberItem(member: RoomMember, homeserverUrl: String, authToken: String,
             Surface(
                 color = when (member.membership) {
                     "invite" -> MaterialTheme.colorScheme.tertiaryContainer
+                    "knock" -> MaterialTheme.colorScheme.secondaryContainer
                     "ban" -> MaterialTheme.colorScheme.errorContainer
                     else -> MaterialTheme.colorScheme.surfaceVariant
                 },
@@ -1490,6 +1497,7 @@ fun RoomMemberItem(member: RoomMember, homeserverUrl: String, authToken: String,
                     style = MaterialTheme.typography.labelSmall,
                     color = when (member.membership) {
                         "invite" -> MaterialTheme.colorScheme.onTertiaryContainer
+                        "knock" -> MaterialTheme.colorScheme.onSecondaryContainer
                         "ban" -> MaterialTheme.colorScheme.onErrorContainer
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },
