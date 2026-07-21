@@ -2171,50 +2171,45 @@ class WebSocketService : Service() {
          * Every sync_complete (initial batch and live) carries server_timestamp; the max is the
          * point a later catchup sync resumes from.
          *
+         * RAM-ONLY BY DESIGN (Option B): this value is deliberately *not* persisted to disk. It is
+         * the single "did this process survive?" signal — its presence in RAM means the process is
+         * the same one that ran the sync, so all the RAM caches it was tracking (account_data,
+         * recent emojis, m.direct, …) survived alongside it and a catchup delta is safe. A process
+         * kill wipes this along with those caches, forcing the next connect to be a cold connect.
+         * Persisting it to disk would resurrect the timestamp without the data it stands for — a
+         * false sense of hydration that lets a catchup land on empty caches and silently drop
+         * unchanged account_data (e.g. recent emojis). See docs/WEBSOCKET_LIFECYCLE.md.
+         *
          * @param serverTimestamp The server_timestamp (epoch millis) from the sync_complete's data
          */
-        fun updateLastServerTimestamp(serverTimestamp: Long, context: Context) {
+        fun updateLastServerTimestamp(serverTimestamp: Long) {
             if (serverTimestamp <= 0L) {
                 return
             }
-            val current = instance?.lastServerTimestamp ?: 0L
-            if (serverTimestamp <= current) {
+            val svc = instance ?: return
+            if (serverTimestamp <= svc.lastServerTimestamp) {
                 return
             }
-            instance?.lastServerTimestamp = serverTimestamp
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit().putLong("last_server_ts", serverTimestamp).apply()
+            svc.lastServerTimestamp = serverTimestamp
         }
 
         /**
-         * Get the highest server_timestamp seen (for the last_server_ts catchup URL parameter).
-         * Returns 0 if no sync_complete with a server_timestamp has been processed yet.
-         *
-         * First checks RAM (fast), then falls back to SharedPreferences (survives restarts).
+         * Get the highest server_timestamp seen this process, for the last_server_ts catchup URL
+         * parameter. Returns 0 when the process is fresh (no sync_complete processed yet, or the
+         * service instance was torn down) — which correctly forces a cold connect. RAM-only; never
+         * reads disk (see [updateLastServerTimestamp]).
          */
-        fun getLastServerTimestamp(context: Context): Long {
-            val ramValue = instance?.lastServerTimestamp ?: 0L
-            if (ramValue != 0L) {
-                return ramValue
-            }
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            val persistedValue = prefs.getLong("last_server_ts", 0L)
-            if (persistedValue != 0L && instance != null) {
-                instance!!.lastServerTimestamp = persistedValue
-            }
-            return persistedValue
-        }
+        fun getLastServerTimestamp(): Long = instance?.lastServerTimestamp ?: 0L
 
         /**
-         * Clear last_server_ts. Called when the client throws away all state (login / force-fresh),
-         * so a subsequent connect does a full initial sync rather than a catchup against stale data.
+         * Clear last_server_ts in RAM. Called when the client throws away all state (login /
+         * force-fresh), so a subsequent connect does a full initial sync rather than a catchup
+         * diffed against the previous account's data.
          */
-        fun clearLastServerTimestamp(context: Context) {
+        fun clearLastServerTimestamp() {
             instance?.lastServerTimestamp = 0L
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit().remove("last_server_ts").apply()
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("WebSocketService", "Cleared last_server_ts")
+                android.util.Log.d("WebSocketService", "Cleared last_server_ts (RAM)")
             }
         }
 
@@ -2962,10 +2957,11 @@ class WebSocketService : Service() {
     // Last received request_id from sync_complete (stored in RAM for faster reconnections)
     private var lastReceivedRequestId: Int = 0
 
-    // Highest server_timestamp seen across all sync_complete messages (RAM cache of the
-    // "last_server_ts" pref). Sent as the last_server_ts URL param to request a catchup sync
-    // after a deliberate teardown, so the backend replies with a compact diff instead of a
-    // full clear_state initial sync. See docs/WEBSOCKET_LIFECYCLE.md catchup notes.
+    // Highest server_timestamp seen across all sync_complete messages this process. RAM-ONLY:
+    // never persisted, so it is exactly 0 whenever the process is fresh (a real kill) and non-zero
+    // only while the same process that ran the sync is still alive. That makes it the catchup-vs-
+    // cold decision signal — non-zero ⇒ RAM caches survived ⇒ catchup is safe; 0 ⇒ cold connect.
+    // Sent as the last_server_ts URL param when non-zero. See docs/WEBSOCKET_LIFECYCLE.md.
     private var lastServerTimestamp: Long = 0L
 
     // Fallback network validation state (exponential backoff)

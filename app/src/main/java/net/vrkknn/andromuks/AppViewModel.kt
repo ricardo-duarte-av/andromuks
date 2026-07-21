@@ -1051,18 +1051,6 @@ class AppViewModel : ViewModel() {
     // Null means follow the default logic (resume if cache exists).
     private var reconnectWithResume: Boolean? = null
 
-    // Flag to request the next connection use a catchup sync (last_server_ts) instead of a full
-    // initial sync. Set by the foreground-after-teardown re-dial: the backend replies with a
-    // compact diff (catchup:true, no clear_state) applied on top of the existing caches, instead
-    // of re-sending the entire room list. Consumed once in initializeWebSocketConnection. Only
-    // honoured when a last_server_ts has actually been recorded.
-    private var reconnectWithCatchup: Boolean = false
-
-    /** Request that the next [initializeWebSocketConnection] attempt a catchup sync. */
-    fun requestCatchupOnNextConnect() {
-        reconnectWithCatchup = true
-    }
-
     // Track uploads in progress per room (roomId -> count)
     internal val uploadInProgressCount = mutableStateMapOf<String, Int>()
 
@@ -3263,20 +3251,22 @@ class AppViewModel : ViewModel() {
             val isClearState = data?.optBoolean("clear_state") == true
             if (isClearState) {
                 val requestId = syncJson.optInt("request_id", 0)
-                // TEMPORARILY DISABLED: clear_state=true normally purges the in-memory
-                // room/space derived state so the server can repopulate from scratch.
-                // We're testing whether honoring this is what wipes the cache-driven UI
-                // before the user sees it. Skipping the reset means the cached roomMap
-                // stays put and the subsequent sync_complete messages merge on top.
-                // If you see stale rooms that shouldn't exist (left rooms still showing,
-                // wrong space membership), this is the prime suspect — re-enable below.
+                // The room/space list is deliberately NOT purged here (handleClearStateReset stays
+                // unwired): purging wiped the cache-driven UI before the user saw it, so instead the
+                // cached roomMap stays put and is reconciled non-destructively by
+                // pruneStaleRoomsAfterClearState at the end of the batch.
+                //
+                // Global account_data (recent emojis, m.direct, ignored users, …) has no such
+                // reconciliation, so it IS wiped now and rebuilt from the authoritative values
+                // re-sent later in this batch — otherwise a stale value could survive a "your state
+                // is rotten" clear_state.
+                syncRoomsCoordinator.clearGlobalAccountStateOnClearState()
                 if (BuildConfig.DEBUG) {
                     android.util.Log.w(
                         "Andromuks",
-                        "🟣 processSyncCompleteMessage: clear_state=true RECEIVED but RESET SKIPPED (debug) - request_id=$requestId",
+                        "🟣 processSyncCompleteMessage: clear_state=true RECEIVED - room list kept (diff-prune), global account_data wiped - request_id=$requestId",
                     )
                 }
-                // syncRoomsCoordinator.handleClearStateReset()
             }
 
             // Update last sync timestamp immediately (this is lightweight)
@@ -6590,8 +6580,11 @@ class AppViewModel : ViewModel() {
             // Clear run_id
             editor.remove("ws_run_id")
 
-            // Clear last_server_ts so a different account logging in gets a full initial sync,
-            // never a catchup diffed against the previous account's data.
+            // Zero the RAM-only last_server_ts so a different account logging in gets a full initial
+            // sync, never a catchup diffed against the previous account's data. (The editor.remove
+            // below is legacy cleanup: pre-Option-B builds persisted this key; it is no longer
+            // written, but a stale value could linger on disk from an upgrade — drop it once.)
+            WebSocketService.clearLastServerTimestamp()
             editor.remove("last_server_ts")
 
             // CRITICAL FIX: Use commit() instead of apply() to ensure credentials are cleared synchronously
@@ -13581,11 +13574,6 @@ class AppViewModel : ViewModel() {
      * @param isReconnection Whether to attempt to resume the previous session (run_id + last_received_event)
      */
     fun initializeWebSocketConnection(homeserverUrl: String, token: String, isReconnection: Boolean? = null) {
-        // Consume the catchup request unconditionally so it can't leak past an early return
-        // (non-primary / already-connected) into a later unrelated connect.
-        val wantCatchup = reconnectWithCatchup
-        reconnectWithCatchup = false
-
         // Only primary instance should connect
         if (instanceRole != InstanceRole.PRIMARY) {
             // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
@@ -13632,12 +13620,15 @@ class AppViewModel : ViewModel() {
             null -> isReconnection ?: false
         }
 
-        // Resolve catchup: honoured only when a last_server_ts has been recorded. A catchup connect
-        // requests a compact diff (last_server_ts) rather than a full initial sync; it takes
-        // precedence over a plain cold connect but is skipped if we're resuming (finalIsReconnection
-        // with an event cursor already covers that case more cheaply).
-        val catchupSince = if (wantCatchup && !finalIsReconnection && appContext != null) {
-            WebSocketService.getLastServerTimestamp(appContext!!)
+        // Resolve catchup purely from the RAM-only last_server_ts (Option B). A non-zero value means
+        // this exact process ran a prior sync, so every RAM cache it tracked (account_data, recent
+        // emojis, m.direct, room list, …) is still present and a compact catchup delta is safe to
+        // apply on top. A fresh/killed process reports 0 and falls back to a cold connect that
+        // re-sends the full authoritative state. Because the decision reads only this signal — not
+        // how we were launched — an FCM open, a launcher tap, and a shortcut behave identically.
+        // Skipped when resuming (finalIsReconnection): the last_received_event cursor is cheaper.
+        val catchupSince = if (!finalIsReconnection) {
+            WebSocketService.getLastServerTimestamp()
         } else {
             0L
         }

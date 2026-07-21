@@ -154,25 +154,37 @@ The app supports two connection modes, controlled by the `useBatterySaverMode` s
 - A chat bubble being open extends the lifetime: `scheduleBatterySaverLinger` re-checks `BubbleTracker.anyBubbleOpen()` at expiry and skips teardown if any bubble is alive. `cancelBatterySaverLinger` is called whenever a surface (main activity or bubble) becomes visible.
 - Notification reply and mark-as-read while disconnected are routed through the gomuks backend's official one-off command endpoint `POST <homeserver>/_gomuks/exec/{command}` (`ExecApi.sendMessage` → `send_message`, `ExecApi.markRead` → `mark_read`); the raw JSON body is the command's `data`, identical to the WebSocket frame's `data`, authed with the same `gomuks_auth` cookie. FCM provides push delivery, so no socket is needed in steady-state.
 - Other state-updating commands take the same `/exec` route while disconnected via `ExecCommandCoordinator`, which allocates a synthetic `request_id`, registers it in the same request-tracking map(s) the WS path uses, and feeds the parsed body back through `handleResponse`/`handleError` (the `/exec` body is byte-identical to a WS `response` frame's `data`, so no handler changes are needed): `paginate` (timeline-cache hydration on FCM wake-up, `paginateViaExec`) and `get_specific_room_state` (on-demand user-profile fetch — `flushProfileBatch` falls back to `/exec` when the socket is down; see [USER_PROFILES.md](USER_PROFILES.md#when-get_specific_room_state-is-requested)).
-- **No batching:** `SyncBatchProcessor.batterySaverModeEnabled = true` makes `processSyncComplete` always take the immediate path, even while backgrounded. Within the 15 s linger window every arriving `sync_complete` is applied straight to the caches; no `batchJob` is ever scheduled, so there is no future wakeup queued against a socket that is about to die. Any sync the user missed while disconnected is re-delivered on the next connect — a **catchup sync** (compact delta via `last_server_ts`; see [Catchup Sync](#catchup-sync-fast-foreground-after-a-deliberate-teardown) below), falling back to a full `clear_state=true` sync when no `last_server_ts` has been recorded — not a replay of the missed stream.
+- **No batching:** `SyncBatchProcessor.batterySaverModeEnabled = true` makes `processSyncComplete` always take the immediate path, even while backgrounded. Within the 15 s linger window every arriving `sync_complete` is applied straight to the caches; no `batchJob` is ever scheduled, so there is no future wakeup queued against a socket that is about to die. Any sync the user missed while disconnected is re-delivered on the next connect — a **catchup sync** (compact delta via `last_server_ts`; see [Catchup Sync](#catchup-sync-fast-reconnect-whenever-the-process-survived) below), falling back to a full `clear_state=true` sync when no `last_server_ts` has been recorded (a killed process) — not a replay of the missed stream.
 - At linger expiry the service flips `PREF_BATTERY_SAVER_USER_DISCONNECTED` and either calls `primaryVm.markForceFreshPaginateAfterWsDown()` (if a VM is attached) or sets `PREF_FORCE_FRESH_TIMELINE_PAGINATE` (consumed by the next VM open via `consumeForceFreshTimelinePaginatePending`). The next room open then bypasses the timeline cache fast path and paginates fresh, so a stale snapshot from before the disconnect cannot leak into the UI.
 - On foreground resume, `onAppBecameVisible` clears `PREF_BATTERY_SAVER_USER_DISCONNECTED`, reschedules `WebSocketHealthCheckWorker`, and runs the same `pingNowWithWatchdog` re-dial that the always-on path uses.
 
 The setting can be toggled at runtime. The lifecycle change takes effect on the next background/foreground transition; no service restart is forced. No connectivity probe is needed when enabling battery-saver mode — `/_gomuks/exec` is served by the main gomuks backend, which is reachable whenever the homeserver is.
 
-## Catchup Sync (fast foreground after a deliberate teardown)
+## Catchup Sync (fast reconnect whenever the process survived)
 
-When the socket is deliberately torn down (battery-saver linger, or a socket that died while backgrounded) and the app is later foregrounded, the naive reconnect is a **cold connect**: the backend sends `clear_state=true` followed by the entire room list (observed as 7–8 × ~500 KB `sync_complete` messages). A catchup sync replaces that with a single compact delta.
+A **cold connect** is the expensive reconnect: the backend sends `clear_state=true` followed by the entire room list (observed as 7–8 × ~500 KB `sync_complete` messages). We only pay it when we have to — a fresh launch, a killed process, or a forced fresh. Whenever the socket drops but the **app process is still alive** (so the RAM `last_server_ts` is set), the reconnect is instead a **catchup connect**: a single compact delta, `catchup:true`, and **no `clear_state`**.
 
 ### The three connect modes
 
 | Mode | URL params | Backend response |
 |---|---|---|
-| Cold (first login / forced fresh) | none | `clear_state=true` full initial sync |
+| Cold (fresh launch / killed process / forced fresh) | none | `clear_state=true` full initial sync |
 | Resume (network blip, socket was up) | `run_id` + `last_received_event` | replay of buffered events since the cursor; **no** `init_complete` (first `sync_complete` acts as it) |
-| **Catchup (foreground after teardown)** | `last_server_ts` | one `sync_complete` with `catchup:true` (no `clear_state`), then a normal `init_complete` |
+| **Catchup (process survived, socket down)** | `last_server_ts` | one `sync_complete` with `catchup:true` (no `clear_state`), then a normal `init_complete` |
 
 Catchup keys on `last_server_ts` **only** — `run_id` is irrelevant to the backend's catchup decision. We deliberately do **not** send `last_received_event`, so the backend skips stream-resume event replay (which can be arbitrarily large after a long background) and instead diffs its DB by modification timestamp.
+
+### The catchup-vs-cold decision: RAM-only `last_server_ts` (Option B)
+
+The connect mode is chosen **solely** by whether a `last_server_ts` is present — and that value is deliberately **RAM-only, never persisted to disk**. This is the load-bearing invariant:
+
+- `WebSocketService.lastServerTimestamp` is a plain field, zeroed on every fresh process. `getLastServerTimestamp()` returns it verbatim with **no** disk fallback.
+- **Non-zero ⇒ this exact process ran a prior sync ⇒ every RAM cache it was tracking survived** (global `account_data`, recent emojis, `m.direct`, the room map, …) ⇒ a catchup delta is safe to apply on top.
+- **Zero ⇒ fresh/killed process ⇒ those caches are gone** ⇒ a cold connect must re-send the full authoritative state.
+
+Persisting the timestamp to disk (as an earlier design did) breaks this: the timestamp would resurrect after a kill **without** the data it stands for — a *false sense of hydration*. A catchup would then land on empty caches and silently drop any `account_data` the delta didn't re-send (unchanged keys are omitted — e.g. recent emojis vanished). RAM-only ties the signal's lifetime to the data's lifetime, so the two can never disagree.
+
+Because the decision reads only this signal — **not how the app was launched** — an FCM notification open, a launcher tap, and a shortcut behave identically: catchup iff the process survived.
 
 ### High-water `server_timestamp`
 
@@ -185,7 +197,7 @@ Every `sync_complete` — initial batch and live — carries a top-level `data.s
 }}
 ```
 
-`SyncRoomsCoordinator.processSyncCompleteAtomic` records the max into the `last_server_ts` pref (RAM-cached in `WebSocketService.lastServerTimestamp`; helpers `updateLastServerTimestamp` / `getLastServerTimestamp` / `clearLastServerTimestamp`). It is cleared in `clearCredentialsAndNavigateToLogin` (alongside `ws_run_id`) so a different account logging in gets a full sync, never a catchup diffed against the previous account's data. Re-auth keeps it (same account) and cold-connects anyway.
+`SyncRoomsCoordinator.processSyncCompleteAtomic` records the max into `WebSocketService.lastServerTimestamp` (RAM only; helpers `updateLastServerTimestamp` / `getLastServerTimestamp` / `clearLastServerTimestamp`). `clearCredentialsAndNavigateToLogin` zeroes it via `clearLastServerTimestamp()` (and drops the legacy `last_server_ts` pref that pre-Option-B builds wrote) so a different account logging in gets a full sync, never a catchup diffed against the previous account's data.
 
 ### Account data: user vs room, and how each is delivered
 
@@ -226,10 +238,16 @@ Complementarily, the flags are persisted in `RoomMetadataStore` v4 (see [AUTHCHE
 
 ### Wiring (client)
 
-- `AppViewModel.requestCatchupOnNextConnect()` sets a one-shot `reconnectWithCatchup` flag, consumed unconditionally at the top of `initializeWebSocketConnection` (so it can't leak past an early return). When set (and a `last_server_ts` exists and we're not resuming), `catchupSince` is threaded through `WebSocketService.connectWebSocket` → `NetworkUtils.connectToWebsocket`, which emits `last_server_ts` and marks `setReconnectingWithLastReceivedEvent(false)` (catchup ends with a real `init_complete`).
-- `ViewModelLifecycleCoordinator.onAppBecameVisible`'s re-dial branch (socket down on foreground) calls `requestCatchupOnNextConnect()` before dialing. It is self-guarding: no recorded `last_server_ts` ⇒ `catchupSince = 0` ⇒ ordinary cold connect.
+- `initializeWebSocketConnection` resolves `catchupSince` directly from `WebSocketService.getLastServerTimestamp()` (RAM-only): non-zero and not-resuming ⇒ catchup. There is **no** one-shot request flag — the decision is a pure function of the RAM signal, so every caller (`AuthCheck`, `MainActivity`, the foreground re-dial) gets the same behaviour without opting in. `catchupSince` threads through `WebSocketService.connectWebSocket` → `NetworkUtils.connectToWebsocket`, which emits `last_server_ts` and marks `setReconnectingWithLastReceivedEvent(false)` (catchup ends with a real `init_complete`).
+- `ViewModelLifecycleCoordinator.onAppBecameVisible`'s re-dial branch (socket down on foreground) just calls `initializeWebSocketConnection`. Because that path only runs while the process is alive, the RAM `last_server_ts` is set and it naturally gets a catchup — but the decision lives in one place, keeping FCM / launcher / shortcut / re-dial uniform.
 
-### Why it applies safely as a delta
+### `clear_state=true` wipes global account data (but not the room list)
+
+`clear_state=true` means "your state is rotten, here is the authoritative set from scratch". Under Option B it only ever arrives on a genuine **cold connect** (RAM `last_server_ts` was 0). On its arrival, `SyncRoomsCoordinator.clearGlobalAccountStateOnClearState()` drops the RAM caches that have **no other reconciliation** and would otherwise stale-merge with the incoming payload: global `account_data` (`AccountDataCache`), recent emojis, `m.direct`, ignored users, emoji/sticker packs. The authoritative values are re-sent within the same init batch.
+
+The **room / space list is deliberately not wiped** here — it keeps the cache-first no-flash design: painted from the disk `RoomMetadataStore` and reconciled non-destructively by `pruneStaleRoomsAfterClearState` (add/remove from the authoritative batch). `RoomMetadataStore`'s disk rows are a startup-paint optimization brought up to date by that same batch, so they stay safe across a `clear_state`. (`handleClearStateReset`, the old wholesale purge, stays unwired.)
+
+### Why a catchup applies safely as a delta
 
 A catchup batch has **no `clear_state`**, so `isClearState = false` throughout ingest and it flows through the normal incremental path on top of the kept caches (`roomMap` is not cleared on re-dial). The critical safety property: the **stale-room diff-prune** in `onInitComplete` runs only when `isClearStateBatch` is true (msg 1 had `clear_state`) — a `catchup` batch never sets it, so the prune (which would wrongly delete every room absent from the delta) is structurally skipped. Deletions instead come from the explicit `left_rooms` list (→ `removedRoomIds`, which also removes declined invites from `PendingInvitesCache`).
 

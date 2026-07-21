@@ -310,10 +310,10 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                     )
                     if (haveCreds) {
                         // Foreground re-dial after a deliberate teardown (battery-saver linger, or a
-                        // socket that died while backgrounded): prefer a catchup sync over a full
-                        // initial sync. The request is self-guarding — if no last_server_ts has been
-                        // recorded yet, initializeWebSocketConnection falls back to a cold connect.
-                        requestCatchupOnNextConnect()
+                        // socket that died while backgrounded). initializeWebSocketConnection decides
+                        // catchup vs cold from the RAM-only last_server_ts: this path only runs while
+                        // the process is alive, so that signal is set and we get a compact catchup —
+                        // but the decision lives there, not here, so every entry point stays uniform.
                         initializeWebSocketConnection(homeserverUrl, authToken)
                     } else {
                         startWebSocketService()

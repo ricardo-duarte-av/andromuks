@@ -677,11 +677,11 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             val isClearState = data?.optBoolean("clear_state") == true
 
             // Track the highest server_timestamp seen. Every sync_complete (initial + live) carries
-            // it; the max becomes the last_server_ts we send to request a catchup sync on the next
-            // deliberate-teardown reconnect (compact diff instead of a full initial sync).
+            // it; the max is the RAM-only last_server_ts that decides whether the next connect this
+            // process can be a catchup (non-zero ⇒ RAM survived) or must be a cold connect (0).
             val serverTimestamp = data?.optLong("server_timestamp", 0L) ?: 0L
             if (serverTimestamp > 0L) {
-                WebSocketService.updateLastServerTimestamp(serverTimestamp, context)
+                WebSocketService.updateLastServerTimestamp(serverTimestamp)
             }
 
             // A catchup batch is a delta (only rooms/account-data changed since last_server_ts) with
@@ -696,15 +696,21 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 )
             }
             if (isClearState) {
-                // We intentionally do NOT purge here (handleClearStateReset) — that would wipe the
-                // cache-first room list and cause a cold-start flash. Staleness is instead reconciled
-                // non-destructively once the whole init batch is processed: AppViewModel.onInitComplete
-                // accumulates every room id seen across the batch and calls pruneStaleRoomsAfterClearState,
-                // removing only rooms absent from the authoritative set.
+                // We intentionally do NOT purge the room/space list here (handleClearStateReset) —
+                // that would wipe the cache-first room list and cause a cold-start flash. Room
+                // staleness is instead reconciled non-destructively once the whole init batch is
+                // processed: AppViewModel.onInitComplete accumulates every room id seen across the
+                // batch and calls pruneStaleRoomsAfterClearState, removing only rooms absent from the
+                // authoritative set.
+                //
+                // Global account_data (recent emojis, m.direct, ignored users, …) has no such
+                // reconciliation and would stale-merge, so it IS wiped now and rebuilt from the
+                // authoritative values re-sent later in this batch.
+                clearGlobalAccountStateOnClearState()
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "🟣 processSyncCompleteAtomic: clear_state=true RECEIVED - cache kept, staleness handled by diff-prune at end of init batch (request_id=$requestId)",
+                        "🟣 processSyncCompleteAtomic: clear_state=true RECEIVED - room list kept (diff-prune), global account_data wiped (request_id=$requestId)",
                     )
                 }
             }
@@ -1032,6 +1038,44 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             // Force room list refresh to reflect cleared state until new data arrives
             needsRoomListUpdate = true
             scheduleUIUpdate("roomList")
+        }
+    }
+
+    /**
+     * Wipe the global / account-level RAM caches on the arrival of `clear_state=true`.
+     *
+     * `clear_state=true` is the backend saying "your state is rotten, here is the authoritative set
+     * from scratch". Under Option B it only ever arrives on a genuine cold connect (RAM-only
+     * last_server_ts was 0 — a fresh/killed process, or a force-fresh). We drop the caches that have
+     * NO other reconciliation path and would otherwise stale-merge with the incoming payload:
+     * global account_data and everything derived from it (recent emojis, m.direct, ignored users,
+     * emoji/sticker packs). The full authoritative values are re-sent within the same init batch.
+     *
+     * Deliberately NOT touched here: the room / space list ([AppViewModel.roomMap], RoomListCache,
+     * spaces). Those keep the documented cache-first no-flash design — painted from the disk
+     * RoomMetadataStore and reconciled non-destructively by [pruneStaleRoomsAfterClearState] (which
+     * adds/removes rooms from the authoritative batch). Wiping them here would reintroduce the
+     * cold-start flash that [handleClearStateReset] was unwired to avoid. Per-room account_data and
+     * timelines likewise keep their existing paths. See docs/WEBSOCKET_LIFECYCLE.md.
+     */
+    fun clearGlobalAccountStateOnClearState() {
+        with(vm) {
+            AccountDataCache.clear()
+            RecentEmojisCache.clear()
+            recentEmojiFrequencies.clear()
+            recentEmojis = emptyList()
+            hasLoadedRecentEmojisFromServer = false
+            directMessageRoomIds = emptySet()
+            directMessageUserMap = emptyMap()
+            ignoredUsers = emptySet()
+            EmojiPacksCache.clear()
+            StickerPacksCache.clear()
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "clearGlobalAccountStateOnClearState: wiped global account_data RAM caches (room list preserved for diff-prune)",
+                )
+            }
         }
     }
 
