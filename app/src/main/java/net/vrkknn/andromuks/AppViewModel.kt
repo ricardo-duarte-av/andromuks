@@ -4413,6 +4413,13 @@ class AppViewModel : ViewModel() {
     // Stored here (not in composable remember) so it survives composable recreation on back-navigation.
     var threadReturnScrollEventId: String? = null
 
+    // Saved timeline scroll position (reversed-layout firstVisibleItemIndex + offset) per room,
+    // captured before navigating to UserInfo/RoomInfo and restored when RoomTimelineScreen is
+    // recreated on back-navigation. Stored here (not a composable remember) precisely because that
+    // screen is disposed on forward navigation, so a remember would be lost. Keyed by roomId so a
+    // position saved for one room is never applied to a different one.
+    val timelineReturnScroll = ConcurrentHashMap<String, Pair<Int, Int>>()
+
     // Websocket restart callback
     var onRestartWebSocket: ((ReconnectTrigger) -> Unit)? = null
 

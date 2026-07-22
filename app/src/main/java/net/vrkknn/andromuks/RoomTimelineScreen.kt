@@ -2094,6 +2094,14 @@ fun RoomTimelineScreen(
         }
     }
 
+    // Capture the current scroll position before navigating to a screen that disposes this one
+    // (UserInfo/RoomInfo), so it can be restored on back-navigation. Stored in AppViewModel because
+    // this composable is torn down on forward navigation.
+    fun saveTimelineReturnScroll() {
+        appViewModel.timelineReturnScroll[roomId] =
+            listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+    }
+
     // Restore scroll position when returning from EventContextScreen
     LaunchedEffect(navController) {
         snapshotFlow { navController.currentBackStackEntry?.destination?.route }
@@ -2832,9 +2840,29 @@ fun RoomTimelineScreen(
                         }
                     }
                 } else {
-                    // Normal initial load — scroll to bottom (newest message)
-                    listState.scrollToItem(0)
-                    isAttachedToBottom = true
+                    // Returning from UserInfo/RoomInfo? Restore the exact scroll position captured
+                    // before navigating there instead of snapping to the bottom. Both capture and
+                    // restore use listState's reversed-layout coordinates, so no conversion is needed.
+                    val returnScroll = appViewModel.timelineReturnScroll.remove(roomId)
+                    if (returnScroll != null) {
+                        // Suppress competing scroll effects while we restore (same guard the thread
+                        // return path uses above).
+                        pendingScrollRestoration = true
+                        val maxIndex = (timelineItems.size - 1).coerceAtLeast(0)
+                        val targetIndex = returnScroll.first.coerceIn(0, maxIndex)
+                        listState.scrollToItem(targetIndex, returnScroll.second)
+                        isAttachedToBottom = targetIndex == 0
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "Andromuks",
+                                "RoomTimelineScreen: ✅ Restored scroll to index=$targetIndex offset=${returnScroll.second} after returning from UserInfo/RoomInfo",
+                            )
+                        }
+                    } else {
+                        // Normal initial load — scroll to bottom (newest message)
+                        listState.scrollToItem(0)
+                        isAttachedToBottom = true
+                    }
                 }
                 hasInitialSnapCompleted = true
                 hasLoadedInitialBatch = true
@@ -3076,9 +3104,11 @@ fun RoomTimelineScreen(
 
         onDispose {
             val destinationRoute = navController.currentBackStackEntry?.destination?.route.orEmpty()
-            // Keep timeline warm when navigating to UserInfo (pop-back remains fluid) or
-            // EventContext (EventContextScreen may still query this room's cache).
+            // Keep timeline warm when navigating to UserInfo or RoomInfo (pop-back remains fluid and
+            // the saved scroll position is restored) or EventContext (EventContextScreen may still
+            // query this room's cache).
             val keepWarm = destinationRoute.startsWith("user_info") ||
+                destinationRoute.startsWith("room_info") ||
                 destinationRoute.startsWith("event_context") ||
                 destinationRoute.startsWith("thread_viewer")
             if (!keepWarm) {
@@ -3619,6 +3649,7 @@ fun RoomTimelineScreen(
                             animatedVisibilityScope = animatedVisibilityScope,
                             onHeaderClick = {
                                 // Navigate to room info screen
+                                saveTimelineReturnScroll()
                                 navController.navigate("room_info/$roomId")
                             },
                             onBackClick = {
@@ -3945,6 +3976,7 @@ fun RoomTimelineScreen(
                                                                         "RoomTimelineScreen: onUserAvatarClick -> userId=$userId, tappedEventId=$tappedEventId",
                                                                     )
                                                                 }
+                                                                saveTimelineReturnScroll()
                                                                 navController.navigateToUserInfo(userId, roomId, tappedEventId)
                                                             },
                                                             onUserClick = { userId ->
@@ -3955,6 +3987,7 @@ fun RoomTimelineScreen(
                                                                         "RoomTimelineScreen: Navigating to user info - userId=$userId, eventId=${event.eventId}",
                                                                     )
                                                                 }
+                                                                saveTimelineReturnScroll()
                                                                 navController.navigateToUserInfo(userId, roomId, event.eventId)
                                                             },
                                                             onRoomLinkClick = { roomLink ->
