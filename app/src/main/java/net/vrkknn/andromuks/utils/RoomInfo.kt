@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks.utils
 
-import android.widget.Toast
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
@@ -44,7 +43,6 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
-import net.vrkknn.andromuks.ui.components.FullImageDialog
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import org.json.JSONObject
@@ -131,7 +129,7 @@ fun RoomInfoScreen(
     // State for leave room confirmation dialog
     var showLeaveRoomDialog by remember { mutableStateOf(false) }
     var showFullAvatarDialog by remember { mutableStateOf(false) }
-    var fullAvatarUrl by remember { mutableStateOf<String?>(null) }
+    var fullAvatarMxc by remember { mutableStateOf<String?>(null) }
 
     // Request room state when the screen is created
     LaunchedEffect(roomId) {
@@ -290,32 +288,8 @@ fun RoomInfoScreen(
                             .clickable(enabled = effectiveAvatarUrl != null) {
                                 val avatarUrl = effectiveAvatarUrl
                                 if (!avatarUrl.isNullOrBlank()) {
-                                    val fullUrl = AvatarUtils.getFullImageUrl(
-                                        context,
-                                        avatarUrl,
-                                        appViewModel.homeserverUrl,
-                                    ) ?: AvatarUtils.getAvatarUrl(
-                                        context,
-                                        avatarUrl,
-                                        appViewModel.homeserverUrl,
-                                    )
-
-                                    if (fullUrl != null) {
-                                        fullAvatarUrl = fullUrl
-                                        showFullAvatarDialog = true
-                                    } else {
-                                        Toast.makeText(
-                                            context,
-                                            "Full-size avatar unavailable",
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                } else {
-                                    Toast.makeText(
-                                        context,
-                                        "Room has no avatar",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
+                                    fullAvatarMxc = avatarUrl
+                                    showFullAvatarDialog = true
                                 }
                             },
                         contentAlignment = Alignment.Center,
@@ -823,12 +797,13 @@ fun RoomInfoScreen(
         )
     }
 
-    if (showFullAvatarDialog && fullAvatarUrl != null) {
-        FullImageDialog(
-            imageUrl = fullAvatarUrl!!,
+    if (showFullAvatarDialog && fullAvatarMxc != null) {
+        ImageViewerDialog(
+            mediaMessage = avatarImageMediaMessage(fullAvatarMxc!!),
+            homeserverUrl = appViewModel.homeserverUrl,
             authToken = appViewModel.authToken,
+            isEncrypted = false,
             onDismiss = { showFullAvatarDialog = false },
-            contentDescription = roomStateInfo?.name ?: roomId,
         )
     }
 

@@ -2,17 +2,14 @@ package net.vrkknn.andromuks.utils
 
 import android.Manifest
 import android.accounts.AccountManager
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.os.SystemClock
 import android.provider.ContactsContract.RawContacts.DefaultAccount
 import android.provider.ContactsContract.RawContacts.DefaultAccount.DefaultAccountAndState
-import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -23,21 +20,14 @@ import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -46,11 +36,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.RotateLeft
-import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
@@ -58,7 +45,6 @@ import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.LoadingIndicatorDefaults
 import androidx.compose.runtime.*
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -69,7 +55,6 @@ import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -78,16 +63,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.graphics.shapes.Morph
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
-import coil3.size.Precision
-import coil3.size.Size
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -99,17 +80,12 @@ import net.vrkknn.andromuks.MatrixUser
 import net.vrkknn.andromuks.RoomTimelineCache
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
-import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUploadUtils
 import net.vrkknn.andromuks.utils.MediaUtils
-import net.vrkknn.andromuks.utils.getUserAgent
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.File
 import java.text.BreakIterator
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -593,9 +569,9 @@ fun UserInfoScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var showFullAvatarDialog by remember { mutableStateOf(false) }
-    var fullAvatarUrl by remember { mutableStateOf<String?>(null) }
-    var viewingGlobalAvatar by remember { mutableStateOf(false) } // Track which avatar is being viewed
-    var viewingBanner by remember { mutableStateOf(false) } // Track if viewing banner (not avatar)
+    // mxc:// URL of the avatar/banner to view. ImageViewerDialog resolves it to a full-size HTTP URL
+    // and handles cache lookup, so the click sites store the mxc directly (never a resolved HTTP URL).
+    var fullAvatarMxc by remember { mutableStateOf<String?>(null) }
     // State to hold user info
     var userProfileInfo by remember { mutableStateOf<UserProfileInfo?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -1303,11 +1279,9 @@ fun UserInfoScreen(
                                 .clickable {
                                     if (bannerHttpUrl != null) {
                                         if (BuildConfig.DEBUG) {
-                                            Log.d("Andromuks", "UserInfo: Banner clicked, opening: $bannerHttpUrl")
+                                            Log.d("Andromuks", "UserInfo: Banner clicked, opening: ${profileBanner.mxcUrl}")
                                         }
-                                        fullAvatarUrl = bannerHttpUrl
-                                        viewingGlobalAvatar = false
-                                        viewingBanner = true
+                                        fullAvatarMxc = profileBanner.mxcUrl
                                         showFullAvatarDialog = true
                                     }
                                 },
@@ -1324,34 +1298,8 @@ fun UserInfoScreen(
                                     .size(128.dp)
                                     .clickable(enabled = avatarUrlToUse != null) {
                                         if (!avatarUrlToUse.isNullOrBlank()) {
-                                            val fullUrl = AvatarUtils.getFullImageUrl(
-                                                context,
-                                                avatarUrlToUse,
-                                                appViewModel.homeserverUrl,
-                                            ) ?: AvatarUtils.getAvatarUrl(
-                                                context,
-                                                avatarUrlToUse,
-                                                appViewModel.homeserverUrl,
-                                            )
-
-                                            if (fullUrl != null) {
-                                                fullAvatarUrl = fullUrl
-                                                viewingGlobalAvatar = false
-                                                viewingBanner = false
-                                                showFullAvatarDialog = true
-                                            } else {
-                                                Toast.makeText(
-                                                    context,
-                                                    "Full-size avatar unavailable",
-                                                    Toast.LENGTH_SHORT,
-                                                ).show()
-                                            }
-                                        } else {
-                                            Toast.makeText(
-                                                context,
-                                                "User has no avatar",
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
+                                            fullAvatarMxc = avatarUrlToUse
+                                            showFullAvatarDialog = true
                                         }
                                     },
                                 contentAlignment = Alignment.Center,
@@ -1420,19 +1368,8 @@ fun UserInfoScreen(
                                             .align(Alignment.TopEnd)
                                             .size(48.dp)
                                             .clickable {
-                                                val fullUrl = AvatarUtils.getFullImageUrl(
-                                                    context,
-                                                    globalAvatarUrl,
-                                                    appViewModel.homeserverUrl,
-                                                ) ?: AvatarUtils.getAvatarUrl(
-                                                    context,
-                                                    globalAvatarUrl,
-                                                    appViewModel.homeserverUrl,
-                                                )
-                                                if (fullUrl != null) {
-                                                    fullAvatarUrl = fullUrl
-                                                    viewingGlobalAvatar = true
-                                                    viewingBanner = false
+                                                if (!globalAvatarUrl.isNullOrBlank()) {
+                                                    fullAvatarMxc = globalAvatarUrl
                                                     showFullAvatarDialog = true
                                                 }
                                             },
@@ -1469,34 +1406,8 @@ fun UserInfoScreen(
                             .size(128.dp)
                             .clickable(enabled = avatarUrlToUse != null) {
                                 if (!avatarUrlToUse.isNullOrBlank()) {
-                                    val fullUrl = AvatarUtils.getFullImageUrl(
-                                        context,
-                                        avatarUrlToUse,
-                                        appViewModel.homeserverUrl,
-                                    ) ?: AvatarUtils.getAvatarUrl(
-                                        context,
-                                        avatarUrlToUse,
-                                        appViewModel.homeserverUrl,
-                                    )
-
-                                    if (fullUrl != null) {
-                                        fullAvatarUrl = fullUrl
-                                        viewingGlobalAvatar = false // Main avatar (room-specific if available)
-                                        viewingBanner = false
-                                        showFullAvatarDialog = true
-                                    } else {
-                                        Toast.makeText(
-                                            context,
-                                            "Full-size avatar unavailable",
-                                            Toast.LENGTH_SHORT,
-                                        ).show()
-                                    }
-                                } else {
-                                    Toast.makeText(
-                                        context,
-                                        "User has no avatar",
-                                        Toast.LENGTH_SHORT,
-                                    ).show()
+                                    fullAvatarMxc = avatarUrlToUse
+                                    showFullAvatarDialog = true
                                 }
                             },
                         contentAlignment = Alignment.Center,
@@ -1572,27 +1483,9 @@ fun UserInfoScreen(
                                     .padding(4.dp)
                                     .clickable(enabled = true) {
                                         // Open global avatar in viewer
-                                        val fullUrl = AvatarUtils.getFullImageUrl(
-                                            context,
-                                            globalAvatarUrl,
-                                            appViewModel.homeserverUrl,
-                                        ) ?: AvatarUtils.getAvatarUrl(
-                                            context,
-                                            globalAvatarUrl,
-                                            appViewModel.homeserverUrl,
-                                        )
-
-                                        if (fullUrl != null) {
-                                            fullAvatarUrl = fullUrl
-                                            viewingGlobalAvatar = true // Global avatar badge
-                                            viewingBanner = false
+                                        if (!globalAvatarUrl.isNullOrBlank()) {
+                                            fullAvatarMxc = globalAvatarUrl
                                             showFullAvatarDialog = true
-                                        } else {
-                                            Toast.makeText(
-                                                context,
-                                                "Full-size avatar unavailable",
-                                                Toast.LENGTH_SHORT,
-                                            ).show()
                                         }
                                     },
                             ) {
@@ -2241,34 +2134,13 @@ fun UserInfoScreen(
         )
     }
 
-    if (showFullAvatarDialog && fullAvatarUrl != null) {
-        // When viewing banner, don't pass avatarMxcUrl (prevents cache lookup using wrong URL)
-        val avatarMxcUrl = if (viewingBanner) {
-            null
-        } else if (viewingGlobalAvatar) {
-            userProfileInfo?.avatarUrl
-        } else {
-            userProfileInfo?.roomAvatarUrl ?: userProfileInfo?.avatarUrl
-        }
-        val displayName = if (viewingBanner) {
-            "Profile Banner"
-        } else if (viewingGlobalAvatar) {
-            userProfileInfo?.displayName ?: userId
-        } else {
-            userProfileInfo?.roomDisplayName ?: userProfileInfo?.displayName ?: userId
-        }
-
-        AvatarViewerDialog(
-            imageUrl = fullAvatarUrl!!,
-            avatarMxcUrl = avatarMxcUrl,
+    if (showFullAvatarDialog && fullAvatarMxc != null) {
+        ImageViewerDialog(
+            mediaMessage = avatarImageMediaMessage(fullAvatarMxc!!),
             homeserverUrl = appViewModel.homeserverUrl,
             authToken = appViewModel.authToken,
-            displayName = displayName,
-            onDismiss = {
-                showFullAvatarDialog = false
-                viewingGlobalAvatar = false
-                viewingBanner = false
-            },
+            isEncrypted = false,
+            onDismiss = { showFullAvatarDialog = false },
         )
     }
 
@@ -3290,279 +3162,6 @@ fun DeviceInfoCard(device: DeviceInfo) {
         }
     }
 }
-
-/**
- * Avatar viewer dialog with rotation and download support
- */
-@Composable
-fun AvatarViewerDialog(imageUrl: String, avatarMxcUrl: String?, homeserverUrl: String, authToken: String, displayName: String, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val imageLoader = remember { ImageLoaderSingleton.get(context) }
-
-    var scale by remember { mutableFloatStateOf(1f) }
-    var offsetX by remember { mutableFloatStateOf(0f) }
-    var offsetY by remember { mutableFloatStateOf(0f) }
-    var rotationDegrees by remember { mutableFloatStateOf(0f) }
-
-    // Animate rotation smoothly
-    val animatedRotation by animateFloatAsState(
-        targetValue = rotationDegrees,
-        animationSpec = tween(durationMillis = scaledTweenMs(300)),
-        label = "rotation",
-    )
-    val normalizedRotation = (animatedRotation % 360f + 360f) % 360f
-
-    val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
-        scale = (scale * zoomChange).coerceIn(0.5f, 5f)
-        val panScale = scale
-        val maxPan = 4000f * scale
-        offsetX = (offsetX + offsetChange.x * panScale).coerceIn(-maxPan, maxPan)
-        offsetY = (offsetY + offsetChange.y * panScale).coerceIn(-maxPan, maxPan)
-    }
-
-    // Check for cached file
-    var cachedFile by remember { mutableStateOf<File?>(null) }
-    LaunchedEffect(avatarMxcUrl) {
-        if (avatarMxcUrl != null) {
-            cachedFile = IntelligentMediaCache.getCachedFile(context, avatarMxcUrl)
-        }
-    }
-
-    val finalImageUrl = remember(imageUrl, cachedFile) {
-        cachedFile?.absolutePath ?: imageUrl
-    }
-
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false,
-        ),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .clickable(onClick = onDismiss),
-        ) {
-            // Image with zoom, pan, and rotation
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offsetX,
-                        translationY = offsetY,
-                        rotationZ = normalizedRotation,
-                    )
-                    .transformable(state = transformableState)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                // Reset zoom and pan on tap
-                                scale = 1f
-                                offsetX = 0f
-                                offsetY = 0f
-                            },
-                        )
-                    },
-            ) {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(finalImageUrl)
-                        .apply {
-                            if (cachedFile == null && finalImageUrl.startsWith("http")) {
-                            }
-                        }
-                        .size(Size.ORIGINAL)
-                        .precision(Precision.EXACT)
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .build(),
-                    imageLoader = imageLoader,
-                    contentDescription = displayName,
-                    contentScale = ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-
-            // Top toolbar with action buttons
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.statusBars)
-                    .padding(horizontal = 8.dp)
-                    .padding(top = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
-                // Rotate Left button
-                IconButton(
-                    onClick = {
-                        rotationDegrees = rotationDegrees - 90f
-                        scale = 1f
-                        offsetX = 0f
-                        offsetY = 0f
-                    },
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.RotateLeft,
-                        contentDescription = "Rotate Left",
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-
-                // Rotate Right button
-                IconButton(
-                    onClick = {
-                        rotationDegrees = rotationDegrees + 90f
-                        scale = 1f
-                        offsetX = 0f
-                        offsetY = 0f
-                    },
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.RotateRight,
-                        contentDescription = "Rotate Right",
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-
-                // Save button
-                IconButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            saveAvatarToGallery(
-                                context = context,
-                                cachedFile = cachedFile,
-                                imageUrl = finalImageUrl,
-                                filename = "${displayName}_avatar.jpg",
-                                authToken = authToken,
-                            )
-                        }
-                    },
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Save,
-                        contentDescription = "Save to Gallery",
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-
-                // Close button
-                IconButton(
-                    onClick = onDismiss,
-                    colors = IconButtonDefaults.iconButtonColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    ),
-                    modifier = Modifier.size(48.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "Close",
-                        modifier = Modifier.size(24.dp),
-                    )
-                }
-            }
-        }
-    }
-}
-
-/**
- * Save avatar image to gallery
- */
-private suspend fun saveAvatarToGallery(context: Context, cachedFile: File?, imageUrl: String, filename: String, authToken: String) =
-    withContext(Dispatchers.IO) {
-        try {
-            var imageFile: File? = cachedFile
-
-            // Download if needed
-            if (imageFile == null && imageUrl.startsWith("http")) {
-                val client = OkHttpClient()
-                val request = Request.Builder()
-                    .url(imageUrl)
-                    .addHeader("Cookie", "gomuks_auth=$authToken")
-                    .addHeader("User-Agent", getUserAgent())
-                    .build()
-
-                val response = client.newCall(request).execute()
-                if (response.isSuccessful) {
-                    response.body?.byteStream()?.use { input ->
-                        val tempFile = File(context.cacheDir, "temp_avatar_${System.currentTimeMillis()}.jpg")
-                        java.io.FileOutputStream(tempFile).use { output ->
-                            input.copyTo(output)
-                        }
-                        imageFile = tempFile
-                    }
-                }
-            } else if (imageFile == null && imageUrl.startsWith("/")) {
-                imageFile = File(imageUrl)
-            }
-
-            if (imageFile == null || !imageFile!!.exists()) {
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(context, "Failed to save avatar", Toast.LENGTH_SHORT).show()
-                }
-                return@withContext
-            }
-
-            // Save to MediaStore
-            val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, filename)
-                put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Andromuks")
-                    put(MediaStore.MediaColumns.IS_PENDING, 1)
-                }
-            }
-
-            val uri = context.contentResolver.insert(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                contentValues,
-            ) ?: throw Exception("Failed to create MediaStore entry")
-
-            // Copy file
-            context.contentResolver.openOutputStream(uri)?.use { output ->
-                imageFile!!.inputStream().use { input ->
-                    input.copyTo(output)
-                }
-            }
-
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-                contentValues.clear()
-                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                context.contentResolver.update(uri, contentValues, null, null)
-            }
-
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Avatar saved to gallery", Toast.LENGTH_SHORT).show()
-            }
-        } catch (e: Exception) {
-            Log.e("Andromuks", "Error saving avatar to gallery", e)
-            withContext(Dispatchers.Main) {
-                Toast.makeText(context, "Error saving avatar: ${e.message}", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
 
 /**
  * Kick confirmation dialog

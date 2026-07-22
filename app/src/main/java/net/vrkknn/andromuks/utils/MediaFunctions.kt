@@ -134,6 +134,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.MediaInfo
 import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.TimelineMediaLayoutCallback
@@ -3020,14 +3021,29 @@ private suspend fun saveImageToGallery(
 }
 
 /**
+ * Wrap a plain avatar/banner `mxc://` URL in a [MediaMessage] so it can be shown with the shared
+ * [ImageViewerDialog] (zoom/pan/rotate + action buttons). Used by the room/user info screens, which
+ * only have an mxc:// URL to hand. Avatars are never encrypted, so callers pass `isEncrypted = false`.
+ * The filename is the mxc media id (matching the timeline gallery adapter) so the Save button writes
+ * a sane filename.
+ */
+internal fun avatarImageMediaMessage(mxcUrl: String): MediaMessage = MediaMessage(
+    url = mxcUrl,
+    filename = mxcUrl.substringAfterLast("/"),
+    caption = null,
+    info = MediaInfo(width = 0, height = 0, size = 0L, mimeType = "image/jpeg", blurHash = null),
+    msgType = "m.image",
+)
+
+/**
  * Fullscreen image viewer dialog with zoom and pan capabilities.
- * 
+ *
  * This dialog provides a fullscreen image viewing experience with:
  * - Pinch to zoom functionality
  * - Pan gestures when zoomed
  * - Close button and back gesture support
  * - Smooth animations and transitions
- * 
+ *
  * @param mediaMessage MediaMessage object containing the image to display
  * @param homeserverUrl Base URL of the Matrix homeserver for MXC URL conversion
  * @param authToken Authentication token for accessing media
