@@ -97,6 +97,15 @@ class WebSocketService : Service() {
         // ViewModel health, validateCallbacks). Time-based so it stays ~30s at either tick rate.
         private const val DEEP_CHECK_INTERVAL_MS = 30_000L
 
+        // How far the persisted last_received_request_id may lag the RAM value before we pay for
+        // a SharedPreferences write. Resuming from a slightly stale id just replays a few syncs.
+        private const val REQUEST_ID_PERSIST_STEP = 10
+
+        // Last value actually written to disk; guards the throttle above. Not the source of
+        // truth — instance.lastReceivedRequestId is.
+        @Volatile
+        private var lastPersistedRequestId = 0
+
         private const val HEARTBEAT_MARGIN_MS = 5000L // 5 seconds margin for coroutine to win
         private const val HEARTBEAT_WAKE_LOCK_MS = 10000L // 10 seconds wake lock for alarm processing
 
@@ -1354,6 +1363,12 @@ class WebSocketService : Service() {
         fun clearWebSocket(reason: String = "Unknown", closeCode: Int? = null, closeReason: String? = null) {
             val serviceInstance = instance ?: return
 
+            // The socket is going away, so no further sync_completes will advance the RAM
+            // request_id. Flush it now — updateLastReceivedRequestId throttles the disk write,
+            // and this is the point where the persisted copy stops being a stale duplicate and
+            // starts being what a reconnect (or a restarted process) will actually resume from.
+            flushLastReceivedRequestId(serviceInstance.applicationContext)
+
             // PHASE 4.1: Store close code and reason if provided
             if (closeCode != null) {
                 serviceInstance.lastCloseCode = closeCode
@@ -2166,17 +2181,44 @@ class WebSocketService : Service() {
             val serviceInstance = instance
             // CRITICAL: request_id can be negative (and usually is), so check != 0 instead of > 0
             if (requestId != 0) {
-                // Update RAM value for fast access
+                // RAM value is always current — this is what a live reconnect actually reads.
                 serviceInstance?.lastReceivedRequestId = requestId
 
-                // CRITICAL: Also persist to SharedPreferences so it survives service restarts
-                val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                prefs.edit().putInt("last_received_request_id", requestId).apply()
-
-                // if (BuildConfig.DEBUG) {
-                //    android.util.Log.d("WebSocketService", "Updated last_received_request_id to $requestId (stored in RAM and SharedPreferences for faster reconnections)")
-                // }
+                // The SharedPreferences copy only matters if the process dies, so it does not
+                // need to be exact. It used to be written on EVERY sync_complete, and each
+                // apply() queues a full XML rewrite + fsync of AndromuksAppPrefs — the app's
+                // large shared blob (see AndromuksApplication.prewarmSharedPreferences). That
+                // was a disk write per incoming sync.
+                //
+                // Resuming from a slightly older id is safe: the backend replays the delta from
+                // whatever id we present, so at worst we re-receive a handful of syncs. Losing
+                // it entirely is not safe, hence the flush hooks below.
+                if (lastPersistedRequestId == 0 ||
+                    kotlin.math.abs(requestId.toLong() - lastPersistedRequestId.toLong()) >= REQUEST_ID_PERSIST_STEP
+                ) {
+                    persistLastReceivedRequestId(requestId, context)
+                }
             }
+        }
+
+        /**
+         * Force the RAM request_id to disk. Called at the points where the process may be about
+         * to stop receiving syncs (service destroy, connection loss), so the persisted value is
+         * fresh exactly when it is about to be the only copy.
+         */
+        fun flushLastReceivedRequestId(context: Context) {
+            val ramValue = instance?.lastReceivedRequestId ?: return
+            if (ramValue != 0 && ramValue != lastPersistedRequestId) {
+                persistLastReceivedRequestId(ramValue, context)
+            }
+        }
+
+        private fun persistLastReceivedRequestId(requestId: Int, context: Context) {
+            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("last_received_request_id", requestId)
+                .apply()
+            lastPersistedRequestId = requestId
         }
 
         /**
@@ -2201,6 +2243,11 @@ class WebSocketService : Service() {
             if (persistedValue != 0 && instance != null) {
                 instance!!.lastReceivedRequestId = persistedValue
             }
+            // Keep the write-throttle tracker aligned with what is actually on disk, so the
+            // next update measures its delta from the right baseline.
+            if (persistedValue != 0) {
+                lastPersistedRequestId = persistedValue
+            }
 
             return persistedValue
         }
@@ -2216,6 +2263,7 @@ class WebSocketService : Service() {
             // Clear from SharedPreferences
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit().remove("last_received_request_id").apply()
+            lastPersistedRequestId = 0
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("WebSocketService", "Cleared last_received_request_id (cold start detected)")
@@ -4724,6 +4772,10 @@ class WebSocketService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
+        // Last chance to persist the RAM request_id before the process may go away; the write
+        // is throttled during normal operation (see updateLastReceivedRequestId).
+        flushLastReceivedRequestId(applicationContext)
+
         // PERFORMANCE: Unregister screen state receiver
         try {
             unregisterReceiver(screenStateReceiver)
