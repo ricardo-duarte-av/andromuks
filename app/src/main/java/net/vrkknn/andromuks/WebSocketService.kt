@@ -667,7 +667,7 @@ class WebSocketService : Service() {
         // When the app is backgrounded in battery-saver mode for longer than the linger
         // window, the lifecycle coordinator stops this service AND sets the
         // battery_saver_user_disconnected pref. All auto-restart paths (AutoRestartReceiver,
-        // BootStartReceiver, AutoRestartWorker, WebSocketHealthCheckWorker) funnel
+        // BootStartReceiver, WebSocketHealthCheckWorker) funnel
         // through ServiceStartWorker, which checks this flag and skips the start.
         // The flag is cleared when the app comes back to the foreground (via
         // ViewModelLifecycleCoordinator.onAppBecameVisible). On a true cold start

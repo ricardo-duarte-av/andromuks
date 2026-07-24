@@ -2089,15 +2089,28 @@ class AppViewModel : ViewModel() {
     // PHASE 5.4: Periodic cleanup job for acknowledged messages
     private var acknowledgedMessagesCleanupJob: Job? = null
 
+    // Acknowledgment-timeout poll cadence — see startAcknowledgmentTimeoutCheck.
+    private val ackTimeoutCheckActiveMs = 10_000L
+    private val ackTimeoutCheckIdleMs = 60_000L
+
     /**
-     * PHASE 5.2: Start periodic check for unacknowledged messages
-     * Checks every 10 seconds for messages that have exceeded their acknowledgment timeout
+     * PHASE 5.2: Start periodic check for unacknowledged messages.
+     *
+     * Polls for operations that have exceeded their acknowledgment timeout. The cadence is
+     * adaptive: 10s while operations are actually pending, 60s when none are. This job runs for
+     * the whole life of the ViewModel, and the overwhelmingly common case is an empty pending
+     * list — a flat 10s tick meant 8,640 wake-ups a day to iterate an empty collection.
+     *
+     * Idle checks stay cheap (a synchronized isEmpty), and the moment an operation is queued the
+     * next tick picks it up and the interval tightens, so worst-case detection latency for a
+     * newly-queued op is one idle interval.
      */
     internal fun startAcknowledgmentTimeoutCheck() {
         acknowledgmentTimeoutJob?.cancel()
         acknowledgmentTimeoutJob = viewModelScope.launch {
             while (isActive) {
-                delay(10000L) // Check every 10 seconds
+                val hasPending = synchronized(pendingOperationsLock) { pendingWebSocketOperations.isNotEmpty() }
+                delay(if (hasPending) ackTimeoutCheckActiveMs else ackTimeoutCheckIdleMs)
                 persistenceCoordinator.checkAcknowledgmentTimeouts()
             }
         }
