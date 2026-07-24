@@ -208,11 +208,11 @@ object InlineVideoPlayerManager {
 /**
  * Format timestamp for media messages
  */
-private fun formatMediaTimestamp(timestamp: Long): String {
-    val date = Date(timestamp)
-    val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
-    return formatter.format(date)
-}
+// Reused per thread rather than allocated per call — runs once per media row.
+// ThreadLocal because SimpleDateFormat is not thread-safe.
+private val mediaTimeFormatter = ThreadLocal.withInitial { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+private fun formatMediaTimestamp(timestamp: Long): String = mediaTimeFormatter.get()!!.format(Date(timestamp))
 
 /**
  * Format video duration from milliseconds to MM:SS or HH:MM:SS format

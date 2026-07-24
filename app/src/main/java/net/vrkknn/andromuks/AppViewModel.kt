@@ -1993,6 +1993,16 @@ class AppViewModel : ViewModel() {
     fun getNewMessageAnimations(): Map<String, Long> = newMessageAnimations.toMap()
 
     /**
+     * Single-key lookup, for the timeline row render path.
+     *
+     * [getNewMessageAnimations] copies the whole map. TimelineEventItem called it twice per row,
+     * per recomposition, only ever to do a containsKey — so a full copy of a session-lifetime map
+     * for every visible row on every scroll frame. The backing map is a ConcurrentHashMap, so a
+     * direct read needs no snapshot.
+     */
+    fun isNewMessageAnimation(eventId: String): Boolean = newMessageAnimations.containsKey(eventId)
+
+    /**
      * Milliseconds when the user opened this room (Matrix-style timestamp).
      * Used to animate only messages newer than open time, not paginated history.
      */

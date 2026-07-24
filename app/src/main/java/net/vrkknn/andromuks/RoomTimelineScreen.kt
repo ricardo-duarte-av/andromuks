@@ -261,6 +261,15 @@ private data class PaginateSnapshot(val total: Int, val lastVisible: Int, val is
 
 private val dateFormatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
 
+// Composer VisualTransformation patterns. Compiled once — the transformation is remembered, but
+// its lambda runs per filter() call, i.e. on every keystroke.
+private val COMPOSER_MENTION_REGEX =
+    Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
+
+// Custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
+private val COMPOSER_CUSTOM_EMOJI_REGEX =
+    Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+
 /** Format timestamp to date string (dd / MM / yyyy) */
 internal fun formatDate(timestamp: Long): String = dateFormatter.format(Date(timestamp))
 
@@ -3880,14 +3889,17 @@ fun RoomTimelineScreen(
                                                     val addTopSpacing =
                                                         previousItem is TimelineItem.Event && !isConsecutive
 
-                                                    val threadInfo = event.getThreadInfo()
                                                     // All thread-diagnostics gated behind BuildConfig.DEBUG: this whole
                                                     // block runs per-visible-event per-recomposition. The optJSONObject /
                                                     // optString lookups allocate JSONObject wrappers + Strings whether or
                                                     // not the Log call actually emits — observed thousands of needless
                                                     // allocations during a 1-minute scroll. Diagnostic value is debug-only;
                                                     // there's no behavior tied to these reads.
+                                                    // (getThreadInfo() itself used to sit outside this guard, so it kept
+                                                    // paying isThreadMessage + two optJSONObject + two optString per row
+                                                    // in release — the one read the original gating pass missed.)
                                                     if (BuildConfig.DEBUG) {
+                                                        val threadInfo = event.getThreadInfo()
                                                         if (threadInfo != null) {
                                                             Log.d(
                                                                 "Andromuks",
@@ -4387,12 +4399,11 @@ fun RoomTimelineScreen(
                                         val customEmojiPacks = appViewModel.customEmojiPacks
                                         val mentionAndEmojiTransformation = remember(colorScheme, customEmojiPacks) {
                                             VisualTransformation { text ->
-                                                val mentionRegex = Regex(
-                                                    """\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""",
-                                                )
-                                                // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
-                                                val customEmojiRegex =
-                                                    Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+                                                // Patterns are top-level vals: the transformation itself is
+                                                // remembered, but its lambda runs on every filter() call — i.e.
+                                                // every keystroke — and these were being compiled each time.
+                                                val mentionRegex = COMPOSER_MENTION_REGEX
+                                                val customEmojiRegex = COMPOSER_CUSTOM_EMOJI_REGEX
 
                                                 val annotatedString = buildAnnotatedString {
                                                     var lastIndex = 0

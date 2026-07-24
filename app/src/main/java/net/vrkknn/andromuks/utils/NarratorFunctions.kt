@@ -762,7 +762,7 @@ private fun AnnotatedString.Builder.appendTextWithMentions(
     userMentionColor: Color,
 ) {
     // Regex to find Matrix user IDs (@user:server.com)
-    val matrixIdRegex = Regex("@([^:]+):([^\\s]+)")
+    val matrixIdRegex = NARRATOR_MATRIX_ID_REGEX
     val matches = matrixIdRegex.findAll(text)
 
     if (matches.none()) {
@@ -808,11 +808,17 @@ private fun AnnotatedString.Builder.appendTextWithMentions(
     }
 }
 
-private fun formatTimestamp(timestamp: Long): String {
-    val date = java.util.Date(timestamp)
-    val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-    return formatter.format(date)
-}
+// Compiled once instead of per narrator event — both call sites are on the render path.
+private val NARRATOR_MATRIX_ID_REGEX = Regex("@([^:]+):([^\\s]+)")
+
+// Reused per thread rather than allocated per call — these run once per narrator row.
+// ThreadLocal because SimpleDateFormat is not thread-safe.
+private val narratorTimeFormatter =
+    ThreadLocal.withInitial { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+private val narratorDateTimeFormatter =
+    ThreadLocal.withInitial { java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault()) }
+
+private fun formatTimestamp(timestamp: Long): String = narratorTimeFormatter.get()!!.format(java.util.Date(timestamp))
 
 /**
  * Smart time formatting: shows time for today, date and time for other days
@@ -832,12 +838,10 @@ private fun formatSmartTimestamp(timestamp: Long): String {
 
     return if (isToday) {
         // Show time for today
-        val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-        timeFormatter.format(eventDate)
+        narratorTimeFormatter.get()!!.format(eventDate)
     } else {
         // Show date and time for other days
-        val dateTimeFormatter = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
-        dateTimeFormatter.format(eventDate)
+        narratorDateTimeFormatter.get()!!.format(eventDate)
     }
 }
 
@@ -1457,7 +1461,7 @@ private fun MemberEventNarrator(
                         if (!reason.isNullOrEmpty()) {
                             append(": ")
                             // Parse reason for @username:servername.com patterns
-                            val matrixIdRegex = Regex("@([^:]+):([^\\s]+)")
+                            val matrixIdRegex = NARRATOR_MATRIX_ID_REGEX
                             val matches = matrixIdRegex.findAll(reason)
 
                             if (matches.none()) {

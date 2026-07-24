@@ -203,11 +203,13 @@ private fun isMentioningUser(event: TimelineEvent, userId: String?): Boolean {
     return false
 }
 
-fun formatTimestamp(timestamp: Long): String {
-    val date = Date(timestamp)
-    val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
-    return formatter.format(date)
-}
+// Reused per thread instead of allocated per call. formatTimestamp runs once per visible
+// message row, so this was a SimpleDateFormat construction (locale lookup + pattern compile)
+// for every row on every recomposition. ThreadLocal rather than a shared instance because
+// SimpleDateFormat is not thread-safe and these helpers are public/reachable off Main.
+private val hhmmFormatter = ThreadLocal.withInitial { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+fun formatTimestamp(timestamp: Long): String = hhmmFormatter.get()!!.format(Date(timestamp))
 
 /**
  * Check if a message body contains only an emoji (real emoji or custom emoji).
@@ -4081,8 +4083,7 @@ fun TimelineEventItem(
 
     // PERFORMANCE: Removed all animations for stable performance base
     // Trigger sound notification only for messages we send (not received messages)
-    val newMessageAnimations = appViewModel?.getNewMessageAnimations() ?: emptyMap()
-    val isNewMessage = newMessageAnimations.containsKey(event.eventId)
+    val isNewMessage = appViewModel?.isNewMessageAnimation(event.eventId) == true
 
     // Trigger sound notification once when our own message first appears
     // Only play sound for messages we send, not for received messages
@@ -4116,7 +4117,7 @@ fun TimelineEventItem(
     val timelineForegroundTs = appViewModel?.getTimelineForegroundTimestamp(event.roomId)
     val roomOpenTs = appViewModel?.getRoomOpenTimestamp(event.roomId)
     val cutoverTs = timelineForegroundTs ?: roomOpenTs
-    val isFlaggedNew = appViewModel?.getNewMessageAnimations()?.containsKey(event.eventId) == true
+    val isFlaggedNew = appViewModel?.isNewMessageAnimation(event.eventId) == true
     val eligibleForEntrance =
         !isNarratorEvent &&
             (isFlaggedNew || (cutoverTs != null && event.timestamp > cutoverTs))

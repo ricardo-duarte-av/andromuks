@@ -47,7 +47,6 @@ fun AvatarImage(
     displayName: String? = null,
     isVisible: Boolean = true, // AVATAR LOADING OPTIMIZATION: Lazy loading control
     capAvatarSize: Boolean = false, // Caps the requested pixel size at 256px for list/timeline avatars (formerly also selected the now-removed CircleAvatarCache file:// path)
-    isScrollingFast: Boolean = false, // PERFORMANCE: Suspend avatar loading during fast scrolling
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -105,9 +104,11 @@ fun AvatarImage(
     // cleared. Coil's dispatcher already caps concurrent loads (maxRequests = 100
     // in ImageLoaderSingleton), so we don't need a second-order throttle here —
     // let Coil handle backpressure and start each row's request as soon as it
-    // becomes visible. Suppression flags are still read for compatibility but no
-    // longer block loading.
-    val effectiveScrollingFast = LocalIsScrollingFast.current || isScrollingFast
+    // becomes visible.
+    //
+    // The old `effectiveScrollingFast = LocalIsScrollingFast.current || isScrollingFast` line
+    // that lived here was removed: nothing consumed it, but reading the CompositionLocal
+    // subscribed every avatar in the app to that state, so any flip invalidated all of them.
 
     LaunchedEffect(isVisible, avatarUrl) {
         if (isVisible && avatarUrl != null) {
