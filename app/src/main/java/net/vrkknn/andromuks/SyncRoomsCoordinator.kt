@@ -1144,7 +1144,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             if (data != null) {
                 val rooms = data.optJSONObject("rooms")
                 if (rooms != null) {
-                    var anyReceiptsProcessed = false
+                    // Track exactly which rooms this sync touched, so the cache push below is
+                    // O(delta) rather than O(every cached room). See the note at that push.
+                    val receiptRoomsTouched = mutableSetOf<String>()
                     val roomKeys = rooms.keys()
                     while (roomKeys.hasNext()) {
                         val roomId = roomKeys.next()
@@ -1254,14 +1256,21 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                     }
                                 }
                             }
-                            anyReceiptsProcessed = true
+                            receiptRoomsTouched.add(roomId)
                         }
                     }
 
-                    // PERF: Update singleton cache once after all rooms.
-                    if (anyReceiptsProcessed) {
+                    // PERF: Push only the rooms this sync actually touched.
+                    //
+                    // This used to iterate ALL of `readReceipts` — every cached room — and deep-copy
+                    // each one's receipt lists (mapValues + toList) whenever ANY room had a receipt.
+                    // The cost scaled with total cached history rather than with the delta, so a
+                    // single receipt in one room rebuilt the receipt cache for every room the user
+                    // had ever opened.
+                    if (receiptRoomsTouched.isNotEmpty()) {
                         synchronized(readReceiptsLock) {
-                            readReceipts.forEach { (rId, eventsMap) ->
+                            for (rId in receiptRoomsTouched) {
+                                val eventsMap = readReceipts[rId] ?: continue
                                 ReadReceiptCache.setForRoom(
                                     rId,
                                     eventsMap.mapValues { it.value.toList() },
@@ -1883,6 +1892,8 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 if (bridgeStatusEventToMessageId.isNotEmpty()) {
                     synchronized(readReceiptsLock) {
                         var didRemap = false
+                        // Only the rooms a remap actually landed in need pushing back to the cache.
+                        val remappedRooms = mutableSetOf<String>()
                         bridgeStatusEventToMessageId.forEach { (statusEventId, originalMessageId) ->
                             // Find which room holds this status event and remap within that room.
                             readReceipts.forEach { (rId, eventsMap) ->
@@ -1898,6 +1909,7 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                     }
                                     updateBridgeStatus(originalMessageId, "delivered")
                                     didRemap = true
+                                    remappedRooms.add(rId)
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
                                             "Andromuks",
@@ -1909,7 +1921,11 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         }
                         if (didRemap) {
                             readReceiptsUpdateCounter++
-                            readReceipts.forEach { (rId, eventsMap) ->
+                            // Same narrowing as the receipt-ingest push above: this used to
+                            // deep-copy every cached room's receipt lists whenever any single
+                            // remap occurred.
+                            for (rId in remappedRooms) {
+                                val eventsMap = readReceipts[rId] ?: continue
                                 ReadReceiptCache.setForRoom(
                                     rId,
                                     eventsMap.mapValues { it.value.toList() },

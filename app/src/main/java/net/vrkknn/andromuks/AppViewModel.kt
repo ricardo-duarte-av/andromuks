@@ -1201,7 +1201,9 @@ class AppViewModel : ViewModel() {
     internal val ROOM_REORDER_DEBOUNCE_MS = 30000L // 30 seconds debounce - reduces visual jumping
 
     // SYNC OPTIMIZATION: Diff-based update tracking
-    internal var lastRoomStateHash: String = ""
+    // Sentinel is 0 rather than "" — generateRoomStateHash seeds at 1, so an empty room list
+    // hashes to 1 and can never collide with "no hash recorded yet".
+    internal var lastRoomStateHash: Long = 0L
 
     // SYNC OPTIMIZATION: Selective update flags
     internal var needsRoomListUpdate = false
@@ -2039,7 +2041,7 @@ class AppViewModel : ViewModel() {
      * This is used by FCMService to filter out notifications for low priority rooms.
      */
     // BATTERY OPTIMIZATION: Cache last low priority rooms hash to avoid unnecessary SharedPreferences writes
-    private var lastLowPriorityRoomsHash: String? = null
+    private var lastLowPriorityRoomIds: Set<String>? = null
 
     /**
      * Update low priority rooms set for notification filtering.
@@ -2049,15 +2051,16 @@ class AppViewModel : ViewModel() {
     internal fun updateLowPriorityRooms(rooms: List<RoomItem>) {
         val lowPriorityRoomIds = rooms.filter { it.isLowPriority }.map { it.id }.toSet()
 
-        // BATTERY OPTIMIZATION: Only update SharedPreferences if low priority rooms actually changed
-        // Generate hash of room IDs to detect changes
-        val newHash = lowPriorityRoomIds.sorted().joinToString(",")
-        if (newHash == lastLowPriorityRoomsHash) {
+        // BATTERY OPTIMIZATION: Only update SharedPreferences if low priority rooms actually
+        // changed. Compare the sets directly — Set equality is an O(n) hash comparison. The old
+        // path did sorted().joinToString(","), i.e. an O(n log n) sort plus a multi-KB String
+        // build per sync, to answer the same question.
+        if (lowPriorityRoomIds == lastLowPriorityRoomIds) {
             // No change - skip expensive SharedPreferences write
             return
         }
 
-        lastLowPriorityRoomsHash = newHash
+        lastLowPriorityRoomIds = lowPriorityRoomIds
 
         appContext?.let { context ->
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -3147,11 +3150,25 @@ class AppViewModel : ViewModel() {
     // SYNC OPTIMIZATION: Helper functions for diff-based and batched updates
 
     /**
-     * Generate a hash for room state to detect actual changes
+     * Generate a hash for room state to detect actual changes.
+     *
+     * Returns an accumulated numeric hash rather than the concatenated string this used to build.
+     * The old version produced a single ~50-100KB String per sync_complete (600 rooms x ~150
+     * chars), on the Main thread, purely so it could be compared against the previous one and
+     * thrown away. Change-detection semantics are identical; only the representation differs.
      */
-    internal fun generateRoomStateHash(rooms: List<RoomItem>): String = rooms.joinToString(
-        "|",
-    ) { "${it.id}:${it.name}:${it.unreadCount}:${it.messagePreview}:${it.messageSender}:${it.sortingTimestamp}" }
+    internal fun generateRoomStateHash(rooms: List<RoomItem>): Long {
+        var hash = 1L
+        for (room in rooms) {
+            hash = hash * 31 + room.id.hashCode()
+            hash = hash * 31 + (room.name?.hashCode() ?: 0)
+            hash = hash * 31 + room.unreadCount.hashCode()
+            hash = hash * 31 + (room.messagePreview?.hashCode() ?: 0)
+            hash = hash * 31 + (room.messageSender?.hashCode() ?: 0)
+            hash = hash * 31 + (room.sortingTimestamp?.hashCode() ?: 0)
+        }
+        return hash
+    }
 
     /**
      * PERFORMANCE OPTIMIZATION: Adaptive batched UI updates
