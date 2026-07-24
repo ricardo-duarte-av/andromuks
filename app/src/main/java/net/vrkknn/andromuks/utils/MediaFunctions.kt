@@ -2937,17 +2937,18 @@ private suspend fun saveImageToGallery(
                     .addHeader("Cookie", "gomuks_auth=$authToken")
                     .build()
 
-                val response = client.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    throw Exception("Failed to download image: ${response.code}")
-                }
-
-                response.body?.byteStream()?.use { input ->
-                    val tempFile = File(context.cacheDir, "temp_image_${System.currentTimeMillis()}.jpg")
-                    FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw Exception("Failed to download image: ${response.code}")
                     }
-                    imageFile = tempFile
+
+                    response.body?.byteStream()?.use { input ->
+                        val tempFile = File(context.cacheDir, "temp_image_${System.currentTimeMillis()}.jpg")
+                        FileOutputStream(tempFile).use { output ->
+                            input.copyTo(output)
+                        }
+                        imageFile = tempFile
+                    }
                 }
             }
         }
@@ -3655,38 +3656,39 @@ private suspend fun saveVideoToGallery(context: Context, videoUrl: String, filen
                 .addHeader("Cookie", "gomuks_auth=$authToken")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                throw Exception("Failed to download video: ${response.code}")
-            }
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw Exception("Failed to download video: ${response.code}")
+                }
 
-            // Save to MediaStore
-            val contentValues = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, finalFilename)
-                put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                // Save to MediaStore
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, finalFilename)
+                    put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Andromuks")
+                        put(MediaStore.Video.Media.IS_PENDING, 1)
+                    }
+                }
+
+                val uri = context.contentResolver.insert(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    contentValues,
+                ) ?: throw Exception("Failed to create MediaStore entry")
+
+                // Write video data
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    response.body?.byteStream()?.use { input ->
+                        input.copyTo(output)
+                    }
+                }
+
+                // Mark as not pending (Android Q+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Andromuks")
-                    put(MediaStore.Video.Media.IS_PENDING, 1)
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                    context.contentResolver.update(uri, contentValues, null, null)
                 }
-            }
-
-            val uri = context.contentResolver.insert(
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                contentValues,
-            ) ?: throw Exception("Failed to create MediaStore entry")
-
-            // Write video data
-            context.contentResolver.openOutputStream(uri)?.use { output ->
-                response.body?.byteStream()?.use { input ->
-                    input.copyTo(output)
-                }
-            }
-
-            // Mark as not pending (Android Q+)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                contentValues.clear()
-                contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
-                context.contentResolver.update(uri, contentValues, null, null)
             }
 
             // Show success toast
