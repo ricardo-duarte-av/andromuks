@@ -195,6 +195,29 @@ sealed class HtmlNode {
  */
 object HtmlParser {
     /**
+     * Process-wide cache of parsed trees, keyed on the raw markup.
+     *
+     * `HtmlMessageText` already memoizes its parse with `remember(sanitizedHtml)`, but that is
+     * scoped to one composition: scroll a message off the LazyColumn and back and the whole tree
+     * is parsed again from scratch. Repeated scroll-back over the same messages was re-parsing
+     * continuously.
+     *
+     * Safe to share: [HtmlNode] is a sealed hierarchy of data classes with `val` fields and
+     * immutable collections, so no consumer can mutate an entry out from under another.
+     *
+     * Evicted wholesale by [clearParseCache] on real memory pressure (see AndromuksApplication).
+     */
+    private const val PARSE_CACHE_ENTRIES = 400
+    private val parseCache = android.util.LruCache<String, List<HtmlNode>>(PARSE_CACHE_ENTRIES)
+
+    /** [parse], memoized across compositions. Prefer this on render paths. */
+    fun parseCached(html: String): List<HtmlNode> = parseCache.get(html) ?: parse(html).also { parseCache.put(html, it) }
+
+    fun clearParseCache() {
+        parseCache.evictAll()
+    }
+
+    /**
      * Find the actual tag end '>' while respecting quoted attribute values.
      * This handles cases like: <blockquote data-md=">">
      * where the '>' inside quotes should not be treated as the tag end.
@@ -1861,16 +1884,20 @@ fun HtmlMessageText(
         result
     }
 
-    val plainTextBody = if (sanitizedHtml == null) {
-        val content = event.content ?: event.decrypted
-        val rawBody = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
-        if (hasReplyFallback(event)) {
-            stripReplyFallback(rawBody)
+    // Memoized: this ran on every recomposition, doing a JSON optString plus decodeHtmlEntities
+    // and (for replies) the stripReplyFallback regex, for a value that only depends on the event.
+    val plainTextBody = remember(event, sanitizedHtml) {
+        if (sanitizedHtml == null) {
+            val content = event.content ?: event.decrypted
+            val rawBody = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
+            if (hasReplyFallback(event)) {
+                stripReplyFallback(rawBody)
+            } else {
+                rawBody
+            }
         } else {
-            rawBody
+            ""
         }
-    } else {
-        ""
     }
 
     // Parse HTML
@@ -1879,7 +1906,9 @@ fun HtmlMessageText(
             emptyList()
         } else {
             try {
-                HtmlParser.parse(sanitizedHtml)
+                // Cached across compositions, so scrolling a message off and back does not
+                // re-parse it. remember() alone only covers the current composition.
+                HtmlParser.parseCached(sanitizedHtml)
             } catch (e: Exception) {
                 Log.e("Andromuks", "HtmlMessageText: Failed to parse HTML", e)
                 emptyList()
