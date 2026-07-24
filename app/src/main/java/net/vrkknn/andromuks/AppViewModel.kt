@@ -771,7 +771,12 @@ class AppViewModel : ViewModel() {
         internal set
 
     // Track known space room IDs (top-level and nested) so we can filter them from room lists.
-    internal val knownSpaceIds = mutableSetOf<String>()
+    // CONCURRENCY: written from parallel Dispatchers.Default workers during initial sync
+    // (SpaceRoomParser.parseSyncUpdate -> registerSpaceIds, fanned out per sync message) while
+    // RoomListUiCoordinator.currentSpaceIds() iterates it on Main during section building. A plain
+    // LinkedHashSet here meant a corrupted table (spaces leaking into Home as fake rooms) or a
+    // ConcurrentModificationException on the room list at launch. This set iterates safely.
+    internal val knownSpaceIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     // PERFORMANCE: Cached room sections to avoid expensive filtering on every recomposition
     internal var cachedDirectChatRooms by mutableStateOf<List<RoomItem>>(emptyList())
@@ -802,7 +807,11 @@ class AppViewModel : ViewModel() {
     // Bumped by invalidateRoomSectionCache() whenever room data actually changes
     // (performRoomReorder, setSpaces, registerSpaceIds, etc.).
     // updateCachedRoomSections() compares against its own snapshot to skip work.
-    internal var roomDataVersion: Long = 0L
+    // Atomic because registerSpaceIds bumps it from parallel Dispatchers.Default workers (see
+    // knownSpaceIds above). A lost non-atomic increment would let updateCachedRoomSections'
+    // `lastCachedVersion == roomDataVersion` short-circuit skip a rebuild it actually needed,
+    // leaving a stale room list.
+    internal val roomDataVersion = java.util.concurrent.atomic.AtomicLong(0L)
     internal var lastCachedVersion: Long = -1L
 
     /**

@@ -11,7 +11,7 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
 
     fun invalidateRoomSectionCache() {
         with(vm) {
-            roomDataVersion++
+            roomDataVersion.incrementAndGet()
         }
     }
 
@@ -35,8 +35,11 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
 
     private fun updateCachedRoomSections() {
         with(vm) {
-            if (lastCachedVersion == roomDataVersion) return
-            lastCachedVersion = roomDataVersion
+            // Read once: a concurrent bump between the check and the store would otherwise let us
+            // record a version we never actually built for.
+            val version = roomDataVersion.get()
+            if (lastCachedVersion == version) return
+            lastCachedVersion = version
 
             val roomsToUse =
                 if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
