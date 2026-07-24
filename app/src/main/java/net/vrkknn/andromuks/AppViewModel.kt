@@ -2957,9 +2957,12 @@ class AppViewModel : ViewModel() {
         // Second pass: Process only rooms with member events
         for ((roomId, roomObj) in roomsWithMemberEvents) {
             val events = roomObj.optJSONArray("events") ?: continue
-            // Get existing members from singleton cache or create empty map
-            val existingMembers = RoomMemberCache.getRoomMembers(roomId)
-            val memberMap = existingMembers.toMutableMap()
+            // NOTE: deliberately no snapshot of the room's member map here. This used to be
+            // `RoomMemberCache.getRoomMembers(roomId).toMutableMap()` — and getRoomMembers
+            // already returns a .toMap() copy, so that was TWO full copies of every member in
+            // the room, per room, per sync, triggered by a single member event. On a 10k-member
+            // room that is 20k map entries allocated to answer one lookup. The two things it
+            // was used for are both single-key and go straight to the cache below.
 
             // Process member events
             for (i in 0 until events.length()) {
@@ -2986,7 +2989,8 @@ class AppViewModel : ViewModel() {
                                 ).takeIf { it.isNotBlank() && it != "null" } ?: ""
 
                                 val profile = MemberProfile(displayName, avatarUrl)
-                                val previousProfile = memberMap[userId]
+                                // Read before the update below, so this is the pre-event profile.
+                                val previousProfile = RoomMemberCache.getMember(roomId, userId)
 
                                 // Update singleton cache
                                 RoomMemberCache.updateMember(roomId, userId, profile)
@@ -3048,8 +3052,14 @@ class AppViewModel : ViewModel() {
                             }
 
                             "leave", "ban" -> {
-                                // Remove members who left or were banned from room cache only
-                                if (memberMap.remove(userId) != null) {
+                                // Remove members who left or were banned from room cache only.
+                                // This previously removed from a throwaway local copy of the
+                                // member map, so RoomMemberCache kept the departed member
+                                // forever — they stayed in mention lists and room-scoped
+                                // lookups until the cache was cleared. Mirrors the correct
+                                // handling in MemberProfilesCoordinator's state-event path.
+                                if (RoomMemberCache.getMember(roomId, userId) != null) {
+                                    RoomMemberCache.removeMember(roomId, userId)
                                     anyMemberChanged = true
                                 }
                                 ProfileCache.removeFlattenedProfile(roomId, userId)
