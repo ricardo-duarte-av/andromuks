@@ -23,7 +23,7 @@ Helper extensions live in `ConnectionState.kt`: `isReady()`, `isDisconnected()`,
 | `onNetworkTypeChanged` / `onNetworkIdentityChanged` | `NetworkMonitor` → `scheduleReconnection()` |
 | Ping timeout / message timeout | `WebSocketService` ping/pong loop |
 | `onFailure` / `onClosed` | OkHttp WebSocket callbacks |
-| Unified health check (every 1s) | Detects stuck `Connecting`, `Reconnecting`, or `Disconnected` |
+| Unified health check (adaptive tick) | Detects stuck `Connecting`, `Reconnecting`, or `Disconnected` |
 | `START_STICKY` restart | Triggers stuck-DISCONNECTED recovery after 5s grace period |
 
 ## `scheduleReconnection()` Flow
@@ -114,9 +114,15 @@ The notification text in release builds is driven purely by `connectionState` (n
 
 If state gets stuck at `Disconnected` (e.g., via the corruption detector race above), every subsequent `updateConnectionStatus` call returns early and the notification never recovers until the next actual state transition.
 
-## Unified Monitoring (every 1s, `startUnifiedMonitoring()`)
+## Unified Monitoring (adaptive tick, `startUnifiedMonitoring()`)
 
-Runs on `serviceScope` inside the service instance. Performs four checks per tick:
+Runs on `serviceScope` inside the service instance.
+
+**Tick rate is adaptive**: `MONITOR_INTERVAL_TRANSIENT_MS` (1 s) while `connectionState` is *not* `Ready`, `MONITOR_INTERVAL_READY_MS` (15 s) once it is. Every sub-second bound this loop enforces — stuck `Connecting` (>3 s), stuck `Reconnecting`, stuck `Disconnected` — can only fire while the connection is unhealthy, so the fast tick is only needed then. `Ready` is the steady state and lasts the whole life of the foreground service; a flat 1 s tick there was ~86,400 no-op wake-ups a day.
+
+The expensive checks (state corruption, primary-ViewModel health, `validateCallbacks`) run on their own `DEEP_CHECK_INTERVAL_MS` (30 s) cadence, measured against `SystemClock.elapsedRealtime()` rather than a tick counter — with a variable tick, a counter would silently change that cadence.
+
+Checks performed:
 
 1. **Callback validation** (every tick) — warns if credentials missing and not `Ready`.
 2. **State corruption + primary ViewModel health** (every 30 ticks) — promotes stale primaries.
@@ -270,10 +276,30 @@ Battery optimization exemption is recommended for reliable background operation.
 
 | Constant | Value | Purpose |
 |---|---|---|
-| Ping interval | 15s | OkHttp ping cadence |
-| Ping timeout | 60s | Max time to wait for pong |
+| `PING_INTERVAL_FOREGROUND_MS` | 15s | App-level ping cadence while the app is visible |
+| `PING_INTERVAL_BACKGROUND_MS` | 45s | Ping cadence while backgrounded — see the constraint below |
+| `MESSAGE_TIMEOUT_FOREGROUND_MS` | 60s | No message at all for this long ⇒ stale, re-dial |
+| `MESSAGE_TIMEOUT_BACKGROUND_MS` | 135s | Same, scaled to the background ping interval |
+| `MONITOR_INTERVAL_TRANSIENT_MS` | 1s | Unified-monitoring tick while not `Ready` |
+| `MONITOR_INTERVAL_READY_MS` | 15s | Unified-monitoring tick once `Ready` |
+| `DEEP_CHECK_INTERVAL_MS` | 30s | Cadence of the expensive monitoring checks |
 | `NETWORK_CHANGE_DEBOUNCE_MS` | — | Debounce for rapid network events |
 | `NETWORK_VALIDATION_TIMEOUT_MS` | — | Max wait for `NET_CAPABILITY_VALIDATED` |
 | `INIT_COMPLETE_TIMEOUT_MS_BASE` | — | Max wait for `init_complete` after run_id |
 | Reconnect stuck guard | 30s | Reset stuck reconnection lock |
 | Stuck-Disconnected delay | 5s | Grace period before health-check recovery |
+
+## Ping cadence — the 60s backend constraint
+
+`WebSocketService.pingIntervalMs()` / `messageTimeoutMs()` scale on app visibility, read from `NotificationSuppressionState.isAppVisible(context)` (process-wide and `AtomicBoolean`-backed, so it works during the No-VM race where `AppViewModel.isAppVisible` is unreachable). The interval is re-read every loop iteration, so a foreground/background transition takes effect on the next tick without restarting the loop.
+
+**The gomuks backend has a hardcoded 60 s ping timeout.** If we do not ping within 60 s the server drops the connection. The background interval is therefore **45 s**, not 60 s — 15 s of margin absorbs clock skew, radio latency and a doze-deferred coroutine. Do not raise it to 60 s "to save one more ping": that is exactly at the cutoff and will cause disconnect/reconnect churn that costs far more battery than it saves.
+
+`MESSAGE_TIMEOUT_*` **must** scale with the ping interval. It is the "no message of any kind arrived" staleness bound, kept at 3× the interval. If the background ping is lengthened while the timeout stays at 60 s, the timeout fires on roughly the same cadence as the ping and the loop re-dials continuously — strictly worse than the flat 15 s ping it replaced. This coupling is the reason the earlier adaptive-ping implementation was reverted.
+
+Two related battery details:
+
+- The heartbeat `AlarmManager` fallback (`scheduleHeartbeatAlarm`) is armed **only** from `sendPing()`. It used to be armed from `handlePong()` as well, which meant two binder round-trips per ping cycle for an alarm that by design should almost never fire (and which is quota-tracked on Android 12+ via `setExactAndAllowWhileIdle`). It uses the same visibility-scaled interval, so it stays just behind the coroutine.
+- `acquireHeartbeatWakeLock()` releases any existing lock before replacing the field; otherwise overlapping alarms orphaned the previous `WakeLock` until its own 10 s timeout expired.
+
+Battery-saver mode is unaffected by all of this — the socket is torn down ~15 s after backgrounding, so the ping loop is not running.
