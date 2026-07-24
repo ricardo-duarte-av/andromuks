@@ -13,10 +13,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -36,25 +38,45 @@ import java.util.Locale
  *  - Disappears immediately (slide-up + fade-out) when the user scrolls toward newer content.
  *  - Auto-hides (slide-up + fade-out) after 3 seconds of no scroll activity.
  *
- * @param oldestVisibleDate formatted "dd / MM / yyyy" date of the oldest on-screen event
- * @param scrollPositionKey changes on every item-boundary scroll crossing
+ * Both scroll-derived inputs are taken as **lambdas, not values**. Callers place this pill inside
+ * the same `Box` that holds their `LazyColumn` and hundreds of lines of siblings; passing the
+ * values directly made that whole Box scope read `firstVisibleItemIndex`, so every item boundary
+ * crossed during a fling recomposed it and re-ran the `LazyColumn` call. Deferring the read to
+ * here scopes the invalidation to the pill.
+ *
+ * @param oldestVisibleDate supplies the formatted "dd / MM / yyyy" date of the oldest on-screen event
+ * @param scrollPositionKey supplies a value that changes on every item-boundary scroll crossing
  * @param reverseScrollLayout pass `true` for reverseLayout LazyColumns (Room/Bubble timelines)
  *   where firstVisibleItemIndex *increases* when scrolling toward older content, and `false`
  *   for top-down layouts (Thread/EventContext) where it *decreases*.
  */
 @Composable
-fun StickyDateIndicator(oldestVisibleDate: String?, scrollPositionKey: Int = 0, reverseScrollLayout: Boolean = true, modifier: Modifier = Modifier) {
+fun StickyDateIndicator(
+    oldestVisibleDate: () -> String?,
+    scrollPositionKey: () -> Int = { 0 },
+    reverseScrollLayout: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
     val today = remember {
         SimpleDateFormat("dd / MM / yyyy", Locale.getDefault()).format(Date())
     }
 
+    // rememberUpdatedState so the derived reads always call the latest lambda instance, while
+    // the derivedStateOf itself stays remembered across recompositions.
+    val dateProvider by rememberUpdatedState(oldestVisibleDate)
+    val keyProvider by rememberUpdatedState(scrollPositionKey)
+    val currentDate by remember { derivedStateOf { dateProvider() } }
+    val currentScrollKey by remember { derivedStateOf { keyProvider() } }
+
     var showPill by remember { mutableStateOf(false) }
     var displayDate by remember { mutableStateOf("") }
     // Tracks the previous scroll key so we can detect direction of travel.
-    var prevScrollKey by remember { mutableIntStateOf(scrollPositionKey) }
+    var prevScrollKey by remember { mutableIntStateOf(currentScrollKey) }
 
     // Re-fires on every item-boundary scroll crossing *and* on date changes.
-    LaunchedEffect(oldestVisibleDate, scrollPositionKey) {
+    LaunchedEffect(currentDate, currentScrollKey) {
+        val oldestVisibleDate = currentDate
+        val scrollPositionKey = currentScrollKey
         val keyDelta = scrollPositionKey - prevScrollKey
         prevScrollKey = scrollPositionKey
 

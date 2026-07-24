@@ -1537,8 +1537,8 @@ fun ThreadViewerScreen(
 
                             // Sticky date pill — shows date of oldest visible event while scrolling up
                             net.vrkknn.andromuks.utils.StickyDateIndicator(
-                                oldestVisibleDate = oldestVisibleDateThread,
-                                scrollPositionKey = scrollKeyThread,
+                                oldestVisibleDate = { oldestVisibleDateThread },
+                                scrollPositionKey = { scrollKeyThread },
                                 reverseScrollLayout = false,
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)

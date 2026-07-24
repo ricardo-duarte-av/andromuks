@@ -3856,6 +3856,18 @@ fun RoomTimelineScreen(
                                         itemsIndexed(
                                             items = reversedTimelineItems,
                                             key = { _, item -> item.stableKey },
+                                            // Heterogeneous items: without contentType, Lazy layout cannot
+                                            // recycle subcompositions between them and pays a fresh
+                                            // composition for every item entering the viewport. Events are
+                                            // split from the two thin marker types, which have wildly
+                                            // different node trees. (RoomListScreen already does this.)
+                                            contentType = { _, item ->
+                                                when (item) {
+                                                    is TimelineItem.DateDivider -> "date"
+                                                    is TimelineItem.ReadMarker -> "marker"
+                                                    is TimelineItem.Event -> "event"
+                                                }
+                                            },
                                         ) { index, item ->
                                             when (item) {
                                                 is TimelineItem.DateDivider -> {
@@ -4248,8 +4260,8 @@ fun RoomTimelineScreen(
 
                                     // Sticky date pill — shows date of oldest visible event while scrolling up
                                     net.vrkknn.andromuks.utils.StickyDateIndicator(
-                                        oldestVisibleDate = oldestVisibleDateRoom,
-                                        scrollPositionKey = scrollKeyRoom,
+                                        oldestVisibleDate = { oldestVisibleDateRoom },
+                                        scrollPositionKey = { scrollKeyRoom },
                                         modifier = Modifier
                                             .align(Alignment.TopCenter)
                                             .padding(top = 8.dp)

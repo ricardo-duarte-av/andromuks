@@ -335,8 +335,8 @@ fun MentionsScreen(navController: NavController, modifier: Modifier = Modifier, 
 
                         // Sticky date pill — shows date of the top visible event while scrolling
                         net.vrkknn.andromuks.utils.StickyDateIndicator(
-                            oldestVisibleDate = oldestVisibleDate,
-                            scrollPositionKey = scrollKey,
+                            oldestVisibleDate = { oldestVisibleDate },
+                            scrollPositionKey = { scrollKey },
                             reverseScrollLayout = true,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)

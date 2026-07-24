@@ -461,8 +461,8 @@ fun EventContextScreen(roomId: String, eventId: String, navController: NavContro
 
                         // Sticky date pill — shows date of oldest visible event while scrolling up
                         net.vrkknn.andromuks.utils.StickyDateIndicator(
-                            oldestVisibleDate = oldestVisibleDateContext,
-                            scrollPositionKey = scrollKeyContext,
+                            oldestVisibleDate = { oldestVisibleDateContext },
+                            scrollPositionKey = { scrollKeyContext },
                             reverseScrollLayout = false,
                             modifier = Modifier
                                 .align(Alignment.TopCenter)

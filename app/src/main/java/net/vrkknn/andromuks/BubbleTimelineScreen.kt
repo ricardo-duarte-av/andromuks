@@ -2923,10 +2923,9 @@ fun BubbleTimelineScreen(
                                             val highestIdx = listState.layoutInfo.visibleItemsInfo
                                                 .maxOfOrNull { it.index } ?: return@derivedStateOf null
                                             when (val item = reversedBubbleItems.getOrNull(highestIdx)) {
-                                                is BubbleTimelineItem.Event -> {
-                                                    java.text.SimpleDateFormat("dd / MM / yyyy", java.util.Locale.getDefault())
-                                                        .format(java.util.Date(item.event.timestamp))
-                                                }
+                                                // Shared formatter: this derivedStateOf re-evaluates on every
+                                                // scroll frame, and it used to build a SimpleDateFormat each time.
+                                                is BubbleTimelineItem.Event -> formatDate(item.event.timestamp)
 
                                                 is BubbleTimelineItem.DateDivider -> item.date
 
@@ -2957,8 +2956,22 @@ fun BubbleTimelineScreen(
                                         // PERFORMANCE: Use stable keys and pre-computed consecutive flags
                                         // CRITICAL: Reverse items list since reverseLayout flips rendering order but not data order
                                         itemsIndexed(
-                                            items = timelineItems.reversed(),
+                                            // Use the memoized reversal above. This used to call
+                                            // timelineItems.reversed() inline, allocating a full copy of the
+                                            // list on every recomposition of this Box — which, before the
+                                            // sticky-pill scroll reads were deferred, meant every scroll frame.
+                                            items = reversedBubbleItems,
                                             key = { _, item -> item.stableKey },
+                                            // Heterogeneous items: without contentType, Lazy layout cannot
+                                            // recycle subcompositions between them and pays a fresh
+                                            // composition for every item entering the viewport.
+                                            contentType = { _, item ->
+                                                when (item) {
+                                                    is BubbleTimelineItem.DateDivider -> "date"
+                                                    is BubbleTimelineItem.Event -> "event"
+                                                    else -> "other"
+                                                }
+                                            },
                                         ) { index, item ->
                                             when (item) {
                                                 is BubbleTimelineItem.DateDivider -> {
@@ -2975,7 +2988,15 @@ fun BubbleTimelineScreen(
 
                                                     // Add a little extra spacing before non-consecutive messages
                                                     // (only when the previous timeline item is also an event).
-                                                    val previousItem = if (index > 0) timelineItems[index - 1] else null
+                                                    // The visually-previous (older) item sits at the HIGHER
+                                                    // reversed index, so it's reversedBubbleItems[index + 1].
+                                                    // This previously indexed timelineItems — the NON-reversed
+                                                    // list — with a reversed index, so it read an unrelated
+                                                    // item. Read from the same list the lambda iterates, and
+                                                    // use getOrNull: a retained/prefetched item can recompose
+                                                    // at a stale index while the backing list is mid-swap.
+                                                    // (Mirrors RoomTimelineScreen, which already fixed this.)
+                                                    val previousItem = reversedBubbleItems.getOrNull(index + 1)
                                                     val addTopSpacing =
                                                         previousItem is BubbleTimelineItem.Event && !isConsecutive
 
@@ -3226,8 +3247,8 @@ fun BubbleTimelineScreen(
 
                                     // Sticky date pill — shows date of oldest visible event while scrolling up
                                     net.vrkknn.andromuks.utils.StickyDateIndicator(
-                                        oldestVisibleDate = oldestVisibleDateBubble,
-                                        scrollPositionKey = scrollKeyBubble,
+                                        oldestVisibleDate = { oldestVisibleDateBubble },
+                                        scrollPositionKey = { scrollKeyBubble },
                                         modifier = Modifier
                                             .align(Alignment.TopCenter)
                                             .padding(top = 8.dp)
