@@ -139,6 +139,10 @@ private fun splitIntoJsonObjectStrings(jsonText: String): List<String> {
 /** Single-threaded dispatcher for DEFLATE decompression (stateful; must run on one thread). */
 private val wsDecompressDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
+// Last niceness applied to the decompress thread. Only ever touched from
+// wsDecompressDispatcher, which is single-threaded, so no synchronization is needed.
+private var appliedDecompressNiceness = Int.MIN_VALUE
+
 /** Single-threaded dispatcher for ordered dispatch (ensures sync_complete N+1 runs after N). */
 private val wsOrderedDispatchDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
@@ -805,9 +809,17 @@ fun connectToWebsocket(
     repeat(8) { workerIndex ->
         WebSocketService.getServiceScope().launch(Dispatchers.Default) {
             try {
+                // Thread priority is a per-thread property and this coroutine owns its worker for
+                // the life of the connection, so it only needs setting when the recommended
+                // niceness actually changes — not once per message, which made a syscall per
+                // frame per worker.
+                var appliedNiceness = Int.MIN_VALUE
                 for ((seq, payload) in parseQueue) {
-                    // Apply dynamic thread priority (niceness)
-                    android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
+                    val niceness = WebSocketService.getRecommendedNiceness()
+                    if (niceness != appliedNiceness) {
+                        android.os.Process.setThreadPriority(niceness)
+                        appliedNiceness = niceness
+                    }
 
                     // If we're in POLITE mode and not the first worker, yield to keep parallelism low
                     if (workerIndex > 0 && WebSocketService.getCPUWeight() == CPUWeight.POLITE) {
@@ -1012,17 +1024,25 @@ fun connectToWebsocket(
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             WebSocketService.onMessageReceived()
-            val payloadCopy = String(text.toCharArray())
+            // `text` is already an immutable String; the old String(text.toCharArray()) here was
+            // a no-op defensive copy that allocated and copied a full char[] (≈1MB for a 500KB
+            // frame) on the OkHttp reader thread, once per message.
             val seq = seqCounter.getAndIncrement()
-            parseQueue.trySend(seq to payloadCopy)
+            parseQueue.trySend(seq to text)
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
             WebSocketService.onMessageReceived()
             val bytesCopy = bytes.toByteArray()
             WebSocketService.getServiceScope().launch(wsDecompressDispatcher) {
-                // Apply dynamic thread priority (niceness)
-                android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
+                // Only re-apply when it actually changes. wsDecompressDispatcher is
+                // single-threaded, so the tracker below needs no synchronization and the thread
+                // whose priority we set is always the same one — this was a syscall per frame.
+                val niceness = WebSocketService.getRecommendedNiceness()
+                if (niceness != appliedDecompressNiceness) {
+                    android.os.Process.setThreadPriority(niceness)
+                    appliedDecompressNiceness = niceness
+                }
 
                 try {
                     if (streamingDecompressor != null) {

@@ -1093,8 +1093,13 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
 
         // CRITICAL FIX: Queue sync_complete messages received before init_complete
         if (!vm.initialSyncPhase) {
+            // Deep-copy OFF the Main thread. This is a full serialize + reparse of the entire
+            // payload (~500KB each, x8 on a cold start) and it used to run inline here — which
+            // SyncRepository invokes on viewModelScope, i.e. Main — competing with first-frame
+            // composition and cache-first paint at exactly the worst moment. Hoisted out of the
+            // lock too, so the (already-serialized) pipeline doesn't hold it across a dispatch.
+            val clonedJson = withContext(Dispatchers.Default) { JSONObject(syncJson.toString()) }
             synchronized(vm.initialSyncCompleteQueue) {
-                val clonedJson = JSONObject(syncJson.toString())
                 val requestId = syncJson.optInt("request_id", 0)
                 vm.initialSyncCompleteQueue.add(clonedJson)
                 vm.pendingSyncCompleteCount = vm.initialSyncCompleteQueue.size

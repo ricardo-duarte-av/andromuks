@@ -11195,13 +11195,15 @@ class AppViewModel : ViewModel() {
                 )
             }
 
-            // Count event types for debugging (lightweight operation, can defer if needed)
-            val eventTypeCounts = events.groupBy { it.type }.mapValues { it.value.size }
-            val ownMessageCount = events.count {
-                it.sender == currentUserId &&
-                    (it.type == "m.room.message" || it.type == "m.room.encrypted")
-            }
+            // Count event types for debugging. Computed INSIDE the guard: the groupBy allocates a
+            // map of lists over every event and the count{} is another full pass, and both were
+            // running in release builds purely to feed a debug log that R8 had already stripped.
             if (BuildConfig.DEBUG) {
+                val eventTypeCounts = events.groupBy { it.type }.mapValues { it.value.size }
+                val ownMessageCount = events.count {
+                    it.sender == currentUserId &&
+                        (it.type == "m.room.message" || it.type == "m.room.encrypted")
+                }
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Event breakdown: $eventTypeCounts (including $ownMessageCount from YOU)",
@@ -11468,21 +11470,11 @@ class AppViewModel : ViewModel() {
             }
         }
 
-        // Summary of what was processed
-        val addedToTimeline = events.count { event ->
-            (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") ||
-                (event.type == "m.room.member" && event.timelineRowid != 0L) ||
-                (event.type == "m.room.redaction") ||
-                (
-                    event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" ||
-                        event.type == "m.room.avatar"
-                    )
-        }
-        val memberStateUpdates = events.count { event ->
-            event.type == "m.room.member" && event.timelineRowid <= 0L
-        }
-        val reactions = events.count { it.type == "m.reaction" }
-        val unhandled = events.size - addedToTimeline - memberStateUpdates - reactions
+        // NOTE: four count{} passes over `events` used to be computed here (addedToTimeline,
+        // memberStateUpdates, reactions, unhandled) to build a "summary of what was processed".
+        // Nothing ever read them — not even a log — and R8 cannot strip them because count{}
+        // with a lambda is not provably pure. Four full traversals of every sync's event list,
+        // on the hot path, for nothing.
 
         // Update room state from new timeline events (name/avatar) if present
         // CRITICAL: Only update room state if this is the currently open room
