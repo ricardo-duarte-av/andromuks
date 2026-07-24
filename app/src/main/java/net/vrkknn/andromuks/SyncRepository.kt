@@ -271,7 +271,20 @@ object SyncRepository {
             return
         }
         val job = target.viewModelScope.launch {
-            target.applySyncCompleteFromRepository(json)
+            // The apply runs in its own coroutine and join() does not rethrow, so without this
+            // catch any throw here escapes to viewModelScope's SupervisorJob — which has no
+            // CoroutineExceptionHandler — and reaches CrashHandler, killing the process. An
+            // unexpected payload shape should cost us one sync_complete, not the app. The
+            // initial-sync path (AppViewModel.onInitComplete) already defends itself this way;
+            // the live path never did.
+            try {
+                target.applySyncCompleteFromRepository(json)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e // never swallow cancellation
+            } catch (e: Exception) {
+                Log.e(TAG, "sync_complete: apply failed, dropping this message", e)
+                ErrorReportingCoordinator.report(e, "SyncRepository: applySyncCompleteFromRepository crashed")
+            }
         }
         job.join()
     }
