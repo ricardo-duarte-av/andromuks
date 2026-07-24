@@ -796,7 +796,9 @@ fun connectToWebsocket(
 
     // Parallel parse + ordered dispatch: parse in parallel with kotlinx.serialization, then dispatch in receipt order.
     val parseQueue = Channel<Pair<Int, String>>(Channel.UNLIMITED)
-    val resultQueue = Channel<Pair<Int, JSONObject>>(Channel.UNLIMITED)
+    // Nullable payload: a seq whose parse failed is still forwarded (as null) so the ordered
+    // dispatcher below can advance past it. See the comment on the parse catch block.
+    val resultQueue = Channel<Pair<Int, JSONObject?>>(Channel.UNLIMITED)
     val seqCounter = AtomicInteger(0)
 
     // PERFORMANCE: Use dynamic parallelism (launched once, but pull frequency adjusted)
@@ -812,11 +814,22 @@ fun connectToWebsocket(
                         yield()
                     }
 
-                    try {
-                        val json = parseWebSocketMessageWithKotlinx(payload)
-                        resultQueue.send(seq to json)
+                    // CRITICAL: every seq must reach resultQueue, even on failure. The ordered
+                    // dispatcher below waits for seqs strictly in order, so dropping one here
+                    // would stall dispatch for the REST OF THE CONNECTION — sync dies silently
+                    // while the socket still looks healthy, and the dispatcher's buffer grows
+                    // unbounded holding every later message. Forward null and let it skip.
+                    val json = try {
+                        parseWebSocketMessageWithKotlinx(payload)
                     } catch (e: Exception) {
                         Log.e("Andromuks", "NetworkUtils: Parse error (seq=$seq): ${e.message}", e)
+                        null
+                    }
+                    try {
+                        resultQueue.send(seq to json)
+                    } catch (e: Exception) {
+                        // resultQueue closed (connection torn down) — stop consuming.
+                        break
                     }
                 }
             } catch (_: kotlinx.coroutines.channels.ClosedReceiveChannelException) { }
@@ -825,15 +838,18 @@ fun connectToWebsocket(
 
     WebSocketService.getServiceScope().launch(wsOrderedDispatchDispatcher) {
         var nextExpected = 0
-        val buffer = mutableMapOf<Int, JSONObject>()
+        val buffer = mutableMapOf<Int, JSONObject?>()
         try {
             for (pair in resultQueue) {
                 val (seq, json) = pair
                 buffer[seq] = json
                 while (nextExpected in buffer) {
-                    val toDispatch = buffer.remove(nextExpected)!!
+                    val toDispatch = buffer.remove(nextExpected)
                     nextExpected++
-                    dispatchParsedWebSocketMessage(toDispatch)
+                    // null = that seq failed to parse; skip it but keep the sequence moving.
+                    if (toDispatch != null) {
+                        dispatchParsedWebSocketMessage(toDispatch)
+                    }
                 }
             }
         } catch (_: kotlinx.coroutines.channels.ClosedReceiveChannelException) { }
@@ -870,6 +886,16 @@ fun connectToWebsocket(
             connectTrace = null
             Log.e("Andromuks", "NetworkUtils: WebSocket connection failed", t)
             Log.e("Andromuks", "NetworkUtils: Failure reason: ${t.message}, response: ${response?.code}")
+
+            // Tear the parse pipeline down here too. OkHttp delivers onFailure INSTEAD OF
+            // onClosed for abnormal termination (network drop, TLS error, read timeout) — the
+            // dominant reconnect path on mobile — so leaving this to onClosed stranded 8 parse
+            // workers + 1 ordered-dispatch coroutine on WebSocketService.getServiceScope()
+            // (process-lifetime) per failed connection, plus the Inflater's native memory.
+            // Must run before the 401 early-return below. close() is idempotent.
+            streamingDecompressor?.close()
+            parseQueue.close()
+            resultQueue.close()
 
             // Toast notification is handled by WebSocketService.clearWebSocket() which has access to context
 
