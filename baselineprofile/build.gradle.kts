@@ -35,4 +35,8 @@ dependencies {
     implementation("androidx.test.ext:junit:1.3.0")
     implementation("androidx.test.espresso:espresso-core:3.7.0")
     implementation("androidx.benchmark:benchmark-macro-junit4:1.5.0-alpha06")
+    // Declared explicitly rather than leaned on transitively via benchmark-macro: the profile
+    // journey drives the UI through UiDevice, so a future benchmark-macro upgrade that stopped
+    // exporting it would break this module with a confusing unresolved-reference error.
+    implementation("androidx.test.uiautomator:uiautomator:2.3.0")
 }
