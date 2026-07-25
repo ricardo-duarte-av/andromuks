@@ -560,23 +560,31 @@ class WebSocketService : Service() {
         /**
          * True when *any* UI surface is in front of the user.
          *
-         * Deliberately ORs two sources, because neither alone is complete:
+         * ORs two sources, because neither alone is complete:
          *
-         * - [isAppVisible] on the service instance is set by [setAppVisibility], which
-         *   ChatBubbleActivity calls but which never reaches NotificationSuppressionState. A chat
-         *   bubble is a real, interactive surface — and in battery-saver mode an open bubble keeps
-         *   the socket alive indefinitely (scheduleBatterySaverLinger re-checks anyBubbleOpen()),
-         *   so it is precisely the case where the ping cadence still matters there.
-         * - NotificationSuppressionState is process-wide and SharedPreferences-backed, so it
-         *   survives the No-VM race (see docs/WEBSOCKET_LIFECYCLE.md) and a service instance that
-         *   was recreated without anyone re-asserting visibility.
+         * - `NotificationSuppressionState` — process-wide and `AtomicBoolean` + SharedPreferences
+         *   backed, so it survives the No-VM race (see docs/WEBSOCKET_LIFECYCLE.md) and a service
+         *   instance recreated without anyone re-asserting visibility. Covers the main activity.
+         * - [BubbleTracker.anyBubbleOpen] — covers chat bubbles, which the above never learns
+         *   about. A bubble is a real interactive surface, and in battery-saver mode an open
+         *   bubble keeps the socket alive indefinitely (`scheduleBatterySaverLinger` re-checks
+         *   `anyBubbleOpen()` at expiry), so it is precisely where the ping cadence still matters.
+         *
+         * **Deliberately NOT using the service's own `isAppVisible` flag**, even though
+         * ChatBubbleActivity sets it. That flag is sticky: `setAppVisibility(true)` has four
+         * callers but `setAppVisibility(false)` has exactly one — the main-app backgrounding path
+         * in ViewModelLifecycleCoordinator. Closing a bubble while the main app is already
+         * backgrounded therefore leaves it stuck `true` forever, which in always-on mode would
+         * pin the ping at the foreground interval and silently undo the battery saving.
+         * `BubbleTracker` is maintained by the bubble's own open/close lifecycle and is what the
+         * battery-saver linger already trusts.
          *
          * Erring toward "visible" is the safe direction: the cost is a more frequent ping, not a
          * dropped connection.
          */
         private fun anySurfaceVisible(context: Context): Boolean {
-            if (instance?.isAppVisible == true) return true
-            return net.vrkknn.andromuks.utils.NotificationSuppressionState.isAppVisible(context)
+            if (net.vrkknn.andromuks.utils.NotificationSuppressionState.isAppVisible(context)) return true
+            return BubbleTracker.anyBubbleOpen()
         }
 
         /**
@@ -610,10 +618,27 @@ class WebSocketService : Service() {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d("WebSocketService", "Ping loop started - first ping in ${pingIntervalMs(svc)}ms")
                 }
+                // Release-visible record of the cadence actually in force. Logged only when it
+                // CHANGES, not per ping, so it stays a handful of entries a day — the whole point
+                // of the adaptive interval is to not do per-ping work. Androlog persists and has
+                // an in-app viewer, which is the only way to observe this in a release build
+                // (R8 strips Log.d, including the per-ping line).
+                var lastLoggedInterval = 0L
+                fun noteInterval(intervalMs: Long, timeoutMs: Long) {
+                    if (intervalMs == lastLoggedInterval) return
+                    lastLoggedInterval = intervalMs
+                    Androlog(
+                        "ping",
+                        "interval=${intervalMs / 1000}s timeout=${timeoutMs / 1000}s " +
+                            "(visible=${anySurfaceVisible(svc)}, bubbleOpen=${BubbleTracker.anyBubbleOpen()})",
+                    )
+                }
+                noteInterval(pingIntervalMs(svc), messageTimeoutMs(svc))
                 delay(pingIntervalMs(svc))
 
                 while (isActive) {
                     val serviceInstance = instance ?: break
+                    noteInterval(pingIntervalMs(serviceInstance), messageTimeoutMs(serviceInstance))
 
                     if (!serviceInstance.connectionState.isReady()) {
                         delay(pingIntervalMs(serviceInstance))
