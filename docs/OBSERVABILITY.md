@@ -188,3 +188,56 @@ per-user data, so it's a safe always-on floor with no consent gate — unlike th
 features above. Together: Firebase gives in-app, opt-in, customizable signals (the `ws_connect`
 trace); Android vitals gives a passive field baseline; the `:baselineprofile` + Macrobenchmark
 module covers the lab side.
+
+---
+
+## Baseline profile — regenerating it
+
+Release builds ship an AOT profile recorded by `:baselineprofile`
+(`StartupBaselineProfile.kt`). Until it was first generated, releases ran fully interpreted on
+first launch.
+
+### Output path (the thing that wastes everyone's time)
+
+The plugin writes to **`app/src/<flavor><BuildType>/generated/baselineProfiles/`** — flavour and
+build type *concatenated*:
+
+```
+app/src/baseRelease/generated/baselineProfiles/baseline-prof.txt
+```
+
+Not `app/src/release/...` and not `app/src/base/...`. An empty
+`app/src/release/generated/baselineProfiles/` directory survives in the tree from before the
+product flavours existed; it is not where output lands. This file is **committed** — that is how it
+reaches release builds.
+
+### Running it
+
+Needs a connected physical device, and on the build machine release signing must resolve
+(`keystore.properties` or the `KEYSTORE_*` env vars) — the plugin derives a `nonMinifiedRelease`
+variant from `release`, so missing credentials fail during configuration with an error that never
+mentions profiles.
+
+```bash
+./gradlew :app:tasks --all | grep -i baselineprofile   # confirm the flavoured task name
+./gradlew :app:generateBaseReleaseBaselineProfile
+```
+
+On the device: **logged in**, a room with real history, and **biometric/app lock disabled** —
+`BiometricLockGate` blocks the automation indefinitely.
+
+### Verifying the result
+
+A large file is not success. The journey must actually reach the timeline:
+
+```bash
+P=app/src/baseRelease/generated/baselineProfiles/baseline-prof.txt
+grep -cE "RoomTimelineScreen|TimelineEventItem|HtmlParser" $P
+```
+
+Zero means the gestures ran before the room list populated (WebSocket dial + initial sync) and the
+profile is startup-only — which looks like a successful run. Raise `ROOM_LIST_SETTLE_MS` in
+`StartupBaselineProfile.kt` and re-record rather than committing it.
+
+Confirm it installed on device with `adb shell dumpsys package dexopt | grep -A3 andromuks`:
+the status should be profile-driven, not `verify`.
