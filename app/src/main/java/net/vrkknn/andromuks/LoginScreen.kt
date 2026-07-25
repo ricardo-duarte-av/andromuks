@@ -42,7 +42,6 @@ import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.theme.scaledSpring
 import net.vrkknn.andromuks.utils.performHttpLogin
-import okhttp3.OkHttpClient
 
 @Composable
 fun rememberImeVisible(): Boolean {
@@ -63,7 +62,7 @@ fun LoginScreen(
     var url by remember { mutableStateOf(initialUrl.ifBlank { "https://" }) }
     var username by remember { mutableStateOf(initialUsername) }
     var password by remember { mutableStateOf("") }
-    val client = remember { OkHttpClient.Builder().build() }
+    val client = remember { net.vrkknn.andromuks.utils.HttpClientProvider.shared }
     val scope = rememberCoroutineScope()
     val context = androidx.compose.ui.platform.LocalContext.current
     val sharedPreferences = remember {

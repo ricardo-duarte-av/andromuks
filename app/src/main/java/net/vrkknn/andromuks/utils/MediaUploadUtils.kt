@@ -20,7 +20,6 @@ import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.getUserAgent
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import okio.BufferedSink
@@ -101,11 +100,11 @@ object MediaUploadUtils {
 
     /** Shared OkHttpClient for all uploads to reuse connections (faster than creating one per request). */
     internal val sharedUploadClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(0, TimeUnit.SECONDS) // Use unlimited for large uploads
-            .readTimeout(0, TimeUnit.SECONDS)
-            .build()
+        HttpClientProvider.derived {
+            connectTimeout(30, TimeUnit.SECONDS)
+            writeTimeout(0, TimeUnit.SECONDS) // Use unlimited for large uploads
+            readTimeout(0, TimeUnit.SECONDS)
+        }
     }
 
     /**

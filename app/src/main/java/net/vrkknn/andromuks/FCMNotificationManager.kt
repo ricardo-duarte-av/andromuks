@@ -137,7 +137,7 @@ class FCMNotificationManager(private val context: Context) {
     private var onTokenReadyCallback: (() -> Unit)? = null
 
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-    private val httpClient = OkHttpClient()
+    private val httpClient = net.vrkknn.andromuks.utils.HttpClientProvider.shared
 
     /**
      * Initialize FCM and register with backend

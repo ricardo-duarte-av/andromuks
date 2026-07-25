@@ -5,7 +5,6 @@ import android.util.Log
 import androidx.lifecycle.viewModelScope
 import net.vrkknn.andromuks.utils.CredentialStore
 import net.vrkknn.andromuks.utils.performHttpLogin
-import okhttp3.OkHttpClient
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -30,7 +29,7 @@ object ReauthCoordinator {
 
     @Volatile private var lastFailureMs = 0L
 
-    private val client by lazy { OkHttpClient.Builder().build() }
+    private val client by lazy { net.vrkknn.andromuks.utils.HttpClientProvider.shared }
 
     /**
      * Entry point from [AppViewModel.handleUnauthorizedError]. Returns true when a re-auth attempt

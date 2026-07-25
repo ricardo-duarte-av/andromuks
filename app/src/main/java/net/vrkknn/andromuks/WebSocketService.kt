@@ -192,6 +192,9 @@ class WebSocketService : Service() {
         fun isServiceRunning(): Boolean = instance != null
 
         // Shared OkHttpClient for health checks - evict connection pool on network changes
+        // Deliberately NOT derived from HttpClientProvider: evictHealthCheckConnections() below
+        // calls connectionPool.evictAll(), which on the shared pool would tear down every other
+        // component's warm connections as a side effect of a health check.
         private val healthCheckClient: okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
             .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
@@ -2062,6 +2065,10 @@ class WebSocketService : Service() {
                         serviceInstance.currentNetworkType.name,
                     )
 
+                    // Deliberately NOT derived from HttpClientProvider: a WebSocket holds an
+                    // okhttp Dispatcher slot for the entire life of the connection, so sharing
+                    // the dispatcher would park a permanent call against every other request's
+                    // concurrency budget.
                     val client = okhttp3.OkHttpClient.Builder().build()
                     net.vrkknn.andromuks.utils.connectToWebsocket(
                         homeserverUrl,
@@ -3891,10 +3898,12 @@ class WebSocketService : Service() {
 
             // Perform backend health check
             val isHealthy = try {
-                val healthClient = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
+                // Reuse the companion's health-check client rather than building a fresh one on
+                // every attempt: this runs inside a backoff retry loop, so each attempt was
+                // creating its own connection pool and dispatcher thread pool and then dropping
+                // them, guaranteeing a cold TCP+TLS handshake for a request whose whole purpose
+                // is to be cheap. Same 5s/5s timeouts.
+                val healthClient = healthCheckClient
 
                 val request = okhttp3.Request.Builder()
                     .url(homeserverUrl)

@@ -12,7 +12,6 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.getUserAgent
 import okhttp3.Dispatcher
-import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
 import java.util.concurrent.TimeUnit
 
@@ -56,22 +55,32 @@ object ImageLoaderSingleton {
         val appContext = context.applicationContext
         // PERFORMANCE: Cap concurrent image loads to avoid runaway parallelism; queue the rest.
         // All MXC URLs map to the same host (backend/_gomuks/media/...), so maxRequestsPerHost
-        // would otherwise cap effective concurrency at the per-host limit only.
+        // is the limit that actually binds.
+        //
+        // Lowered from 100/100. Every MXC URL resolves to the same host, so with HTTP/2 these
+        // all multiplex over one connection and 100 in flight buys nothing over ~16 — it just
+        // holds the radio wide open and lets a fast scroll queue up decodes for rows that have
+        // already left the viewport. Coil serves anything already cached without touching this
+        // dispatcher at all.
         val dispatcher = Dispatcher().apply {
-            maxRequests = 100
-            maxRequestsPerHost = 100
+            maxRequests = 32
+            maxRequestsPerHost = 16
         }
 
-        val okHttpClient = OkHttpClient.Builder()
-            .dispatcher(dispatcher)
-            .addInterceptor { chain ->
+        // Derived from the shared client so image traffic reuses the same connection pool as
+        // the rest of the app (see HttpClientProvider) while keeping its own interceptors and
+        // concurrency limits. The dispatcher override below is intentional and replaces the
+        // shared one for image requests only.
+        val okHttpClient = HttpClientProvider.derived {
+            dispatcher(dispatcher)
+            addInterceptor { chain ->
                 val originalRequest = chain.request()
                 val requestWithUserAgent = originalRequest.newBuilder()
                     .header("User-Agent", getUserAgent())
                     .build()
                 chain.proceed(requestWithUserAgent)
             }
-            .addInterceptor { chain ->
+            addInterceptor { chain ->
                 val req = chain.request()
                 // For our own media endpoint:
                 // 1. Inject the gomuks_auth session cookie (same token the web frontend uses).
@@ -110,11 +119,11 @@ object ImageLoaderSingleton {
             }
             // Added last so it sees the fully-resolved request (cookie + encrypted flag injected
             // above) and can retry with the opposite flag if the backend reports a mismatch.
-            .addInterceptor(EncryptedMediaRetryInterceptor())
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
-            .build()
+            addInterceptor(EncryptedMediaRetryInterceptor())
+            connectTimeout(10, TimeUnit.SECONDS)
+            readTimeout(10, TimeUnit.SECONDS)
+            writeTimeout(10, TimeUnit.SECONDS)
+        }
 
         return ImageLoader.Builder(context)
             .components {

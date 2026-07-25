@@ -55,7 +55,7 @@ private val urlRegex = Regex("https://\\S+(?=\\s)")
 // Lazy process-wide singleton. Constructing OkHttpClient touches the system CA store on
 // first build (~tens of ms disk read). Was previously `remember { OkHttpClient() }` inside
 // UrlPreviewCompositionBar which ran on Main during composition — StrictMode flagged it.
-private val urlPreviewHttpClient: OkHttpClient by lazy { OkHttpClient() }
+private val urlPreviewHttpClient: OkHttpClient get() = HttpClientProvider.shared
 
 data class UrlPreviewItemState(
     val url: String,

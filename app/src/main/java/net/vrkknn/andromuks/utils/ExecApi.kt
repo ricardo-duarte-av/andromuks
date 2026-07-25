@@ -61,11 +61,11 @@ object ExecApi {
     private const val RETRY_BACKOFF_MS = 750L
 
     private val client: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(10, TimeUnit.SECONDS)
-            .readTimeout(20, TimeUnit.SECONDS)
-            .writeTimeout(20, TimeUnit.SECONDS)
-            .build()
+        HttpClientProvider.derived {
+            connectTimeout(10, TimeUnit.SECONDS)
+            readTimeout(20, TimeUnit.SECONDS)
+            writeTimeout(20, TimeUnit.SECONDS)
+        }
     }
 
     data class Credentials(val homeserverUrl: String, val authToken: String) {

@@ -148,7 +148,6 @@ import net.vrkknn.andromuks.utils.DownloadDeduplicationManager
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.ProgressiveImageLoader
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
@@ -2467,7 +2466,7 @@ private const val PDF_PREVIEW_MAX_BYTES = 500L * 1024L
 
 private object PdfThumbnailCache {
     private const val MAX_MEMORY_ENTRIES = 24
-    private val client = OkHttpClient()
+    private val client = HttpClientProvider.shared
 
     // PdfRenderer is not thread-safe; serialize open/render across concurrently visible PDFs.
     private val renderMutex = kotlinx.coroutines.sync.Mutex()
@@ -2827,7 +2826,7 @@ private suspend fun downloadFile(context: android.content.Context, url: String, 
  */
 private suspend fun downloadFileWithOkHttp(context: android.content.Context, url: String, filename: String, authToken: String) {
     try {
-        val client = OkHttpClient()
+        val client = HttpClientProvider.shared
         val request = Request.Builder()
             .url(url)
             .addHeader("Cookie", "gomuks_auth=$authToken")
@@ -2931,7 +2930,7 @@ private suspend fun saveImageToGallery(
             }
 
             if (httpUrl != null) {
-                val client = OkHttpClient()
+                val client = HttpClientProvider.shared
                 val request = Request.Builder()
                     .url(httpUrl)
                     .addHeader("Cookie", "gomuks_auth=$authToken")
@@ -3150,7 +3149,7 @@ internal fun ImageViewerDialog(
         }
         errorDetails = withContext(Dispatchers.IO) {
             try {
-                val client = OkHttpClient()
+                val client = HttpClientProvider.shared
                 val request = Request.Builder()
                     .url(requestUrl)
                     .addHeader("Cookie", "gomuks_auth=$authToken")
@@ -3650,7 +3649,7 @@ private suspend fun saveVideoToGallery(context: Context, videoUrl: String, filen
             }
 
             // Download video using OkHttp
-            val client = OkHttpClient()
+            val client = HttpClientProvider.shared
             val request = Request.Builder()
                 .url(videoUrl)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
