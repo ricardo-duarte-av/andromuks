@@ -2162,42 +2162,51 @@ fun RoomTimelineScreen(
                 val start = (visibleStart - prefetchGuardband).coerceAtLeast(0)
                 val end = (visibleEnd + prefetchGuardband).coerceAtMost(timelineItems.lastIndex)
 
-                for (index in start..end) {
-                    val item = timelineItems[index] as? TimelineItem.Event ?: continue
-                    val event = item.event
+                // Off Main: this walks up to (2 * prefetchGuardband + 1) items doing
+                // optJSONObject/optString per item — allocating JSONObject wrappers and Strings
+                // — and it re-runs every time the visible range changes, i.e. on every item
+                // boundary crossed during a fling. The upstream snapshotFlow still observes
+                // layoutInfo on the composition's context; only this scan moves. Coil's
+                // enqueue() is thread-safe, and timelineItems/memberMapWithFallback are
+                // captured values rather than live snapshot reads.
+                withContext(Dispatchers.Default) {
+                    for (index in start..end) {
+                        val item = timelineItems[index] as? TimelineItem.Event ?: continue
+                        val event = item.event
 
-                    // Prefetch sender avatar
-                    val avatarMxc = memberMapWithFallback[event.sender]?.avatarUrl
-                    enqueueTimelinePrefetch(
-                        mxcUrl = avatarMxc,
-                        keyPrefix = "avatar:${event.sender}",
-                        requestSize = 256,
-                    )
-
-                    // Prefetch media thumbnail (or media URL fallback) for image/video/sticker events
-                    val content = when {
-                        event.type == "m.room.message" -> event.content
-                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted
-                        event.type == "m.sticker" -> event.content ?: event.decrypted
-                        else -> null
-                    }
-                    val msgType = when {
-                        event.type == "m.sticker" -> "m.sticker"
-                        else -> content?.optString("msgtype", "")
-                    }
-                    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.sticker") {
-                        val info = content?.optJSONObject("info")
-                        val thumbnailMxc =
-                            info?.optJSONObject("thumbnail_file")
-                                ?.optString("url")
-                                ?.takeIf { it.isNotBlank() }
-                                ?: info?.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
-                        val mediaMxc = content?.optString("url", "")?.takeIf { it.isNotBlank() }
+                        // Prefetch sender avatar
+                        val avatarMxc = memberMapWithFallback[event.sender]?.avatarUrl
                         enqueueTimelinePrefetch(
-                            mxcUrl = thumbnailMxc ?: mediaMxc,
-                            keyPrefix = "media:${event.eventId}",
-                            requestSize = 512,
+                            mxcUrl = avatarMxc,
+                            keyPrefix = "avatar:${event.sender}",
+                            requestSize = 256,
                         )
+
+                        // Prefetch media thumbnail (or media URL fallback) for image/video/sticker events
+                        val content = when {
+                            event.type == "m.room.message" -> event.content
+                            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted
+                            event.type == "m.sticker" -> event.content ?: event.decrypted
+                            else -> null
+                        }
+                        val msgType = when {
+                            event.type == "m.sticker" -> "m.sticker"
+                            else -> content?.optString("msgtype", "")
+                        }
+                        if (msgType == "m.image" || msgType == "m.video" || msgType == "m.sticker") {
+                            val info = content?.optJSONObject("info")
+                            val thumbnailMxc =
+                                info?.optJSONObject("thumbnail_file")
+                                    ?.optString("url")
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: info?.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                            val mediaMxc = content?.optString("url", "")?.takeIf { it.isNotBlank() }
+                            enqueueTimelinePrefetch(
+                                mxcUrl = thumbnailMxc ?: mediaMxc,
+                                keyPrefix = "media:${event.eventId}",
+                                requestSize = 512,
+                            )
+                        }
                     }
                 }
             }
