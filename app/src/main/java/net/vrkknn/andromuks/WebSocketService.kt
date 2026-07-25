@@ -553,8 +553,30 @@ class WebSocketService : Service() {
          * detection should be responsive.
          */
         private fun pingIntervalMs(context: Context): Long {
-            val visible = net.vrkknn.andromuks.utils.NotificationSuppressionState.isAppVisible(context)
+            val visible = anySurfaceVisible(context)
             return if (visible) PING_INTERVAL_FOREGROUND_MS else PING_INTERVAL_BACKGROUND_MS
+        }
+
+        /**
+         * True when *any* UI surface is in front of the user.
+         *
+         * Deliberately ORs two sources, because neither alone is complete:
+         *
+         * - [isAppVisible] on the service instance is set by [setAppVisibility], which
+         *   ChatBubbleActivity calls but which never reaches NotificationSuppressionState. A chat
+         *   bubble is a real, interactive surface — and in battery-saver mode an open bubble keeps
+         *   the socket alive indefinitely (scheduleBatterySaverLinger re-checks anyBubbleOpen()),
+         *   so it is precisely the case where the ping cadence still matters there.
+         * - NotificationSuppressionState is process-wide and SharedPreferences-backed, so it
+         *   survives the No-VM race (see docs/WEBSOCKET_LIFECYCLE.md) and a service instance that
+         *   was recreated without anyone re-asserting visibility.
+         *
+         * Erring toward "visible" is the safe direction: the cost is a more frequent ping, not a
+         * dropped connection.
+         */
+        private fun anySurfaceVisible(context: Context): Boolean {
+            if (instance?.isAppVisible == true) return true
+            return net.vrkknn.andromuks.utils.NotificationSuppressionState.isAppVisible(context)
         }
 
         /**
@@ -566,7 +588,7 @@ class WebSocketService : Service() {
          * pings it was meant to replace. Kept at 3x the interval in both modes.
          */
         private fun messageTimeoutMs(context: Context): Long {
-            val visible = net.vrkknn.andromuks.utils.NotificationSuppressionState.isAppVisible(context)
+            val visible = anySurfaceVisible(context)
             return if (visible) MESSAGE_TIMEOUT_FOREGROUND_MS else MESSAGE_TIMEOUT_BACKGROUND_MS
         }
 
@@ -659,7 +681,12 @@ class WebSocketService : Service() {
         }
 
         /**
-         * Set app visibility (kept for compatibility, ping interval is fixed at 15s)
+         * Set app visibility. Feeds [anySurfaceVisible], which drives the ping cadence — this is
+         * the ONLY source that knows about chat bubbles, since ChatBubbleActivity calls here but
+         * not into NotificationSuppressionState.
+         *
+         * (The old doc said "kept for compatibility, ping interval is fixed at 15s". That was
+         * true only while the adaptive interval was missing; it is load-bearing again.)
          */
         fun setAppVisibility(visible: Boolean) {
             instance?.isAppVisible = visible

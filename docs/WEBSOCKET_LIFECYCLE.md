@@ -291,7 +291,12 @@ Battery optimization exemption is recommended for reliable background operation.
 
 ## Ping cadence — the 60s backend constraint
 
-`WebSocketService.pingIntervalMs()` / `messageTimeoutMs()` scale on app visibility, read from `NotificationSuppressionState.isAppVisible(context)` (process-wide and `AtomicBoolean`-backed, so it works during the No-VM race where `AppViewModel.isAppVisible` is unreachable). The interval is re-read every loop iteration, so a foreground/background transition takes effect on the next tick without restarting the loop.
+`WebSocketService.pingIntervalMs()` / `messageTimeoutMs()` scale on app visibility via `anySurfaceVisible()`, which **ORs two sources** because neither alone is complete:
+
+- `WebSocketService.isAppVisible` (set by `setAppVisibility`) — the only source that knows about **chat bubbles**, since `ChatBubbleActivity` calls it but never touches `NotificationSuppressionState`.
+- `NotificationSuppressionState.isAppVisible(context)` — process-wide and `AtomicBoolean` + prefs backed, so it survives the No-VM race and a service instance recreated without anyone re-asserting visibility.
+
+Erring toward "visible" is the safe direction: the cost is a more frequent ping, not a dropped connection. The interval is re-read every loop iteration, so a foreground/background transition takes effect on the next tick without restarting the loop.
 
 **The gomuks backend has a hardcoded 60 s ping timeout.** If we do not ping within 60 s the server drops the connection. The background interval is therefore **45 s**, not 60 s — 15 s of margin absorbs clock skew, radio latency and a doze-deferred coroutine. Do not raise it to 60 s "to save one more ping": that is exactly at the cutoff and will cause disconnect/reconnect churn that costs far more battery than it saves.
 
@@ -302,4 +307,4 @@ Two related battery details:
 - The heartbeat `AlarmManager` fallback (`scheduleHeartbeatAlarm`) is armed **only** from `sendPing()`. It used to be armed from `handlePong()` as well, which meant two binder round-trips per ping cycle for an alarm that by design should almost never fire (and which is quota-tracked on Android 12+ via `setExactAndAllowWhileIdle`). It uses the same visibility-scaled interval, so it stays just behind the coroutine.
 - `acquireHeartbeatWakeLock()` releases any existing lock before replacing the field; otherwise overlapping alarms orphaned the previous `WakeLock` until its own 10 s timeout expired.
 
-Battery-saver mode is unaffected by all of this — the socket is torn down ~15 s after backgrounding, so the ping loop is not running.
+Battery-saver mode is **mostly** unaffected — the socket is normally torn down ~15 s after backgrounding, so the ping loop is not running. The exception is an **open chat bubble**: `scheduleBatterySaverLinger` re-checks `anyBubbleOpen()` at expiry and skips teardown, so the socket stays alive indefinitely and the ping cadence does apply. That is exactly why `anySurfaceVisible()` has to consult `WebSocketService.isAppVisible` — a bubble-only session would otherwise be treated as backgrounded while the user is actively typing in it.
