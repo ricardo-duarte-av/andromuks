@@ -134,3 +134,33 @@ See [docs/NOTIFICATIONS.md](NOTIFICATIONS.md) for the full notification avatar l
 ### Why `CircleAvatarCache` was removed
 
 A former `CircleAvatarCache` stored a redundant 128px square WebP per avatar (the name was misleading — it wasn't circular; the circle was always a render-time clip) and required a synchronous-miss → IO-resolve → recompose `file://` flip on cold start. Its only RAM rationale was decoding at 128px vs the display size — but its generation pass issued a **second** `imageLoader.execute()` per avatar (software `ARGB_8888`, no explicit cache key) that Coil cached under its default key: a second strong-referenced bitmap per avatar in a memory cache budgeted at 35% of heap. Removing it (and pointing avatars at the general cache) measured **−17 MB graphics / −158 MB total PSS** after a full room-list scroll on a ~620-room account, plus eliminated the second disk copy and the CPU thumbnail-generation. The `useCircleCache` parameter is retained only for the size cap described above.
+
+---
+
+## Shared HTTP client (`utils/HttpClientProvider`)
+
+All HTTP in the app goes through **one** `OkHttpClient`, exposed as `HttpClientProvider.shared`,
+with `HttpClientProvider.derived { … }` for variants that need their own timeouts or interceptors.
+`newBuilder()` keeps the parent's `ConnectionPool` and `Dispatcher`, so a derived client still
+reuses connections and threads.
+
+**Never write `OkHttpClient()` or `OkHttpClient.Builder()` on a new code path.** Each instance
+carries its own connection pool, its own dispatcher thread pool, and no shared TLS session cache.
+The app previously had ~15 — four constructed *per invocation* inside the media download helpers —
+all hitting the same gomuks host with the same cookie, so every "save to gallery" paid a cold
+TCP + TLS handshake instead of reusing a warm pooled connection.
+
+`ImageLoaderSingleton` derives its Coil client from the shared one, keeping its auth-cookie /
+`?encrypted=` interceptors and overriding the dispatcher to `maxRequests = 32` /
+`maxRequestsPerHost = 16`. Every MXC URL resolves to the same host, so with HTTP/2 these multiplex
+over one connection — the previous 100/100 bought nothing over ~16 and just held the radio open
+while queueing decodes for rows that had already left the viewport.
+
+### The two deliberate exceptions
+
+Both are in `WebSocketService` and are commented at their definitions:
+
+| Client | Why it must stay standalone |
+|---|---|
+| The WebSocket client | A WebSocket occupies a `Dispatcher` slot for the **entire life of the connection**. On the shared dispatcher it would permanently park a call against every other request's concurrency budget. |
+| `healthCheckClient` | It calls `connectionPool.evictAll()` on network changes. On the shared pool that would tear down every other component's warm connections as a side effect of a health check. |

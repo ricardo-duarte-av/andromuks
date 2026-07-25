@@ -101,7 +101,7 @@ fun AvatarImage(
     // during fast scrolling. That was the main cause of the "wall of avatars pops
     // in at once when scrolling stops" feel: rows that composed during fast scroll
     // would refuse to load, then ALL enable loading simultaneously when the flag
-    // cleared. Coil's dispatcher already caps concurrent loads (maxRequests = 100
+    // cleared. Coil's dispatcher already caps concurrent loads (see the Dispatcher limits
     // in ImageLoaderSingleton), so we don't need a second-order throttle here —
     // let Coil handle backpressure and start each row's request as soon as it
     // becomes visible.
