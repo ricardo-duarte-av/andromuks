@@ -771,7 +771,12 @@ class AppViewModel : ViewModel() {
         internal set
 
     // Track known space room IDs (top-level and nested) so we can filter them from room lists.
-    internal val knownSpaceIds = mutableSetOf<String>()
+    // CONCURRENCY: written from parallel Dispatchers.Default workers during initial sync
+    // (SpaceRoomParser.parseSyncUpdate -> registerSpaceIds, fanned out per sync message) while
+    // RoomListUiCoordinator.currentSpaceIds() iterates it on Main during section building. A plain
+    // LinkedHashSet here meant a corrupted table (spaces leaking into Home as fake rooms) or a
+    // ConcurrentModificationException on the room list at launch. This set iterates safely.
+    internal val knownSpaceIds: MutableSet<String> = ConcurrentHashMap.newKeySet()
 
     // PERFORMANCE: Cached room sections to avoid expensive filtering on every recomposition
     internal var cachedDirectChatRooms by mutableStateOf<List<RoomItem>>(emptyList())
@@ -802,7 +807,11 @@ class AppViewModel : ViewModel() {
     // Bumped by invalidateRoomSectionCache() whenever room data actually changes
     // (performRoomReorder, setSpaces, registerSpaceIds, etc.).
     // updateCachedRoomSections() compares against its own snapshot to skip work.
-    internal var roomDataVersion: Long = 0L
+    // Atomic because registerSpaceIds bumps it from parallel Dispatchers.Default workers (see
+    // knownSpaceIds above). A lost non-atomic increment would let updateCachedRoomSections'
+    // `lastCachedVersion == roomDataVersion` short-circuit skip a rebuild it actually needed,
+    // leaving a stale room list.
+    internal val roomDataVersion = java.util.concurrent.atomic.AtomicLong(0L)
     internal var lastCachedVersion: Long = -1L
 
     /**
@@ -1192,7 +1201,9 @@ class AppViewModel : ViewModel() {
     internal val ROOM_REORDER_DEBOUNCE_MS = 30000L // 30 seconds debounce - reduces visual jumping
 
     // SYNC OPTIMIZATION: Diff-based update tracking
-    internal var lastRoomStateHash: String = ""
+    // Sentinel is 0 rather than "" — generateRoomStateHash seeds at 1, so an empty room list
+    // hashes to 1 and can never collide with "no hash recorded yet".
+    internal var lastRoomStateHash: Long = 0L
 
     // SYNC OPTIMIZATION: Selective update flags
     internal var needsRoomListUpdate = false
@@ -1984,6 +1995,16 @@ class AppViewModel : ViewModel() {
     fun getNewMessageAnimations(): Map<String, Long> = newMessageAnimations.toMap()
 
     /**
+     * Single-key lookup, for the timeline row render path.
+     *
+     * [getNewMessageAnimations] copies the whole map. TimelineEventItem called it twice per row,
+     * per recomposition, only ever to do a containsKey — so a full copy of a session-lifetime map
+     * for every visible row on every scroll frame. The backing map is a ConcurrentHashMap, so a
+     * direct read needs no snapshot.
+     */
+    fun isNewMessageAnimation(eventId: String): Boolean = newMessageAnimations.containsKey(eventId)
+
+    /**
      * Milliseconds when the user opened this room (Matrix-style timestamp).
      * Used to animate only messages newer than open time, not paginated history.
      */
@@ -2020,7 +2041,7 @@ class AppViewModel : ViewModel() {
      * This is used by FCMService to filter out notifications for low priority rooms.
      */
     // BATTERY OPTIMIZATION: Cache last low priority rooms hash to avoid unnecessary SharedPreferences writes
-    private var lastLowPriorityRoomsHash: String? = null
+    private var lastLowPriorityRoomIds: Set<String>? = null
 
     /**
      * Update low priority rooms set for notification filtering.
@@ -2030,15 +2051,16 @@ class AppViewModel : ViewModel() {
     internal fun updateLowPriorityRooms(rooms: List<RoomItem>) {
         val lowPriorityRoomIds = rooms.filter { it.isLowPriority }.map { it.id }.toSet()
 
-        // BATTERY OPTIMIZATION: Only update SharedPreferences if low priority rooms actually changed
-        // Generate hash of room IDs to detect changes
-        val newHash = lowPriorityRoomIds.sorted().joinToString(",")
-        if (newHash == lastLowPriorityRoomsHash) {
+        // BATTERY OPTIMIZATION: Only update SharedPreferences if low priority rooms actually
+        // changed. Compare the sets directly — Set equality is an O(n) hash comparison. The old
+        // path did sorted().joinToString(","), i.e. an O(n log n) sort plus a multi-KB String
+        // build per sync, to answer the same question.
+        if (lowPriorityRoomIds == lastLowPriorityRoomIds) {
             // No change - skip expensive SharedPreferences write
             return
         }
 
-        lastLowPriorityRoomsHash = newHash
+        lastLowPriorityRoomIds = lowPriorityRoomIds
 
         appContext?.let { context ->
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -2080,15 +2102,28 @@ class AppViewModel : ViewModel() {
     // PHASE 5.4: Periodic cleanup job for acknowledged messages
     private var acknowledgedMessagesCleanupJob: Job? = null
 
+    // Acknowledgment-timeout poll cadence — see startAcknowledgmentTimeoutCheck.
+    private val ackTimeoutCheckActiveMs = 10_000L
+    private val ackTimeoutCheckIdleMs = 60_000L
+
     /**
-     * PHASE 5.2: Start periodic check for unacknowledged messages
-     * Checks every 10 seconds for messages that have exceeded their acknowledgment timeout
+     * PHASE 5.2: Start periodic check for unacknowledged messages.
+     *
+     * Polls for operations that have exceeded their acknowledgment timeout. The cadence is
+     * adaptive: 10s while operations are actually pending, 60s when none are. This job runs for
+     * the whole life of the ViewModel, and the overwhelmingly common case is an empty pending
+     * list — a flat 10s tick meant 8,640 wake-ups a day to iterate an empty collection.
+     *
+     * Idle checks stay cheap (a synchronized isEmpty), and the moment an operation is queued the
+     * next tick picks it up and the interval tightens, so worst-case detection latency for a
+     * newly-queued op is one idle interval.
      */
     internal fun startAcknowledgmentTimeoutCheck() {
         acknowledgmentTimeoutJob?.cancel()
         acknowledgmentTimeoutJob = viewModelScope.launch {
             while (isActive) {
-                delay(10000L) // Check every 10 seconds
+                val hasPending = synchronized(pendingOperationsLock) { pendingWebSocketOperations.isNotEmpty() }
+                delay(if (hasPending) ackTimeoutCheckActiveMs else ackTimeoutCheckIdleMs)
                 persistenceCoordinator.checkAcknowledgmentTimeouts()
             }
         }
@@ -2948,9 +2983,12 @@ class AppViewModel : ViewModel() {
         // Second pass: Process only rooms with member events
         for ((roomId, roomObj) in roomsWithMemberEvents) {
             val events = roomObj.optJSONArray("events") ?: continue
-            // Get existing members from singleton cache or create empty map
-            val existingMembers = RoomMemberCache.getRoomMembers(roomId)
-            val memberMap = existingMembers.toMutableMap()
+            // NOTE: deliberately no snapshot of the room's member map here. This used to be
+            // `RoomMemberCache.getRoomMembers(roomId).toMutableMap()` — and getRoomMembers
+            // already returns a .toMap() copy, so that was TWO full copies of every member in
+            // the room, per room, per sync, triggered by a single member event. On a 10k-member
+            // room that is 20k map entries allocated to answer one lookup. The two things it
+            // was used for are both single-key and go straight to the cache below.
 
             // Process member events
             for (i in 0 until events.length()) {
@@ -2977,7 +3015,8 @@ class AppViewModel : ViewModel() {
                                 ).takeIf { it.isNotBlank() && it != "null" } ?: ""
 
                                 val profile = MemberProfile(displayName, avatarUrl)
-                                val previousProfile = memberMap[userId]
+                                // Read before the update below, so this is the pre-event profile.
+                                val previousProfile = RoomMemberCache.getMember(roomId, userId)
 
                                 // Update singleton cache
                                 RoomMemberCache.updateMember(roomId, userId, profile)
@@ -3039,8 +3078,14 @@ class AppViewModel : ViewModel() {
                             }
 
                             "leave", "ban" -> {
-                                // Remove members who left or were banned from room cache only
-                                if (memberMap.remove(userId) != null) {
+                                // Remove members who left or were banned from room cache only.
+                                // This previously removed from a throwaway local copy of the
+                                // member map, so RoomMemberCache kept the departed member
+                                // forever — they stayed in mention lists and room-scoped
+                                // lookups until the cache was cleared. Mirrors the correct
+                                // handling in MemberProfilesCoordinator's state-event path.
+                                if (RoomMemberCache.getMember(roomId, userId) != null) {
+                                    RoomMemberCache.removeMember(roomId, userId)
                                     anyMemberChanged = true
                                 }
                                 ProfileCache.removeFlattenedProfile(roomId, userId)
@@ -3105,11 +3150,25 @@ class AppViewModel : ViewModel() {
     // SYNC OPTIMIZATION: Helper functions for diff-based and batched updates
 
     /**
-     * Generate a hash for room state to detect actual changes
+     * Generate a hash for room state to detect actual changes.
+     *
+     * Returns an accumulated numeric hash rather than the concatenated string this used to build.
+     * The old version produced a single ~50-100KB String per sync_complete (600 rooms x ~150
+     * chars), on the Main thread, purely so it could be compared against the previous one and
+     * thrown away. Change-detection semantics are identical; only the representation differs.
      */
-    internal fun generateRoomStateHash(rooms: List<RoomItem>): String = rooms.joinToString(
-        "|",
-    ) { "${it.id}:${it.name}:${it.unreadCount}:${it.messagePreview}:${it.messageSender}:${it.sortingTimestamp}" }
+    internal fun generateRoomStateHash(rooms: List<RoomItem>): Long {
+        var hash = 1L
+        for (room in rooms) {
+            hash = hash * 31 + room.id.hashCode()
+            hash = hash * 31 + (room.name?.hashCode() ?: 0)
+            hash = hash * 31 + room.unreadCount.hashCode()
+            hash = hash * 31 + (room.messagePreview?.hashCode() ?: 0)
+            hash = hash * 31 + (room.messageSender?.hashCode() ?: 0)
+            hash = hash * 31 + (room.sortingTimestamp?.hashCode() ?: 0)
+        }
+        return hash
+    }
 
     /**
      * PERFORMANCE OPTIMIZATION: Adaptive batched UI updates
@@ -11163,13 +11222,15 @@ class AppViewModel : ViewModel() {
                 )
             }
 
-            // Count event types for debugging (lightweight operation, can defer if needed)
-            val eventTypeCounts = events.groupBy { it.type }.mapValues { it.value.size }
-            val ownMessageCount = events.count {
-                it.sender == currentUserId &&
-                    (it.type == "m.room.message" || it.type == "m.room.encrypted")
-            }
+            // Count event types for debugging. Computed INSIDE the guard: the groupBy allocates a
+            // map of lists over every event and the count{} is another full pass, and both were
+            // running in release builds purely to feed a debug log that R8 had already stripped.
             if (BuildConfig.DEBUG) {
+                val eventTypeCounts = events.groupBy { it.type }.mapValues { it.value.size }
+                val ownMessageCount = events.count {
+                    it.sender == currentUserId &&
+                        (it.type == "m.room.message" || it.type == "m.room.encrypted")
+                }
                 android.util.Log.d(
                     "Andromuks",
                     "AppViewModel: Event breakdown: $eventTypeCounts (including $ownMessageCount from YOU)",
@@ -11436,21 +11497,11 @@ class AppViewModel : ViewModel() {
             }
         }
 
-        // Summary of what was processed
-        val addedToTimeline = events.count { event ->
-            (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") ||
-                (event.type == "m.room.member" && event.timelineRowid != 0L) ||
-                (event.type == "m.room.redaction") ||
-                (
-                    event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" ||
-                        event.type == "m.room.avatar"
-                    )
-        }
-        val memberStateUpdates = events.count { event ->
-            event.type == "m.room.member" && event.timelineRowid <= 0L
-        }
-        val reactions = events.count { it.type == "m.reaction" }
-        val unhandled = events.size - addedToTimeline - memberStateUpdates - reactions
+        // NOTE: four count{} passes over `events` used to be computed here (addedToTimeline,
+        // memberStateUpdates, reactions, unhandled) to build a "summary of what was processed".
+        // Nothing ever read them — not even a log — and R8 cannot strip them because count{}
+        // with a lambda is not provably pure. Four full traversals of every sync's event list,
+        // on the hot path, for nothing.
 
         // Update room state from new timeline events (name/avatar) if present
         // CRITICAL: Only update room state if this is the currently open room

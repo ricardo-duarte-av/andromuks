@@ -1354,7 +1354,21 @@ fun ThreadViewerScreen(
                                     bottom = 8.dp,
                                 ),
                             ) {
-                                itemsIndexed(timelineItems) { index, item ->
+                                itemsIndexed(
+                                    timelineItems,
+                                    // Without a stable key, any list change (a new thread reply,
+                                    // an edit) forces a full re-layout and drops per-item state.
+                                    // The other timeline screens have keyed on stableKey for a
+                                    // while; the thread viewer never did.
+                                    key = { _, item -> item.stableKey },
+                                    contentType = { _, item ->
+                                        when (item) {
+                                            is TimelineItem.DateDivider -> "date"
+                                            is TimelineItem.ReadMarker -> "marker"
+                                            is TimelineItem.Event -> "event"
+                                        }
+                                    },
+                                ) { index, item ->
                                     when (item) {
                                         is TimelineItem.DateDivider -> {
                                             DateDivider(item.date)
@@ -1537,8 +1551,8 @@ fun ThreadViewerScreen(
 
                             // Sticky date pill — shows date of oldest visible event while scrolling up
                             net.vrkknn.andromuks.utils.StickyDateIndicator(
-                                oldestVisibleDate = oldestVisibleDateThread,
-                                scrollPositionKey = scrollKeyThread,
+                                oldestVisibleDate = { oldestVisibleDateThread },
+                                scrollPositionKey = { scrollKeyThread },
                                 reverseScrollLayout = false,
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)

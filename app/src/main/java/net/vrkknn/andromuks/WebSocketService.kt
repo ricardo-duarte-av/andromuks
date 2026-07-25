@@ -61,8 +61,17 @@ class WebSocketService : Service() {
         private const val BACKEND_HEALTH_RETRY_DELAY_MS = 1_000L
 
         // Connection health: Ping every 15s (first ping 15s after connect), mark bad after 60s without ANY message
-        private const val PING_INTERVAL_MS = 15_000L // 15 seconds - first ping 15s after connect, then every 15s
-        private const val MESSAGE_TIMEOUT_MS = 60_000L // 60 seconds without ANY message = connection stale, reconnect
+        // Ping cadence, adaptive on app visibility — see pingIntervalMs()/messageTimeoutMs().
+        // HARD CONSTRAINT: the gomuks backend has a hardcoded 60s ping timeout. The background
+        // interval must stay comfortably under that, so 45s (15s margin), never 60s.
+        private const val PING_INTERVAL_FOREGROUND_MS = 15_000L
+        private const val PING_INTERVAL_BACKGROUND_MS = 45_000L
+
+        // "No message at all" staleness bound. Kept at 3x the matching ping interval: if this
+        // does not scale with the interval, a longer background ping leaves too small a reply
+        // window and ordinary jitter trips a reconnect loop.
+        private const val MESSAGE_TIMEOUT_FOREGROUND_MS = 60_000L
+        private const val MESSAGE_TIMEOUT_BACKGROUND_MS = 135_000L
         private const val PONG_CLEAR_INFLIGHT_MS = 5_000L // Clear pingInFlight after 5s so next ping can be sent
         private const val INIT_COMPLETE_TIMEOUT_MS_BASE = 15_000L // init_complete wait before run_id (unified monitoring / timeouts)
         private const val HARD_CONNECTING_TIMEOUT_MS = 5_000L // stuck in Connecting — force recovery
@@ -77,6 +86,26 @@ class WebSocketService : Service() {
         internal const val NETWORK_VALIDATION_TIMEOUT_MS = 10_000L
 
         const val ACTION_HEARTBEAT_ALARM = "net.vrkknn.andromuks.HEARTBEAT_ALARM"
+
+        // Unified monitoring cadence. Fast tick only while the connection is unhealthy — that is
+        // the only time the stuck-CONNECTING (>3s) / stuck-RECONNECTING / stuck-DISCONNECTED
+        // bounds can fire. Once Ready, nothing in that loop needs sub-15s resolution.
+        private const val MONITOR_INTERVAL_TRANSIENT_MS = 1_000L
+        private const val MONITOR_INTERVAL_READY_MS = 15_000L
+
+        // Cadence for the expensive checks inside the monitoring loop (state corruption, primary
+        // ViewModel health, validateCallbacks). Time-based so it stays ~30s at either tick rate.
+        private const val DEEP_CHECK_INTERVAL_MS = 30_000L
+
+        // How far the persisted last_received_request_id may lag the RAM value before we pay for
+        // a SharedPreferences write. Resuming from a slightly stale id just replays a few syncs.
+        private const val REQUEST_ID_PERSIST_STEP = 10
+
+        // Last value actually written to disk; guards the throttle above. Not the source of
+        // truth — instance.lastReceivedRequestId is.
+        @Volatile
+        private var lastPersistedRequestId = 0
+
         private const val HEARTBEAT_MARGIN_MS = 5000L // 5 seconds margin for coroutine to win
         private const val HEARTBEAT_WAKE_LOCK_MS = 10000L // 10 seconds wake lock for alarm processing
 
@@ -163,6 +192,9 @@ class WebSocketService : Service() {
         fun isServiceRunning(): Boolean = instance != null
 
         // Shared OkHttpClient for health checks - evict connection pool on network changes
+        // Deliberately NOT derived from HttpClientProvider: evictHealthCheckConnections() below
+        // calls connectionPool.evictAll(), which on the shared pool would tear down every other
+        // component's warm connections as a side effect of a health check.
         private val healthCheckClient: okhttp3.OkHttpClient = okhttp3.OkHttpClient.Builder()
             .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
             .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
@@ -510,9 +542,69 @@ class WebSocketService : Service() {
         }
 
         /**
+         * Ping cadence, adaptive on app visibility.
+         *
+         * **Hard constraint: the gomuks backend has a hardcoded 60s ping timeout.** Miss it and
+         * the server drops us, so the background interval must stay comfortably under 60s —
+         * hence 45s (15s of margin for clock skew, radio latency and a doze-deferred coroutine),
+         * not the 60s an earlier revision of this code used.
+         *
+         * Foreground stays at 15s: the user is watching, so lag readings and connection-loss
+         * detection should be responsive.
+         */
+        private fun pingIntervalMs(context: Context): Long {
+            val visible = anySurfaceVisible(context)
+            return if (visible) PING_INTERVAL_FOREGROUND_MS else PING_INTERVAL_BACKGROUND_MS
+        }
+
+        /**
+         * True when *any* UI surface is in front of the user.
+         *
+         * ORs two sources, because neither alone is complete:
+         *
+         * - `NotificationSuppressionState` — process-wide and `AtomicBoolean` + SharedPreferences
+         *   backed, so it survives the No-VM race (see docs/WEBSOCKET_LIFECYCLE.md) and a service
+         *   instance recreated without anyone re-asserting visibility. Covers the main activity.
+         * - [BubbleTracker.anyBubbleOpen] — covers chat bubbles, which the above never learns
+         *   about. A bubble is a real interactive surface, and in battery-saver mode an open
+         *   bubble keeps the socket alive indefinitely (`scheduleBatterySaverLinger` re-checks
+         *   `anyBubbleOpen()` at expiry), so it is precisely where the ping cadence still matters.
+         *
+         * **Deliberately NOT using the service's own `isAppVisible` flag**, even though
+         * ChatBubbleActivity sets it. That flag is sticky: `setAppVisibility(true)` has four
+         * callers but `setAppVisibility(false)` has exactly one — the main-app backgrounding path
+         * in ViewModelLifecycleCoordinator. Closing a bubble while the main app is already
+         * backgrounded therefore leaves it stuck `true` forever, which in always-on mode would
+         * pin the ping at the foreground interval and silently undo the battery saving.
+         * `BubbleTracker` is maintained by the bubble's own open/close lifecycle and is what the
+         * battery-saver linger already trusts.
+         *
+         * Erring toward "visible" is the safe direction: the cost is a more frequent ping, not a
+         * dropped connection.
+         */
+        private fun anySurfaceVisible(context: Context): Boolean {
+            if (net.vrkknn.andromuks.utils.NotificationSuppressionState.isAppVisible(context)) return true
+            return BubbleTracker.anyBubbleOpen()
+        }
+
+        /**
+         * Staleness bound, scaled to match [pingIntervalMs].
+         *
+         * This MUST move with the ping interval. At the old flat 60s timeout, a 45s background
+         * ping would leave only a 15s window for the reply, so ordinary jitter would trip the
+         * "no message" reconnect over and over — burning far more battery than the frequent
+         * pings it was meant to replace. Kept at 3x the interval in both modes.
+         */
+        private fun messageTimeoutMs(context: Context): Long {
+            val visible = anySurfaceVisible(context)
+            return if (visible) MESSAGE_TIMEOUT_FOREGROUND_MS else MESSAGE_TIMEOUT_BACKGROUND_MS
+        }
+
+        /**
          * Start ping loop for connection health monitoring.
-         * First ping 15s after connect, then every 15s.
-         * Connection marked bad after 60s without ANY message (ping or otherwise).
+         *
+         * Interval is re-read every iteration (see [pingIntervalMs]) so a foreground/background
+         * transition takes effect on the next tick rather than needing the loop restarted.
          */
         fun startPingLoop() {
             instance?.let { serviceInstance ->
@@ -523,29 +615,49 @@ class WebSocketService : Service() {
             }
             val svc = instance ?: return
             svc.pingJob = svc.serviceScope.launch {
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop started - first ping in 15s")
-                // First ping 15 seconds after websocket connect
-                delay(PING_INTERVAL_MS)
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("WebSocketService", "Ping loop started - first ping in ${pingIntervalMs(svc)}ms")
+                }
+                // Release-visible record of the cadence actually in force. Logged only when it
+                // CHANGES, not per ping, so it stays a handful of entries a day — the whole point
+                // of the adaptive interval is to not do per-ping work. Androlog persists and has
+                // an in-app viewer, which is the only way to observe this in a release build
+                // (R8 strips Log.d, including the per-ping line).
+                var lastLoggedInterval = 0L
+                fun noteInterval(intervalMs: Long, timeoutMs: Long) {
+                    if (intervalMs == lastLoggedInterval) return
+                    lastLoggedInterval = intervalMs
+                    Androlog(
+                        "ping",
+                        "interval=${intervalMs / 1000}s timeout=${timeoutMs / 1000}s " +
+                            "(visible=${anySurfaceVisible(svc)}, bubbleOpen=${BubbleTracker.anyBubbleOpen()})",
+                    )
+                }
+                noteInterval(pingIntervalMs(svc), messageTimeoutMs(svc))
+                delay(pingIntervalMs(svc))
 
                 while (isActive) {
                     val serviceInstance = instance ?: break
+                    noteInterval(pingIntervalMs(serviceInstance), messageTimeoutMs(serviceInstance))
 
                     if (!serviceInstance.connectionState.isReady()) {
-                        delay(PING_INTERVAL_MS)
+                        delay(pingIntervalMs(serviceInstance))
                         continue
                     }
 
-                    // Check 60s message timeout - if no message for 60s, connection is stale
+                    // If no message at all has arrived within the (visibility-scaled) bound,
+                    // treat the connection as stale and re-dial.
+                    val timeout = messageTimeoutMs(serviceInstance)
                     val timeSinceLastMessage = System.currentTimeMillis() - serviceInstance.lastMessageReceivedTimestamp
-                    if (timeSinceLastMessage >= MESSAGE_TIMEOUT_MS) {
+                    if (timeSinceLastMessage >= timeout) {
                         android.util.Log.w(
                             "WebSocketService",
-                            "No message received for ${timeSinceLastMessage}ms (>= ${MESSAGE_TIMEOUT_MS}ms) - reconnecting",
+                            "No message received for ${timeSinceLastMessage}ms (>= ${timeout}ms) - reconnecting",
                         )
                         logActivity("Message Timeout - Reconnecting", serviceInstance.currentNetworkType.name)
-                        clearWebSocket("No message for 60 seconds - connection stale")
+                        clearWebSocket("No message for ${timeout}ms - connection stale")
                         scheduleReconnection(ReconnectTrigger.MessageTimeout)
-                        delay(PING_INTERVAL_MS)
+                        delay(pingIntervalMs(serviceInstance))
                         continue
                     }
 
@@ -553,7 +665,7 @@ class WebSocketService : Service() {
                         serviceInstance.sendPing()
                     }
 
-                    delay(PING_INTERVAL_MS)
+                    delay(pingIntervalMs(serviceInstance))
                 }
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop ended - isActive=$isActive")
             }
@@ -594,7 +706,12 @@ class WebSocketService : Service() {
         }
 
         /**
-         * Set app visibility (kept for compatibility, ping interval is fixed at 15s)
+         * Set app visibility. Feeds [anySurfaceVisible], which drives the ping cadence — this is
+         * the ONLY source that knows about chat bubbles, since ChatBubbleActivity calls here but
+         * not into NotificationSuppressionState.
+         *
+         * (The old doc said "kept for compatibility, ping interval is fixed at 15s". That was
+         * true only while the adaptive interval was missing; it is load-bearing again.)
          */
         fun setAppVisibility(visible: Boolean) {
             instance?.isAppVisible = visible
@@ -605,7 +722,7 @@ class WebSocketService : Service() {
         // When the app is backgrounded in battery-saver mode for longer than the linger
         // window, the lifecycle coordinator stops this service AND sets the
         // battery_saver_user_disconnected pref. All auto-restart paths (AutoRestartReceiver,
-        // BootStartReceiver, AutoRestartWorker, WebSocketHealthCheckWorker) funnel
+        // BootStartReceiver, WebSocketHealthCheckWorker) funnel
         // through ServiceStartWorker, which checks this flag and skips the start.
         // The flag is cleared when the app comes back to the foreground (via
         // ViewModelLifecycleCoordinator.onAppBecameVisible). On a true cold start
@@ -1108,8 +1225,11 @@ class WebSocketService : Service() {
                 serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
                 serviceInstance.consecutivePingTimeouts = 0 // Reset consecutive timeouts on success
 
-                // Reschedule heartbeat alarm fallback - we just got a pong, so connection is alive
-                serviceInstance.scheduleHeartbeatAlarm()
+                // NOTE: deliberately does NOT re-arm the heartbeat alarm here. sendPing() already
+                // arms it for the next cycle, and arming from both sites meant two AlarmManager
+                // binder round-trips per ping cycle (~11.5k/day at the old 15s cadence) for an
+                // alarm that by design should almost never fire. On Android 12+
+                // setExactAndAllowWhileIdle is quota-tracked as well.
 
                 if (serviceInstance.pingInFlight) {
                     serviceInstance.pongTimeoutJob?.cancel()
@@ -1297,6 +1417,12 @@ class WebSocketService : Service() {
          */
         fun clearWebSocket(reason: String = "Unknown", closeCode: Int? = null, closeReason: String? = null) {
             val serviceInstance = instance ?: return
+
+            // The socket is going away, so no further sync_completes will advance the RAM
+            // request_id. Flush it now — updateLastReceivedRequestId throttles the disk write,
+            // and this is the point where the persisted copy stops being a stale duplicate and
+            // starts being what a reconnect (or a restarted process) will actually resume from.
+            flushLastReceivedRequestId(serviceInstance.applicationContext)
 
             // PHASE 4.1: Store close code and reason if provided
             if (closeCode != null) {
@@ -1991,6 +2117,10 @@ class WebSocketService : Service() {
                         serviceInstance.currentNetworkType.name,
                     )
 
+                    // Deliberately NOT derived from HttpClientProvider: a WebSocket holds an
+                    // okhttp Dispatcher slot for the entire life of the connection, so sharing
+                    // the dispatcher would park a permanent call against every other request's
+                    // concurrency budget.
                     val client = okhttp3.OkHttpClient.Builder().build()
                     net.vrkknn.andromuks.utils.connectToWebsocket(
                         homeserverUrl,
@@ -2110,17 +2240,44 @@ class WebSocketService : Service() {
             val serviceInstance = instance
             // CRITICAL: request_id can be negative (and usually is), so check != 0 instead of > 0
             if (requestId != 0) {
-                // Update RAM value for fast access
+                // RAM value is always current — this is what a live reconnect actually reads.
                 serviceInstance?.lastReceivedRequestId = requestId
 
-                // CRITICAL: Also persist to SharedPreferences so it survives service restarts
-                val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                prefs.edit().putInt("last_received_request_id", requestId).apply()
-
-                // if (BuildConfig.DEBUG) {
-                //    android.util.Log.d("WebSocketService", "Updated last_received_request_id to $requestId (stored in RAM and SharedPreferences for faster reconnections)")
-                // }
+                // The SharedPreferences copy only matters if the process dies, so it does not
+                // need to be exact. It used to be written on EVERY sync_complete, and each
+                // apply() queues a full XML rewrite + fsync of AndromuksAppPrefs — the app's
+                // large shared blob (see AndromuksApplication.prewarmSharedPreferences). That
+                // was a disk write per incoming sync.
+                //
+                // Resuming from a slightly older id is safe: the backend replays the delta from
+                // whatever id we present, so at worst we re-receive a handful of syncs. Losing
+                // it entirely is not safe, hence the flush hooks below.
+                if (lastPersistedRequestId == 0 ||
+                    kotlin.math.abs(requestId.toLong() - lastPersistedRequestId.toLong()) >= REQUEST_ID_PERSIST_STEP
+                ) {
+                    persistLastReceivedRequestId(requestId, context)
+                }
             }
+        }
+
+        /**
+         * Force the RAM request_id to disk. Called at the points where the process may be about
+         * to stop receiving syncs (service destroy, connection loss), so the persisted value is
+         * fresh exactly when it is about to be the only copy.
+         */
+        fun flushLastReceivedRequestId(context: Context) {
+            val ramValue = instance?.lastReceivedRequestId ?: return
+            if (ramValue != 0 && ramValue != lastPersistedRequestId) {
+                persistLastReceivedRequestId(ramValue, context)
+            }
+        }
+
+        private fun persistLastReceivedRequestId(requestId: Int, context: Context) {
+            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("last_received_request_id", requestId)
+                .apply()
+            lastPersistedRequestId = requestId
         }
 
         /**
@@ -2145,6 +2302,11 @@ class WebSocketService : Service() {
             if (persistedValue != 0 && instance != null) {
                 instance!!.lastReceivedRequestId = persistedValue
             }
+            // Keep the write-throttle tracker aligned with what is actually on disk, so the
+            // next update measures its delta from the right baseline.
+            if (persistedValue != 0) {
+                lastPersistedRequestId = persistedValue
+            }
 
             return persistedValue
         }
@@ -2160,6 +2322,7 @@ class WebSocketService : Service() {
             // Clear from SharedPreferences
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             prefs.edit().remove("last_received_request_id").apply()
+            lastPersistedRequestId = 0
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("WebSocketService", "Cleared last_received_request_id (cold start detected)")
@@ -3005,34 +3168,52 @@ class WebSocketService : Service() {
      * - All checks happen in same wake-up cycle
      * - Same monitoring coverage, better battery efficiency
      * 
+     * Tick rate is adaptive: 1s while the connection is not Ready (so stuck CONNECTING /
+     * RECONNECTING / DISCONNECTED states are still caught within their 3-5s bounds), 15s once
+     * Ready — which is the steady state, and where a flat 1s tick was burning ~86k no-op
+     * wake-ups a day for the whole life of the foreground service.
+     *
      * What it monitors:
-     * 1. Callback health (validateCallbacks each tick; internal cadence varies)
+     * 1. Callback health (~every 30s, with the other deep checks)
      * 2. State corruption (~every 30s) - detects and recovers from state inconsistencies
      * 3. Primary ViewModel health (~every 30s, same tick as state corruption) - safety net; SyncRepository owns attach/prune
-     * 4. Connection health (every 1s) - detects stuck CONNECTING/RECONNECTING states
-     * 5. Notification staleness (each tick) - ensures notification is updated when needed
+     * 4. Connection health (every tick) - detects stuck CONNECTING/RECONNECTING states
+     * 5. Notification staleness (each tick, acts after 60s) - ensures notification is updated when needed
      */
     private fun startUnifiedMonitoring() {
         unifiedMonitoringJob?.cancel()
         unifiedMonitoringJob = serviceScope.launch {
-            var stateCorruptionCheckCounter = 0
+            var lastDeepCheckAt = 0L
+            var ranDeepCheckThisTick = false
             while (isActive) {
-                // RUN FREQUENCY:
-                // Use a 1-second tick so we can enforce strict upper bounds on transient states
-                // like CONNECTING without waiting 30s for the next health check.
-                delay(1_000) // Check every 1 second
+                // RUN FREQUENCY (adaptive):
+                // The sub-second bounds this loop enforces — stuck CONNECTING (>3s), stuck
+                // RECONNECTING, stuck DISCONNECTED — only exist while the connection is NOT
+                // healthy. Once we are Ready there is nothing here that needs 1s resolution,
+                // and the foreground service means this loop runs for the entire life of the
+                // app: a flat 1s tick was ~86,400 wake-ups a day, almost all of them no-ops.
+                // (The doc comment above and the log below both claimed 30s; the 1s tick
+                // silently gave back the wake-up reduction they describe.)
+                delay(if (connectionState.isReady()) MONITOR_INTERVAL_READY_MS else MONITOR_INTERVAL_TRANSIENT_MS)
 
                 try {
-                    // 1. Callback health check (every 30s)
-                    // PHASE 2.3: Validate that all primary callbacks are set
-                    // Ensures reconnection callbacks are available for reconnection attempts
-                    validateCallbacks()
-
-                    // 2 + 3. State corruption + primary ViewModel health (~every 30s — same counter as documented)
+                    // 2 + 3. State corruption + primary ViewModel health (~every 30s).
                     // Primary promotion is a safety net; SyncRepository flows own attachment/pruning. This must not
-                    // run every 1s (it did before): it spams logs and fights registerReceiveCallback/attach ordering.
-                    stateCorruptionCheckCounter++
-                    if (stateCorruptionCheckCounter >= 30) {
+                    // run every tick: it spams logs and fights registerReceiveCallback/attach ordering.
+                    // Time-based, not tick-based: with a variable tick a counter would silently
+                    // change this cadence.
+                    val nowElapsed = android.os.SystemClock.elapsedRealtime()
+                    ranDeepCheckThisTick = nowElapsed - lastDeepCheckAt >= DEEP_CHECK_INTERVAL_MS
+                    if (ranDeepCheckThisTick) {
+                        lastDeepCheckAt = nowElapsed
+
+                        // 1. Callback health check.
+                        // PHASE 2.3: Validate that all primary callbacks are set, so reconnection
+                        // callbacks are available for reconnection attempts. Moved in here with the
+                        // other deep checks: it does a SharedPreferences read plus a
+                        // getAttachedViewModels() pass (synchronized + filter + mapNotNull), which
+                        // is far too much to repeat on every tick.
+                        validateCallbacks()
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "WebSocketService",
@@ -3075,10 +3256,9 @@ class WebSocketService : Service() {
                                 }
                             }
                         }
-                        stateCorruptionCheckCounter = 0
                     }
 
-                    // 4. Connection health check (every 1s)
+                    // 4. Connection health check (every tick)
                     // Detects if connection is stuck in CONNECTING or RECONNECTING state and forces recovery
                     val currentState = connectionState
                     val currentTime = System.currentTimeMillis()
@@ -3204,8 +3384,8 @@ class WebSocketService : Service() {
                             ),
                         )
                     } else if (currentState.isDisconnected() && !hasVmOrPriorConnection && disconnectedLongEnough) {
-                        // Rate-limit to once per 30 ticks (~30s) to avoid logcat spam.
-                        if (BuildConfig.DEBUG && stateCorruptionCheckCounter == 0) {
+                        // Rate-limit to the ~30s deep-check cadence to avoid logcat spam.
+                        if (BuildConfig.DEBUG && ranDeepCheckThisTick) {
                             android.util.Log.d(
                                 "WebSocketService",
                                 "Health check: Skipping auto-reconnect (cold start, no VM attached yet — waiting for UI to drive first connection)",
@@ -3235,7 +3415,8 @@ class WebSocketService : Service() {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "WebSocketService",
-                "Unified monitoring started (checks every 30 seconds)",
+                "Unified monitoring started (tick ${MONITOR_INTERVAL_TRANSIENT_MS}ms transient / " +
+                    "${MONITOR_INTERVAL_READY_MS}ms ready, deep checks every ${DEEP_CHECK_INTERVAL_MS}ms)",
             )
         }
     }
@@ -3769,10 +3950,12 @@ class WebSocketService : Service() {
 
             // Perform backend health check
             val isHealthy = try {
-                val healthClient = okhttp3.OkHttpClient.Builder()
-                    .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
+                // Reuse the companion's health-check client rather than building a fresh one on
+                // every attempt: this runs inside a backoff retry loop, so each attempt was
+                // creating its own connection pool and dispatcher thread pool and then dropping
+                // them, guaranteeing a cold TCP+TLS handshake for a request whose whole purpose
+                // is to be cheap. Same 5s/5s timeouts.
+                val healthClient = healthCheckClient
 
                 val request = okhttp3.Request.Builder()
                     .url(homeserverUrl)
@@ -4040,7 +4223,9 @@ class WebSocketService : Service() {
             val jsonString = json.toString()
 
             // Log the actual PING JSON being sent
-            android.util.Log.i("WebSocketService", "PING JSON: $jsonString")
+            // Log.d, not Log.i: R8 strips Log.d from release builds but keeps Log.i, so this
+            // was interpolating and emitting a line on every ping cycle, forever, in release.
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "PING JSON: $jsonString")
 
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Executing webSocket.send(ping)")
             val sent = currentWebSocket.send(jsonString)
@@ -4648,6 +4833,10 @@ class WebSocketService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onDestroy() {
+        // Last chance to persist the RAM request_id before the process may go away; the write
+        // is throttled during normal operation (see updateLastReceivedRequestId).
+        flushLastReceivedRequestId(applicationContext)
+
         // PERFORMANCE: Unregister screen state receiver
         try {
             unregisterReceiver(screenStateReceiver)
@@ -5369,8 +5558,10 @@ class WebSocketService : Service() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 
-            // Calculate next alarm time: current interval + margin
-            val interval = PING_INTERVAL_MS
+            // Calculate next alarm time: current interval + margin. Uses the same
+            // visibility-scaled interval as the ping loop, so the fallback alarm stays just
+            // behind the coroutine rather than firing ahead of it while backgrounded.
+            val interval = pingIntervalMs(this)
             val triggerTime = System.currentTimeMillis() + interval + HEARTBEAT_MARGIN_MS
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -5448,6 +5639,10 @@ class WebSocketService : Service() {
     private fun acquireHeartbeatWakeLock() {
         try {
             val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            // Release any previous lock before overwriting the field. Without this, two
+            // overlapping heartbeat alarms orphaned the first WakeLock — it stayed held until
+            // its own 10s timeout expired with nothing able to release it early.
+            heartbeatWakeLock?.let { if (it.isHeld) it.release() }
             heartbeatWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Andromuks:Heartbeat").apply {
                 acquire(HEARTBEAT_WAKE_LOCK_MS)
             }

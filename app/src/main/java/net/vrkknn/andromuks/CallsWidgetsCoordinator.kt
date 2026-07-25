@@ -7,7 +7,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import net.vrkknn.andromuks.utils.getUserAgent
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 
@@ -24,7 +23,7 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         val wellKnownUrl = homeserver.trimEnd('/') + "/.well-known/matrix/client"
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val client = OkHttpClient.Builder().build()
+                val client = net.vrkknn.andromuks.utils.HttpClientProvider.shared
                 val request = Request.Builder()
                     .url(wellKnownUrl)
                     .get()

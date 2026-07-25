@@ -41,20 +41,32 @@
 -dontwarn org.scilab.forge.jlatexmath.**
 
 # OkHttp
+#
+# NOTE: `-keep class okhttp3.** { *; }` and the matching `-keep interface` were removed here.
+# OkHttp ships its own consumer ProGuard rules, so the blanket keeps were redundant — and
+# actively harmful: keeping every member of a library this size prevents R8 from shrinking it,
+# and blocks inlining and class merging across it. The PublicSuffixDatabase keepnames below IS
+# still required (OkHttp looks it up by name to load its bundled resource).
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -keepnames class okhttp3.internal.publicsuffix.PublicSuffixDatabase
--keep class okhttp3.** { *; }
--keep interface okhttp3.** { *; }
 
 # Firebase / GMS
--keep class com.google.firebase.** { *; }
+#
+# Same reasoning: the blanket `-keep class com.google.firebase.**` / `com.google.android.gms.**`
+# rules were removed. Both ship consumer rules covering their own reflective entry points
+# (Firebase's component discovery, Crashlytics' reporting, the Maps/Location service bindings),
+# and this app performs no reflection of its own — verified: there are zero Class.forName /
+# getMethod / newInstance call sites in app/src/main/java. GMS in particular is very large, so
+# keeping every member had a real APK-size cost.
+#
+# The `-dontwarn` lines stay: they suppress build-time noise about optional transitive APIs and
+# are unrelated to shrinking.
 -dontwarn com.google.firebase.**
--keep class com.google.android.gms.** { *; }
 -dontwarn com.google.android.gms.**
 
-# WebSocket / JSON
--keep class org.json.** { *; }
+# NOTE: `-keep class org.json.** { *; }` was removed. org.json ships in the Android framework
+# (android.jar), not in the APK, so R8 never had those classes to shrink — the rule was a no-op.
 
 # Strip android.util.Log debug/verbose calls in release builds.
 #
@@ -76,7 +88,12 @@
     public static int isLoggable(java.lang.String, int);
 }
 
-# App data classes used in notifications and caches
+# App data classes used in notifications and caches.
+#
+# Deliberately NOT narrowed in the same pass that removed the library-wide keeps above. These are
+# small, and narrowing them needs case-by-case checking of what actually crosses a reflective or
+# Parcelable boundary — a separate change with a separate blast radius. Keeping them means a
+# release-only failure after this commit almost certainly points at a library rule, not at these.
 -keep class net.vrkknn.andromuks.NotificationData { *; }
 -keep class net.vrkknn.andromuks.RoomItem { *; }
 -keep class net.vrkknn.andromuks.FCMComponents { *; }

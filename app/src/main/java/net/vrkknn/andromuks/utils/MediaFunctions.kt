@@ -148,7 +148,6 @@ import net.vrkknn.andromuks.utils.DownloadDeduplicationManager
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.ProgressiveImageLoader
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
@@ -208,11 +207,11 @@ object InlineVideoPlayerManager {
 /**
  * Format timestamp for media messages
  */
-private fun formatMediaTimestamp(timestamp: Long): String {
-    val date = Date(timestamp)
-    val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
-    return formatter.format(date)
-}
+// Reused per thread rather than allocated per call — runs once per media row.
+// ThreadLocal because SimpleDateFormat is not thread-safe.
+private val mediaTimeFormatter = ThreadLocal.withInitial { SimpleDateFormat("HH:mm", Locale.getDefault()) }
+
+private fun formatMediaTimestamp(timestamp: Long): String = mediaTimeFormatter.get()!!.format(Date(timestamp))
 
 /**
  * Format video duration from milliseconds to MM:SS or HH:MM:SS format
@@ -2467,7 +2466,7 @@ private const val PDF_PREVIEW_MAX_BYTES = 500L * 1024L
 
 private object PdfThumbnailCache {
     private const val MAX_MEMORY_ENTRIES = 24
-    private val client = OkHttpClient()
+    private val client = HttpClientProvider.shared
 
     // PdfRenderer is not thread-safe; serialize open/render across concurrently visible PDFs.
     private val renderMutex = kotlinx.coroutines.sync.Mutex()
@@ -2827,7 +2826,7 @@ private suspend fun downloadFile(context: android.content.Context, url: String, 
  */
 private suspend fun downloadFileWithOkHttp(context: android.content.Context, url: String, filename: String, authToken: String) {
     try {
-        val client = OkHttpClient()
+        val client = HttpClientProvider.shared
         val request = Request.Builder()
             .url(url)
             .addHeader("Cookie", "gomuks_auth=$authToken")
@@ -2931,23 +2930,24 @@ private suspend fun saveImageToGallery(
             }
 
             if (httpUrl != null) {
-                val client = OkHttpClient()
+                val client = HttpClientProvider.shared
                 val request = Request.Builder()
                     .url(httpUrl)
                     .addHeader("Cookie", "gomuks_auth=$authToken")
                     .build()
 
-                val response = client.newCall(request).execute()
-                if (!response.isSuccessful) {
-                    throw Exception("Failed to download image: ${response.code}")
-                }
-
-                response.body?.byteStream()?.use { input ->
-                    val tempFile = File(context.cacheDir, "temp_image_${System.currentTimeMillis()}.jpg")
-                    FileOutputStream(tempFile).use { output ->
-                        input.copyTo(output)
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw Exception("Failed to download image: ${response.code}")
                     }
-                    imageFile = tempFile
+
+                    response.body?.byteStream()?.use { input ->
+                        val tempFile = File(context.cacheDir, "temp_image_${System.currentTimeMillis()}.jpg")
+                        FileOutputStream(tempFile).use { output ->
+                            input.copyTo(output)
+                        }
+                        imageFile = tempFile
+                    }
                 }
             }
         }
@@ -3149,7 +3149,7 @@ internal fun ImageViewerDialog(
         }
         errorDetails = withContext(Dispatchers.IO) {
             try {
-                val client = OkHttpClient()
+                val client = HttpClientProvider.shared
                 val request = Request.Builder()
                     .url(requestUrl)
                     .addHeader("Cookie", "gomuks_auth=$authToken")
@@ -3649,44 +3649,45 @@ private suspend fun saveVideoToGallery(context: Context, videoUrl: String, filen
             }
 
             // Download video using OkHttp
-            val client = OkHttpClient()
+            val client = HttpClientProvider.shared
             val request = Request.Builder()
                 .url(videoUrl)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                throw Exception("Failed to download video: ${response.code}")
-            }
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    throw Exception("Failed to download video: ${response.code}")
+                }
 
-            // Save to MediaStore
-            val contentValues = ContentValues().apply {
-                put(MediaStore.Video.Media.DISPLAY_NAME, finalFilename)
-                put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                // Save to MediaStore
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.Video.Media.DISPLAY_NAME, finalFilename)
+                    put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Andromuks")
+                        put(MediaStore.Video.Media.IS_PENDING, 1)
+                    }
+                }
+
+                val uri = context.contentResolver.insert(
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+                    contentValues,
+                ) ?: throw Exception("Failed to create MediaStore entry")
+
+                // Write video data
+                context.contentResolver.openOutputStream(uri)?.use { output ->
+                    response.body?.byteStream()?.use { input ->
+                        input.copyTo(output)
+                    }
+                }
+
+                // Mark as not pending (Android Q+)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Andromuks")
-                    put(MediaStore.Video.Media.IS_PENDING, 1)
+                    contentValues.clear()
+                    contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+                    context.contentResolver.update(uri, contentValues, null, null)
                 }
-            }
-
-            val uri = context.contentResolver.insert(
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                contentValues,
-            ) ?: throw Exception("Failed to create MediaStore entry")
-
-            // Write video data
-            context.contentResolver.openOutputStream(uri)?.use { output ->
-                response.body?.byteStream()?.use { input ->
-                    input.copyTo(output)
-                }
-            }
-
-            // Mark as not pending (Android Q+)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                contentValues.clear()
-                contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
-                context.contentResolver.update(uri, contentValues, null, null)
             }
 
             // Show success toast

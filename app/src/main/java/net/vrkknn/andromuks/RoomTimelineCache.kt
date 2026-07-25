@@ -33,6 +33,11 @@ object RoomTimelineCache {
     // Default: 100MB (conservative to prevent OOM, can be adjusted)
     private var MAX_CACHE_MEMORY_MB = 100L // Configurable variable
 
+    // Per-event footprint used by estimateCacheMemoryUsageMB. A TimelineEvent retains parsed
+    // org.json objects for content/decrypted/unsigned; a message with formatted_body is
+    // routinely 3-8KB. See that function for why the old 1.5KB figure was optimistic.
+    private const val ESTIMATED_BYTES_PER_EVENT = 4L * 1024
+
     // Event-level cache management: Maximum events per room (except currently opened rooms).
     // Must match AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT so that a freshly-paginated cache for
     // a closed room is not immediately trimmed below the cache-fast-path threshold in
@@ -143,6 +148,12 @@ object RoomTimelineCache {
                 roomsInitialized.remove(roomId)
                 roomCache.events.clear()
                 roomCache.eventIds.clear()
+                // Stop feeding sync events into a room we just evicted. clearRoomCache does
+                // this; eviction did not, so an evicted room stayed in activelyCachedRooms
+                // forever and kept being handed sync payloads for a cache entry that is gone.
+                synchronized(cacheStateLock) {
+                    activelyCachedRooms.remove(roomId)
+                }
 
                 // Clean up all related caches for this room
                 // 1. Profile cache (room-specific profiles)
@@ -179,13 +190,23 @@ object RoomTimelineCache {
     }
 
     /**
-     * Estimate current cache memory usage in MB
-     * Rough estimate: ~1.5KB per TimelineEvent
+     * Estimate current cache memory usage in MB.
+     *
+     * Counts every retained TimelineEvent list, not just [RoomCache.events]. The previous
+     * estimate summed `events.size` alone and ignored the redaction, reaction and
+     * reply-context lists, so it under-reported the real footprint and eviction fired far
+     * later than intended.
+     *
+     * The per-event figure is also raised from 1.5KB to 4KB. A TimelineEvent retains parsed
+     * org.json objects for content/decrypted/unsigned; a message carrying formatted_body is
+     * routinely 3-8KB, so 1.5KB was optimistic by roughly 3x.
      */
     private fun estimateCacheMemoryUsageMB(): Long {
         synchronized(cacheLock) {
-            val totalEvents = roomEventsCache.values.sumOf { it.events.size }
-            val estimatedBytes = (totalEvents * 1.5 * 1024).toLong() // 1.5KB per event, convert to Long
+            val totalEvents = roomEventsCache.values.sumOf {
+                it.events.size + it.redactionEvents.size + it.reactionEvents.size + it.replyContextEvents.size
+            }
+            val estimatedBytes = totalEvents.toLong() * ESTIMATED_BYTES_PER_EVENT
             return estimatedBytes / (1024 * 1024) // Convert to MB (result is Long)
         }
     }
@@ -754,18 +775,28 @@ object RoomTimelineCache {
         synchronized(cacheLock) {
             val cache = roomEventsCache[roomId] ?: return null
 
-            // CRITICAL FIX: Ensure room is marked as opened BEFORE retrieving events
-            // This prevents event eviction if the room was just opened but wasn't in the opened set yet
-            // (e.g., due to race conditions or ordering issues)
-            if (!isRoomOpened(roomId)) {
-                addOpenedRoom(roomId)
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "getCachedEvents: Room $roomId was not in opened set, added it to prevent event eviction",
-                    )
-                }
-            }
+            // This getter is deliberately NON-MUTATING with respect to currentlyOpenedRooms.
+            //
+            // It used to call addOpenedRoom(roomId) here, to guard a window where a room was
+            // being opened but had not been registered yet. But membership of
+            // currentlyOpenedRooms is the exemption flag for EVERY memory bound in this class
+            // (LRU eviction in removeEldestEntry, the per-room event trim, the onTrimMemory
+            // trim, and clearAll's preserveOpened), and it is only ever removed on UI teardown.
+            //
+            // Meanwhile getCachedEvents has ~27 call sites, many of them sync-driven and not
+            // tied to any UI lifecycle — most importantly SyncIngestor.onEventsForCachedRoom,
+            // which fires for any actively-cached room whenever a sync_complete carries an
+            // edit, redaction or reaction. So a background reaction in a room you visited
+            // once permanently exempted that room from eviction, with no teardown to undo it.
+            // Over a session every room you opened became un-evictable and un-trimmable,
+            // removeEldestEntry returned false for every candidate, the memory ceiling was
+            // never enforced, and onTrimMemory became a no-op — defeating the LMK handling in
+            // AndromuksApplication.
+            //
+            // The guard is also redundant: the genuine open paths already call addOpenedRoom
+            // explicitly (RoomTimelineScreen, BubbleTimelineScreen, NavigationCoordinator,
+            // TimelineCacheCoordinator, AppViewModel's room switch), and those are the paths
+            // that have a matching removeOpenedRoom.
 
             // Mark room as accessed for LRU eviction
             cache.lastAccessedAt = System.currentTimeMillis()

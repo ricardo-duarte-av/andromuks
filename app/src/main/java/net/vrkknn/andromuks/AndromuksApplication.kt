@@ -265,6 +265,10 @@ class AndromuksApplication : Application() {
             // LRU eviction still acts as a hard backup if memory pressure continues.
             RoomTimelineCache.trimAllRoomsToMaxEvents()
 
+            // 4. Drop parsed-HTML trees. Pure derived data — every entry can be rebuilt from the
+            // event's markup, so this is free to discard under pressure.
+            net.vrkknn.andromuks.utils.HtmlParser.clearParseCache()
+
             if (BuildConfig.DEBUG) {
                 Log.d("Andromuks", "AndromuksApplication: Image caches cleared successfully")
             }

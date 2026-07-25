@@ -18,17 +18,16 @@ object MediaHttpDataSource {
     private var client: OkHttpClient? = null
 
     private fun client(): OkHttpClient = client ?: synchronized(this) {
-        client ?: OkHttpClient.Builder()
-            .addInterceptor { chain ->
+        client ?: HttpClientProvider.derived {
+            addInterceptor { chain ->
                 chain.proceed(
                     chain.request().newBuilder()
                         .header("User-Agent", getUserAgent())
                         .build(),
                 )
             }
-            .addInterceptor(EncryptedMediaRetryInterceptor())
-            .build()
-            .also { client = it }
+            addInterceptor(EncryptedMediaRetryInterceptor())
+        }.also { client = it }
     }
 
     /**

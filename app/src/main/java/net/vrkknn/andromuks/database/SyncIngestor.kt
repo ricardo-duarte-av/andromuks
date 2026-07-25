@@ -294,11 +294,12 @@ class SyncIngestor(private val context: Context) {
                 handleClearStateSignal()
             }
 
-            // Extract "since" token (sync token from server) - store in SharedPreferences
-            val since = data.optString("since", "")
-            if (since.isNotEmpty()) {
-                sharedPrefs.edit().putString("ws_since_token", since).apply()
-            }
+            // NOTE: the server's "since" token used to be written to SharedPreferences here on
+            // every sync_complete. Nothing ever read it back — its only reader, getSinceToken(),
+            // had no callers — so it was a full XML rewrite + fsync of AndromuksAppPrefs per
+            // incoming sync, for a value that was never used. Reconnect resume is driven by
+            // last_received_request_id and the RAM last_server_ts instead (see
+            // docs/WEBSOCKET_LIFECYCLE.md "Catchup Sync"). Removed along with the dead getter.
 
             // Account data and spaces are now in-memory only - processed by SpaceRoomParser
             // Invites are parsed and returned (in-memory only, no DB persistence)
@@ -949,13 +950,6 @@ class SyncIngestor(private val context: Context) {
             aggregatedReactions = reactionsObj,
             transactionId = transactionId,
         )
-    }
-
-    /**
-     * Get stored since token from SharedPreferences
-     */
-    suspend fun getSinceToken(): String = withContext(Dispatchers.IO) {
-        sharedPrefs.getString("ws_since_token", "") ?: ""
     }
 
     /**

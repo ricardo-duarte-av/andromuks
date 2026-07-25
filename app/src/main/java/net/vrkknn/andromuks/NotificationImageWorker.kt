@@ -845,10 +845,10 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
     // Dedicated client for audio: IntelligentMediaCache.downloadAndCache() validates that the body
     // is an image (captive-portal guard) and would reject ogg/mp3, so audio gets its own path.
     private val audioHttpClient: OkHttpClient by lazy {
-        OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(45, TimeUnit.SECONDS)
-            .build()
+        net.vrkknn.andromuks.utils.HttpClientProvider.derived {
+            connectTimeout(15, TimeUnit.SECONDS)
+            readTimeout(45, TimeUnit.SECONDS)
+        }
     }
 
     /** Fetch the full event over the HTTP `/_gomuks/exec/get_event` endpoint, or null. */

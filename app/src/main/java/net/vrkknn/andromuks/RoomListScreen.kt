@@ -116,7 +116,6 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -1942,7 +1941,6 @@ fun RoomListItem(
     appViewModel: AppViewModel,
     modifier: Modifier = Modifier,
     isEnabled: Boolean = true,
-    isScrollingFast: Boolean = false, // PERFORMANCE: Suspend avatar loading during fast scroll
     shouldLoadAvatar: Boolean = true, // PERFORMANCE: Load avatars for items below viewport
     sharedTransitionScope: SharedTransitionScope? = null, // SHARED TRANSITION: Scope for shared element animation
     animatedVisibilityScope: androidx.compose.animation.AnimatedVisibilityScope? = null, // SHARED TRANSITION: Scope for shared element animation
@@ -2021,7 +2019,6 @@ fun RoomListItem(
                                 // Cap requested avatar size at the room-list size (see AvatarImage.capAvatarSize)
                                 capAvatarSize = true,
                                 // PERFORMANCE: Suspend avatar loading during fast scrolling
-                                isScrollingFast = isScrollingFast,
                                 modifier = Modifier
                                     .sharedElement(
                                         rememberSharedContentState(key = sharedKey),
@@ -2050,7 +2047,6 @@ fun RoomListItem(
                             displayName = room.name,
                             isVisible = shouldLoadAvatar,
                             capAvatarSize = true,
-                            isScrollingFast = isScrollingFast,
                             modifier = Modifier.clip(CircleShape),
                         )
                     }
@@ -3131,34 +3127,12 @@ fun RoomListContent(
 ) {
     val context = LocalContext.current
 
-    // PERFORMANCE: Detect fast scrolling to suspend avatar loading
-    // During fast scrolling, images would be out of view before loading anyway
-    // This prevents wasted decoding work and crashes from too many simultaneous loads
-    var isScrollingFast by remember { mutableStateOf(false) }
-    var lastScrollIndex by remember { mutableIntStateOf(0) }
-    var lastScrollTime by remember { mutableLongStateOf(0L) }
-
-    LaunchedEffect(listState.isScrollInProgress, listState.firstVisibleItemIndex) {
-        val currentIndex = listState.firstVisibleItemIndex
-        val currentTime = System.currentTimeMillis()
-        val timeDelta = currentTime - lastScrollTime
-        val indexDelta = kotlin.math.abs(currentIndex - lastScrollIndex)
-
-        // Detect fast scrolling: >10tems in <100ms OR actively scrolling with >20tems/second
-        val isCurrentlyScrolling = listState.isScrollInProgress
-        val scrollSpeed = if (timeDelta > 0) indexDelta * 1000 / timeDelta else 0
-
-        isScrollingFast = isCurrentlyScrolling && (scrollSpeed > 20) || (timeDelta < 100 && indexDelta > 10)
-
-        lastScrollIndex = currentIndex
-        lastScrollTime = currentTime
-
-        // Reset fast scrolling flag after scrolling stops (with small delay to allow images to load)
-        if (!isCurrentlyScrolling && isScrollingFast) {
-            kotlinx.coroutines.delay(25) // Small delay to ensure scroll has stopped
-            isScrollingFast = false
-        }
-    }
+    // NOTE: the fast-scroll detector that used to live here has been removed. It computed a
+    // scroll speed on every firstVisibleItemIndex change and fed an `isScrollingFast` flag down
+    // through RoomListItem into AvatarImage — where nothing consumed it any more, since Coil's
+    // own dispatcher handles load backpressure (see the comment in AvatarImage). So it was a
+    // per-scroll-frame LaunchedEffect plus three remembered states producing a value that was
+    // read and discarded.
 
     // Handle Android back key when inside a space or bridge
     androidx.activity.compose.BackHandler(
@@ -3304,7 +3278,6 @@ fun RoomListContent(
                     room = room,
                     homeserverUrl = appViewModel.homeserverUrl,
                     authToken = authToken,
-                    isScrollingFast = isScrollingFast, // PERFORMANCE: Pass fast scroll state
                     shouldLoadAvatar = shouldLoadAvatar, // PERFORMANCE: Load avatars for items below viewport
                     sharedTransitionScope = sharedTransitionScope, // SHARED TRANSITION: Pass scope for shared element animation
                     animatedVisibilityScope = animatedVisibilityScope, // SHARED TRANSITION: Pass scope for shared element animation

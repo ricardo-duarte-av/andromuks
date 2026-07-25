@@ -139,8 +139,20 @@ private fun splitIntoJsonObjectStrings(jsonText: String): List<String> {
 /** Single-threaded dispatcher for DEFLATE decompression (stateful; must run on one thread). */
 private val wsDecompressDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
+// Last niceness applied to the decompress thread. Only ever touched from
+// wsDecompressDispatcher, which is single-threaded, so no synchronization is needed.
+private var appliedDecompressNiceness = Int.MIN_VALUE
+
 /** Single-threaded dispatcher for ordered dispatch (ensures sync_complete N+1 runs after N). */
 private val wsOrderedDispatchDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+
+// NOTE: a DEBUG-only fault injector used to live here, truncating every 20th payload mid-object
+// so the parse pipeline's failure path could be exercised on a real device. It has served its
+// purpose and been removed — verified on 2026-07-25 that six consecutive injections each produced
+// a parse error, a dispatcher skip, and an advancing sequence (seq 19→39→59→79→99→119), with
+// normal traffic flowing throughout. Restore it from git history if this path is ever touched
+// again; the invariant it guards is that a failed parse must still advance the ordered
+// dispatcher's sequence, and its failure mode is silent.
 
 private fun emitIncomingWebSocketMessage(json: JSONObject, hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) {
     SyncRepository.emitIncomingWebSocketMessage(json.toString(), hint)
@@ -796,27 +808,48 @@ fun connectToWebsocket(
 
     // Parallel parse + ordered dispatch: parse in parallel with kotlinx.serialization, then dispatch in receipt order.
     val parseQueue = Channel<Pair<Int, String>>(Channel.UNLIMITED)
-    val resultQueue = Channel<Pair<Int, JSONObject>>(Channel.UNLIMITED)
+    // Nullable payload: a seq whose parse failed is still forwarded (as null) so the ordered
+    // dispatcher below can advance past it. See the comment on the parse catch block.
+    val resultQueue = Channel<Pair<Int, JSONObject?>>(Channel.UNLIMITED)
     val seqCounter = AtomicInteger(0)
 
     // PERFORMANCE: Use dynamic parallelism (launched once, but pull frequency adjusted)
     repeat(8) { workerIndex ->
         WebSocketService.getServiceScope().launch(Dispatchers.Default) {
             try {
+                // Thread priority is a per-thread property and this coroutine owns its worker for
+                // the life of the connection, so it only needs setting when the recommended
+                // niceness actually changes — not once per message, which made a syscall per
+                // frame per worker.
+                var appliedNiceness = Int.MIN_VALUE
                 for ((seq, payload) in parseQueue) {
-                    // Apply dynamic thread priority (niceness)
-                    android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
+                    val niceness = WebSocketService.getRecommendedNiceness()
+                    if (niceness != appliedNiceness) {
+                        android.os.Process.setThreadPriority(niceness)
+                        appliedNiceness = niceness
+                    }
 
                     // If we're in POLITE mode and not the first worker, yield to keep parallelism low
                     if (workerIndex > 0 && WebSocketService.getCPUWeight() == CPUWeight.POLITE) {
                         yield()
                     }
 
-                    try {
-                        val json = parseWebSocketMessageWithKotlinx(payload)
-                        resultQueue.send(seq to json)
+                    // CRITICAL: every seq must reach resultQueue, even on failure. The ordered
+                    // dispatcher below waits for seqs strictly in order, so dropping one here
+                    // would stall dispatch for the REST OF THE CONNECTION — sync dies silently
+                    // while the socket still looks healthy, and the dispatcher's buffer grows
+                    // unbounded holding every later message. Forward null and let it skip.
+                    val json = try {
+                        parseWebSocketMessageWithKotlinx(payload)
                     } catch (e: Exception) {
                         Log.e("Andromuks", "NetworkUtils: Parse error (seq=$seq): ${e.message}", e)
+                        null
+                    }
+                    try {
+                        resultQueue.send(seq to json)
+                    } catch (e: Exception) {
+                        // resultQueue closed (connection torn down) — stop consuming.
+                        break
                     }
                 }
             } catch (_: kotlinx.coroutines.channels.ClosedReceiveChannelException) { }
@@ -825,15 +858,27 @@ fun connectToWebsocket(
 
     WebSocketService.getServiceScope().launch(wsOrderedDispatchDispatcher) {
         var nextExpected = 0
-        val buffer = mutableMapOf<Int, JSONObject>()
+        val buffer = mutableMapOf<Int, JSONObject?>()
         try {
             for (pair in resultQueue) {
                 val (seq, json) = pair
                 buffer[seq] = json
                 while (nextExpected in buffer) {
-                    val toDispatch = buffer.remove(nextExpected)!!
+                    val skipped = nextExpected
+                    val toDispatch = buffer.remove(nextExpected)
                     nextExpected++
-                    dispatchParsedWebSocketMessage(toDispatch)
+                    // null = that seq failed to parse; skip it but keep the sequence moving.
+                    if (toDispatch != null) {
+                        dispatchParsedWebSocketMessage(toDispatch)
+                    } else {
+                        // Log.w, not Log.d: this is rare, and when it happens in the wild it is
+                        // the only evidence that a frame was lost. It is also the line that
+                        // proves the sequence advanced rather than stalling.
+                        Log.w(
+                            "Andromuks",
+                            "NetworkUtils: dispatcher skipping unparseable seq=$skipped — sequence continues (next=$nextExpected)",
+                        )
+                    }
                 }
             }
         } catch (_: kotlinx.coroutines.channels.ClosedReceiveChannelException) { }
@@ -870,6 +915,16 @@ fun connectToWebsocket(
             connectTrace = null
             Log.e("Andromuks", "NetworkUtils: WebSocket connection failed", t)
             Log.e("Andromuks", "NetworkUtils: Failure reason: ${t.message}, response: ${response?.code}")
+
+            // Tear the parse pipeline down here too. OkHttp delivers onFailure INSTEAD OF
+            // onClosed for abnormal termination (network drop, TLS error, read timeout) — the
+            // dominant reconnect path on mobile — so leaving this to onClosed stranded 8 parse
+            // workers + 1 ordered-dispatch coroutine on WebSocketService.getServiceScope()
+            // (process-lifetime) per failed connection, plus the Inflater's native memory.
+            // Must run before the 401 early-return below. close() is idempotent.
+            streamingDecompressor?.close()
+            parseQueue.close()
+            resultQueue.close()
 
             // Toast notification is handled by WebSocketService.clearWebSocket() which has access to context
 
@@ -986,17 +1041,25 @@ fun connectToWebsocket(
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             WebSocketService.onMessageReceived()
-            val payloadCopy = String(text.toCharArray())
+            // `text` is already an immutable String; the old String(text.toCharArray()) here was
+            // a no-op defensive copy that allocated and copied a full char[] (≈1MB for a 500KB
+            // frame) on the OkHttp reader thread, once per message.
             val seq = seqCounter.getAndIncrement()
-            parseQueue.trySend(seq to payloadCopy)
+            parseQueue.trySend(seq to text)
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
             WebSocketService.onMessageReceived()
             val bytesCopy = bytes.toByteArray()
             WebSocketService.getServiceScope().launch(wsDecompressDispatcher) {
-                // Apply dynamic thread priority (niceness)
-                android.os.Process.setThreadPriority(WebSocketService.getRecommendedNiceness())
+                // Only re-apply when it actually changes. wsDecompressDispatcher is
+                // single-threaded, so the tracker below needs no synchronization and the thread
+                // whose priority we set is always the same one — this was a syscall per frame.
+                val niceness = WebSocketService.getRecommendedNiceness()
+                if (niceness != appliedDecompressNiceness) {
+                    android.os.Process.setThreadPriority(niceness)
+                    appliedDecompressNiceness = niceness
+                }
 
                 try {
                     if (streamingDecompressor != null) {

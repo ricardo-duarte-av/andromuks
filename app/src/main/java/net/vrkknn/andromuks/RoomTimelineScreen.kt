@@ -261,6 +261,15 @@ private data class PaginateSnapshot(val total: Int, val lastVisible: Int, val is
 
 private val dateFormatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
 
+// Composer VisualTransformation patterns. Compiled once — the transformation is remembered, but
+// its lambda runs per filter() call, i.e. on every keystroke.
+private val COMPOSER_MENTION_REGEX =
+    Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
+
+// Custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
+private val COMPOSER_CUSTOM_EMOJI_REGEX =
+    Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+
 /** Format timestamp to date string (dd / MM / yyyy) */
 internal fun formatDate(timestamp: Long): String = dateFormatter.format(Date(timestamp))
 
@@ -2153,42 +2162,51 @@ fun RoomTimelineScreen(
                 val start = (visibleStart - prefetchGuardband).coerceAtLeast(0)
                 val end = (visibleEnd + prefetchGuardband).coerceAtMost(timelineItems.lastIndex)
 
-                for (index in start..end) {
-                    val item = timelineItems[index] as? TimelineItem.Event ?: continue
-                    val event = item.event
+                // Off Main: this walks up to (2 * prefetchGuardband + 1) items doing
+                // optJSONObject/optString per item — allocating JSONObject wrappers and Strings
+                // — and it re-runs every time the visible range changes, i.e. on every item
+                // boundary crossed during a fling. The upstream snapshotFlow still observes
+                // layoutInfo on the composition's context; only this scan moves. Coil's
+                // enqueue() is thread-safe, and timelineItems/memberMapWithFallback are
+                // captured values rather than live snapshot reads.
+                withContext(Dispatchers.Default) {
+                    for (index in start..end) {
+                        val item = timelineItems[index] as? TimelineItem.Event ?: continue
+                        val event = item.event
 
-                    // Prefetch sender avatar
-                    val avatarMxc = memberMapWithFallback[event.sender]?.avatarUrl
-                    enqueueTimelinePrefetch(
-                        mxcUrl = avatarMxc,
-                        keyPrefix = "avatar:${event.sender}",
-                        requestSize = 256,
-                    )
-
-                    // Prefetch media thumbnail (or media URL fallback) for image/video/sticker events
-                    val content = when {
-                        event.type == "m.room.message" -> event.content
-                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted
-                        event.type == "m.sticker" -> event.content ?: event.decrypted
-                        else -> null
-                    }
-                    val msgType = when {
-                        event.type == "m.sticker" -> "m.sticker"
-                        else -> content?.optString("msgtype", "")
-                    }
-                    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.sticker") {
-                        val info = content?.optJSONObject("info")
-                        val thumbnailMxc =
-                            info?.optJSONObject("thumbnail_file")
-                                ?.optString("url")
-                                ?.takeIf { it.isNotBlank() }
-                                ?: info?.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
-                        val mediaMxc = content?.optString("url", "")?.takeIf { it.isNotBlank() }
+                        // Prefetch sender avatar
+                        val avatarMxc = memberMapWithFallback[event.sender]?.avatarUrl
                         enqueueTimelinePrefetch(
-                            mxcUrl = thumbnailMxc ?: mediaMxc,
-                            keyPrefix = "media:${event.eventId}",
-                            requestSize = 512,
+                            mxcUrl = avatarMxc,
+                            keyPrefix = "avatar:${event.sender}",
+                            requestSize = 256,
                         )
+
+                        // Prefetch media thumbnail (or media URL fallback) for image/video/sticker events
+                        val content = when {
+                            event.type == "m.room.message" -> event.content
+                            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted
+                            event.type == "m.sticker" -> event.content ?: event.decrypted
+                            else -> null
+                        }
+                        val msgType = when {
+                            event.type == "m.sticker" -> "m.sticker"
+                            else -> content?.optString("msgtype", "")
+                        }
+                        if (msgType == "m.image" || msgType == "m.video" || msgType == "m.sticker") {
+                            val info = content?.optJSONObject("info")
+                            val thumbnailMxc =
+                                info?.optJSONObject("thumbnail_file")
+                                    ?.optString("url")
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: info?.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                            val mediaMxc = content?.optString("url", "")?.takeIf { it.isNotBlank() }
+                            enqueueTimelinePrefetch(
+                                mxcUrl = thumbnailMxc ?: mediaMxc,
+                                keyPrefix = "media:${event.eventId}",
+                                requestSize = 512,
+                            )
+                        }
                     }
                 }
             }
@@ -3847,6 +3865,18 @@ fun RoomTimelineScreen(
                                         itemsIndexed(
                                             items = reversedTimelineItems,
                                             key = { _, item -> item.stableKey },
+                                            // Heterogeneous items: without contentType, Lazy layout cannot
+                                            // recycle subcompositions between them and pays a fresh
+                                            // composition for every item entering the viewport. Events are
+                                            // split from the two thin marker types, which have wildly
+                                            // different node trees. (RoomListScreen already does this.)
+                                            contentType = { _, item ->
+                                                when (item) {
+                                                    is TimelineItem.DateDivider -> "date"
+                                                    is TimelineItem.ReadMarker -> "marker"
+                                                    is TimelineItem.Event -> "event"
+                                                }
+                                            },
                                         ) { index, item ->
                                             when (item) {
                                                 is TimelineItem.DateDivider -> {
@@ -3880,14 +3910,17 @@ fun RoomTimelineScreen(
                                                     val addTopSpacing =
                                                         previousItem is TimelineItem.Event && !isConsecutive
 
-                                                    val threadInfo = event.getThreadInfo()
                                                     // All thread-diagnostics gated behind BuildConfig.DEBUG: this whole
                                                     // block runs per-visible-event per-recomposition. The optJSONObject /
                                                     // optString lookups allocate JSONObject wrappers + Strings whether or
                                                     // not the Log call actually emits — observed thousands of needless
                                                     // allocations during a 1-minute scroll. Diagnostic value is debug-only;
                                                     // there's no behavior tied to these reads.
+                                                    // (getThreadInfo() itself used to sit outside this guard, so it kept
+                                                    // paying isThreadMessage + two optJSONObject + two optString per row
+                                                    // in release — the one read the original gating pass missed.)
                                                     if (BuildConfig.DEBUG) {
+                                                        val threadInfo = event.getThreadInfo()
                                                         if (threadInfo != null) {
                                                             Log.d(
                                                                 "Andromuks",
@@ -4236,8 +4269,8 @@ fun RoomTimelineScreen(
 
                                     // Sticky date pill — shows date of oldest visible event while scrolling up
                                     net.vrkknn.andromuks.utils.StickyDateIndicator(
-                                        oldestVisibleDate = oldestVisibleDateRoom,
-                                        scrollPositionKey = scrollKeyRoom,
+                                        oldestVisibleDate = { oldestVisibleDateRoom },
+                                        scrollPositionKey = { scrollKeyRoom },
                                         modifier = Modifier
                                             .align(Alignment.TopCenter)
                                             .padding(top = 8.dp)
@@ -4387,12 +4420,11 @@ fun RoomTimelineScreen(
                                         val customEmojiPacks = appViewModel.customEmojiPacks
                                         val mentionAndEmojiTransformation = remember(colorScheme, customEmojiPacks) {
                                             VisualTransformation { text ->
-                                                val mentionRegex = Regex(
-                                                    """\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""",
-                                                )
-                                                // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
-                                                val customEmojiRegex =
-                                                    Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+                                                // Patterns are top-level vals: the transformation itself is
+                                                // remembered, but its lambda runs on every filter() call — i.e.
+                                                // every keystroke — and these were being compiled each time.
+                                                val mentionRegex = COMPOSER_MENTION_REGEX
+                                                val customEmojiRegex = COMPOSER_CUSTOM_EMOJI_REGEX
 
                                                 val annotatedString = buildAnnotatedString {
                                                     var lastIndex = 0

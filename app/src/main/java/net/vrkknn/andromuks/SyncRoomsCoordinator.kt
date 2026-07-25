@@ -1093,8 +1093,13 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
 
         // CRITICAL FIX: Queue sync_complete messages received before init_complete
         if (!vm.initialSyncPhase) {
+            // Deep-copy OFF the Main thread. This is a full serialize + reparse of the entire
+            // payload (~500KB each, x8 on a cold start) and it used to run inline here — which
+            // SyncRepository invokes on viewModelScope, i.e. Main — competing with first-frame
+            // composition and cache-first paint at exactly the worst moment. Hoisted out of the
+            // lock too, so the (already-serialized) pipeline doesn't hold it across a dispatch.
+            val clonedJson = withContext(Dispatchers.Default) { JSONObject(syncJson.toString()) }
             synchronized(vm.initialSyncCompleteQueue) {
-                val clonedJson = JSONObject(syncJson.toString())
                 val requestId = syncJson.optInt("request_id", 0)
                 vm.initialSyncCompleteQueue.add(clonedJson)
                 vm.pendingSyncCompleteCount = vm.initialSyncCompleteQueue.size
@@ -1139,7 +1144,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             if (data != null) {
                 val rooms = data.optJSONObject("rooms")
                 if (rooms != null) {
-                    var anyReceiptsProcessed = false
+                    // Track exactly which rooms this sync touched, so the cache push below is
+                    // O(delta) rather than O(every cached room). See the note at that push.
+                    val receiptRoomsTouched = mutableSetOf<String>()
                     val roomKeys = rooms.keys()
                     while (roomKeys.hasNext()) {
                         val roomId = roomKeys.next()
@@ -1249,14 +1256,21 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                     }
                                 }
                             }
-                            anyReceiptsProcessed = true
+                            receiptRoomsTouched.add(roomId)
                         }
                     }
 
-                    // PERF: Update singleton cache once after all rooms.
-                    if (anyReceiptsProcessed) {
+                    // PERF: Push only the rooms this sync actually touched.
+                    //
+                    // This used to iterate ALL of `readReceipts` — every cached room — and deep-copy
+                    // each one's receipt lists (mapValues + toList) whenever ANY room had a receipt.
+                    // The cost scaled with total cached history rather than with the delta, so a
+                    // single receipt in one room rebuilt the receipt cache for every room the user
+                    // had ever opened.
+                    if (receiptRoomsTouched.isNotEmpty()) {
                         synchronized(readReceiptsLock) {
-                            readReceipts.forEach { (rId, eventsMap) ->
+                            for (rId in receiptRoomsTouched) {
+                                val eventsMap = readReceipts[rId] ?: continue
                                 ReadReceiptCache.setForRoom(
                                     rId,
                                     eventsMap.mapValues { it.value.toList() },
@@ -1878,6 +1892,8 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 if (bridgeStatusEventToMessageId.isNotEmpty()) {
                     synchronized(readReceiptsLock) {
                         var didRemap = false
+                        // Only the rooms a remap actually landed in need pushing back to the cache.
+                        val remappedRooms = mutableSetOf<String>()
                         bridgeStatusEventToMessageId.forEach { (statusEventId, originalMessageId) ->
                             // Find which room holds this status event and remap within that room.
                             readReceipts.forEach { (rId, eventsMap) ->
@@ -1893,6 +1909,7 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                     }
                                     updateBridgeStatus(originalMessageId, "delivered")
                                     didRemap = true
+                                    remappedRooms.add(rId)
                                     if (BuildConfig.DEBUG) {
                                         android.util.Log.d(
                                             "Andromuks",
@@ -1904,7 +1921,11 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         }
                         if (didRemap) {
                             readReceiptsUpdateCounter++
-                            readReceipts.forEach { (rId, eventsMap) ->
+                            // Same narrowing as the receipt-ingest push above: this used to
+                            // deep-copy every cached room's receipt lists whenever any single
+                            // remap occurred.
+                            for (rId in remappedRooms) {
+                                val eventsMap = readReceipts[rId] ?: continue
                                 ReadReceiptCache.setForRoom(
                                     rId,
                                     eventsMap.mapValues { it.value.toList() },
@@ -1934,10 +1955,30 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 // We skip expensive operations like sorting and UI updates since no one is viewing the app
                 // if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: BATTERY SAVE MODE - App in background, skipping UI updates")
 
-                // BATTERY OPTIMIZATION: Keep allRooms unsorted when backgrounded (skip expensive O(n log n) sort)
-                // We only need sorted rooms when updating shortcuts (every 10 syncs) or when app becomes visible
-                // This saves CPU time since sorting 588 rooms takes ~2-5ms per sync
-                allRooms = allRoomsUnsorted // Use unsorted list from roomMap - lightweight operation
+                // BATTERY OPTIMIZATION: skip the O(n log n) sort while backgrounded — nobody is
+                // looking at the list, and sorting ~600 rooms costs 2-5 ms per sync.
+                //
+                // But do NOT publish an unsorted list either, which is what this used to do
+                // (`allRooms = allRoomsUnsorted`). allRoomsUnsorted comes from
+                // `roomMap.values.toList()`, and roomMap is a ConcurrentHashMap: iteration order
+                // is arbitrary AND unstable across mutations. So every backgrounded sync
+                // published a differently-scrambled list. Nothing repaints while backgrounded, so
+                // that looked free — but on resume the UI paints `allRooms` immediately, whereas
+                // refreshUIState() (the thing that re-sorts) only runs after batchFlushJob.join()
+                // completes. The room list therefore rendered in random order and then snapped
+                // into place.
+                //
+                // It also made RoomListUiCoordinator.performRoomReorder's order-change check
+                // (`allRooms.map { it.id }` vs the sorted ids) spuriously true nearly every time,
+                // so the "did anything move?" guard did no guarding.
+                //
+                // Leaving allRooms untouched keeps the last correctly-sorted snapshot. It is
+                // slightly stale until refreshUIState() runs on resume, but every reader is
+                // either order-sensitive (the room list) or keyed by id (alias lookups in
+                // Bubble/Thread) — none of them needs background freshness more than it needs a
+                // sane order. roomMap remains the source of truth throughout, and refreshUIState()
+                // rebuilds from it. This is also strictly cheaper: it drops a full list copy per
+                // backgrounded sync.
 
                 // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not on sync_complete)
                 // This drastically reduces shortcut updates. Removed shortcut updates from sync_complete processing.
