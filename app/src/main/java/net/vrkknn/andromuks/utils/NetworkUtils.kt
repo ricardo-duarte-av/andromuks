@@ -146,56 +146,13 @@ private var appliedDecompressNiceness = Int.MIN_VALUE
 /** Single-threaded dispatcher for ordered dispatch (ensures sync_complete N+1 runs after N). */
 private val wsOrderedDispatchDispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
 
-// ── DEBUG-ONLY fault injection ───────────────────────────────────────────────────────────────
-//
-// Deliberately corrupts every Nth WebSocket payload so the parse pipeline's FAILURE path can be
-// exercised on a real device. It exists to prove one specific invariant:
-//
-//   A payload that fails to parse must still advance the ordered dispatcher's sequence.
-//
-// Before that was fixed, a failed parse dropped its seq, `nextExpected` blocked on the missing
-// number forever, and every later message piled into the dispatcher's buffer undispatched — sync
-// died silently for the rest of the connection while the socket still looked healthy. There is no
-// natural way to trigger that, so without this hook the fix stays unverified until it fires in
-// the wild.
-//
-// Expected logcat sequence per injection (all survive R8, but this whole block is DEBUG-only):
-//   FAULT INJECTION: corrupting seq=N ...
-//   NetworkUtils: Parse error (seq=N): ...
-//   NetworkUtils: dispatcher skipping unparseable seq=N — sequence continues
-// and then normal traffic must keep flowing. If messages stop arriving after the first injection,
-// the regression is back.
-//
-// NOTE: this genuinely DISCARDS one payload in every [FAULT_INJECTION_EVERY_N_FRAMES]. That is
-// the point — the app should recover on the next sync — but it makes a debug build lossy, so do
-// not leave it enabled for ordinary development. Set [FAULT_INJECTION_ENABLED] to false to
-// disable without removing the code.
-//
-// Release safety: guarded by BuildConfig.DEBUG, so R8 removes the entire branch.
-private const val FAULT_INJECTION_ENABLED = true
-private const val FAULT_INJECTION_EVERY_N_FRAMES = 20
-private val faultInjectionCounter = AtomicInteger(0)
-
-/**
- * Returns [payload] unchanged, except every Nth call in a debug build, where it returns a
- * deliberately malformed fragment.
- *
- * Truncates mid-object rather than injecting garbage: that mimics a partial streaming-inflate
- * read, which is the realistic way [splitIntoJsonObjectStrings] can emit an unparseable fragment
- * (it splits by brace counting, so a short read ends mid-object).
- */
-private fun maybeCorruptPayloadForTesting(payload: String, seq: Int): String {
-    if (!BuildConfig.DEBUG || !FAULT_INJECTION_ENABLED) return payload
-    val frame = faultInjectionCounter.incrementAndGet()
-    if (frame % FAULT_INJECTION_EVERY_N_FRAMES != 0) return payload
-    val corrupted = payload.take(payload.length / 2)
-    Log.w(
-        "Andromuks",
-        "FAULT INJECTION: corrupting seq=$seq (frame #$frame, truncated ${payload.length} -> ${corrupted.length} chars). " +
-            "Sync MUST continue after this — see the dispatcher-skip line.",
-    )
-    return corrupted
-}
+// NOTE: a DEBUG-only fault injector used to live here, truncating every 20th payload mid-object
+// so the parse pipeline's failure path could be exercised on a real device. It has served its
+// purpose and been removed — verified on 2026-07-25 that six consecutive injections each produced
+// a parse error, a dispatcher skip, and an advancing sequence (seq 19→39→59→79→99→119), with
+// normal traffic flowing throughout. Restore it from git history if this path is ever touched
+// again; the invariant it guards is that a failed parse must still advance the ordered
+// dispatcher's sequence, and its failure mode is silent.
 
 private fun emitIncomingWebSocketMessage(json: JSONObject, hint: IncomingWebSocketHint = IncomingWebSocketHint.NONE) {
     SyncRepository.emitIncomingWebSocketMessage(json.toString(), hint)
@@ -1088,7 +1045,7 @@ fun connectToWebsocket(
             // a no-op defensive copy that allocated and copied a full char[] (≈1MB for a 500KB
             // frame) on the OkHttp reader thread, once per message.
             val seq = seqCounter.getAndIncrement()
-            parseQueue.trySend(seq to maybeCorruptPayloadForTesting(text, seq))
+            parseQueue.trySend(seq to text)
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
@@ -1119,7 +1076,7 @@ fun connectToWebsocket(
                             for (s in rawStrings) {
                                 val seq = seqCounter.getAndIncrement()
                                 try {
-                                    parseQueue.send(seq to maybeCorruptPayloadForTesting(s, seq))
+                                    parseQueue.send(seq to s)
                                 } catch (_: kotlinx.coroutines.channels.ClosedSendChannelException) {
                                     break
                                 }
