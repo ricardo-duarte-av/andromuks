@@ -44,6 +44,34 @@ object BridgeInfoCache {
         return row.bridgeDisplayName?.takeIf { it.isNotEmpty() }
     }
 
+    /**
+     * Get the bridge protocol identity (`BridgeInfo.protocolId`, e.g. "discord") the Bridges tab
+     * groups on.
+     * @return Protocol id if bridged, null if not cached or not bridged.
+     */
+    fun getBridgeProtocolId(context: Context, roomId: String): String? {
+        val row = RoomMetadataStore.getRow(roomId) ?: return null
+        return row.bridgeProtocolId?.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * True iff the cached bridge avatar for this room is the protocol's own logo (rather than a
+     * per-instance network/channel icon). See RoomItem.bridgeAvatarIsProtocolLevel.
+     */
+    fun isBridgeAvatarProtocolLevel(context: Context, roomId: String): Boolean {
+        val row = RoomMetadataStore.getRow(roomId) ?: return false
+        return row.bridgeAvatarIsProtocol
+    }
+
+    /**
+     * Save the bridge protocol identity for a room, together with the provenance of its avatar.
+     * @param protocolId Protocol id if bridged, empty string if not bridged.
+     * @param avatarIsProtocolLevel Whether the saved avatar came from the `protocol` descriptor.
+     */
+    fun saveBridgeIdentity(context: Context, roomId: String, protocolId: String, avatarIsProtocolLevel: Boolean) {
+        RoomMetadataStore.upsertBridgeIdentity(roomId, protocolId, avatarIsProtocolLevel)
+    }
+
     /** True iff we have observed a bridge avatar value (including the explicit "not bridged" sentinel). */
     fun isCached(context: Context, roomId: String): Boolean {
         val row = RoomMetadataStore.getRow(roomId) ?: return false

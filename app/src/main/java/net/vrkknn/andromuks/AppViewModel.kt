@@ -5048,6 +5048,11 @@ class AppViewModel : ViewModel() {
                                                             bridgeProtocolAvatarUrl =
                                                             room.bridgeProtocolAvatarUrl
                                                                 ?: existing.bridgeProtocolAvatarUrl,
+                                                            bridgeProtocolId =
+                                                            room.bridgeProtocolId ?: existing.bridgeProtocolId,
+                                                            bridgeAvatarIsProtocolLevel =
+                                                            room.bridgeAvatarIsProtocolLevel ||
+                                                                existing.bridgeAvatarIsProtocolLevel,
                                                             messagePreview =
                                                             room.messagePreview ?: existing.messagePreview,
                                                             messageSender = if (room.messagePreview !=
@@ -5091,6 +5096,11 @@ class AppViewModel : ViewModel() {
                                                             bridgeProtocolAvatarUrl =
                                                             room.bridgeProtocolAvatarUrl
                                                                 ?: existing.bridgeProtocolAvatarUrl,
+                                                            bridgeProtocolId =
+                                                            room.bridgeProtocolId ?: existing.bridgeProtocolId,
+                                                            bridgeAvatarIsProtocolLevel =
+                                                            room.bridgeAvatarIsProtocolLevel ||
+                                                                existing.bridgeAvatarIsProtocolLevel,
                                                             messagePreview =
                                                             room.messagePreview ?: existing.messagePreview,
                                                             messageSender = if (room.messagePreview !=
@@ -9489,8 +9499,16 @@ class AppViewModel : ViewModel() {
             net.vrkknn.andromuks.utils.RoomMetadataStore.upsertNameAvatar(roomId, name, avatarUrl)
         }
 
-        // Extract bridge protocol avatar URL for room list badge display
-        val bridgeProtocolAvatarUrl = bridgeInfo?.protocol?.avatarUrl
+        // Extract bridge protocol avatar URL for room list badge display. Uses the full
+        // protocol → network → channel chain (BridgeInfo.avatarUrl), not protocol alone: bridges
+        // like OOYE publish no protocol icon and carry the only avatar on the network descriptor,
+        // which used to leave those rooms with a header badge but no room-list badge.
+        val bridgeProtocolAvatarUrl = bridgeInfo?.avatarUrl
+        // Network identity the Bridges tab groups on (stable across bridge implementations).
+        val bridgeProtocolId = bridgeInfo?.protocolId
+        // Whether that avatar is the protocol's shared logo or a per-instance icon — decides which
+        // one wins as the Bridges-tab pseudo-space icon when a group's rooms disagree.
+        val bridgeAvatarIsProtocolLevel = bridgeInfo?.protocol?.avatarUrl != null
         // Extract bridge protocol display name
         val bridgeDisplayName = bridgeInfo?.displayName
 
@@ -9521,10 +9539,25 @@ class AppViewModel : ViewModel() {
             // Bridge events are static/eternal - if a room is no longer bridged, it will be resolved on app restart
             // This prevents badges from disappearing due to incomplete get_room_state responses
             val finalBridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl
+            val finalBridgeProtocolId = bridgeProtocolId ?: existing.bridgeProtocolId
+
+            if (finalBridgeProtocolId != existing.bridgeProtocolId) {
+                updatedRoom = updatedRoom.copy(bridgeProtocolId = finalBridgeProtocolId)
+                needsUpdate = true
+            }
 
             if (finalBridgeProtocolAvatarUrl != existing.bridgeProtocolAvatarUrl) {
-                // Bridge info changed (either set for first time, or updated)
-                updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = finalBridgeProtocolAvatarUrl)
+                // Bridge info changed (either set for first time, or updated). The provenance flag
+                // travels with the avatar it describes — only overwrite it when this response
+                // actually supplied an avatar.
+                updatedRoom = updatedRoom.copy(
+                    bridgeProtocolAvatarUrl = finalBridgeProtocolAvatarUrl,
+                    bridgeAvatarIsProtocolLevel = if (bridgeProtocolAvatarUrl != null) {
+                        bridgeAvatarIsProtocolLevel
+                    } else {
+                        existing.bridgeAvatarIsProtocolLevel
+                    },
+                )
                 needsUpdate = true
                 if (BuildConfig.DEBUG) {
                     if (bridgeProtocolAvatarUrl != null) {
@@ -9569,6 +9602,12 @@ class AppViewModel : ViewModel() {
                 // val avatarUrlToSave = finalBridgeProtocolAvatarUrl ?: "" // old code, we're attempting to always update bridge info on every get_room_state
                 val avatarUrlToSave = bridgeProtocolAvatarUrl ?: ""
                 net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeAvatarUrl(context, roomId, avatarUrlToSave)
+                net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeIdentity(
+                    context,
+                    roomId,
+                    bridgeProtocolId ?: "",
+                    bridgeAvatarIsProtocolLevel,
+                )
                 // Also save display name if available
                 if (bridgeDisplayName != null) {
                     net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeDisplayName(context, roomId, bridgeDisplayName)
@@ -9605,6 +9644,12 @@ class AppViewModel : ViewModel() {
             appContext?.let { context ->
                 val avatarUrlToSave = bridgeProtocolAvatarUrl ?: ""
                 net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeAvatarUrl(context, roomId, avatarUrlToSave)
+                net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeIdentity(
+                    context,
+                    roomId,
+                    bridgeProtocolId ?: "",
+                    bridgeAvatarIsProtocolLevel,
+                )
                 // Also save display name if available
                 val bridgeDisplayName = bridgeInfo?.displayName
                 if (bridgeDisplayName != null) {
@@ -9726,6 +9771,7 @@ class AppViewModel : ViewModel() {
         val roomTypeV2 = content.optString("com.beeper.room_type.v2").takeIf { it.isNotBlank() }
 
         val channelObj = content.optJSONObject("channel")
+        val networkObj = content.optJSONObject("network")
         val protocolObj = content.optJSONObject("protocol")
 
         val channelInfo = channelObj?.let {
@@ -9733,13 +9779,36 @@ class AppViewModel : ViewModel() {
             val displayName = it.optString("displayname").takeIf { value -> value.isNotBlank() }
             val avatarUrl = it.optString("avatar_url").takeIf { value -> value.isNotBlank() }
             val receiver = it.optString("fi.mau.receiver").takeIf { value -> value.isNotBlank() }
+            val externalUrl = it.optString("external_url").takeIf { value -> value.isNotBlank() }
 
-            if (id != null || displayName != null || avatarUrl != null || receiver != null) {
+            if (id != null || displayName != null || avatarUrl != null || receiver != null || externalUrl != null) {
                 BridgeChannelInfo(
                     id = id,
                     displayName = displayName,
                     avatarUrl = avatarUrl,
                     receiver = receiver,
+                    externalUrl = externalUrl,
+                )
+            } else {
+                null
+            }
+        }
+
+        // MSC2346's middle descriptor: the specific instance of the protocol (a Discord guild, an
+        // IRC server). Bridges that leave `protocol` icon-less — OOYE, for one — carry the only
+        // avatar in the whole event here, so skipping this object left those rooms badge-less.
+        val networkInfo = networkObj?.let {
+            val id = it.optString("id").takeIf { value -> value.isNotBlank() }
+            val displayName = it.optString("displayname").takeIf { value -> value.isNotBlank() }
+            val avatarUrl = it.optString("avatar_url").takeIf { value -> value.isNotBlank() }
+            val externalUrl = it.optString("external_url").takeIf { value -> value.isNotBlank() }
+
+            if (id != null || displayName != null || avatarUrl != null || externalUrl != null) {
+                BridgeNetworkInfo(
+                    id = id,
+                    displayName = displayName,
+                    avatarUrl = avatarUrl,
+                    externalUrl = externalUrl,
                 )
             } else {
                 null
@@ -9768,6 +9837,7 @@ class AppViewModel : ViewModel() {
             bridgeBot == null &&
             creator == null &&
             channelInfo == null &&
+            networkInfo == null &&
             protocolInfo == null
         ) {
             return null
@@ -9780,6 +9850,7 @@ class AppViewModel : ViewModel() {
             roomType = roomType,
             roomTypeV2 = roomTypeV2,
             channel = channelInfo,
+            network = networkInfo,
             protocol = protocolInfo,
         )
     }
@@ -12822,10 +12893,30 @@ class AppViewModel : ViewModel() {
                             null
                         }
 
+                        val cachedProtocolId = net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeProtocolId(
+                            context,
+                            roomId,
+                        )
+                        val cachedAvatarIsProtocolLevel =
+                            net.vrkknn.andromuks.utils.BridgeInfoCache.isBridgeAvatarProtocolLevel(
+                                context,
+                                roomId,
+                            )
+
                         // Update roomMap with cached bridge info
                         val existing = roomMap[roomId]
-                        if (existing != null && existing.bridgeProtocolAvatarUrl != bridgeAvatarUrl) {
-                            roomMap[roomId] = existing.copy(bridgeProtocolAvatarUrl = bridgeAvatarUrl)
+                        if (existing != null &&
+                            (
+                                existing.bridgeProtocolAvatarUrl != bridgeAvatarUrl ||
+                                    existing.bridgeProtocolId != cachedProtocolId ||
+                                    existing.bridgeAvatarIsProtocolLevel != cachedAvatarIsProtocolLevel
+                                )
+                        ) {
+                            roomMap[roomId] = existing.copy(
+                                bridgeProtocolAvatarUrl = bridgeAvatarUrl,
+                                bridgeProtocolId = cachedProtocolId,
+                                bridgeAvatarIsProtocolLevel = cachedAvatarIsProtocolLevel,
+                            )
                             anyUpdated = true
                         }
                     }

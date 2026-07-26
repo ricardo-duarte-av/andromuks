@@ -1469,6 +1469,27 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                 ?: existingRoom.bridgeProtocolAvatarUrl
                                 ?: cachedBridgeAvatarUrl
                         },
+                        // Same write-only semantics as the avatar above: the network identity the
+                        // Bridges tab groups on also only ever arrives via get_room_state.
+                        bridgeProtocolId = run {
+                            val cachedProtocolId = appContext?.let { context ->
+                                net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeProtocolId(context, room.id)
+                            }
+                            room.bridgeProtocolId
+                                ?: existingRoom.bridgeProtocolId
+                                ?: cachedProtocolId
+                        },
+                        // Write-only too: sync_complete never carries bridge state, so this is
+                        // purely "keep whatever get_room_state or the cache already established".
+                        bridgeAvatarIsProtocolLevel = run {
+                            val cachedIsProtocolLevel = appContext?.let { context ->
+                                net.vrkknn.andromuks.utils.BridgeInfoCache
+                                    .isBridgeAvatarProtocolLevel(context, room.id)
+                            } == true
+                            room.bridgeAvatarIsProtocolLevel ||
+                                existingRoom.bridgeAvatarIsProtocolLevel ||
+                                cachedIsProtocolLevel
+                        },
                     )
                     // Log if favorite status was preserved (for debugging)
                     if (existingRoom.isFavourite && !room.isFavourite && updatedRoom.isFavourite) {
@@ -1499,8 +1520,20 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         null
                     }
 
-                    val roomWithBridgeInfo = if (cachedBridgeAvatarUrl != null) {
-                        room.copy(bridgeProtocolAvatarUrl = cachedBridgeAvatarUrl)
+                    val cachedProtocolId = appContext?.let { context ->
+                        net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeProtocolId(context, room.id)
+                    }
+                    val cachedIsProtocolLevel = appContext?.let { context ->
+                        net.vrkknn.andromuks.utils.BridgeInfoCache.isBridgeAvatarProtocolLevel(context, room.id)
+                    } == true
+
+                    val roomWithBridgeInfo = if (cachedBridgeAvatarUrl != null || cachedProtocolId != null) {
+                        room.copy(
+                            bridgeProtocolAvatarUrl = room.bridgeProtocolAvatarUrl ?: cachedBridgeAvatarUrl,
+                            bridgeProtocolId = room.bridgeProtocolId ?: cachedProtocolId,
+                            bridgeAvatarIsProtocolLevel =
+                            room.bridgeAvatarIsProtocolLevel || cachedIsProtocolLevel,
+                        )
                     } else {
                         room
                     }
@@ -1594,8 +1627,21 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                     null
                 }
 
-                val roomWithBridgeInfo = if (cachedBridgeAvatarUrl != null) {
-                    roomWithPreservation.copy(bridgeProtocolAvatarUrl = cachedBridgeAvatarUrl)
+                val cachedProtocolId = appContext?.let { context ->
+                    net.vrkknn.andromuks.utils.BridgeInfoCache.getBridgeProtocolId(context, room.id)
+                }
+                val cachedIsProtocolLevel = appContext?.let { context ->
+                    net.vrkknn.andromuks.utils.BridgeInfoCache.isBridgeAvatarProtocolLevel(context, room.id)
+                } == true
+
+                val roomWithBridgeInfo = if (cachedBridgeAvatarUrl != null || cachedProtocolId != null) {
+                    roomWithPreservation.copy(
+                        bridgeProtocolAvatarUrl = roomWithPreservation.bridgeProtocolAvatarUrl
+                            ?: cachedBridgeAvatarUrl,
+                        bridgeProtocolId = roomWithPreservation.bridgeProtocolId ?: cachedProtocolId,
+                        bridgeAvatarIsProtocolLevel =
+                        roomWithPreservation.bridgeAvatarIsProtocolLevel || cachedIsProtocolLevel,
+                    )
                 } else {
                     roomWithPreservation
                 }

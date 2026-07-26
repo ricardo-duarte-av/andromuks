@@ -184,6 +184,8 @@ object RoomListCache {
                     avatarUrl = row.avatarMxc?.takeIf { it.isNotEmpty() },
                     sortingTimestamp = row.sortTs.takeIf { it > 0L },
                     bridgeProtocolAvatarUrl = bridgeAvatar,
+                    bridgeProtocolId = row.bridgeProtocolId?.takeIf { it.isNotEmpty() },
+                    bridgeAvatarIsProtocolLevel = row.bridgeAvatarIsProtocol,
                     isFavourite = row.isFavourite,
                     isLowPriority = row.isLowPriority,
                     isDirectMessage = row.isDirect,

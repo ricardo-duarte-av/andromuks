@@ -265,6 +265,9 @@ class SyncBatchProcessor(
                                         isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
                                         bridgeProtocolAvatarUrl =
                                         room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
+                                        bridgeProtocolId = room.bridgeProtocolId ?: existing.bridgeProtocolId,
+                                        bridgeAvatarIsProtocolLevel =
+                                        room.bridgeAvatarIsProtocolLevel || existing.bridgeAvatarIsProtocolLevel,
                                         messagePreview = room.messagePreview ?: existing.messagePreview,
                                         messageSender = if (room.messagePreview !=
                                             null
@@ -310,6 +313,9 @@ class SyncBatchProcessor(
                                         isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
                                         bridgeProtocolAvatarUrl =
                                         room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
+                                        bridgeProtocolId = room.bridgeProtocolId ?: existing.bridgeProtocolId,
+                                        bridgeAvatarIsProtocolLevel =
+                                        room.bridgeAvatarIsProtocolLevel || existing.bridgeAvatarIsProtocolLevel,
                                         messagePreview = room.messagePreview ?: existing.messagePreview,
                                         messageSender = if (room.messagePreview !=
                                             null

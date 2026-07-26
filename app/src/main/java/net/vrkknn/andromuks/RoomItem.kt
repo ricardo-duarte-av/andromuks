@@ -23,6 +23,26 @@ data class RoomItem(
     val isFavourite: Boolean = false,
     val isLowPriority: Boolean = false,
     val bridgeProtocolAvatarUrl: String? = null,
+    /**
+     * Stable identity of the remote network this room is bridged to (`BridgeInfo.protocolId`,
+     * e.g. `"discord"`), or null if not bridged / not yet resolved from get_room_state.
+     *
+     * The Bridges tab groups on THIS, not on [bridgeProtocolAvatarUrl]: two bridge
+     * implementations for the same network report the same protocol id but different icons
+     * (mautrix-discord ships the Discord logo on `protocol`, OOYE ships a per-guild icon on
+     * `network`), and avatar-URL grouping splintered them into one pseudo-space per guild.
+     */
+    val bridgeProtocolId: String? = null,
+    /**
+     * True when [bridgeProtocolAvatarUrl] came from the event's `protocol` descriptor — i.e. it is
+     * the network's own logo, identical for every room on that protocol. False when it fell back to
+     * the `network`/`channel` descriptor, which is per-instance (a Discord guild icon).
+     *
+     * The Bridges tab needs this to pick ONE stable icon for a pseudo-space whose rooms disagree:
+     * a group mixing mautrix-discord (Discord logo) and OOYE (per-guild icons) must show the logo,
+     * not whichever room happens to have been active most recently.
+     */
+    val bridgeAvatarIsProtocolLevel: Boolean = false,
     val canonicalAlias: String? = null,
     val latestEventId: String? = null,
     /**

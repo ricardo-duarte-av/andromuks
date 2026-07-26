@@ -412,42 +412,60 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                         )
                     }
 
+                    // Group on the bridge's PROTOCOL identity, not its avatar URL. Two bridge
+                    // implementations for the same network report the same protocol id but
+                    // different icons (mautrix-discord puts the Discord logo on `protocol`, OOYE
+                    // puts a per-guild icon on `network`), so avatar-URL grouping produced one
+                    // pseudo-space per guild instead of one "Discord". Rooms whose protocol id
+                    // hasn't been resolved yet (pre-v5 cache rows, or state not fetched) fall back
+                    // to the old avatar key so they still appear somewhere.
                     val bridgedRooms =
-                        roomsWithoutSpaces.filter { it.bridgeProtocolAvatarUrl != null }
-                    val bridgeGroups = bridgedRooms.groupBy { it.bridgeProtocolAvatarUrl!! }
+                        roomsWithoutSpaces.filter { it.bridgeProtocolId != null || it.bridgeProtocolAvatarUrl != null }
+                    val bridgeGroups =
+                        bridgedRooms.groupBy { it.bridgeProtocolId ?: it.bridgeProtocolAvatarUrl!! }
 
                     val bridgeSpaces =
-                        bridgeGroups.map { (bridgeAvatarUrl, rooms) ->
+                        bridgeGroups.map { (bridgeKey, rooms) ->
+                            // Pick ONE icon for the group. With protocol grouping the rooms no
+                            // longer agree: mautrix-discord rooms carry the Discord logo while OOYE
+                            // rooms carry their own guild icon, and a pure-OOYE group spans several
+                            // guilds. Two rules keep it stable:
+                            //   1. A protocol-level logo (shared by the whole network) beats any
+                            //      per-instance icon.
+                            //   2. Ties break on the URL, NOT on list order — `rooms` is ordered by
+                            //      recency, so an order-based pick would visibly flip the space's
+                            //      icon every time a message landed in a differently-iconed room.
+                            val bridgeAvatarUrl =
+                                rooms.filter { it.bridgeAvatarIsProtocolLevel }
+                                    .mapNotNull { it.bridgeProtocolAvatarUrl }
+                                    .minOrNull()
+                                    ?: rooms.mapNotNull { it.bridgeProtocolAvatarUrl }.minOrNull()
+                            // Same stability rule for the label: take the alphabetically-first cached
+                            // name across the group rather than the most-recently-active room's, so
+                            // two bridges labelling the same network slightly differently can't make
+                            // the pseudo-space rename itself as traffic moves between them. The
+                            // cached lookup is a RAM hit; only fall through to the room-state parse
+                            // (which walks cached state JSON) when no room in the group has one.
+                            val context = appContext
                             val bridgeName =
-                                rooms.firstOrNull()?.let { room ->
-                                    val context = appContext
-                                    if (context != null) {
-                                        val cachedDisplayName =
-                                            net.vrkknn.andromuks.utils.BridgeInfoCache
-                                                .getBridgeDisplayName(context, room.id)
-                                        if (cachedDisplayName != null) {
-                                            if (BuildConfig.DEBUG) {
-                                                android.util.Log.d(
-                                                    "Andromuks",
-                                                    "AppViewModel: BRIDGES - Found cached display name for room ${room.id}: $cachedDisplayName",
-                                                )
-                                            }
-                                            return@let cachedDisplayName
-                                        }
+                                rooms.mapNotNull { room ->
+                                    context?.let {
+                                        net.vrkknn.andromuks.utils.BridgeInfoCache
+                                            .getBridgeDisplayName(it, room.id)
                                     }
-
-                                    getBridgeDisplayNameFromRoomState(room.id) ?: "Bridge"
-                                } ?: "Bridge"
+                                }.minOrNull()
+                                    ?: rooms.firstNotNullOfOrNull { getBridgeDisplayNameFromRoomState(it.id) }
+                                    ?: "Bridge"
 
                             if (BuildConfig.DEBUG && bridgeName == "Bridge") {
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "AppViewModel: BRIDGES - Using fallback name 'Bridge' for bridge with avatar $bridgeAvatarUrl (room: ${rooms.firstOrNull()?.id})",
+                                    "AppViewModel: BRIDGES - Using fallback name 'Bridge' for bridge $bridgeKey (room: ${rooms.firstOrNull()?.id})",
                                 )
                             }
 
                             SpaceItem(
-                                id = bridgeAvatarUrl,
+                                id = bridgeKey,
                                 name = bridgeName,
                                 avatarUrl = bridgeAvatarUrl,
                                 rooms = rooms,

@@ -6,18 +6,44 @@ The app has first-class support for Matrix bridges (e.g. Mautrix bridges for Wha
 
 Bridge info is parsed from `m.bridge` / `uk.half-shot.bridge` state events inside `AppViewModel.parseBridgeInfoEvent()` and `parseRoomStateFromEvents()`. The result is a `BridgeInfo` object stored on `RoomState.bridgeInfo`. Key fields:
 
-- `BridgeInfo.protocol` — network protocol info (id, displayName, avatarUrl, externalUrl)
-- `BridgeInfo.channel` — individual channel within the protocol
+MSC2346 defines **three** nested descriptors, and different bridges populate different subsets — all three are parsed:
+
+- `BridgeInfo.protocol` — the remote network *type* (id, displayName, avatarUrl, externalUrl). `"discord"`, `"whatsapp"`.
+- `BridgeInfo.network` — the specific *instance* of that network: a Discord guild, an IRC server (id, displayName, avatarUrl, externalUrl).
+- `BridgeInfo.channel` — the individual channel/room on that network (id, displayName, avatarUrl, `fi.mau.receiver`, externalUrl).
 - `BridgeInfo.roomType` / `roomTypeV2` — `"dm"` means it's a DM-style bridge room (`com.beeper.room_type` / `.v2` in the event content)
 - `BridgeInfo.hasRenderableIcon` — true if the bridge has either an avatarUrl or displayName to render
 
-Bridge info (avatar URL + display name) is also persisted to `SharedPreferences` via `BridgeInfoCache` (keyed by `roomId`), so it survives app restarts without re-fetching room state.
+**Do not read `protocol.avatarUrl` directly.** mautrix-discord puts the Discord logo there; OOYE (`moe.cadence.ooye`) leaves `protocol` icon-less and carries the only avatar in the whole event on `network.avatar_url` (the guild icon). The derived accessors walk the fallback chains for you:
 
-`RoomItem.bridgeProtocolAvatarUrl` stores the mxc:// URL of the bridge protocol avatar for the room (null for non-bridged rooms). This is the field used to identify bridged rooms throughout the UI.
+| Accessor | Chain |
+|---|---|
+| `BridgeInfo.avatarUrl` | `protocol` → `network` → `channel` |
+| `BridgeInfo.displayName` | `protocol.displayName` → `protocol.id` → `network` → `channel` |
+| `BridgeInfo.externalUrl` | `protocol` → `network` → `channel` |
+| `BridgeInfo.protocolId` | `protocol.id` → `protocol.displayName` → `network.id` |
+
+Bridge info is persisted per room via `BridgeInfoCache` → `RoomMetadataStore` (SQLite), so it survives app restarts without re-fetching room state. Schema **v5** added `bridge_protocol_id` and `bridge_avatar_is_protocol`.
+
+Three fields on `RoomItem` carry it into the UI:
+
+- `bridgeProtocolAvatarUrl` — the mxc:// URL to draw, from `BridgeInfo.avatarUrl` (full chain, **not** `protocol` alone).
+- `bridgeProtocolId` — `BridgeInfo.protocolId`; what the Bridges tab groups on.
+- `bridgeAvatarIsProtocolLevel` — whether that avatar is the protocol's shared logo or a per-instance icon.
+
+A room is treated as bridged if either of the first two is non-null.
+
+### v5 cache invalidation
+
+The v4→v5 migration NULLs `bridge_avatar_mxc` for rows where it is `''` **and** a bridge display name exists. Those are rooms the pre-v5 parser saw a bridge event for but found no `protocol.avatar_url` on — it wrote the "not bridged" sentinel, and `BridgeInfoCache.isCached()` (which reads exactly that column) would have made `loadAllRoomStatesAfterInitComplete` skip them forever, so the new `network`-descriptor parsing would never run. NULL restores "never observed" and re-queues one `get_room_state`. The display-name clause is what keeps this from re-requesting state for every genuinely unbridged room in the account.
 
 ## Bridges Tab in RoomListScreen
 
-In `RoomListScreen`, the **Bridges** tab (`RoomSectionType.BRIDGES`) groups bridged rooms by their `bridgeProtocolAvatarUrl`. Each unique avatar URL becomes a pseudo-space (a `SpaceItem`) representing one bridge network. Tapping a bridge network (`currentBridgeId`) filters the room list to show only rooms on that network. `AppViewModel.exitBridge()` clears `currentBridgeId`. The tab animates between the bridge network list and the filtered room list using `AnimatedVisibility`. Room items in this tab show a badge with the bridge protocol icon overlaid on the room avatar (rendered in `BridgeDecorations.kt` via `BridgeNetworkBadge`).
+In `RoomListScreen`, the **Bridges** tab (`RoomSectionType.BRIDGES`) groups bridged rooms by their **`bridgeProtocolId`** (falling back to `bridgeProtocolAvatarUrl` for rooms whose protocol id isn't resolved yet — pre-v5 cache rows, or state never fetched). Each unique protocol becomes a pseudo-space (a `SpaceItem`) representing one bridge network.
+
+Because a protocol group's rooms can carry **different** avatars (mautrix-discord's logo next to OOYE's per-guild icons), the space's icon and name are chosen by fixed rules, never by list position: a protocol-level avatar wins over any per-instance one, and ties break on the string value. `rooms` is ordered by recency, so an order-based pick would flip the space's icon every time a message arrived in a differently-iconed room.
+
+**Why not group by avatar URL** (the pre-2026-07 behaviour): bridges that expose a per-instance icon rather than a protocol logo — OOYE gives each Discord *guild* its own icon — produced one pseudo-space per guild, and rooms bridged to the same network by two different bridge implementations landed in separate spaces. Protocol id is stable across both. Tapping a bridge network (`currentBridgeId`) filters the room list to show only rooms on that network. `AppViewModel.exitBridge()` clears `currentBridgeId`. The tab animates between the bridge network list and the filtered room list using `AnimatedVisibility`. Room items in this tab show a badge with the bridge protocol icon overlaid on the room avatar (rendered in `BridgeDecorations.kt` via `BridgeNetworkBadge`).
 
 ## Bridge Icon in Timeline Top Bar
 

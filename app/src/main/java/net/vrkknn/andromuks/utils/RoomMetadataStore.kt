@@ -31,7 +31,7 @@ object RoomMetadataStore {
     private const val TAG = "RoomMetadataStore"
 
     private const val DB_NAME = "room_metadata.db"
-    private const val DB_VERSION = 4
+    private const val DB_VERSION = 5
 
     private const val TABLE = "room_metadata"
     private const val COL_ROOM_ID = "room_id"
@@ -62,12 +62,25 @@ object RoomMetadataStore {
     private const val COL_IS_LOW_PRIORITY = "is_low_priority"
     private const val COL_IS_DIRECT = "is_direct"
 
+    // v5: the bridge's protocol identity (BridgeInfo.protocolId, e.g. "discord"). The Bridges tab
+    // groups pseudo-spaces on this rather than on the avatar URL, so it has to survive process
+    // death alongside the avatar — otherwise every bridged room falls back to avatar-grouping on
+    // cold start and the tab reshuffles once get_room_state catches up.
+    private const val COL_BRIDGE_PROTOCOL_ID = "bridge_protocol_id"
+
+    // v5: whether [COL_BRIDGE_AVATAR_MXC] holds the protocol's own logo (1) or a per-instance
+    // network/channel icon (0). Lets the Bridges tab pick a stable pseudo-space icon when rooms in
+    // one protocol group carry different avatars. See RoomItem.bridgeAvatarIsProtocolLevel.
+    private const val COL_BRIDGE_AVATAR_IS_PROTOCOL = "bridge_avatar_is_protocol"
+
     data class Row(
         val roomId: String,
         val name: String?,
         val avatarMxc: String?,
         val bridgeAvatarMxc: String?,
         val bridgeDisplayName: String?,
+        val bridgeProtocolId: String? = null,
+        val bridgeAvatarIsProtocol: Boolean = false,
         val sortTs: Long = 0L,
         val shortcutHasAvatar: Boolean = false,
         val isFavourite: Boolean = false,
@@ -113,6 +126,8 @@ object RoomMetadataStore {
                 COL_AVATAR_MXC,
                 COL_BRIDGE_AVATAR_MXC,
                 COL_BRIDGE_DISPLAY_NAME,
+                COL_BRIDGE_PROTOCOL_ID,
+                COL_BRIDGE_AVATAR_IS_PROTOCOL,
                 COL_SORT_TS,
                 COL_SHORTCUT_HAS_AVATAR,
                 COL_IS_FAVOURITE,
@@ -130,6 +145,8 @@ object RoomMetadataStore {
             val iAvatar = c.getColumnIndexOrThrow(COL_AVATAR_MXC)
             val iBridgeAvatar = c.getColumnIndexOrThrow(COL_BRIDGE_AVATAR_MXC)
             val iBridgeName = c.getColumnIndexOrThrow(COL_BRIDGE_DISPLAY_NAME)
+            val iBridgeProtocolId = c.getColumnIndexOrThrow(COL_BRIDGE_PROTOCOL_ID)
+            val iBridgeAvatarIsProtocol = c.getColumnIndexOrThrow(COL_BRIDGE_AVATAR_IS_PROTOCOL)
             val iSortTs = c.getColumnIndexOrThrow(COL_SORT_TS)
             val iShortcutAvatar = c.getColumnIndexOrThrow(COL_SHORTCUT_HAS_AVATAR)
             val iFavourite = c.getColumnIndexOrThrow(COL_IS_FAVOURITE)
@@ -150,6 +167,9 @@ object RoomMetadataStore {
                     avatarMxc = if (c.isNull(iAvatar)) null else c.getString(iAvatar),
                     bridgeAvatarMxc = if (c.isNull(iBridgeAvatar)) null else c.getString(iBridgeAvatar),
                     bridgeDisplayName = if (c.isNull(iBridgeName)) null else c.getString(iBridgeName),
+                    bridgeProtocolId = if (c.isNull(iBridgeProtocolId)) null else c.getString(iBridgeProtocolId),
+                    bridgeAvatarIsProtocol =
+                    !c.isNull(iBridgeAvatarIsProtocol) && c.getInt(iBridgeAvatarIsProtocol) != 0,
                     sortTs = if (c.isNull(iSortTs)) 0L else c.getLong(iSortTs),
                     shortcutHasAvatar = !c.isNull(iShortcutAvatar) && c.getInt(iShortcutAvatar) != 0,
                     isFavourite = !c.isNull(iFavourite) && c.getInt(iFavourite) != 0,
@@ -192,6 +212,33 @@ object RoomMetadataStore {
         ioScope.launch {
             writePartial(roomId) { values ->
                 values.put(COL_BRIDGE_AVATAR_MXC, bridgeAvatarMxc)
+            }
+        }
+    }
+
+    /**
+     * Upsert the bridge protocol identity (`BridgeInfo.protocolId`) and whether the room's stored
+     * bridge avatar is the protocol's own logo. Written together because both are derived from the
+     * same parse of one bridge state event. Pass "" / false for non-bridged rooms.
+     */
+    fun upsertBridgeIdentity(roomId: String, bridgeProtocolId: String, avatarIsProtocolLevel: Boolean) {
+        val existing = mirror[roomId]
+        if (existing != null &&
+            existing.bridgeProtocolId == bridgeProtocolId &&
+            existing.bridgeAvatarIsProtocol == avatarIsProtocolLevel
+        ) {
+            return
+        }
+        mergeIntoMirror(
+            roomId,
+            bridgeProtocolId = bridgeProtocolId,
+            bridgeAvatarIsProtocol = avatarIsProtocolLevel,
+        )
+        if (helper == null) return
+        ioScope.launch {
+            writePartial(roomId) { values ->
+                values.put(COL_BRIDGE_PROTOCOL_ID, bridgeProtocolId)
+                values.put(COL_BRIDGE_AVATAR_IS_PROTOCOL, if (avatarIsProtocolLevel) 1 else 0)
             }
         }
     }
@@ -352,6 +399,8 @@ object RoomMetadataStore {
                 avatarMxc = row.avatarMxc,
                 bridgeAvatarMxc = row.bridgeAvatarMxc,
                 bridgeDisplayName = row.bridgeDisplayName,
+                bridgeProtocolId = row.bridgeProtocolId,
+                bridgeAvatarIsProtocol = row.bridgeAvatarIsProtocol,
             )
         }
         val db = helper?.writableDatabase ?: return
@@ -366,6 +415,8 @@ object RoomMetadataStore {
                     if (row.avatarMxc != null) put(COL_AVATAR_MXC, row.avatarMxc)
                     if (row.bridgeAvatarMxc != null) put(COL_BRIDGE_AVATAR_MXC, row.bridgeAvatarMxc)
                     if (row.bridgeDisplayName != null) put(COL_BRIDGE_DISPLAY_NAME, row.bridgeDisplayName)
+                    if (row.bridgeProtocolId != null) put(COL_BRIDGE_PROTOCOL_ID, row.bridgeProtocolId)
+                    if (row.bridgeAvatarIsProtocol) put(COL_BRIDGE_AVATAR_IS_PROTOCOL, 1)
                 }
                 val inserted = db.insertWithOnConflict(TABLE, null, values, SQLiteDatabase.CONFLICT_IGNORE)
                 if (inserted == -1L) {
@@ -407,6 +458,8 @@ object RoomMetadataStore {
         avatarMxc: String? = null,
         bridgeAvatarMxc: String? = null,
         bridgeDisplayName: String? = null,
+        bridgeProtocolId: String? = null,
+        bridgeAvatarIsProtocol: Boolean? = null,
         sortTs: Long? = null,
         shortcutHasAvatar: Boolean? = null,
         isFavourite: Boolean? = null,
@@ -419,6 +472,8 @@ object RoomMetadataStore {
             avatarMxc = avatarMxc ?: existing?.avatarMxc,
             bridgeAvatarMxc = bridgeAvatarMxc ?: existing?.bridgeAvatarMxc,
             bridgeDisplayName = bridgeDisplayName ?: existing?.bridgeDisplayName,
+            bridgeProtocolId = bridgeProtocolId ?: existing?.bridgeProtocolId,
+            bridgeAvatarIsProtocol = bridgeAvatarIsProtocol ?: existing?.bridgeAvatarIsProtocol ?: false,
             sortTs = sortTs ?: existing?.sortTs ?: 0L,
             shortcutHasAvatar = shortcutHasAvatar ?: existing?.shortcutHasAvatar ?: false,
             isFavourite = isFavourite ?: existing?.isFavourite ?: false,
@@ -457,6 +512,8 @@ object RoomMetadataStore {
                     $COL_AVATAR_MXC TEXT,
                     $COL_BRIDGE_AVATAR_MXC TEXT,
                     $COL_BRIDGE_DISPLAY_NAME TEXT,
+                    $COL_BRIDGE_PROTOCOL_ID TEXT,
+                    $COL_BRIDGE_AVATAR_IS_PROTOCOL INTEGER NOT NULL DEFAULT 0,
                     $COL_UPDATED_AT INTEGER NOT NULL,
                     $COL_SORT_TS INTEGER NOT NULL DEFAULT 0,
                     $COL_SHORTCUT_HAS_AVATAR INTEGER NOT NULL DEFAULT 0,
@@ -485,6 +542,39 @@ object RoomMetadataStore {
                 db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_IS_FAVOURITE INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_IS_LOW_PRIORITY INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_IS_DIRECT INTEGER NOT NULL DEFAULT 0")
+            }
+            // v4 → v5: add the bridge protocol id the Bridges tab now groups on, plus the flag
+            // saying whether the stored avatar is the protocol's own logo. Existing rows stay
+            // NULL/0 and fall back to avatar-URL grouping until the next get_room_state fills
+            // them in.
+            if (oldVersion < 5) {
+                db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_BRIDGE_PROTOCOL_ID TEXT")
+                db.execSQL(
+                    "ALTER TABLE $TABLE ADD COLUMN $COL_BRIDGE_AVATAR_IS_PROTOCOL INTEGER NOT NULL DEFAULT 0",
+                )
+                // Invalidate the rooms the pre-v5 parser got WRONG, so they are re-fetched once.
+                //
+                // That parser only ever looked at `protocol.avatar_url`, so a bridge publishing its
+                // icon on MSC2346's `network` descriptor (OOYE, for one) was recorded as
+                // bridge_avatar_mxc = "" — the "not bridged" sentinel. BridgeInfoCache.isCached()
+                // reads exactly that column, so loadAllRoomStatesAfterInitComplete would skip those
+                // rooms forever and the new network-descriptor parsing would never run on them.
+                //
+                // Setting the column back to NULL restores "never observed", which makes isCached()
+                // false and puts the room back in the get_room_state queue. The discriminator is
+                // precise: the old code persisted a display name whenever it saw a bridge event at
+                // all, so ""-avatar WITH a display name means "bridged but we found no icon" (wrong,
+                // re-fetch), while ""-avatar with no display name means "genuinely not bridged"
+                // (correct, leave cached). Without that second clause this would re-request state
+                // for every unbridged room in the account.
+                db.execSQL(
+                    """
+                    UPDATE $TABLE SET $COL_BRIDGE_AVATAR_MXC = NULL
+                    WHERE $COL_BRIDGE_AVATAR_MXC = ''
+                      AND $COL_BRIDGE_DISPLAY_NAME IS NOT NULL
+                      AND $COL_BRIDGE_DISPLAY_NAME != ''
+                    """.trimIndent(),
+                )
             }
         }
     }
