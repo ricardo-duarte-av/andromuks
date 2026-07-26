@@ -1882,11 +1882,18 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                             }
                         },
                         exitTransition = {
-                            // Opening a room: no fade — the list stays solid behind the flying avatar so the
-                            // shared-element flight is the only motion. Fade only for other exits.
-                            // ExitTransition.None, NOT null: null inherits the NavHost default fade (700ms).
+                            // Opening a room: the shared-element avatar/badge flight must be the only visible
+                            // motion — but it can only fly while the route AnimatedContent transition is alive.
+                            // ExitTransition.None here (paired with room_timeline's EnterTransition.None) made
+                            // BOTH ends zero-duration, so the outgoing list — and with it the flight's source
+                            // bounds — left composition before the shared element could match, and the header
+                            // avatar just popped into place. Mirror the pop direction's fix (see
+                            // room_timeline's popExitTransition): a short non-zero fade keeps the list composed
+                            // long enough for the match. It is not visible — the entering timeline enters with
+                            // EnterTransition.None, so it is fully opaque on top from the first frame.
+                            // Never null: null inherits the NavHost default fade (700ms).
                             if (targetState.destination.route?.startsWith("room_timeline") == true) {
-                                androidx.compose.animation.ExitTransition.None
+                                fadeOut(tween(scaledTweenMs(150)))
                             } else {
                                 fadeOut(tween(scaledTweenMs(200)))
                             }
