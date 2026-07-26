@@ -5313,10 +5313,28 @@ class AppViewModel : ViewModel() {
 
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing UI with ${sortedRooms.size} rooms")
 
-        // PERFORMANCE: Use debounced reordering for UI refresh too
-        scheduleRoomReorder()
         allRooms = sortedRooms
         invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
+
+        // Publish the repaint signal. This is the resume path (onAppBecameVisible, after the sync
+        // batch flush), and it has just republished allRooms wholesale from roomMap — so the room
+        // list MUST re-read it. Neither of the two lines above does that: allRooms is Compose state
+        // but RoomListScreen's stableSection updater is not keyed on it, and
+        // invalidateRoomSectionCache only bumps roomDataVersion, an AtomicInteger that Compose
+        // cannot observe. roomListUpdateCounter is the only key that effect watches.
+        //
+        // Previously this leaned entirely on scheduleRoomReorder() below to bump the counter as a
+        // side effect, which failed twice over: performRoomReorder only signalled when the ORDER
+        // changed, and when debounced it ran AFTER `allRooms = sortedRooms` above and so compared
+        // the sorted list against itself. Requesting the update directly makes the resume refresh
+        // independent of the reorder's timing. It is not a forced repaint: the stableSection
+        // updater runs its own fine-grained content diff and no-ops when nothing actually changed.
+        needsRoomListUpdate = true
+        scheduleUIUpdate("roomList")
+
+        // Still schedule a reorder: it is the only path that floats newly-joined rooms to the top
+        // (newlyJoinedRoomIds), which the plain sortedByDescending above does not do.
+        scheduleRoomReorder()
 
         // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not in refreshUIState)
         // This drastically reduces shortcut updates. Removed shortcut updates from refreshUIState.

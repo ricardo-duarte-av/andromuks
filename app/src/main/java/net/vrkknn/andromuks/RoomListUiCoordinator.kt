@@ -533,11 +533,22 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                 newlyJoinedRoomIds.clear()
             }
 
-            val currentRoomIds = allRooms.map { it.id }
-            val newRoomIds = sortedRooms.map { it.id }
-            val orderChanged = currentRoomIds != newRoomIds
-
-            if (orderChanged || allRooms.size != sortedRooms.size) {
+            // Compare the ROOMS, not just their ids. This used to be
+            // `allRooms.map { it.id } != sortedRooms.map { it.id }`, which only ever noticed a
+            // change of ORDER — so a sync that changed a room's last message / sender / unread
+            // count without moving it (the common case: new message in the room already at top)
+            // left this false and skipped the scheduleUIUpdate below. That matters because
+            // roomListUpdateCounter is the ONLY signal RoomListScreen's stableSection updater is
+            // keyed on: no bump here means the list never re-reads getCurrentRoomSection(), so
+            // summaries silently stop updating. RoomItem is a data class, so full list equality
+            // catches order, content and size in one O(n) pass — and allocates two fewer lists.
+            //
+            // This was masked until afe670a5: the backgrounded sync branch used to publish
+            // roomMap.values.toList() (ConcurrentHashMap order, reshuffled every sync), which made
+            // the id comparison spuriously true almost every time and thus accidentally acted as
+            // the repaint signal. Removing the scramble was correct; it just left nothing behind
+            // to fire this.
+            if (allRooms != sortedRooms) {
                 setSpaces(
                     listOf(
                         SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms),
