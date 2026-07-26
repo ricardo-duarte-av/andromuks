@@ -353,12 +353,12 @@ private fun dispatchParsedWebSocketMessage(jsonObject: JSONObject) {
                 WebSocketService.onInitCompleteReceived("sync_complete_resume")
                 WebSocketService.setReconnectingWithLastReceivedEvent(false)
             }
-            if (SyncRepository.getAttachedViewModels().isEmpty()) {
-                Log.w(
-                    "Andromuks",
-                    "NetworkUtils: CRITICAL - sync_complete received but no ViewModels attached in SyncRepository!",
-                )
-            }
+            // NOTE: no "is a VM attached?" check here. Having none is a normal steady state in
+            // always-on mode (foreground service keeps syncing after the Activity is gone), and it
+            // is already handled — processSyncCompletePipeline buffers into noVmBuffer and a VM
+            // drains it on attach. Logging it per sync_complete spammed release logcat (Log.w
+            // survives R8) and cost a pruneStaleViewModelEntries walk per message purely to log.
+            // SyncRepository logs the transition into and out of that state instead.
             SyncRepository.enqueueSyncComplete(
                 jsonObject.toString(),
                 if (wasResume) IncomingWebSocketHint.SYNC_COMPLETE_AFTER_RESUME else IncomingWebSocketHint.NONE,

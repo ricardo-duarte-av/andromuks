@@ -111,6 +111,17 @@ object SyncRepository {
 
     @Volatile private var noVmBufferEpoch = 0
 
+    // Edge-trigger latches for the no-VM logging above, so a UI-less always-on session logs the
+    // state once rather than once per sync_complete. Guarded by noVmBufferLock.
+    private var loggedNoVmBuffering = false
+    private var loggedNoVmBufferFull = false
+
+    /** Clears the no-VM log latches. Call from every path that empties [noVmBuffer]. */
+    private fun resetNoVmLogState() {
+        loggedNoVmBuffering = false
+        loggedNoVmBufferFull = false
+    }
+
     // Callbacks for DRAIN_SENTINEL messages, in FIFO order matching the sentinel enqueue order.
     private val drainSentinelCallbacks = ConcurrentLinkedQueue<() -> Unit>()
 
@@ -145,6 +156,7 @@ object SyncRepository {
      */
     fun clearSyncBuffer() {
         synchronized(noVmBufferLock) {
+            resetNoVmLogState()
             if (noVmBuffer.isNotEmpty()) {
                 Log.i(
                     TAG,
@@ -171,6 +183,7 @@ object SyncRepository {
         val toReplay: List<PendingSyncComplete>
         synchronized(noVmBufferLock) {
             epochAtDrain = noVmBufferEpoch
+            resetNoVmLogState()
             if (noVmBuffer.isEmpty()) return
             toReplay = noVmBuffer.toList()
             noVmBuffer.clear()
@@ -200,6 +213,7 @@ object SyncRepository {
      */
     fun takeBufferedMessages(): List<Pair<String, IncomingWebSocketHint>> {
         synchronized(noVmBufferLock) {
+            resetNoVmLogState()
             if (noVmBuffer.isEmpty()) return emptyList()
             val taken = noVmBuffer.map { it.jsonString to it.hint }
             noVmBuffer.clear()
@@ -257,15 +271,39 @@ object SyncRepository {
         if (target == null) {
             // No VM attached yet — buffer instead of drop.  A VM will call triggerBufferedSyncDrain()
             // via attachToExistingWebSocketIfAvailable() once it is ready to process these messages.
+            //
+            // This is a normal steady state in always-on mode, not an error: the foreground service
+            // keeps the socket up and syncing long after the Activity (and its AppViewModel) is
+            // gone. So the logging here is EDGE-triggered — once when we start buffering and once
+            // when we first overflow — never per message. Both flags reset in resetNoVmLogState(),
+            // called from every path that empties the buffer.
             synchronized(noVmBufferLock) {
-                if (noVmBuffer.size < MAX_NO_VM_BUFFER) {
-                    noVmBuffer.addLast(msg)
-                    Log.w(
+                if (noVmBuffer.size >= MAX_NO_VM_BUFFER) {
+                    // Full: evict the OLDEST so the buffer keeps a sliding window of the most
+                    // RECENT state. It used to drop the incoming message instead, which meant a
+                    // long UI-less always-on session pinned the first 500 sync_completes from hours
+                    // ago and discarded everything after — so the drain on next attach replayed
+                    // stale state and had lost every recent update. Newest-wins is what a replay
+                    // buffer wants: the tail is the closest thing to current server state.
+                    noVmBuffer.removeFirst()
+                    if (!loggedNoVmBufferFull) {
+                        loggedNoVmBufferFull = true
+                        Log.w(
+                            TAG,
+                            "sync_complete: no VM and buffer full ($MAX_NO_VM_BUFFER) — now evicting " +
+                                "oldest per message (epoch $noVmBufferEpoch). Logged once per fill.",
+                        )
+                    }
+                }
+                noVmBuffer.addLast(msg)
+                if (!loggedNoVmBuffering) {
+                    loggedNoVmBuffering = true
+                    Log.i(
                         TAG,
-                        "sync_complete: no VM (buffered ${noVmBuffer.size}/$MAX_NO_VM_BUFFER, epoch $noVmBufferEpoch)",
+                        "sync_complete: no VM attached — buffering (max $MAX_NO_VM_BUFFER, " +
+                            "epoch $noVmBufferEpoch). Normal while always-on runs without UI; " +
+                            "logged once until a VM drains the buffer.",
                     )
-                } else {
-                    Log.w(TAG, "sync_complete: no VM and buffer full ($MAX_NO_VM_BUFFER), message dropped")
                 }
             }
             return
