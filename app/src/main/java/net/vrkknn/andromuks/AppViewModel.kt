@@ -117,17 +117,10 @@ class AppViewModel : ViewModel() {
         _openedFromExternalApp = value
     }
 
-    // Set when AuthCheck navigates directly to room_timeline without room_list in the back stack
-    // (i.e. the app was cold-started from a notification). Cleared once the user is sent back to
-    // room_list on the next foreground resume (app-icon tap after minimising).
-    var openedViaDirectNotification: Boolean = false
-
-    // Set when a pending share is consumed into a room_timeline (the user deliberately opened that
-    // room to share media). Suppresses the one-shot navigation callback's forceIfOnTimeline redirect
-    // to room_list, which would otherwise yank the user off the share media preview when spaces load
-    // after the share was already consumed (Direct Share cold-start race). Reset on the next foreground
-    // resume / room_list entry, like openedViaDirectNotification.
-    var openedViaShare: Boolean = false
+    // NOTE: openedViaDirectNotification / openedViaShare used to live here. Both existed only to
+    // suppress navigateToRoomListIfNeeded's forceIfOnTimeline redirect in AuthCheck; that branch is
+    // gone (it could no longer fire for a legitimate reason once AppNavigation's collector became the
+    // single owner of external room opens), so the flags had no readers left.
     var returnToRoomListOnResume: Boolean by mutableStateOf(false)
 
 // Tracks which sender profiles have been processed per room to avoid duplicate fetches.
@@ -749,9 +742,6 @@ class AppViewModel : ViewModel() {
             pendingShare = null
             pendingShareTargetRoomId = null
             pendingShareUpdateCounter++
-            // Mark that we're on this room_timeline deliberately (share flow) so the navigation
-            // callback doesn't force-redirect back to room_list once spaces load.
-            openedViaShare = true
             share
         } else {
             null
@@ -4544,6 +4534,8 @@ class AppViewModel : ViewModel() {
     }
 
     fun setPendingRoomNavigation(roomId: String, fromNotification: Boolean = false) = navigationCoordinator.setPendingRoomNavigation(roomId, fromNotification)
+
+    fun setPendingShareNavigation(roomId: String) = navigationCoordinator.setPendingShareNavigation(roomId)
 
     // OPTIMIZATION #1: Direct navigation method (bypasses pending state)
     fun setDirectRoomNavigation(roomId: String, notificationTimestamp: Long? = null, targetEventId: String? = null) =
@@ -8641,6 +8633,70 @@ class AppViewModel : ViewModel() {
             // Clear oldest entries to make room
             ProfileCache.cleanupFlattenedProfiles(1000) // Keep only 1000 most recent
             android.util.Log.w("Andromuks", "AppViewModel: Cleaned up flattened cache to prevent memory issues")
+        }
+    }
+
+    private val coldStartHydrationLock = Any()
+
+    @Volatile
+    private var coldStartHydrationJob: Job? = null
+
+    /**
+     * One-shot cold-start hydration: disk caches -> roomMap / spaces, on [viewModelScope].
+     *
+     * This MUST NOT live in a composable's LaunchedEffect. [populateRoomMapFromCache] is the only
+     * thing that puts the persisted room list into roomMap on a share cold start, and it sits behind
+     * a SQLite read ([loadCachedProfiles] opens RoomMetadataStore and runs loadAll). A concurrent
+     * navigation — MainActivity's pendingShareNavigationRequested effect pushing simple_room_list —
+     * disposes auth_check and cancels that effect mid-read, so roomMap stays empty and the share
+     * picker sits on "Syncing rooms..." until init sync lands (up to its 15s timeout). viewModelScope
+     * outlives every composable, so the hydrate always completes. Same reasoning that moved the
+     * WebSocket connect out of AuthCheckScreen's LaunchedEffect — see the comment there.
+     *
+     * Idempotent: repeat calls return the job started by the first one. Returns null (without
+     * latching) when there are no stored credentials, so a later login still hydrates.
+     */
+    fun ensureColdStartHydration(context: android.content.Context): Job? {
+        val appCtx = context.applicationContext
+        synchronized(coldStartHydrationLock) {
+            coldStartHydrationJob?.let { return it }
+
+            val prefs = appCtx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val token = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs).ifBlank { null }
+            val homeserver = prefs.getString("homeserver_url", null)?.ifBlank { null }
+            if (token == null || homeserver == null) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: ensureColdStartHydration skipped - no stored credentials",
+                    )
+                }
+                return null
+            }
+
+            val job = viewModelScope.launch(Dispatchers.Main) {
+                withContext(Dispatchers.IO) {
+                    loadStateFromStorage(appCtx)
+                    loadCachedProfiles(appCtx)
+                    loadSettings(appCtx)
+                }
+                // Main-thread section: these are Compose-observable in-memory writes.
+                // updateHomeserverUrl/updateAuthToken must land before the room list paints or
+                // avatars render with schemeless URLs; populateRoomMapFromCache flips spacesLoaded,
+                // which is what drives the cache-first navigation effects.
+                updateHomeserverUrl(homeserver)
+                updateAuthToken(token)
+                populateRoomMapFromCache()
+                populateSpacesFromCache()
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: ensureColdStartHydration complete - roomMap=${roomMap.size} spacesLoaded=$spacesLoaded",
+                    )
+                }
+            }
+            coldStartHydrationJob = job
+            return job
         }
     }
 

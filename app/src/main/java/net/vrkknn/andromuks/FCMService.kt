@@ -1022,9 +1022,8 @@ class FCMService : FirebaseMessagingService() {
         // long-background "no WS, blank timeline" wedge. CLEAR_TASK recreated MainActivity
         // (and its AppViewModel) on every tap, leaving a "fresh VM + stale process singletons"
         // hybrid that bailed silently in the WS-revival chain. Back-stack hygiene is handled
-        // by Compose nav (popUpTo("auth_check") in navigateToRoomTimelineForExternalEntry +
-        // openedViaDirectNotification flag), not by the Activity flags. See
-        // docs/DEBUG_WS_REVIVAL.md.
+        // by Compose nav (navigateToRoomTimelineForExternalEntry synthesises a room_list base
+        // beneath the timeline), not by the Activity flags. See docs/DEBUG_WS_REVIVAL.md.
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra("room_id", roomId)

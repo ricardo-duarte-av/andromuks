@@ -227,12 +227,15 @@ internal suspend fun executeRoomNavigation(
         )
         return
     }
+    // NOTE: currentRoomId is set synchronously by navigateToRoomWithCache below — its first two
+    // statements are updateCurrentRoomIdInPrefs(roomId) + RoomTimelineCache.addOpenedRoom(roomId),
+    // outside the coroutine. That is what the onInitComplete deferred-paginate drain needs (it bails
+    // unless currentRoomId == roomId), so a WS-down cache-first open does not need it set here too.
     if (notificationTimestamp != null) {
         appViewModel.navigateToRoomWithCache(roomId, notificationTimestamp)
     } else {
         appViewModel.navigateToRoomWithCache(roomId)
     }
-    appViewModel.openedViaDirectNotification = true
     navController.navigateToRoomTimelineForExternalEntry(roomId)
 }
 
@@ -3310,10 +3313,6 @@ fun RoomListContent(
                                     )
                                 }
                                 appViewModel.navigateToRoomWithCache(roomIdForNavigation)
-                                // Room opened from room_list — room_list IS in the back stack,
-                                // so Back should pop back to it, not finish the Activity.
-                                appViewModel.openedViaDirectNotification = false
-                                appViewModel.openedViaShare = false
                                 navController.navigate("room_timeline/$roomIdForNavigation")
 
                                 launch(Dispatchers.IO) {

@@ -72,29 +72,25 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
 
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Notification permission granted. Attempting auto WebSocket connect.")
 
-            appViewModel.loadStateFromStorage(context)
-
-            // Hydrate disk caches off the main thread — these open SQLite and read row sets
-            // that can easily take 100–300ms and would otherwise block Compose from painting
-            // the cached room list.
-            withContext(kotlinx.coroutines.Dispatchers.IO) {
-                appViewModel.loadCachedProfiles(context)
-            }
-
-            // populateRoomMapFromCache MUST run on Main: it mutates roomMap and flips the
-            // Compose-observable spacesLoaded state. Cheap — just an in-memory copy.
-            appViewModel.populateRoomMapFromCache()
-            appViewModel.populateSpacesFromCache()
-
             // Set homeserver URL and auth token in ViewModel for avatar loading. These are
             // pure in-memory state writes and must happen before the navigation LaunchedEffect
-            // runs to avoid avatar fallback flicker.
+            // runs to avoid avatar fallback flicker, so they stay inline here rather than waiting
+            // on the hydration job below (which also sets them, idempotently).
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
 
+            // Disk hydration (state, profiles, settings, then roomMap/spaces) runs on
+            // viewModelScope, NOT in this LaunchedEffect. It used to be inline here, behind a
+            // ~100–300ms SQLite read; navigating away (a share intent pushing simple_room_list)
+            // disposes auth_check and cancelled it mid-read, leaving roomMap empty. MainActivity
+            // already kicked this off in onCreate — this call is the idempotent no-op that keeps
+            // AuthCheck working if it ever composes first. spacesLoaded flipping is what drives
+            // the navigation effect below, so nothing here needs to await it.
+            appViewModel.ensureColdStartHydration(context)
+
             // Run FCM init, navigation-callback setup, and the WebSocket connection on the
-            // ViewModel scope — NOT this LaunchedEffect. populateRoomMapFromCache /
-            // populateSpacesFromCache above flip `spacesLoaded`, which fires the cache-driven
+            // ViewModel scope — NOT this LaunchedEffect. The hydration job above flips
+            // `spacesLoaded`, which fires the cache-driven
             // navigation LaunchedEffect below; that pops auth_check (popUpTo inclusive) and
             // disposes this composable, cancelling this LaunchedEffect at its first suspension
             // point (the frame delay / FCM IO). If the connection were initiated inline here it
@@ -114,11 +110,18 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 withContext(kotlinx.coroutines.Dispatchers.IO) {
                     appViewModel.initializeFCM(context, homeserverUrl, token)
                 }
-                // forceIfOnTimeline=true: navigate to room_list even when the back stack already has
-                // room_timeline (normal app-icon open after a previous session left a room open).
-                // forceIfOnTimeline=false: skip navigation when room_timeline/chat_bubble is active
-                // (shortcut cold-start — the channel consumer handles the actual room navigation).
-                fun navigateToRoomListIfNeeded(forceIfOnTimeline: Boolean = false) {
+                // Never redirects off an already-active room_timeline / chat_bubble / share picker.
+                //
+                // This used to take a forceIfOnTimeline flag that *did* redirect off a live timeline,
+                // for the "normal app-icon open after a previous session left a room open" case. That
+                // case cannot arise here — on a cold start the back stack begins at auth_check, so by
+                // the time this callback runs at init_complete any timeline on the stack was opened
+                // deliberately this session (AppNavigation's collector, RoomTimelineScreen's navTrigger,
+                // or the share flow). Redirecting was therefore always wrong by the time it fired, and
+                // needed openedViaDirectNotification / openedViaShare to suppress it — the "tap yanked
+                // back to the list" symptom was that suppression failing. Removing the branch removes
+                // the bug source and both flags.
+                fun navigateToRoomListIfNeeded() {
                     // Don't redirect while a share-to-room flow is active. The user is on
                     // simple_room_list picking a destination; force-navigating to room_list would
                     // discard their in-progress share.
@@ -139,7 +142,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             "AuthCheckScreen",
-                            "navigateToRoomListIfNeeded called (forceIfOnTimeline=$forceIfOnTimeline, currentRoute=$currentRoute)",
+                            "navigateToRoomListIfNeeded called (currentRoute=$currentRoute)",
                         )
                     }
 
@@ -155,65 +158,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                             return
                         }
 
-                        if (forceIfOnTimeline && (
-                                currentRoute.startsWith(
-                                    "room_timeline/",
-                                ) || currentRoute.startsWith("chat_bubble/")
-                                )
-                        ) {
-                            // Do NOT force-navigate if the user arrived here via a direct notification tap.
-                            // AuthCheck already consumed directRoomNavigation and navigated to room_timeline —
-                            // navigating back to room_list would undo that work.
-                            if (appViewModel.openedViaDirectNotification) {
-                                if (BuildConfig.DEBUG) {
-                                    Log.d(
-                                        "AuthCheckScreen",
-                                        "Skipping force navigation — user arrived via direct notification tap",
-                                    )
-                                }
-                                appViewModel.isLoading = false
-                                return
-                            }
-                            // Do NOT force-navigate if the user deliberately opened this room to share
-                            // media. The pending share was already consumed (so pendingShare is null and
-                            // the earlier guard missed it); redirecting to room_list would yank the user
-                            // off the share media preview — the Direct Share cold-start race.
-                            if (appViewModel.openedViaShare) {
-                                if (BuildConfig.DEBUG) {
-                                    Log.d(
-                                        "AuthCheckScreen",
-                                        "Skipping force navigation — user arrived via share-to-room",
-                                    )
-                                }
-                                appViewModel.isLoading = false
-                                return
-                            }
-                            // Force-redirecting off a live timeline back to room_list. This is
-                            // correct for a normal app-icon relaunch, but if it ever fires while a
-                            // notification open was in flight (openedViaDirectNotification lost/reset,
-                            // the Bug-7 race) it is exactly the "tap yanked back to the list" symptom.
-                            Androlog(
-                                "FCMOpen",
-                                "navigateToRoomListIfNeeded FORCE → room_list from $currentRoute (openedViaDirectNotification=${appViewModel.openedViaDirectNotification})",
-                            )
-                            if (BuildConfig.DEBUG) {
-                                Log.d(
-                                    "AuthCheckScreen",
-                                    "Force navigating to room_list - clearing previous navigation stack (currentRoute=$currentRoute)",
-                                )
-                            }
-                            appViewModel.isLoading = false
-                            navController.navigate("room_list") {
-                                popUpTo(navController.graph.id) { inclusive = true }
-                            }
-                            return
-                        }
-
-                        if (!forceIfOnTimeline && (
-                                currentRoute == "simple_room_list" ||
-                                    currentRoute.startsWith("room_timeline/") ||
-                                    currentRoute.startsWith("chat_bubble/")
-                                )
+                        if (currentRoute == "simple_room_list" ||
+                            currentRoute.startsWith("room_timeline/") ||
+                            currentRoute.startsWith("chat_bubble/")
                         ) {
                             if (BuildConfig.DEBUG) {
                                 Log.d(
@@ -278,101 +225,21 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                         return@setNavigationCallback
                     }
 
-                    // Check for direct room navigation first (from notifications)
-                    //
-                    // NOTE: on a cache hit the spaces-loaded LaunchedEffect below has already opened
-                    // room_timeline cache-first (header paints during the init parse) and cleared
-                    // directRoomNavigation, so this block runs ONLY for the cache-miss fallback —
-                    // a room not yet in the hydrated roomMap (e.g. a brand-new room from the push),
-                    // where we must wait for sync data before we can render a real header.
+                    // Direct room navigation (from notifications) is NOT handled here. AppNavigation's
+                    // roomNavigationRequests collector owns every external room open — it polls for
+                    // readiness (or takes the cache-first fast path when the room is already in
+                    // roomMap), then claims directRoomNavigation atomically and calls
+                    // executeRoomNavigation. AuthCheck used to navigate here as well, which is what
+                    // made two navigators race for one tap; all this callback has to do is stay out
+                    // of the way and not force-redirect to room_list while a target is still pending.
+                    // (navigateToRoomListIfNeeded's getDirectRoomNavigation() != null guard does that.)
                     val directRoomId = appViewModel.getDirectRoomNavigation()
                     if (directRoomId != null) {
                         Androlog(
                             "FCMOpen",
-                            "AuthCheck post-init callback: direct room=$directRoomId cached=${appViewModel.getRoomById(
-                                directRoomId,
-                            ) != null} route=${navController.currentBackStackEntry?.destination?.route}",
+                            "AuthCheck post-init callback: direct room=$directRoomId pending — deferring to AppNavigation collector",
                         )
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d(
-                                "Andromuks",
-                                "AuthCheck: Direct room navigation detected (notification), navigating directly to room_timeline: $directRoomId",
-                            )
-                        }
-                        // Navigate directly to room timeline (like ShortcutActivity does)
-                        // This bypasses RoomListScreen to avoid delays and missing rooms
-                        val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                        val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
-
-                        // Idempotency guard: if the cache-first effect already navigated to this room's
-                        // timeline, don't re-navigate (would push a duplicate entry / reload). Just
-                        // settle flags and bail. Defence-in-depth for the race where this callback
-                        // fires before the cache-first effect clears directRoomNavigation.
-                        val routeNow = navController.currentBackStackEntry?.destination?.route
-                        if (routeNow == "room_timeline/$encodedRoomId") {
-                            Androlog(
-                                "FCMOpen",
-                                "AuthCheck post-init: room=$directRoomId already open (cache-first won the race) — skipping re-navigation",
-                            )
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d(
-                                    "Andromuks",
-                                    "AuthCheck: room_timeline/$directRoomId already open (cache-first) — skipping re-navigation",
-                                )
-                            }
-                            appViewModel.openedViaDirectNotification = true
-                            appViewModel.isLoading = false
-                            appViewModel.clearDirectRoomNavigation()
-                            return@setNavigationCallback
-                        }
-
-                        // Set current room ID and navigate to room with cache
-                        appViewModel.setCurrentRoomIdForTimeline(directRoomId)
-                        if (notificationTimestamp != null) {
-                            appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
-                        } else {
-                            appViewModel.navigateToRoomWithCache(directRoomId)
-                        }
-
-                        // WAIT for room data readiness BEFORE navigating.
-                        // The callback is a plain lambda so we launch on the ViewModel's scope,
-                        // which is always available and tied to the ViewModel's lifecycle.
-                        //
-                        // IMPORTANT: do NOT clear directRoomNavigation here. The spaces-loaded
-                        // LaunchedEffect below races this coroutine and uses directRoomNavigation
-                        // as its "don't navigate to room_list" gate — clearing early lets it fire
-                        // a stray navigate("room_list"), which then mounts a second RoomTimelineScreen
-                        // whose dispose wipes the cache. We clear it right before navController.navigate.
-                        appViewModel.viewModelScope.launch(kotlinx.coroutines.Dispatchers.Main) {
-                            val isReady = appViewModel.awaitRoomDataReadiness(
-                                timeoutMs = 15_000L,
-                                roomId = directRoomId,
-                            )
-                            Androlog(
-                                "FCMOpen",
-                                "AuthCheck post-init OPEN room=$directRoomId isReady=$isReady → room_timeline",
-                            )
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d(
-                                    "Andromuks",
-                                    "AuthCheck: Readiness check completed (isReady=$isReady) for $directRoomId",
-                                )
-                            }
-
-                            // Synthesize a [room_list, room_timeline] back stack so Back returns to the
-                            // room list. An FCM tap can come from anywhere (not just the launcher), so the
-                            // room list is the natural parent — unlike ShortcutActivity, which exits to the
-                            // launcher. auth_check is removed; room_list becomes the single base, then the
-                            // timeline on top (room_list is not composed while covered).
-                            appViewModel.clearDirectRoomNavigation()
-                            navController.navigate("room_list") {
-                                popUpTo("auth_check") { inclusive = true }
-                            }
-                            // launchSingleTop: defence-in-depth against a duplicate room_timeline entry
-                            // if the cache-first effect raced us onto the same room (see bug #10).
-                            navController.navigate("room_timeline/$encodedRoomId") { launchSingleTop = true }
-                            appViewModel.openedViaDirectNotification = true
-                        }
+                        appViewModel.isLoading = false
                         return@setNavigationCallback
                     }
 
@@ -426,7 +293,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                         return@setNavigationCallback
                     }
 
-                    navigateToRoomListIfNeeded(forceIfOnTimeline = true)
+                    navigateToRoomListIfNeeded()
                 }
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
 
@@ -571,63 +438,26 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             val isWebSocketConnected = WebSocketService.isWebSocketConnected()
             val currentNetworkType = WebSocketService.getCurrentNetworkType()
 
-            // Pinned shortcut / conversation widget / FCM: MainActivity stores direct room navigation.
-            // Open the target room's timeline CACHE-FIRST — paint its header (name/avatar/bridge
-            // from the hydrated roomMap + BridgeInfoCache) immediately, with a "Room loading..."
-            // body, instead of holding on the startup overlay until the WebSocket finishes the init
-            // parse. The body fills via RoomTimelineScreen's own load (empty cache -> requestRoomTimeline
-            // -> WS-down defer into roomsAwaitingInitCompletePaginate -> fired on onInitComplete).
+            // Pinned shortcut / conversation widget / FCM: MainActivity stored a direct room target.
+            // AuthCheck does NOT open it — AppNavigation's roomNavigationRequests collector owns
+            // every external room open, including the CACHE-FIRST path this block used to perform
+            // (roomMap hit ⇒ paint the header immediately without waiting for the socket; see
+            // docs/AUTHCHECK.md). Two navigators for one tap was the race. All we do here is bail so
+            // we don't send the user to room_list while the collector is still working; the target
+            // stays in directRoomNavigation until the collector claims it atomically.
             val directRoomId = appViewModel.getDirectRoomNavigation()
             if (directRoomId != null) {
-                // Only open cache-first when we can render a real header. On a cache miss (room not
-                // yet in the hydrated roomMap — e.g. a brand-new room from the push) fall back to the
-                // post-init WebSocket callback, which has full sync data. Leave directRoomNavigation
-                // set in that case so the callback runs its direct block.
-                if (appViewModel.getRoomById(directRoomId) != null) {
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            "AuthCheckScreen",
-                            "Direct room target set + cached — opening room_timeline cache-first: $directRoomId",
-                        )
-                    }
-                    val ts = appViewModel.getDirectRoomNavigationTimestamp()
-                    val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
-                    // Set currentRoomId BEFORE navigate: the onInitComplete deferred-paginate drain
-                    // only re-fires when currentRoomId == roomId (otherwise it bails, leaving
-                    // isTimelineLoading stuck). Kick off the load via navigateToRoomWithCache.
-                    appViewModel.setCurrentRoomIdForTimeline(directRoomId)
-                    if (ts != null) {
-                        appViewModel.navigateToRoomWithCache(directRoomId, ts)
-                    } else {
-                        appViewModel.navigateToRoomWithCache(directRoomId)
-                    }
-                    // openedViaDirectNotification: makes navigateToRoomListIfNeeded bail instead of
-                    // redirecting back to room_list (bug #7).
-                    appViewModel.openedViaDirectNotification = true
-                    appViewModel.isLoading = false
-                    // Clear right before navigate (never earlier — see the post-init callback's note
-                    // on the stray-room_list race). Clearing here also makes the later post-init
-                    // callback see null and skip its own direct block, so it won't double-navigate.
-                    appViewModel.clearDirectRoomNavigation()
-                    Androlog("FCMOpen", "AuthCheck cache-first OPEN room=$directRoomId (spacesLoaded) → room_timeline")
-                    // Synthesize [room_list, room_timeline] so Back returns to the room list.
-                    navController.navigate("room_list") {
-                        popUpTo("auth_check") { inclusive = true }
-                    }
-                    navController.navigate("room_timeline/$encodedRoomId") { launchSingleTop = true }
-                    navigationHandled = true
-                } else {
-                    Androlog(
-                        "FCMOpen",
-                        "AuthCheck cache-MISS room=$directRoomId (not in roomMap) → deferring to post-init WebSocket callback; wsConn=${WebSocketService.isWebSocketConnected()}",
+                Androlog(
+                    "FCMOpen",
+                    "AuthCheck spacesLoaded: direct room=$directRoomId pending — deferring to AppNavigation collector",
+                )
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "AuthCheckScreen",
+                        "Direct room target set ($directRoomId) — AppNavigation collector owns the open, skipping room_list",
                     )
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            "AuthCheckScreen",
-                            "Direct room target set but not cached — deferring to WebSocket callback: $directRoomId",
-                        )
-                    }
                 }
+                appViewModel.isLoading = false
                 return@LaunchedEffect
             }
 

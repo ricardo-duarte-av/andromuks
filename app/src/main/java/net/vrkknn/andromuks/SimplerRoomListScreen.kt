@@ -102,21 +102,22 @@ fun SimplerRoomListScreen(navController: NavController, modifier: Modifier = Mod
 
     // Auto-navigate when a Direct Share room was pre-selected: once rooms are visible, skip
     // the picker and go straight to the room timeline.
+    //
+    // This is an *external entry* — the share sheet chose the room, and on a cold start this effect
+    // races AuthCheck's startup work. It therefore hands off to AppNavigation's roomNavigationRequests
+    // collector (the single owner of external room opens) rather than navigating here. The collector
+    // re-checks currentRoomId and claims before it moves, so the duplicate-entry case this block used
+    // to guard against by hand is handled structurally.
+    //
+    // Manual picks below stay direct: they are ordinary in-app navigation on a composed screen.
     val pendingShareTargetRoomId = appViewModel.pendingShareTargetRoomId
     LaunchedEffect(showRooms, pendingShareTargetRoomId) {
         val targetId = pendingShareTargetRoomId ?: return@LaunchedEffect
         if (!showRooms) return@LaunchedEffect
         if (rooms.none { it.id == targetId }) return@LaunchedEffect
-        // Guard: if navigateToRoomWithCache was already called (e.g. by a manual room click that
-        // set pendingShareTargetRoomId as a side-effect), currentRoomId is already the target.
-        // Re-navigating would push a duplicate room_timeline entry onto the back stack, causing
-        // RoomTimelineScreen to be recreated with showMediaPreview=false (share already consumed).
         if (appViewModel.currentRoomId == targetId) return@LaunchedEffect
         appViewModel.selectPendingShareRoom(targetId)
-        appViewModel.navigateToRoomWithCache(targetId)
-        navController.navigate("room_timeline/$targetId") {
-            popUpTo("simple_room_list") { inclusive = true }
-        }
+        appViewModel.setPendingShareNavigation(targetId)
     }
 
     AndromuksTheme {

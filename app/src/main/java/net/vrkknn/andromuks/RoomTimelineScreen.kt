@@ -925,7 +925,6 @@ fun RoomTimelineScreen(
                     )
                 }
 
-                appViewModel.openedViaDirectNotification = true
                 // Synthesize a [room_list, room_timeline] back stack so Back returns to the room
                 // list (FCM can be tapped from anywhere; see navigateToRoomTimelineForExternalEntry).
                 // Clear the prior graph, push room_list as the single base, then the new timeline.
@@ -2975,14 +2974,14 @@ fun RoomTimelineScreen(
         val isThreadViewerReturn = appViewModel.threadReturnScrollEventId != null
         val isWarmTimelineReturn = appViewModel.currentRoomId == roomId && appViewModel.timelineEvents.isNotEmpty()
         // Mount breadcrumb: records how this timeline screen was entered. A screen that appears with
-        // no deliberate open (openedViaDirectNotification=false, currentRoomId not already this room,
-        // and a back stack we didn't synthesize) is a NavHost-restored stale entry — the precondition
-        // for the double-navigation freeze (a stale RT mounted when a notification for another room is
-        // tapped). This pins down where such an entry came from on the next occurrence.
+        // no deliberate open (currentRoomId not already this room, and a back stack we didn't
+        // synthesize) is a NavHost-restored stale entry — the precondition for the double-navigation
+        // freeze (a stale RT mounted when a notification for another room is tapped). This pins down
+        // where such an entry came from on the next occurrence.
         Androlog(
             "FCMOpen",
             "RoomTimelineScreen MOUNT room=$roomId prevRoute=${navController.previousBackStackEntry?.destination?.route} " +
-                "openedViaDirectNotif=${appViewModel.openedViaDirectNotification} warmReturn=$isWarmTimelineReturn " +
+                "warmReturn=$isWarmTimelineReturn " +
                 "currentRoomId=${appViewModel.currentRoomId} wsConn=${appViewModel.isWebSocketConnected()}",
         )
         readinessCheckComplete = isWarmTimelineReturn

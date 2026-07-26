@@ -10,7 +10,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
 data class RoomNavigationRequest(val roomId: String, val timestamp: Long?, val source: Source) {
-    enum class Source { NOTIFICATION, SHORTCUT, BUBBLE, RESTORE }
+    enum class Source { NOTIFICATION, SHORTCUT, BUBBLE, RESTORE, SHARE }
 }
 
 /** Result of [NavigationCoordinator.claimDirectRoomNavigation]: the claimed target. */
@@ -44,6 +44,27 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                 RoomNavigationRequest(roomId = roomId, timestamp = null, source = RoomNavigationRequest.Source.SHORTCUT),
             )
         }
+    }
+
+    /**
+     * Direct Share fast path: the share sheet already named the target room, so there is no picker
+     * step and the open is an *external entry* exactly like a notification or shortcut tap — it
+     * races AuthCheck's startup work on a cold start. Routing it through the same channel puts it
+     * behind the one navigator instead of having SimplerRoomListScreen navigate on its own.
+     *
+     * A manual pick inside the picker is NOT this: that is ordinary in-app navigation on an
+     * already-composed screen (same class as a RoomListScreen row tap), and stays direct.
+     */
+    fun setPendingShareNavigation(roomId: String) {
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Set pending share navigation to: $roomId",
+            )
+        }
+        _roomNavigationRequests.trySend(
+            RoomNavigationRequest(roomId = roomId, timestamp = null, source = RoomNavigationRequest.Source.SHARE),
+        )
     }
 
     fun setDirectRoomNavigation(roomId: String, notificationTimestamp: Long?, targetEventId: String?) {

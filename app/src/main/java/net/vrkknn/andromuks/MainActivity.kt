@@ -491,8 +491,7 @@ class MainActivity : FragmentActivity() {
                             // Pre-warm the singleton ImageLoader and OkHttp/SSL stack on IO so the first
                             // AvatarImage render doesn't pay an ~800ms newSSLContext cost on Main.
                             // Also runs initializeFCM (constructs another OkHttp client + opens SharedPrefs
-                            // ~168ms each), loadCachedProfiles (opens RoomMetadataStore + hydrates), and
-                            // loadSettings (more SharedPrefs reads) off the main thread.
+                            // ~168ms each) off the main thread.
                             lifecycleScope.launch(Dispatchers.IO) {
                                 net.vrkknn.andromuks.utils.ImageLoaderSingleton.initFromStorage(this@MainActivity)
                                 net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(this@MainActivity)
@@ -504,31 +503,22 @@ class MainActivity : FragmentActivity() {
                                         skipCacheClear,
                                     )
                                 }
-                                appViewModel.loadCachedProfiles(this@MainActivity)
-                                appViewModel.loadSettings(this@MainActivity)
                             }
 
-                            // CRITICAL: Populate roomMap from singleton cache when opening from notification
-                            // This ensures rooms have summaries before sync_complete messages can overwrite them
-                            // Do this BEFORE loading profiles so roomMap is populated early. These are
-                            // in-memory state writes (Compose-observable), must stay on Main.
-                            if (fromNotification || directNavigation) {
-                                if (BuildConfig.DEBUG) {
-                                    Log.d(
-                                        "Andromuks",
-                                        "MainActivity: Opening from notification/shortcut - populating roomMap from singleton cache",
-                                    )
-                                }
-                                appViewModel.populateRoomMapFromCache()
-                                appViewModel.populateSpacesFromCache()
-                            }
+                            // Cold-start disk hydration (state, profiles, settings, then roomMap/spaces).
+                            // Unconditional: it used to be gated on fromNotification || directNavigation
+                            // here, which left a plain share cold start depending on AuthCheckScreen's
+                            // LaunchedEffect to populate roomMap — an effect the share navigation
+                            // cancels mid-SQLite-read, stranding the picker on "Syncing rooms...".
+                            // Runs on viewModelScope so no navigation can cancel it.
+                            val hydrationJob = appViewModel.ensureColdStartHydration(this@MainActivity)
 
-                            // CRITICAL FIX #2: Check for pending items on app startup and process them
-                            // NOTE: This is called AFTER loadSettings to ensure syncIngestor can be initialized
-                            // This ensures RoomListScreen shows up-to-date data when app opens
-                            // Use a small delay to ensure initialization is complete
+                            // CRITICAL FIX #2: Check for pending items on app startup and process them.
+                            // Must run AFTER loadSettings so syncIngestor is initialized — that ordering
+                            // used to be a bare delay(500); join the hydration job instead so the
+                            // dependency is explicit rather than a timing bet.
                             lifecycleScope.launch {
-                                delay(500)
+                                hydrationJob?.join()
                                 appViewModel.checkAndProcessPendingItemsOnStartup(this@MainActivity)
                             }
 
@@ -1637,8 +1627,6 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                 // open with the media preview. Redirecting to room_list would destroy the share.
                 return@LaunchedEffect
             }
-            appViewModel.openedViaDirectNotification = false
-            appViewModel.openedViaShare = false
             navController.navigate("room_list") {
                 popUpTo(navController.graph.id) { inclusive = true }
             }
@@ -1706,14 +1694,23 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
 
             // Same-room guard: if the target room is the one currentRoomId points at,
             // defer to RT's same-room handler so it can scroll-to-event without reloading.
+            //
+            // Route-aware for SHARE: RT only picks a share payload up through its
+            // LaunchedEffect(pendingShareUpdateCounter), which requires it to actually be composed.
+            // currentRoomId can still point at this room from an earlier session while the user is
+            // sitting on the share picker — bailing then would strand them there with no navigation.
             if (request.roomId == appViewModel.currentRoomId) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "AppNavigation: Same room already current (${request.roomId}), deferring to RoomTimelineScreen same-room handler",
-                    )
+                val onTimelineRoute =
+                    navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true
+                if (request.source != RoomNavigationRequest.Source.SHARE || onTimelineRoute) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "Andromuks",
+                            "AppNavigation: Same room already current (${request.roomId}), deferring to RoomTimelineScreen same-room handler",
+                        )
+                    }
+                    return@collectLatest
                 }
-                return@collectLatest
             }
 
             val roomId = request.roomId
@@ -1727,16 +1724,33 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                 )
             }
 
-            // Poll until both WS and (for uncached rooms) spacesLoaded are ready, or 10s elapses.
+            // Two ways to become ready:
+            //
+            //  - CACHE-FIRST: the room is in the hydrated roomMap, so we can paint a real header
+            //    (name / avatar / bridge) immediately and let the body fill in behind it — no need
+            //    to wait for the socket at all. This is the cold-start cache-first open described in
+            //    docs/AUTHCHECK.md; AuthCheck used to perform it itself, which is exactly what made
+            //    two navigators race. It lives here now so there is exactly one.
+            //    Note this is a different predicate from `isRoomCached` above: that one asks
+            //    RoomTimelineCache whether we have a timeline *body*, this one asks roomMap whether
+            //    we can render a *header*.
+            //
+            //  - FULL: socket up, and (for a room we cannot render from cache) spaces loaded.
+            //
+            // Either way the timeline body is filled by navigateToRoomWithCache — /exec freshness
+            // probe on a stale-but-rich cache, or a deferred paginate that fires on init_complete.
             val deadlineMs = System.currentTimeMillis() + 10_000L
+            var cacheFirstReady = false
             while (System.currentTimeMillis() < deadlineMs) {
-                val wsReady = appViewModel.isWebSocketConnected()
-                val spacesReady = isRoomCached || appViewModel.spacesLoaded
-                if (wsReady && spacesReady) break
+                cacheFirstReady = appViewModel.spacesLoaded && appViewModel.getRoomById(roomId) != null
+                val fullReady = appViewModel.isWebSocketConnected() &&
+                    (isRoomCached || appViewModel.spacesLoaded)
+                if (cacheFirstReady || fullReady) break
                 delay(100)
             }
 
-            val polledReady = appViewModel.isWebSocketConnected() && (isRoomCached || appViewModel.spacesLoaded)
+            val polledReady = cacheFirstReady ||
+                (appViewModel.isWebSocketConnected() && (isRoomCached || appViewModel.spacesLoaded))
             if (!polledReady) {
                 // Deadline expired without readiness — executeRoomNavigation runs anyway
                 // below, but against a half-ready state, so the open can stall or fall back
@@ -1753,17 +1767,18 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                 )
             }
 
-            // Post-poll guard: for FCM cold-start, AuthCheck's navigation callback fires
-            // exactly when the WS connects — the same moment this polling loop exits.
-            // AuthCheck calls navigateToRoomWithCache synchronously (setting currentRoomId)
-            // before returning. If it won the race, skip executeRoomNavigation here to
-            // avoid a second navigateToRoomWithCache + popUpTo that re-composes the timeline
-            // and causes the "timeline renders then vanishes" symptom.
+            // Post-poll idempotency check. This used to exist because AuthCheck navigated too and
+            // its callback fired exactly when the WS connected — the same moment this loop exits.
+            // AuthCheck no longer navigates, so that race is gone; the check is kept because the
+            // poll can run for up to 10s and the room may legitimately have been opened during it
+            // (a manual tap, or RoomTimelineScreen's navTrigger hot-swap). Re-navigating would
+            // re-run popUpTo(graph.id) and re-compose the timeline — the "renders then vanishes"
+            // symptom.
             if (request.roomId == appViewModel.currentRoomId) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         "Andromuks",
-                        "AppNavigation: $roomId is already current after poll — AuthCheck handled it, bailing",
+                        "AppNavigation: $roomId already current after poll — someone else opened it, bailing",
                     )
                 }
                 return@collectLatest
@@ -1773,10 +1788,13 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             // RoomTimelineScreen's navTrigger effect (a single tap arms both), so
             // claimDirectRoomNavigation returns false here if RT already took it — executeRoomNavigation
             // then aborts instead of firing a second, overlapping navigation. SHORTCUT/RESTORE do not
-            // share that state and always win.
+            // share that state and always win. SHARE likewise owns no shared pending-navigation
+            // state — its payload lives in pendingShare, consumed by RoomTimelineScreen — so there
+            // is nothing for it to contend for either.
             val claimFn: () -> Boolean = when (request.source) {
                 RoomNavigationRequest.Source.NOTIFICATION -> ({ appViewModel.claimDirectRoomNavigation() != null })
                 RoomNavigationRequest.Source.SHORTCUT -> ({ true.also { appViewModel.clearPendingRoomNavigation() } })
+                RoomNavigationRequest.Source.SHARE -> ({ true })
                 else -> ({ true })
             }
             executeRoomNavigation(appViewModel, navController, roomId, request.timestamp, claimFn)
