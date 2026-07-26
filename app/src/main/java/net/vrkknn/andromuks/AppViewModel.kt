@@ -5053,6 +5053,7 @@ class AppViewModel : ViewModel() {
                                                             bridgeAvatarIsProtocolLevel =
                                                             room.bridgeAvatarIsProtocolLevel ||
                                                                 existing.bridgeAvatarIsProtocolLevel,
+                                                            tombstone = room.tombstone ?: existing.tombstone,
                                                             messagePreview =
                                                             room.messagePreview ?: existing.messagePreview,
                                                             messageSender = if (room.messagePreview !=
@@ -5101,6 +5102,7 @@ class AppViewModel : ViewModel() {
                                                             bridgeAvatarIsProtocolLevel =
                                                             room.bridgeAvatarIsProtocolLevel ||
                                                                 existing.bridgeAvatarIsProtocolLevel,
+                                                            tombstone = room.tombstone ?: existing.tombstone,
                                                             messagePreview =
                                                             room.messagePreview ?: existing.messagePreview,
                                                             messageSender = if (room.messagePreview !=

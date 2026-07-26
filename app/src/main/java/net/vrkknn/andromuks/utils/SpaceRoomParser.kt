@@ -27,6 +27,20 @@ object SpaceRoomParser {
         return if (stripped.isNotBlank()) stripped else body
     }
 
+    /**
+     * Read `meta.tombstone` — the backend's summary of a room's `m.room.tombstone` state event, so
+     * clients can mark upgraded/replaced rooms without waiting for the timeline to load. Returns
+     * null for live rooms. Both inner fields are optional: a tombstone may carry no reason and no
+     * successor; its presence alone is the signal.
+     */
+    private fun parseTombstone(meta: JSONObject): net.vrkknn.andromuks.TombstoneInfo? {
+        val tombstone = meta.optJSONObject("tombstone") ?: return null
+        return net.vrkknn.andromuks.TombstoneInfo(
+            body = tombstone.optString("body").takeIf { it.isNotBlank() },
+            replacementRoomId = tombstone.optString("replacement_room").takeIf { it.isNotBlank() },
+        )
+    }
+
     private fun contentHasInReplyTo(content: org.json.JSONObject?): Boolean {
         val relates = content?.optJSONObject("m.relates_to") ?: return false
         if (relates.optString("rel_type") == "m.replace") return false // edit, not reply
@@ -381,6 +395,7 @@ object SpaceRoomParser {
                     avatarUrl = avatar,
                     isFavourite = isFavourite,
                     isLowPriority = isLowPriority,
+                    tombstone = parseTombstone(meta),
                     canonicalAlias = canonicalAlias,
                     latestEventId = latestEventId,
                 ),
@@ -767,6 +782,7 @@ object SpaceRoomParser {
                     isDirectMessage = isDirectMessage,
                     isFavourite = isFavourite,
                     isLowPriority = isLowPriority,
+                    tombstone = parseTombstone(meta),
                     canonicalAlias = canonicalAlias,
                     latestEventId = latestEventId,
                     senderDisplayName = senderDisplayName,
@@ -934,6 +950,7 @@ object SpaceRoomParser {
                                                     messagePreview = null,
                                                     messageSender = null,
                                                     isDirectMessage = false,
+                                                    tombstone = childMeta?.let { parseTombstone(it) },
                                                     canonicalAlias = childCanonicalAlias,
                                                     latestEventId = null,
                                                 )
@@ -1043,6 +1060,7 @@ object SpaceRoomParser {
                                 messagePreview = null,
                                 messageSender = null,
                                 isDirectMessage = false,
+                                tombstone = childMeta?.let { parseTombstone(it) } ?: joinedRoom?.tombstone,
                                 canonicalAlias = childCanonicalAlias,
                                 latestEventId = null,
                             )

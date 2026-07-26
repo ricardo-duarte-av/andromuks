@@ -268,6 +268,7 @@ class SyncBatchProcessor(
                                         bridgeProtocolId = room.bridgeProtocolId ?: existing.bridgeProtocolId,
                                         bridgeAvatarIsProtocolLevel =
                                         room.bridgeAvatarIsProtocolLevel || existing.bridgeAvatarIsProtocolLevel,
+                                        tombstone = room.tombstone ?: existing.tombstone,
                                         messagePreview = room.messagePreview ?: existing.messagePreview,
                                         messageSender = if (room.messagePreview !=
                                             null
@@ -316,6 +317,7 @@ class SyncBatchProcessor(
                                         bridgeProtocolId = room.bridgeProtocolId ?: existing.bridgeProtocolId,
                                         bridgeAvatarIsProtocolLevel =
                                         room.bridgeAvatarIsProtocolLevel || existing.bridgeAvatarIsProtocolLevel,
+                                        tombstone = room.tombstone ?: existing.tombstone,
                                         messagePreview = room.messagePreview ?: existing.messagePreview,
                                         messageSender = if (room.messagePreview !=
                                             null

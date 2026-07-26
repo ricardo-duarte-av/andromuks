@@ -65,6 +65,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.AddToHomeScreen
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Archive
 import androidx.compose.material.icons.filled.CloudDone
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.CloudSync
@@ -2122,6 +2123,42 @@ fun RoomListItem(
                                     contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                                 )
                             }
+                        }
+                    }
+
+                    // Tombstone badge: the room was upgraded, replaced, or otherwise closed off.
+                    // Same 16 dp corner treatment as the bridge badge, but drawn in the error
+                    // colour so a dead room reads as dead at a glance. When the room ALSO has a
+                    // bridge badge the two would sit on top of each other, so this one moves to the
+                    // bottom-start corner — bridged rooms keep the corner they've always used.
+                    room.tombstone?.let { tombstone ->
+                        val badgeAlignment = if (room.bridgeProtocolAvatarUrl != null) {
+                            Alignment.BottomStart
+                        } else {
+                            Alignment.BottomEnd
+                        }
+                        Box(
+                            modifier = Modifier
+                                .align(badgeAlignment)
+                                .size(16.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.errorContainer,
+                                    CircleShape,
+                                )
+                                .border(
+                                    width = 2.dp,
+                                    color = MaterialTheme.colorScheme.error,
+                                    shape = CircleShape,
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Archive,
+                                contentDescription = tombstone.body?.let { "Room replaced: $it" }
+                                    ?: "Room replaced",
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(10.dp),
+                            )
                         }
                     }
                 }

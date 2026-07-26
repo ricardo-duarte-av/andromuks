@@ -1490,6 +1490,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                 existingRoom.bridgeAvatarIsProtocolLevel ||
                                 cachedIsProtocolLevel
                         },
+                        // A tombstone is permanent, and a delta's meta may omit it, so never let a
+                        // later sync clear one we've already seen.
+                        tombstone = room.tombstone ?: existingRoom.tombstone,
                     )
                     // Log if favorite status was preserved (for debugging)
                     if (existingRoom.isFavourite && !room.isFavourite && updatedRoom.isFavourite) {
@@ -1612,6 +1615,8 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         },
                         isDirectMessage = room.isDirectMessage || existingInRoomMap.isDirectMessage,
                         latestEventId = room.latestEventId ?: existingInRoomMap.latestEventId,
+                        // Permanent once seen; a later delta's meta may simply omit it.
+                        tombstone = room.tombstone ?: existingInRoomMap.tombstone,
                     )
                 } else {
                     room

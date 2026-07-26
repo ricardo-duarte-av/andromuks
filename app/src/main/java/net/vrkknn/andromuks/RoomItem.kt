@@ -43,6 +43,11 @@ data class RoomItem(
      * not whichever room happens to have been active most recently.
      */
     val bridgeAvatarIsProtocolLevel: Boolean = false,
+    /**
+     * Non-null when the room has been tombstoned. Never cleared once observed — a tombstone is
+     * permanent, so the sync merges preserve it the same way they preserve bridge info.
+     */
+    val tombstone: TombstoneInfo? = null,
     val canonicalAlias: String? = null,
     val latestEventId: String? = null,
     /**
@@ -56,6 +61,18 @@ data class RoomItem(
      */
     val senderDisplayName: String? = null,
 )
+
+/**
+ * A room that has been tombstoned — upgraded to a new room version, replaced after corruption, or
+ * otherwise closed off. Parsed from `meta.tombstone` in sync_complete (the backend surfaces it
+ * there rather than making clients wait for the `m.room.tombstone` state event to arrive in a
+ * timeline).
+ *
+ * Both fields are optional in practice: a tombstone can carry no reason, and a room can be closed
+ * without a successor. The mere presence of the object is what marks the room dead.
+ */
+@Immutable
+data class TombstoneInfo(val body: String?, val replacementRoomId: String?)
 
 @Immutable
 data class SpaceItem(val id: String, val name: String, val avatarUrl: String?, val rooms: List<RoomItem>)
