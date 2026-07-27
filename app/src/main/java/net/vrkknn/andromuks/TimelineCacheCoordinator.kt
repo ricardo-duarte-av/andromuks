@@ -5,7 +5,6 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -455,8 +454,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                     ?.optString("event_id")
 
                         if (replyToEventId != null && replyToEventId.isNotBlank()) {
-                            // Check if the reply target is in the cache
-                            if (!cachedEventIds.contains(replyToEventId)) {
+                            // Check if the reply target is in the cache, including the reply-context
+                            // bucket the backend fills via related_events.
+                            if (!cachedEventIds.contains(replyToEventId) &&
+                                RoomTimelineCache.findEventForReply(roomId, replyToEventId) == null
+                            ) {
                                 missingReplyTargets.add(Pair(event.roomId, replyToEventId))
                                 if (BuildConfig.DEBUG) {
                                     android.util.Log.d(
@@ -477,38 +479,27 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             )
                         }
 
-                        for ((targetRoomId, targetEventId) in missingReplyTargets) {
-                            // Use a suspend function to fetch the event
-                            val deferred = CompletableDeferred<TimelineEvent?>()
-                            withContext(Dispatchers.Main) {
+                        // Concurrent, no per-call timeout — RpcResilienceCoordinator owns the
+                        // lifecycle (see the equivalent paginate-path block below).
+                        withContext(Dispatchers.Main) {
+                            for ((targetRoomId, targetEventId) in missingReplyTargets) {
                                 getEvent(targetRoomId, targetEventId) { event ->
-                                    deferred.complete(event)
+                                    if (event != null) {
+                                        RoomTimelineCache.addFetchedReplyTarget(targetRoomId, event)
+                                        timelineUpdateCounter++
+                                        if (BuildConfig.DEBUG) {
+                                            android.util.Log.d(
+                                                "Andromuks",
+                                                "AppViewModel: Fetched and cached missing reply target event_id=$targetEventId for room $targetRoomId (from sync_complete)",
+                                            )
+                                        }
+                                    } else {
+                                        android.util.Log.w(
+                                            "Andromuks",
+                                            "AppViewModel: Could not resolve reply target event_id=$targetEventId for room $targetRoomId (from sync_complete)",
+                                        )
+                                    }
                                 }
-                            }
-
-                            val fetchedEvent = withTimeoutOrNull(5000L) { deferred.await() }
-
-                            if (fetchedEvent != null) {
-                                // Add the fetched event to the cache
-                                val memberMap = RoomMemberCache.getRoomMembers(targetRoomId)
-                                val eventsJsonArray = org.json.JSONArray()
-                                eventsJsonArray.put(fetchedEvent.toRawJsonObject())
-                                RoomTimelineCache.addEventsFromSync(
-                                    targetRoomId,
-                                    eventsJsonArray,
-                                    memberMap,
-                                )
-                                if (BuildConfig.DEBUG) {
-                                    android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Fetched and cached missing reply target event_id=$targetEventId for room $targetRoomId (from sync_complete)",
-                                    )
-                                }
-                            } else {
-                                android.util.Log.w(
-                                    "Andromuks",
-                                    "AppViewModel: Failed to fetch missing reply target event_id=$targetEventId for room $targetRoomId (timeout or error, from sync_complete)",
-                                )
                             }
                         }
                     }
@@ -2395,8 +2386,14 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                 ?.optString("event_id")
 
                                     if (replyToEventId != null && replyToEventId.isNotBlank()) {
-                                        // Check if the reply target is in the cache
-                                        if (!cachedEventIds.contains(replyToEventId)) {
+                                        // Check if the reply target is in the cache. findEventForReply
+                                        // also covers the reply-context bucket filled by earlier
+                                        // pages, which cachedEventIds (timeline events + *this*
+                                        // response's related_events) does not — without it every
+                                        // paginate re-fetched targets we already had.
+                                        if (!cachedEventIds.contains(replyToEventId) &&
+                                            RoomTimelineCache.findEventForReply(roomId, replyToEventId) == null
+                                        ) {
                                             missingReplyTargets.add(
                                                 Pair(event.roomId, replyToEventId),
                                             )
@@ -2428,7 +2425,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                     ?.optString("event_id")
 
                                         if (replyToEventId != null && replyToEventId.isNotBlank()) {
-                                            if (!cachedEventIds.contains(replyToEventId)) {
+                                            if (!cachedEventIds.contains(replyToEventId) &&
+                                                RoomTimelineCache.findEventForReply(roomId, replyToEventId) == null
+                                            ) {
                                                 missingReplyTargets.add(
                                                     Pair(event.roomId, replyToEventId),
                                                 )
@@ -2452,42 +2451,34 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                         )
                                     }
 
-                                    for ((targetRoomId, targetEventId) in missingReplyTargets) {
-                                        // Use a suspend function to fetch the event
-                                        val deferred = CompletableDeferred<TimelineEvent?>()
-                                        withContext(Dispatchers.Main) {
+                                    // Issue all lookups concurrently and let RpcResilienceCoordinator
+                                    // own their lifecycle. This used to await each target in turn
+                                    // under a 5 s withTimeoutOrNull: N missing targets serialized
+                                    // into up to N × 5 s, and since these are precisely the targets
+                                    // the backend did NOT supply as related_events, they are the ones
+                                    // most likely to need get_event's homeserver fallback — so the
+                                    // cap was biased against the very case it existed to cover, and
+                                    // a timed-out fetch was logged and forgotten.
+                                    withContext(Dispatchers.Main) {
+                                        for ((targetRoomId, targetEventId) in missingReplyTargets) {
                                             getEvent(targetRoomId, targetEventId) { event ->
-                                                deferred.complete(event)
+                                                if (event != null) {
+                                                    RoomTimelineCache.addFetchedReplyTarget(targetRoomId, event)
+                                                    // Notify composables that new reply context is available
+                                                    timelineUpdateCounter++
+                                                    if (BuildConfig.DEBUG) {
+                                                        android.util.Log.d(
+                                                            "Andromuks",
+                                                            "AppViewModel: Fetched and cached missing reply target event_id=$targetEventId for room $targetRoomId",
+                                                        )
+                                                    }
+                                                } else {
+                                                    android.util.Log.w(
+                                                        "Andromuks",
+                                                        "AppViewModel: Could not resolve reply target event_id=$targetEventId for room $targetRoomId",
+                                                    )
+                                                }
                                             }
-                                        }
-
-                                        val fetchedEvent =
-                                            withTimeoutOrNull(5000L) { deferred.await() }
-
-                                        if (fetchedEvent != null) {
-                                            // Add the fetched event to the cache
-                                            val memberMap =
-                                                RoomMemberCache.getRoomMembers(targetRoomId)
-                                            val eventsJsonArray = org.json.JSONArray()
-                                            eventsJsonArray.put(fetchedEvent.toRawJsonObject())
-                                            RoomTimelineCache.addEventsFromSync(
-                                                targetRoomId,
-                                                eventsJsonArray,
-                                                memberMap,
-                                            )
-                                            // Notify composables that new reply context is available
-                                            withContext(Dispatchers.Main) { timelineUpdateCounter++ }
-                                            if (BuildConfig.DEBUG) {
-                                                android.util.Log.d(
-                                                    "Andromuks",
-                                                    "AppViewModel: Fetched and cached missing reply target event_id=$targetEventId for room $targetRoomId",
-                                                )
-                                            }
-                                        } else {
-                                            android.util.Log.w(
-                                                "Andromuks",
-                                                "AppViewModel: Failed to fetch missing reply target event_id=$targetEventId for room $targetRoomId (timeout or error)",
-                                            )
                                         }
                                     }
                                 }

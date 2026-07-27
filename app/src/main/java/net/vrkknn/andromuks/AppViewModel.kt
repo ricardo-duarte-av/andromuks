@@ -1165,6 +1165,13 @@ class AppViewModel : ViewModel() {
     var reactionUpdateCounter by mutableIntStateOf(0)
         internal set
 
+    // Bumped by [RpcResilienceCoordinator] whenever the backend becomes reachable again (reconnect,
+    // command gate opening). Composables that gave up on a lookup key their retry LaunchedEffect on
+    // this instead of latching a permanent "failed" flag of their own — see the reply-target
+    // resolution in TimelineEventItem.
+    var rpcRetryGeneration by mutableIntStateOf(0)
+        internal set
+
     var memberUpdateCounter by mutableIntStateOf(0)
         internal set
 
@@ -1393,6 +1400,9 @@ class AppViewModel : ViewModel() {
 
     /** Outgoing WS command pipeline — see [WebSocketCommandSender]. */
     private val webSocketCommands by lazy { WebSocketCommandSender(this) }
+
+    /** Retry/transport lifecycle for replay-safe reads — see [RpcResilienceCoordinator]. */
+    internal val rpcResilience by lazy { RpcResilienceCoordinator(this) }
 
     /** Reaction orchestration — see [ReactionCoordinator]. */
     internal val reactionCoordinator by lazy { ReactionCoordinator(this) }
@@ -6241,6 +6251,12 @@ class AppViewModel : ViewModel() {
         pendingSyncCompleteCount = 0
         processedSyncCompleteCount = 0
 
+        // Any replay-safe request that was waiting on this socket can no longer be answered: the
+        // backend will never send a frame for a request_id that died with the connection. Park them
+        // for reissue instead of leaving them pending forever (which is what removing the per-call
+        // wall-clock timeouts would otherwise cause).
+        rpcResilience.onConnectionLost()
+
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: onWebSocketCleared - sync state reset (reason: $reason)")
         }
@@ -10485,7 +10501,18 @@ class AppViewModel : ViewModel() {
     }
 
     private fun handleEventResponse(requestId: Int, data: Any) {
-        val requestInfo = eventRequests.remove(requestId) ?: return
+        val requestInfo = eventRequests.remove(requestId)
+        if (requestInfo == null) {
+            // No handler registered for this id. Since getEvent no longer times out, the only ways
+            // this happens are a connection loss that unregistered the attempt, or a duplicate
+            // response. Neither should be routine — log it rather than dropping the answer silently,
+            // which is exactly what hid the "Reply to unknown event" regression.
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: get_event response for unknown requestId=$requestId (superseded or already settled)",
+            )
+            return
+        }
         val (roomId, callback) = requestInfo
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
@@ -12778,6 +12805,10 @@ class AppViewModel : ViewModel() {
 
     private fun flushPendingCommandsQueue() {
         webSocketCommands.flushPendingQueue()
+        // The command gate just opened, so parked replay-safe reads can go out over the socket
+        // again, and any negative cache entry ("backend said no") from the previous connection is no
+        // longer trustworthy.
+        rpcResilience.onConnectionReady()
         // Drain offline ops queued while the WebSocket was fully down.
         // canSendCommandsToBackend is true here so commands go directly to the socket,
         // not back into pendingCommandsQueue, preventing double-sends.
@@ -13033,8 +13064,22 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * Send get_event command to retrieve full event details from server
-     * Useful when we only have partial event information (e.g., for reply previews)
+     * Retrieve full event details, for cases where we only have an event ID (reply previews being
+     * the main one).
+     *
+     * `get_event` "uses the database if possible, but will fetch from the homeserver if the event
+     * isn't found locally" (<https://spec.mau.fi/gomuks/rpc.html#cmd-get-event>), so a miss in
+     * gomuks' DB turns into a homeserver round-trip of unpredictable length. It is therefore NOT
+     * timed out here: [RpcResilienceCoordinator] owns the lifecycle and completes the request on an
+     * actual event — a `response`, an `error`, a failed send, or a connection loss. The 10 s timeout
+     * this replaced routinely fired *before* a slow-but-successful homeserver fetch returned, and
+     * because it removed the request_id from [eventRequests] first, the real answer was then
+     * silently discarded by [handleEventResponse].
+     *
+     * The request is replay-safe (a repeat costs one round-trip), so the coordinator is free to
+     * retry it, to serve it over `/exec` when the socket is down or the command gate is still
+     * closed, and to coalesce concurrent lookups of the same event. [callback] fires exactly once,
+     * on the main thread.
      */
     fun getEvent(roomId: String, eventId: String, callback: (TimelineEvent?) -> Unit) {
         if (BuildConfig.DEBUG) {
@@ -13044,66 +13089,20 @@ class AppViewModel : ViewModel() {
             )
         }
 
-        // Check if WebSocket is connected
-        if (!isWebSocketConnected()) {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: WebSocket not connected - calling back with null, health monitor will handle reconnection",
-            )
-            callback(null)
-            return
-        }
-
-        val eventRequestId = WebSocketService.allocateRequestId()
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Generated request_id for get_event: $eventRequestId",
-            )
-        }
-
-        // Store the callback to handle the response
-        eventRequests[eventRequestId] = roomId to callback
-
-        val commandData = mapOf(
-            "room_id" to roomId,
-            "event_id" to eventId,
-        )
-
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: get_event with data: $commandData")
-        sendWebSocketCommand("get_event", eventRequestId, commandData)
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: WebSocket command sent with request_id: $eventRequestId",
-            )
-        }
-
-        // Add timeout mechanism to prevent infinite loading
-        viewModelScope.launch(Dispatchers.IO) {
-            val timeoutMs = 10000L // 10 second timeout
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Setting get_event timeout to ${timeoutMs}ms for requestId=$eventRequestId",
-                )
-            }
-            delay(timeoutMs)
-
-            // Check if request is still pending
-            if (eventRequests.containsKey(eventRequestId)) {
-                android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: get_event timeout after ${timeoutMs}ms for requestId=$eventRequestId, calling callback with null",
-                )
-                // Switch to Main dispatcher for callback
-                withContext(Dispatchers.Main) {
-                    eventRequests.remove(eventRequestId)?.let { (_, callback) ->
-                        callback(null)
-                    }
-                }
-            }
-        }
+        rpcResilience.submit(
+            RpcResilienceCoordinator.RpcSpec(
+                command = "get_event",
+                dedupKey = "get_event:$roomId:$eventId",
+                data = mapOf(
+                    "room_id" to roomId,
+                    "event_id" to eventId,
+                ),
+                register = { requestId, deliver ->
+                    eventRequests[requestId] = roomId to { event: TimelineEvent? -> deliver(event) }
+                },
+                unregister = { requestId -> eventRequests.remove(requestId) },
+            ),
+        ) { payload -> callback(payload as? TimelineEvent) }
     }
 
     /**

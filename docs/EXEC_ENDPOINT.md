@@ -22,6 +22,13 @@ Everything lives in [`ExecApi.kt`](../app/src/main/java/net/vrkknn/andromuks/uti
 | `NotificationMarkReadReceiver` (battery-saver mark-read) | `mark_read` via `ExecApi.markRead` | yes | yes (cheap no-op) |
 | `ExecCommandCoordinator` (FCM timeline hydrate) | `paginate` etc. | no | no |
 | `NotificationImageWorker` | `get_event` | no | no |
+| `RpcResilienceCoordinator` (replay-safe reads: socket down **or** command gate still closed) | `get_event` | yes | no — read-only, see below |
+
+`RpcResilienceCoordinator` is the one caller that uses `/exec` as a *routine alternative transport*
+rather than an offline fallback: a replay-safe read issued while `canSendCommandsToBackend` is false
+takes HTTP instead of queueing behind the initial sync. It deliberately omits the envelope — re-running
+a read costs a round-trip and nothing else, so there is nothing to de-duplicate. See
+[RPC_RESILIENCE.md](RPC_RESILIENCE.md).
 
 ## Idempotency / de-duplication (`txn_id`)
 

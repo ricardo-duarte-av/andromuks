@@ -674,6 +674,24 @@ object RoomTimelineCache {
         val removedEvents = cache.events.take(eventsToRemove)
         val removedEventIds = removedEvents.map { it.eventId }.toSet()
 
+        // An event about to be trimmed may still be the reply target of an event that survives the
+        // trim. addReplyContextEvents deliberately skips storing a context copy of anything already
+        // present as a timeline event, so without this the target would vanish entirely — the
+        // backend sent us the context, we declined it because we had the real event, then we deleted
+        // the real event and the preview fell back to "Reply to unknown event". Demote such events
+        // into the reply-context bucket instead of dropping them.
+        val retainedReplyTargetIds = cache.events
+            .drop(eventsToRemove)
+            .mapNotNullTo(mutableSetOf()) { it.getReplyInfo()?.eventId }
+        var demotedCount = 0
+        for (removed in removedEvents) {
+            if (removed.eventId !in retainedReplyTargetIds) continue
+            if (cache.replyContextEventIds.add(removed.eventId)) {
+                cache.replyContextEvents.add(removed)
+                demotedCount++
+            }
+        }
+
         // Remove oldest events from the list
         repeat(eventsToRemove) {
             cache.events.removeAt(0)
@@ -710,7 +728,8 @@ object RoomTimelineCache {
         if (BuildConfig.DEBUG) {
             Log.d(
                 TAG,
-                "Trimmed room $roomId: removed $eventsToRemove oldest events (kept ${cache.events.size} newest events)",
+                "Trimmed room $roomId: removed $eventsToRemove oldest events (kept ${cache.events.size} newest events, " +
+                    "$demotedCount kept as reply-context)",
             )
         }
     }
@@ -1385,6 +1404,45 @@ object RoomTimelineCache {
                 if (cache.eventIds.contains(event.eventId)) continue
                 if (cache.replyContextEventIds.add(event.eventId)) {
                     cache.replyContextEvents.add(event)
+                }
+            }
+        }
+    }
+
+    /**
+     * Store a single event fetched on demand as a reply target (`get_event`), so sibling previews
+     * and later compositions resolve it from cache instead of re-fetching.
+     *
+     * Deliberately does NOT go through [addEventsFromSync]. That path applies two structural filters
+     * that are correct for a sync payload and wrong here:
+     *
+     *  1. `parseEventsFromArray` drops `m.room.member` events with `timelineRowid <= 0` as profile
+     *     hints — but that is exactly what `get_event` returns for a member event, and replying to a
+     *     join/leave/avatar change is a supported case (see `formatEventForReplyPreview`). Routed
+     *     through sync ingest, such a target could never be cached: it rendered once from the
+     *     fetching composable's local state and was re-fetched forever after.
+     *  2. `addEventsToCache` drops events whose `room_id` doesn't match the target room. Harmless
+     *     for a well-formed response, but it silently discards the event rather than reporting it,
+     *     and this path has a known-good room ID from the caller.
+     *
+     * Lands in the reply-context bucket, not the timeline, so it can never render as a standalone
+     * row — same contract as the backend's `related_events`.
+     */
+    fun addFetchedReplyTarget(roomId: String, event: TimelineEvent) {
+        if (roomId.isBlank() || event.eventId.isBlank()) return
+        synchronized(cacheLock) {
+            val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
+            cache.lastAccessedAt = System.currentTimeMillis()
+            // Already a real timeline event — the timeline copy is authoritative.
+            if (cache.eventIds.contains(event.eventId)) return
+            if (cache.replyContextEventIds.add(event.eventId)) {
+                cache.replyContextEvents.add(event)
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "Cached fetched reply target ${event.eventId} (type=${event.type}, " +
+                            "timelineRowid=${event.timelineRowid}) for room $roomId",
+                    )
                 }
             }
         }

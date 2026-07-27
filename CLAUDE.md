@@ -151,6 +151,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 |---|---|
 | Startup, AuthCheck navigation gate, cold-start cache-first rendering | [docs/AUTHCHECK.md](docs/AUTHCHECK.md) |
 | WebSocket lifecycle, reconnection, No-VM race, drain-sentinel, shared `request_id` allocator, secondary-VM timeline refresh | [docs/WEBSOCKET_LIFECYCLE.md](docs/WEBSOCKET_LIFECYCLE.md) |
+| RPC resilience (replay-safe retries, `/exec` transport fallback, no-timeout rule, coalescing, negative cache) | [docs/RPC_RESILIENCE.md](docs/RPC_RESILIENCE.md) |
 | `SyncBatchProcessor` (always-on batching, battery-saver bypass, `timelineRefreshTrigger`) | [docs/SYNC_BATCH.md](docs/SYNC_BATCH.md) |
 | Android share intents (`ACTION_SEND`, Direct Share fast path) | [docs/SHARE_FLOW.md](docs/SHARE_FLOW.md) |
 | AppViewModel state fields & functions | [docs/APPVIEWMODEL.md](docs/APPVIEWMODEL.md) |

@@ -459,6 +459,7 @@ private fun MediaMessageItem(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onUserClick: (String) -> Unit,
+    replyResolving: Boolean = false,
     appViewModel: AppViewModel? = null,
     myUserId: String? = null,
     powerLevels: PowerLevelsInfo? = null,
@@ -541,6 +542,7 @@ private fun MediaMessageItem(
                 ReplyPreview(
                     replyInfo = replyInfo,
                     originalEvent = originalEvent,
+                    isResolving = replyResolving,
                     userProfileCache = userProfileCache,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
@@ -1132,12 +1134,14 @@ private fun RoomMessageContent(
 
     // Check if this is a reply message
     val replyInfo = event.getReplyInfo()
-    val originalEvent = rememberReplyTargetEvent(
+    val replyTarget = rememberReplyTargetEvent(
         replyInfo = replyInfo,
         timelineEvents = timelineEvents,
         roomId = event.roomId,
         appViewModel = appViewModel,
     )
+    val originalEvent = replyTarget.event
+    val replyResolving = replyTarget.resolving
 
     // Check if it's a sticker message (sent via send_message with base_content)
     if (msgType == "m.sticker") {
@@ -1307,6 +1311,7 @@ private fun RoomMessageContent(
             userProfileCache = userProfileCache,
             replyInfo = replyInfo,
             originalEvent = originalEvent,
+            replyResolving = replyResolving,
             timelineEvents = timelineEvents,
             homeserverUrl = homeserverUrl,
             authToken = authToken,
@@ -1339,6 +1344,7 @@ private fun RoomMessageContent(
             authToken = authToken,
             replyInfo = replyInfo,
             originalEvent = originalEvent,
+            replyResolving = replyResolving,
             timelineEvents = timelineEvents,
             isConsecutive = isConsecutive,
             editedBy = editedBy,
@@ -1561,6 +1567,7 @@ private fun RoomMediaMessageContent(
     userProfileCache: Map<String, MemberProfile>,
     replyInfo: ReplyInfo?,
     originalEvent: TimelineEvent?,
+    replyResolving: Boolean,
     timelineEvents: List<TimelineEvent>,
     homeserverUrl: String,
     authToken: String,
@@ -1789,6 +1796,7 @@ private fun RoomMediaMessageContent(
             mediaMessage = mediaMessage,
             replyInfo = replyInfo,
             originalEvent = originalEvent,
+            replyResolving = replyResolving,
             userProfileCache = userProfileCache,
             homeserverUrl = appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl,
             authToken = authToken,
@@ -1922,6 +1930,7 @@ private fun RoomTextMessageContent(
     authToken: String,
     replyInfo: ReplyInfo?,
     originalEvent: TimelineEvent?,
+    replyResolving: Boolean,
     timelineEvents: List<TimelineEvent>,
     isConsecutive: Boolean,
     editedBy: TimelineEvent?,
@@ -2058,6 +2067,7 @@ private fun RoomTextMessageContent(
                     ReplyPreview(
                         replyInfo = replyInfo,
                         originalEvent = originalEvent,
+                        isResolving = replyResolving,
                         userProfileCache = userProfileCache,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
@@ -2362,14 +2372,38 @@ private fun RoomTextMessageContent(
     )
 }
 
-@Composable
-private fun rememberReplyTargetEvent(replyInfo: ReplyInfo?, timelineEvents: List<TimelineEvent>, roomId: String, appViewModel: AppViewModel?): TimelineEvent? {
-    if (replyInfo == null) return null
+/**
+ * Outcome of resolving a reply's target event. [resolving] distinguishes "we are still looking" from
+ * "we looked and there is nothing", so the preview can show a placeholder instead of claiming the
+ * event is unknown while a fetch is still in flight.
+ */
+internal data class ReplyTargetResolution(val event: TimelineEvent?, val resolving: Boolean)
 
-    // State to track fetched event
+/**
+ * Resolve the event a reply points at, in three tiers: the events currently on screen, then
+ * [RoomTimelineCache] (timeline events *and* the reply-context bucket the backend fills via
+ * `related_events`), then a `get_event` fetch.
+ *
+ * The fetch deliberately carries no local failure latch. [AppViewModel.getEvent] is now owned by
+ * [RpcResilienceCoordinator], which coalesces concurrent lookups of the same event, retries over
+ * `/exec` when the socket is down or the command gate is still closed, and negative-caches a
+ * definitive "no such event" — so re-asking on recomposition is cheap and a transient failure heals
+ * itself. The previous `fetchFailed` flag made the first failure permanent for the lifetime of the
+ * composition: one lookup issued while the socket was still connecting (cold start paints from cache
+ * before the WebSocket is up) pinned the preview to "Reply to unknown event" until the row was
+ * scrolled off screen and back.
+ */
+@Composable
+private fun rememberReplyTargetEvent(
+    replyInfo: ReplyInfo?,
+    timelineEvents: List<TimelineEvent>,
+    roomId: String,
+    appViewModel: AppViewModel?,
+): ReplyTargetResolution {
+    if (replyInfo == null) return ReplyTargetResolution(null, resolving = false)
+
     var fetchedEvent by remember(replyInfo.eventId) { mutableStateOf<TimelineEvent?>(null) }
-    var isFetching by remember(replyInfo.eventId) { mutableStateOf(false) }
-    var fetchFailed by remember(replyInfo.eventId) { mutableStateOf(false) }
+    var resolving by remember(replyInfo.eventId) { mutableStateOf(false) }
 
     // Track timeline update counter to reactively check cache when timeline updates
     val timelineUpdateCounter = appViewModel?.timelineUpdateCounter ?: 0
@@ -2379,7 +2413,7 @@ private fun rememberReplyTargetEvent(replyInfo: ReplyInfo?, timelineEvents: List
         timelineEvents.find { it.eventId == replyInfo.eventId }
     }
     if (eventInTimeline != null) {
-        return eventInTimeline
+        return ReplyTargetResolution(eventInTimeline, resolving = false)
     }
 
     // Second, check RoomTimelineCache — both timeline events and reply-context events
@@ -2388,19 +2422,17 @@ private fun rememberReplyTargetEvent(replyInfo: ReplyInfo?, timelineEvents: List
         RoomTimelineCache.findEventForReply(roomId, replyInfo.eventId)
     }
     if (eventInCache != null) {
-        return eventInCache
+        return ReplyTargetResolution(eventInCache, resolving = false)
     }
 
-    // Third, if we have appViewModel, try fetching via get_event
-    // Only fetch if we haven't already fetched, aren't currently fetching, and haven't failed
-    if (appViewModel != null && fetchedEvent == null && !isFetching && !fetchFailed) {
-        LaunchedEffect(replyInfo.eventId, roomId) {
-            // Double-check inside LaunchedEffect to avoid race conditions
-            if (fetchedEvent != null || isFetching || fetchFailed) {
-                return@LaunchedEffect
-            }
+    // Third, fetch via get_event. Re-run when the backend becomes reachable again
+    // (rpcRetryGeneration) so a lookup that could not be answered on the previous connection is
+    // retried instead of being stuck on the failure.
+    if (appViewModel != null && fetchedEvent == null) {
+        LaunchedEffect(replyInfo.eventId, roomId, appViewModel.rpcRetryGeneration) {
+            if (fetchedEvent != null) return@LaunchedEffect
 
-            isFetching = true
+            resolving = true
             if (BuildConfig.DEBUG) {
                 Log.d(
                     "Andromuks",
@@ -2409,7 +2441,7 @@ private fun rememberReplyTargetEvent(replyInfo: ReplyInfo?, timelineEvents: List
             }
 
             appViewModel.getEvent(roomId, replyInfo.eventId) { event ->
-                isFetching = false
+                resolving = false
                 if (event != null) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
@@ -2417,24 +2449,20 @@ private fun rememberReplyTargetEvent(replyInfo: ReplyInfo?, timelineEvents: List
                             "TimelineEventItem: Successfully fetched reply target event ${replyInfo.eventId}",
                         )
                     }
-                    // Add the fetched event to the cache
-                    val memberMap = RoomMemberCache.getRoomMembers(roomId)
-                    val eventsJsonArray = org.json.JSONArray()
-                    eventsJsonArray.put(event.toRawJsonObject())
-                    RoomTimelineCache.addEventsFromSync(roomId, eventsJsonArray, memberMap)
+                    // Seed the cache so sibling previews and later compositions resolve at tier 2
+                    // instead of re-fetching. Goes through the dedicated reply-target entry point:
+                    // the generic sync ingest path drops state events with timeline_rowid <= 0,
+                    // which is exactly what get_event returns for a member event.
+                    RoomTimelineCache.addFetchedReplyTarget(roomId, event)
                     fetchedEvent = event
                 } else {
-                    if (BuildConfig.DEBUG) {
-                        Log.w("Andromuks", "TimelineEventItem: Failed to fetch reply target event ${replyInfo.eventId}")
-                    }
-                    fetchFailed = true
+                    Log.w("Andromuks", "TimelineEventItem: Failed to fetch reply target event ${replyInfo.eventId}")
                 }
             }
         }
     }
 
-    // Return fetched event if available, otherwise null (will show "Reply to unknown event")
-    return fetchedEvent
+    return ReplyTargetResolution(fetchedEvent, resolving = resolving && fetchedEvent == null)
 }
 
 @Composable

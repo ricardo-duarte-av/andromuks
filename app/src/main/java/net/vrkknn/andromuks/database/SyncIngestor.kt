@@ -500,9 +500,14 @@ class SyncIngestor(private val context: Context) {
         val relatedEventsArray = roomObj.optJSONArray("related_events")
         val relatedEventsList = mutableListOf<TimelineEvent>()
         if (relatedEventsArray != null && relatedEventsArray.length() > 0) {
-            // Use passed cached status (already checked in ingestSyncComplete)
-            // This avoids double-checking and ensures consistency
-            if (isRoomCached) {
+            // NOTE: unlike the main `events` / `timeline` arrays below, reply context is stored
+            // regardless of [isRoomCached]. Gating it on the room already being actively cached meant
+            // a live reply arriving in a room you hadn't opened this session had its target parsed
+            // and then thrown away — and when you did open the room, the target was recoverable only
+            // via a paginate that happened to include it, or a get_event round-trip. The
+            // reply-context bucket is small, bounded by what the backend chose to send, and never
+            // renders as a timeline row, so keeping it costs little and saves a fetch.
+            run {
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         TAG,
@@ -540,7 +545,10 @@ class SyncIngestor(private val context: Context) {
                             hasEditRedactionReaction = true
                         }
                         relatedEventsList.add(timelineEvent)
-                        hasPersistedEvents = true
+                        // Only a cached room's reply context counts as "this room had events":
+                        // the return value feeds roomsWithEvents, and reply context alone must not
+                        // change which rooms downstream consumers think received traffic.
+                        if (isRoomCached) hasPersistedEvents = true
                     }
                 }
 

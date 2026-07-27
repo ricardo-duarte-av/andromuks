@@ -120,6 +120,7 @@ fun ReplyPreview(
     authToken: String,
     previewColors: BubbleColors,
     modifier: Modifier = Modifier,
+    isResolving: Boolean = false,
     onOriginalMessageClick: () -> Unit = {},
     timelineEvents: List<TimelineEvent> = emptyList(),
     onMatrixUserClick: (String) -> Unit = {},
@@ -211,7 +212,11 @@ fun ReplyPreview(
         }?.takeIf { it.isNotBlank() }
         ?: mediaFallback
         ?: originalBody
-        ?: "Reply to unknown event"
+        // Every branch above yields a non-null (possibly empty) string whenever the target event
+        // object exists, so reaching here means we could not resolve the event at all. Distinguish
+        // "still looking" from "looked and found nothing": claiming the event is unknown while a
+        // get_event is still in flight is what made a transient lookup look like data loss.
+        ?: if (isResolving) "Loading replied-to message…" else "Reply to unknown event"
 
     // Per-message profile (e.g. from the Beeper bridge): the replied-to message may have been sent
     // under a "fake" identity ("Alphauser") relayed by the real Matrix sender ("Omegauser"). Mirror
