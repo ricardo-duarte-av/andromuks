@@ -173,6 +173,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | HTML rendering (`HtmlMessageText`, tables, MSC2191 maths) | [docs/HTML_RENDERING.md](docs/HTML_RENDERING.md) |
 | Offline connection indicator (CloudOff, placement per screen) | [docs/OFFLINE_INDICATOR.md](docs/OFFLINE_INDICATOR.md) |
 | Timeline media loading (Coil vs IntelligentMediaCache split, ImageRequest stability, BlurHash) | [docs/MEDIA_LOADING.md](docs/MEDIA_LOADING.md) |
+| Inline media galleries (MSC4274, shared media parser, mosaic, pager viewer) | [docs/GALLERIES.md](docs/GALLERIES.md) |
 | Shared OkHttp client (`HttpClientProvider`, derived clients, the two deliberate exceptions) | [docs/MEDIA_LOADING.md](docs/MEDIA_LOADING.md#shared-http-client-utilshttpclientprovider) |
 | Settings & preferences (4-scope gomuks prefs, resolution order, reactivity, UI screens) | [docs/SETTINGS_PREFS.md](docs/SETTINGS_PREFS.md) |
 | Emoji picker, search, generated data files, JVM 64 KB chunk pattern | [docs/EMOJI.md](docs/EMOJI.md) |

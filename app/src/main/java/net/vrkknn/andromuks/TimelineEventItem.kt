@@ -120,7 +120,9 @@ import net.vrkknn.andromuks.utils.SystemEventNarrator
 import net.vrkknn.andromuks.utils.extractSanitizedHtml
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.mediaBubbleColorFor
+import net.vrkknn.andromuks.utils.mediaContentHasEncryptedFile
 import net.vrkknn.andromuks.utils.parseGeoUri
+import net.vrkknn.andromuks.utils.parseMediaMessage
 import net.vrkknn.andromuks.utils.stickerBubbleColorFor
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import org.json.JSONObject
@@ -137,19 +139,6 @@ private val HorizontalRuleHtmlRegex = Regex("^<\\s*hr\\s*/?\\s*>$", RegexOption.
 private fun isHorizontalRuleHtml(html: String?): Boolean {
     val trimmed = html?.trim().orEmpty()
     return trimmed.isNotEmpty() && HorizontalRuleHtmlRegex.matches(trimmed)
-}
-
-/**
- * Extracts the MSC1767 voice-message waveform from a message content object.
- *
- * The samples live under `org.matrix.msc1767.audio.waveform` as a JSON array of amplitude
- * values. Returns null when absent or empty so callers can fall back to a plain seek bar.
- */
-private fun extractWaveform(content: JSONObject?): List<Int>? {
-    val arr = content?.optJSONObject("org.matrix.msc1767.audio")?.optJSONArray("waveform")
-        ?: return null
-    if (arr.length() == 0) return null
-    return List(arr.length()) { arr.optInt(it, 0) }
 }
 
 private fun isHorizontalRuleMessage(event: TimelineEvent, content: JSONObject?, msgType: String): Boolean {
@@ -1304,7 +1293,6 @@ private fun RoomMessageContent(
             event = event,
             content = content,
             body = body,
-            msgType = msgType,
             actualIsMine = actualIsMine,
             mentionsMe = mentionsMe,
             isRedacted = isRedacted,
@@ -1560,7 +1548,6 @@ private fun RoomMediaMessageContent(
     event: TimelineEvent,
     content: org.json.JSONObject?,
     body: String,
-    msgType: String,
     actualIsMine: Boolean,
     mentionsMe: Boolean,
     isRedacted: Boolean,
@@ -1666,121 +1653,18 @@ private fun RoomMediaMessageContent(
         return // Exit early for redacted media messages
     }
 
-    // Check if media is encrypted (has file object) or unencrypted (has url field)
-    val fileObj = content?.optJSONObject("file")
-    val hasEncryptedFile = fileObj != null
-    val directUrl = content?.optString("url", "") ?: ""
-    val fileUrl = fileObj?.optString("url", "") ?: ""
-    val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
+    // Whether the media itself is encrypted (delivered as a `file` object rather than a plain `url`)
+    val hasEncryptedFile = mediaContentHasEncryptedFile(content)
 
-    // For m.file, body is the filename when no explicit filename field is present (Matrix spec).
-    // For other media types, body may be a caption or fallback text, so we don't use it as filename.
-    val filename = content?.optString("filename", "")?.takeIf { it.isNotBlank() }
-        ?: if (msgType == "m.file") body.takeIf { it.isNotBlank() } ?: "" else ""
-    // `info` is optional per the Matrix spec: an m.image/m.video/m.audio/m.file with only a
-    // `url` (e.g. bridged media) is valid. Default to an empty object so a missing `info`
-    // still renders as media (width=0 → renderer falls back to aspect-ratio sizing) instead
-    // of dropping to the plain-text filename fallback below.
-    val info = content?.optJSONObject("info") ?: JSONObject()
+    // Prefer the edit event's localContent so stale orig_local_content (e.g. from a failed-decryption
+    // notice that was later replaced by an m.image edit) is not used for the caption.
+    val mediaMessage = parseMediaMessage(
+        content = content,
+        body = body,
+        localContent = editedBy?.localContent ?: event.localContent,
+    )
 
-    if (url.isNotBlank()) {
-        // Media parsing and display logic would go here
-        // This is a large section that I'll extract from the original code
-        val width = info.optInt("w", 0)
-        val height = info.optInt("h", 0)
-        val size = info.optLong("size", 0)
-        val mimeType = info.optString("mimetype", "")
-        val blurHash =
-            info.optString("xyz.amorgan.blurhash")
-                .takeIf { it.isNotBlank() }
-                ?: info.optString("blurhash").takeIf { it.isNotBlank() }
-
-        // Extract thumbnail info (images and videos)
-        var thumbnailIsEncrypted = false
-        val thumbnailFile = info.optJSONObject("thumbnail_file")
-        val thumbnailUrl = when {
-            thumbnailFile != null -> {
-                thumbnailIsEncrypted = true
-                thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
-            }
-
-            else -> info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
-        }
-
-        val thumbnailInfo = info.optJSONObject("thumbnail_info")
-
-        val thumbnailBlurHash =
-            thumbnailInfo
-                ?.optString("xyz.amorgan.blurhash")
-                ?.takeIf { it.isNotBlank() }
-                ?: thumbnailInfo?.optString("blurhash")?.takeIf { it.isNotBlank() }
-        // CRITICAL FIX: Return nullable Int? and only populate when value exists and is > 0
-        // Without this, thumbnailWidth/Height are 0 instead of null, breaking size calculations
-        val thumbnailWidth = thumbnailInfo?.optInt("w", 0)?.takeIf { it > 0 }
-        val thumbnailHeight = thumbnailInfo?.optInt("h", 0)?.takeIf { it > 0 }
-        val duration = if (msgType == "m.video" || msgType == "m.audio") {
-            info.optInt("duration", 0).takeIf { it > 0 }
-        } else {
-            null
-        }
-
-        // Extract MSC1767 voice-message waveform (amplitude samples) for m.audio
-        val waveform = if (msgType == "m.audio") {
-            extractWaveform(content)
-        } else {
-            null
-        }
-
-        // Extract is_animated from MSC4230 (for animated images: GIF, animated PNG, animated WebP)
-        val isAnimated = if (msgType == "m.image") {
-            info.optBoolean("is_animated", false).takeIf { info.has("is_animated") }
-        } else {
-            null
-        }
-
-        // Extract caption
-        // Caption is only body if: 1) filename field exists, 2) body differs from filename, 3) body is not blank
-        // If filename field is missing, body IS the filename, not a caption
-        val caption = if (filename.isNotBlank() && body != filename && body.isNotBlank()) {
-            // Prefer the edit event's localContent so stale orig_local_content (e.g. from a
-            // failed-decryption notice that was later replaced by an m.image edit) is not used.
-            val effectiveLocalContent = editedBy?.localContent ?: event.localContent
-            val sanitizedHtml = effectiveLocalContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
-            if (sanitizedHtml != null && sanitizedHtml != filename) {
-                sanitizedHtml
-            } else {
-                body
-            }
-        } else {
-            null
-        }
-
-        val mediaInfo =
-            MediaInfo(
-                width = width,
-                height = height,
-                size = size,
-                mimeType = mimeType,
-                blurHash = blurHash,
-                thumbnailUrl = thumbnailUrl,
-                thumbnailBlurHash = thumbnailBlurHash,
-                thumbnailWidth = thumbnailWidth,
-                thumbnailHeight = thumbnailHeight,
-                duration = duration,
-                thumbnailIsEncrypted = thumbnailIsEncrypted,
-                isAnimated = isAnimated,
-                waveform = waveform,
-            )
-
-        val mediaMessage =
-            MediaMessage(
-                url = url,
-                filename = filename,
-                caption = caption,
-                info = mediaInfo,
-                msgType = msgType,
-            )
-
+    if (mediaMessage != null) {
         val mediaIsThreadMessage = event.isThreadMessage()
         val mediaBubbleColor = remember(mediaHasBeenEdited, mediaIsThreadMessage, actualIsMine, colorScheme) {
             mediaBubbleColorFor(
@@ -2811,164 +2695,23 @@ private fun EncryptedMessageContent(
                 )
             }
 
-            // Debug: Check what's in the decrypted object
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    "Andromuks",
-                    "TimelineEventItem: Direct url field: ${decrypted?.optString("url", "NOT_FOUND")}",
-                )
-            }
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    "Andromuks",
-                    "TimelineEventItem: File object exists: ${decrypted?.has("file")}",
-                )
-            }
-            if (decrypted?.has("file") == true) {
-                val fileObj = decrypted.optJSONObject("file")
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "TimelineEventItem: File url field: ${fileObj?.optString("url", "NOT_FOUND")}",
-                    )
-                }
-            }
-
-            // For encrypted messages, URL might be in file.url
-            // Check if media is encrypted (has file object) or just the event is
-            // encrypted (has url field)
-            val fileObj = decrypted?.optJSONObject("file")
-            val hasEncryptedFile = fileObj != null
-            val directUrl = decrypted?.optString("url", "") ?: ""
-            val fileUrl = fileObj?.optString("url", "") ?: ""
-            val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
+            // For encrypted messages, the URL may live in file.url rather than a top-level url.
+            val hasEncryptedFile = mediaContentHasEncryptedFile(decrypted)
+            val mediaMessage = parseMediaMessage(
+                content = decrypted,
+                body = body,
+                localContent = event.localContent,
+            )
 
             if (BuildConfig.DEBUG) {
                 Log.d(
                     "Andromuks",
-                    "TimelineEventItem: URL extraction - directUrl='$directUrl', fileObj=${fileObj != null}, fileUrl='$fileUrl', finalUrl='$url', hasEncryptedFile=$hasEncryptedFile",
+                    "TimelineEventItem: Encrypted media data - url=${mediaMessage?.url}, " +
+                        "filename=${mediaMessage?.filename}, hasEncryptedFile=$hasEncryptedFile",
                 )
             }
 
-            val filename = decrypted?.optString("filename", "") ?: ""
-            // `info` is optional per the Matrix spec; default to an empty object so media with
-            // only a `url` still renders instead of falling back to the plain-text filename.
-            val info = decrypted?.optJSONObject("info") ?: JSONObject()
-
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    "Andromuks",
-                    "TimelineEventItem: Encrypted media data - url=$url, filename=$filename",
-                )
-            }
-
-            if (url.isNotBlank()) {
-                val width = info.optInt("w", 0)
-                val height = info.optInt("h", 0)
-                val size = info.optLong("size", 0)
-                val mimeType = info.optString("mimetype", "")
-                val blurHash =
-                    info.optString("xyz.amorgan.blurhash")?.takeIf {
-                        it.isNotBlank()
-                    }
-
-                // Extract thumbnail info for encrypted media (images and videos)
-                // For encrypted media, thumbnail is in thumbnail_file.url, not thumbnail_url
-                var thumbnailIsEncrypted = false
-                val thumbnailUrl = if (msgType == "m.video" || msgType == "m.image") {
-                    val thumbnailFile = info.optJSONObject("thumbnail_file")
-                    if (thumbnailFile != null) {
-                        // Encrypted thumbnail
-                        thumbnailIsEncrypted = true
-                        thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
-                    } else {
-                        // Unencrypted thumbnail (fallback)
-                        info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
-                    }
-                } else {
-                    null
-                }
-
-                // FIX: Read thumbnail_info for both images and videos, not just videos
-                val thumbnailInfo = if (msgType == "m.video" || msgType == "m.image") {
-                    info.optJSONObject("thumbnail_info")
-                } else {
-                    null
-                }
-
-                val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
-                // CRITICAL FIX: Return nullable Int? and only populate when value exists and is > 0
-                val thumbnailWidth = thumbnailInfo?.optInt("w", 0)?.takeIf { it > 0 }
-                val thumbnailHeight = thumbnailInfo?.optInt("h", 0)?.takeIf { it > 0 }
-                val duration = if (msgType == "m.video" || msgType == "m.audio") {
-                    info.optInt("duration", 0).takeIf { it > 0 }
-                } else {
-                    null
-                }
-
-                // Extract MSC1767 voice-message waveform (amplitude samples) for m.audio
-                val waveform = if (msgType == "m.audio") {
-                    extractWaveform(decrypted)
-                } else {
-                    null
-                }
-
-                // Extract is_animated from MSC4230 (for animated images: GIF, animated PNG, animated WebP)
-                val isAnimated = if (msgType == "m.image") {
-                    info.optBoolean("is_animated", false).takeIf { info.has("is_animated") }
-                } else {
-                    null
-                }
-
-                // Extract caption: use sanitized_html if available, otherwise body (only if different from filename)
-                // Caption is only body if: 1) filename field exists, 2) body differs from filename, 3) body is not blank
-                // If filename field is missing, body IS the filename, not a caption
-                val caption = if (filename.isNotBlank() && body != filename && body.isNotBlank()) {
-                    val localContent = event.localContent
-                    val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
-                    // Use sanitized_html if available and different from filename, otherwise use body
-                    if (sanitizedHtml != null && sanitizedHtml != filename) {
-                        sanitizedHtml
-                    } else {
-                        body
-                    }
-                } else {
-                    null
-                }
-
-                val mediaInfo =
-                    MediaInfo(
-                        width = width,
-                        height = height,
-                        size = size,
-                        mimeType = mimeType,
-                        blurHash = blurHash,
-                        thumbnailUrl = thumbnailUrl,
-                        thumbnailBlurHash = thumbnailBlurHash,
-                        thumbnailWidth = thumbnailWidth,
-                        thumbnailHeight = thumbnailHeight,
-                        duration = duration,
-                        thumbnailIsEncrypted = thumbnailIsEncrypted,
-                        isAnimated = isAnimated,
-                        waveform = waveform,
-                    )
-
-                val mediaMessage =
-                    MediaMessage(
-                        url = url,
-                        filename = filename,
-                        caption = caption,
-                        info = mediaInfo,
-                        msgType = msgType,
-                    )
-
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}",
-                    )
-                }
-
+            if (mediaMessage != null) {
                 val encryptedMediaIsThreadMessage = event.isThreadMessage()
                 val encryptedMediaHasBeenEdited =
                     remember(event.eventId, appViewModel?.timelineUpdateCounter) {
