@@ -34,6 +34,7 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.TransformableState
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -57,6 +58,8 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.rememberScrollState
@@ -3036,13 +3039,11 @@ internal fun avatarImageMediaMessage(mxcUrl: String): MediaMessage = MediaMessag
 )
 
 /**
- * Fullscreen image viewer dialog with zoom and pan capabilities.
+ * Fullscreen viewer for a single image — pinch to zoom, pan when zoomed, rotate, save, and a
+ * shared-element open animation from the thumbnail that was tapped.
  *
- * This dialog provides a fullscreen image viewing experience with:
- * - Pinch to zoom functionality
- * - Pan gestures when zoomed
- * - Close button and back gesture support
- * - Smooth animations and transitions
+ * Delegates to the multi-image [ImageViewerDialog] with a one-item list, so single media and gallery
+ * items share one implementation.
  *
  * @param mediaMessage MediaMessage object containing the image to display
  * @param homeserverUrl Base URL of the Matrix homeserver for MXC URL conversion
@@ -3059,6 +3060,57 @@ internal fun ImageViewerDialog(
     sourceBounds: Rect? = null,
     onDismiss: () -> Unit,
 ) {
+    val items = remember(mediaMessage, isEncrypted) { listOf(GalleryItem(media = mediaMessage, isEncrypted = isEncrypted)) }
+    ImageViewerDialog(
+        items = items,
+        initialIndex = 0,
+        homeserverUrl = homeserverUrl,
+        authToken = authToken,
+        sourceBounds = sourceBounds,
+        onDismiss = onDismiss,
+    )
+}
+
+/**
+ * Resolves the full-size HTTP URL for a viewer item, tagging encrypted media so gomuks decrypts it.
+ */
+private fun viewerImageUrl(item: GalleryItem, homeserverUrl: String): String {
+    val httpUrl = MediaUtils.mxcToHttpUrl(item.media.url, homeserverUrl) ?: return ""
+    return if (item.isEncrypted) {
+        val separator = if (httpUrl.contains("?")) "&" else "?"
+        "$httpUrl${separator}encrypted=true"
+    } else {
+        httpUrl
+    }
+}
+
+/**
+ * Fullscreen viewer for one or more images.
+ *
+ * Zoom/pan/rotation state lives here rather than per page: only one page is interactive at a time,
+ * and the toolbar's rotate buttons act on it. Landing on a new page resets that state, so every page
+ * starts fit to the screen — which is also what re-enables paging, since a horizontal drag is a page
+ * swipe at rest and a pan once zoomed in.
+ *
+ * @param items the images to page through, in order
+ * @param initialIndex which item to open; the shared-element open animation applies to this one only
+ * @param sourceBounds on-screen bounds of the thumbnail that was tapped, for the open animation
+ */
+@Composable
+internal fun ImageViewerDialog(
+    items: List<GalleryItem>,
+    initialIndex: Int,
+    homeserverUrl: String,
+    authToken: String,
+    sourceBounds: Rect? = null,
+    onDismiss: () -> Unit,
+) {
+    if (items.isEmpty()) return
+    val startIndex = initialIndex.coerceIn(0, items.lastIndex)
+    val pagerState = rememberPagerState(initialPage = startIndex) { items.size }
+
+    // Zoom never goes below 1f: at rest the whole image is visible (ContentScale.Fit), so there is
+    // never overflow to pan and a horizontal drag belongs to the pager.
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
@@ -3092,9 +3144,16 @@ internal fun ImageViewerDialog(
         showButtons = true
     }
 
+    fun resetTransform() {
+        scale = 1f
+        offsetX = 0f
+        offsetY = 0f
+    }
+
     val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
         resetButtonTimer() // Reset timer on zoom/pan
-        scale = (scale * zoomChange).coerceIn(0.5f, 5f)
+        // Clamped at 1f: zooming out past "fits the screen" is not allowed.
+        scale = (scale * zoomChange).coerceIn(1f, 5f)
         // offsetChange is reported in raw screen pixels by the (untransformed) gesture layer, and
         // the pan translation is applied on an unscaled layer, so add it 1:1 to track the finger
         // exactly. Multiplying by scale would make the image slide faster than the finger as you
@@ -3102,71 +3161,40 @@ internal fun ImageViewerDialog(
         val maxPan = 4000f * scale
         offsetX = (offsetX + offsetChange.x).coerceIn(-maxPan, maxPan)
         offsetY = (offsetY + offsetChange.y).coerceIn(-maxPan, maxPan)
+        // Snapping back to 1f also snaps the pan away, otherwise the image would stay off-centre
+        // with no way to bring it back.
+        if (scale == 1f) {
+            offsetX = 0f
+            offsetY = 0f
+        }
     }
 
     val coroutineScope = rememberCoroutineScope()
     val context = LocalContext.current
-    var cachedFile by remember { mutableStateOf<File?>(null) }
-    LaunchedEffect(mediaMessage.url) {
-        cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
-    }
-    // If cache-based decode fails, retry once with Coil caches disabled (forces backend fetch).
-    var bypassCoilCache by remember(mediaMessage.url) { mutableStateOf(false) }
-    // Set to true after the bypass retry also fails — the media is gone from the server.
-    var fullImageFailed by remember(mediaMessage.url) { mutableStateOf(false) }
-    // Backend error body fetched after the image fails — Coil's onError throwable carries no
-    // response body, so we re-request the URL ourselves to surface the JSON gomuks returned.
-    var errorDetails by remember(mediaMessage.url) { mutableStateOf<String?>(null) }
-    val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
-        val file = cachedFile
-        if (file != null) {
-            file.absolutePath
-        } else {
-            val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-            if (isEncrypted && httpUrl != null) {
-                val separator = if (httpUrl.contains("?")) "&" else "?"
-                "$httpUrl$separator" + "encrypted=true"
-            } else {
-                httpUrl ?: ""
-            }
-        }
+    val imageLoader = remember { ImageLoaderSingleton.get(context) }
+    val currentItem = items[pagerState.currentPage.coerceIn(0, items.lastIndex)]
+
+    // Landing on a new page starts it at rest, so paging stays available.
+    LaunchedEffect(pagerState.currentPage) {
+        resetTransform()
+        rotationDegrees = 0f
+        resetButtonTimer()
     }
 
-    // Once the image is confirmed unavailable, re-request the media URL directly so we can show
-    // the backend's error response (status line + JSON body) to the user.
-    LaunchedEffect(fullImageFailed, mediaMessage.url) {
-        if (!fullImageFailed) return@LaunchedEffect
-        val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-        if (httpUrl.isNullOrBlank()) {
-            errorDetails = "No HTTP URL for ${mediaMessage.url}"
-            return@LaunchedEffect
-        }
-        val requestUrl = if (isEncrypted) {
-            val separator = if (httpUrl.contains("?")) "&" else "?"
-            "$httpUrl${separator}encrypted=true"
-        } else {
-            httpUrl
-        }
-        errorDetails = withContext(Dispatchers.IO) {
-            try {
-                val client = HttpClientProvider.shared
-                val request = Request.Builder()
-                    .url(requestUrl)
-                    .addHeader("Cookie", "gomuks_auth=$authToken")
-                    .build()
-                client.newCall(request).execute().use { response ->
-                    val body = response.body?.string()?.takeIf { it.isNotBlank() }
-                    buildString {
-                        append("HTTP ${response.code} ${response.message}".trim())
-                        if (body != null) {
-                            append("\n\n")
-                            append(body)
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                "Request failed: ${e.message ?: e.javaClass.simpleName}"
-            }
+    // The Save button acts on the page in view, so the cached file is resolved for that item here.
+    // Pages resolve their own copy for rendering.
+    var currentCachedFile by remember(currentItem.media.url) { mutableStateOf<File?>(null) }
+    LaunchedEffect(currentItem.media.url) {
+        currentCachedFile = IntelligentMediaCache.getCachedFile(context, currentItem.media.url)
+    }
+
+    // Warm the neighbouring pages so a swipe lands on an image that is already decoded.
+    LaunchedEffect(pagerState.currentPage, items) {
+        for (neighbourOffset in intArrayOf(-1, 1)) {
+            val neighbour = items.getOrNull(pagerState.currentPage + neighbourOffset) ?: continue
+            val url = viewerImageUrl(neighbour, homeserverUrl)
+            if (url.isBlank()) continue
+            imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
         }
     }
 
@@ -3238,19 +3266,16 @@ internal fun ImageViewerDialog(
                 .background(Color.Black.copy(alpha = 0.72f * openProgress))
                 .clickable(onClick = { requestClose() }), // Tap background to dismiss
         ) {
-            var fullImageLoaded by remember(imageUrl) { mutableStateOf(false) }
             BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                // Image with zoom and pan
                 val density = LocalDensity.current
-
-                // Use shared ImageLoader singleton with custom User-Agent
-                val imageLoader = remember { ImageLoaderSingleton.get(context) }
 
                 val maxWidthPx = with(density) { maxWidth.toPx() }
                 val maxHeightPx = with(density) { maxHeight.toPx() }
-                val imageAspect = remember(mediaMessage.info.width, mediaMessage.info.height) {
-                    if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
-                        mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
+                // The open animation morphs from the tapped thumbnail, so it uses that item's aspect.
+                val openingInfo = items[startIndex].media.info
+                val imageAspect = remember(openingInfo.width, openingInfo.height) {
+                    if (openingInfo.width > 0 && openingInfo.height > 0) {
+                        openingInfo.width.toFloat() / openingInfo.height.toFloat()
                     } else {
                         1f
                     }
@@ -3284,33 +3309,6 @@ internal fun ImageViewerDialog(
                 val containerTx = currentCenterX - targetCenterX
                 val containerTy = currentCenterY - targetCenterY
 
-                val thumbnailUrl = remember(
-                    mediaMessage.info.thumbnailUrl,
-                    mediaMessage.url,
-                    homeserverUrl,
-                    mediaMessage.info.thumbnailIsEncrypted,
-                    isEncrypted,
-                ) {
-                    val thumbMxc = mediaMessage.info.thumbnailUrl
-                    if (!thumbMxc.isNullOrBlank()) {
-                        val thumbHttp = MediaUtils.mxcToThumbnailUrl(thumbMxc, homeserverUrl)
-                            ?: MediaUtils.mxcToHttpUrl(thumbMxc, homeserverUrl)
-                        if (mediaMessage.info.thumbnailIsEncrypted && thumbHttp != null) {
-                            val separator = if (thumbHttp.contains("?")) "&" else "?"
-                            "$thumbHttp${separator}encrypted=true"
-                        } else {
-                            thumbHttp ?: imageUrl
-                        }
-                    } else {
-                        imageUrl
-                    }
-                }
-                val fullImageAlpha by animateFloatAsState(
-                    targetValue = if (fullImageLoaded) 1f else 0f,
-                    animationSpec = tween(durationMillis = scaledTweenMs(220)),
-                    label = "full_image_overlay_alpha",
-                )
-
                 Box(
                     modifier = Modifier
                         .fillMaxSize() // Always fill max size to allow full-screen zooming
@@ -3331,170 +3329,28 @@ internal fun ImageViewerDialog(
                             },
                         ),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            // Gesture layer: fills the whole viewport and is never translated, so
-                            // its hit region always covers the screen. The pan translation lives on
-                            // the inner content box below instead — if it lived here, panning would
-                            // slide this box's hit region off screen and expose the dismiss-on-tap
-                            // background underneath, so a tap near an edge (while panning) closed the
-                            // viewer.
-                            .transformable(state = transformableState)
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = {
-                                        resetButtonTimer() // Show buttons on tap
-                                        // Tap on image: reset zoom and pan to center
-                                        scale = 1f
-                                        offsetX = 0f
-                                        offsetY = 0f
-                                    },
-                                )
+                    HorizontalPager(
+                        state = pagerState,
+                        // Swiping between images is only possible at rest; once zoomed in, a
+                        // horizontal drag pans the image instead.
+                        userScrollEnabled = items.size > 1 && scale == 1f,
+                        modifier = Modifier.fillMaxSize(),
+                    ) { page ->
+                        val isCurrentPage = page == pagerState.currentPage
+                        ImageViewerPage(
+                            item = items[page],
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            scale = if (isCurrentPage) scale else 1f,
+                            offsetX = if (isCurrentPage) offsetX else 0f,
+                            offsetY = if (isCurrentPage) offsetY else 0f,
+                            rotation = if (isCurrentPage) normalizedRotation else 0f,
+                            transformableState = if (isCurrentPage) transformableState else null,
+                            onTap = {
+                                resetButtonTimer() // Show buttons on tap
+                                resetTransform() // Tap on image: reset zoom and pan to center
                             },
-                    ) {
-                        // Content box. Two chained graphicsLayers, outer-to-inner:
-                        //  1. pan (translation) — applied in screen space, above the scale/rotation
-                        //     layer, so pan direction stays correct regardless of the inner rotation
-                        //     and the pan magnitude is independent of zoom.
-                        //  2. scale + rotation — kept a separate layer so rotating the image does
-                        //     not rotate the pan axes.
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .graphicsLayer(
-                                    translationX = offsetX,
-                                    translationY = offsetY,
-                                )
-                                .graphicsLayer(
-                                    scaleX = scale,
-                                    scaleY = scale,
-                                    rotationZ = normalizedRotation,
-                                ),
-                        ) {
-                            val thumbnailRequest = remember(thumbnailUrl, cachedFile, authToken) {
-                                ImageRequest.Builder(context)
-                                    .data(thumbnailUrl)
-                                    .apply {
-                                        if (cachedFile == null && thumbnailUrl.startsWith("http")) {
-                                        }
-                                    }
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .build()
-                            }
-                            AsyncImage(
-                                model = thumbnailRequest,
-                                imageLoader = imageLoader,
-                                contentDescription = mediaMessage.filename,
-                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-
-                            val fullImageRequest = remember(imageUrl, cachedFile, bypassCoilCache) {
-                                if (BuildConfig.DEBUG) {
-                                    Log.d(
-                                        "Andromuks",
-                                        "ImageViewer: Building fullImageRequest — url=$imageUrl cachedFile=$cachedFile bypassCoilCache=$bypassCoilCache",
-                                    )
-                                }
-                                ImageRequest.Builder(context)
-                                    .data(imageUrl)
-                                    .size(Size.ORIGINAL)
-                                    .precision(Precision.EXACT)
-                                    .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                    .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
-                                    .build()
-                            }
-                            AsyncImage(
-                                model = fullImageRequest,
-                                imageLoader = imageLoader,
-                                contentDescription = mediaMessage.filename,
-                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer(alpha = fullImageAlpha),
-                                onLoading = {
-                                    if (BuildConfig.DEBUG) {
-                                        Log.d(
-                                            "Andromuks",
-                                            "⏳ ImageViewer: Full image loading: $imageUrl",
-                                        )
-                                    }
-                                },
-                                onSuccess = {
-                                    fullImageLoaded = true
-                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Full image loaded: $imageUrl")
-                                },
-                                onError = { state ->
-                                    if (BuildConfig.DEBUG) {
-                                        Log.e(
-                                            "Andromuks",
-                                            "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable?.message} cachedFile=$cachedFile",
-                                        )
-                                    }
-                                    if (cachedFile != null) {
-                                        // Cached file failed to decode — evict and retry via HTTP.
-                                        val badMxcUrl = mediaMessage.url
-                                        if (BuildConfig.DEBUG) {
-                                            Log.w(
-                                                "Andromuks",
-                                                "ImageViewer: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}",
-                                            )
-                                        }
-                                        cachedFile = null
-                                        coroutineScope.launch {
-                                            IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
-                                        }
-                                        bypassCoilCache = true
-                                    } else if (bypassCoilCache) {
-                                        // Already retried with cache bypass — media is unavailable.
-                                        fullImageFailed = true
-                                    } else {
-                                        // First HTTP failure — retry without Coil caches.
-                                        bypassCoilCache = true
-                                    }
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Broken image indicator — shown when the media is unavailable on the server.
-            // The backend's error response (status + JSON body) is shown beneath it.
-            if (fullImageFailed) {
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.BrokenImage,
-                        contentDescription = "Media unavailable",
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(64.dp),
-                    )
-                    val details = errorDetails
-                    if (details != null) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Surface(
-                            color = Color.Black.copy(alpha = 0.55f),
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.fillMaxWidth(),
-                        ) {
-                            Text(
-                                text = details,
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                                modifier = Modifier
-                                    .heightIn(max = 240.dp)
-                                    .verticalScroll(rememberScrollState())
-                                    .padding(12.dp),
-                            )
-                        }
+                        )
                     }
                 }
             }
@@ -3517,9 +3373,7 @@ internal fun ImageViewerDialog(
                         // Always subtract 90 (don't normalize here - let animation handle it)
                         rotationDegrees = rotationDegrees - 90f
                         // Reset zoom/pan when rotating
-                        scale = 1f
-                        offsetX = 0f
-                        offsetY = 0f
+                        resetTransform()
                     },
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -3541,9 +3395,7 @@ internal fun ImageViewerDialog(
                         // Always add 90 (don't normalize here - let animation handle it)
                         rotationDegrees = rotationDegrees + 90f
                         // Reset zoom/pan when rotating
-                        scale = 1f
-                        offsetX = 0f
-                        offsetY = 0f
+                        resetTransform()
                     },
                     colors = IconButtonDefaults.iconButtonColors(
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -3558,17 +3410,19 @@ internal fun ImageViewerDialog(
                     )
                 }
 
-                // Save button
+                // Save button — saves the page currently in view
                 IconButton(
                     onClick = {
                         resetButtonTimer() // Show buttons on click
+                        val savedItem = currentItem
+                        val savedFile = currentCachedFile
                         coroutineScope.launch {
                             saveImageToGallery(
                                 context,
                                 null,
-                                cachedFile,
-                                imageUrl,
-                                mediaMessage.filename,
+                                savedFile,
+                                savedFile?.absolutePath ?: viewerImageUrl(savedItem, homeserverUrl),
+                                savedItem.media.filename,
                                 authToken,
                             )
                         }
@@ -3606,21 +3460,297 @@ internal fun ImageViewerDialog(
                 }
             }
 
-            // Spinner in the bottom-left corner while the full image is downloading.
-            // The thumbnail renders behind it; this disappears once the full image is ready.
-            AnimatedVisibility(
-                visible = !fullImageLoaded && !fullImageFailed,
-                enter = fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
-                exit = fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .windowInsetsPadding(WindowInsets.navigationBars)
-                    .padding(start = 16.dp, bottom = 16.dp),
-            ) {
-                ContainedExpressiveLoadingIndicator(
-                    modifier = Modifier.size(40.dp),
+            // Page indicator, only meaningful for a gallery
+            if (items.size > 1) {
+                Text(
+                    text = "${pagerState.currentPage + 1} / ${items.size}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .graphicsLayer(alpha = openProgress * buttonsAlpha)
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(bottom = 16.dp)
+                        .background(Color.Black.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
                 )
             }
+        }
+    }
+}
+
+/**
+ * One page of [ImageViewerDialog]: the thumbnail, the full image fading in over it, and the
+ * failure UI.
+ *
+ * Load state is per page — cached file, the cache-bypass retry, and the backend error body all key
+ * off this item's URL — while the transform comes from the dialog, which owns the gestures.
+ *
+ * @param transformableState the dialog's gesture state, or null for pages that are not in view
+ */
+@Composable
+private fun ImageViewerPage(
+    item: GalleryItem,
+    homeserverUrl: String,
+    authToken: String,
+    scale: Float,
+    offsetX: Float,
+    offsetY: Float,
+    rotation: Float,
+    transformableState: TransformableState?,
+    onTap: () -> Unit,
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val imageLoader = remember { ImageLoaderSingleton.get(context) }
+    val mediaMessage = item.media
+    val isEncrypted = item.isEncrypted
+
+    var fullImageLoaded by remember(mediaMessage.url) { mutableStateOf(false) }
+    var cachedFile by remember(mediaMessage.url) { mutableStateOf<File?>(null) }
+    LaunchedEffect(mediaMessage.url) {
+        cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
+    }
+    // If cache-based decode fails, retry once with Coil caches disabled (forces backend fetch).
+    var bypassCoilCache by remember(mediaMessage.url) { mutableStateOf(false) }
+    // Set to true after the bypass retry also fails — the media is gone from the server.
+    var fullImageFailed by remember(mediaMessage.url) { mutableStateOf(false) }
+    // Backend error body fetched after the image fails — Coil's onError throwable carries no
+    // response body, so we re-request the URL ourselves to surface the JSON gomuks returned.
+    var errorDetails by remember(mediaMessage.url) { mutableStateOf<String?>(null) }
+
+    val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile, homeserverUrl) {
+        cachedFile?.absolutePath ?: viewerImageUrl(item, homeserverUrl)
+    }
+
+    // Once the image is confirmed unavailable, re-request the media URL directly so we can show
+    // the backend's error response (status line + JSON body) to the user.
+    LaunchedEffect(fullImageFailed, mediaMessage.url) {
+        if (!fullImageFailed) return@LaunchedEffect
+        val requestUrl = viewerImageUrl(item, homeserverUrl)
+        if (requestUrl.isBlank()) {
+            errorDetails = "No HTTP URL for ${mediaMessage.url}"
+            return@LaunchedEffect
+        }
+        errorDetails = withContext(Dispatchers.IO) {
+            try {
+                val client = HttpClientProvider.shared
+                val request = Request.Builder()
+                    .url(requestUrl)
+                    .addHeader("Cookie", "gomuks_auth=$authToken")
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string()?.takeIf { it.isNotBlank() }
+                    buildString {
+                        append("HTTP ${response.code} ${response.message}".trim())
+                        if (body != null) {
+                            append("\n\n")
+                            append(body)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                "Request failed: ${e.message ?: e.javaClass.simpleName}"
+            }
+        }
+    }
+
+    val thumbnailUrl = remember(
+        mediaMessage.info.thumbnailUrl,
+        mediaMessage.url,
+        homeserverUrl,
+        mediaMessage.info.thumbnailIsEncrypted,
+        imageUrl,
+    ) {
+        val thumbMxc = mediaMessage.info.thumbnailUrl
+        if (!thumbMxc.isNullOrBlank()) {
+            val thumbHttp = MediaUtils.mxcToThumbnailUrl(thumbMxc, homeserverUrl)
+                ?: MediaUtils.mxcToHttpUrl(thumbMxc, homeserverUrl)
+            if (mediaMessage.info.thumbnailIsEncrypted && thumbHttp != null) {
+                val separator = if (thumbHttp.contains("?")) "&" else "?"
+                "$thumbHttp${separator}encrypted=true"
+            } else {
+                thumbHttp ?: imageUrl
+            }
+        } else {
+            imageUrl
+        }
+    }
+
+    val fullImageAlpha by animateFloatAsState(
+        targetValue = if (fullImageLoaded) 1f else 0f,
+        animationSpec = tween(durationMillis = scaledTweenMs(220)),
+        label = "full_image_overlay_alpha",
+    )
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                // Gesture layer: fills the whole viewport and is never translated, so its hit region
+                // always covers the screen. The pan translation lives on the inner content box below
+                // instead — if it lived here, panning would slide this box's hit region off screen
+                // and expose the dismiss-on-tap background underneath, so a tap near an edge (while
+                // panning) closed the viewer.
+                .then(if (transformableState != null) Modifier.transformable(state = transformableState) else Modifier)
+                .pointerInput(Unit) {
+                    detectTapGestures(onTap = { onTap() })
+                },
+        ) {
+            // Content box. Two chained graphicsLayers, outer-to-inner:
+            //  1. pan (translation) — applied in screen space, above the scale/rotation layer, so pan
+            //     direction stays correct regardless of the inner rotation and the pan magnitude is
+            //     independent of zoom.
+            //  2. scale + rotation — kept a separate layer so rotating the image does not rotate the
+            //     pan axes.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer(
+                        translationX = offsetX,
+                        translationY = offsetY,
+                    )
+                    .graphicsLayer(
+                        scaleX = scale,
+                        scaleY = scale,
+                        rotationZ = rotation,
+                    ),
+            ) {
+                val thumbnailRequest = remember(thumbnailUrl) {
+                    ImageRequest.Builder(context)
+                        .data(thumbnailUrl)
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build()
+                }
+                AsyncImage(
+                    model = thumbnailRequest,
+                    imageLoader = imageLoader,
+                    contentDescription = mediaMessage.filename,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                val fullImageRequest = remember(imageUrl, cachedFile, bypassCoilCache) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "Andromuks",
+                            "ImageViewer: Building fullImageRequest — url=$imageUrl cachedFile=$cachedFile bypassCoilCache=$bypassCoilCache",
+                        )
+                    }
+                    ImageRequest.Builder(context)
+                        .data(imageUrl)
+                        .size(Size.ORIGINAL)
+                        .precision(Precision.EXACT)
+                        .memoryCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                        .diskCachePolicy(if (bypassCoilCache) CachePolicy.DISABLED else CachePolicy.ENABLED)
+                        .build()
+                }
+                AsyncImage(
+                    model = fullImageRequest,
+                    imageLoader = imageLoader,
+                    contentDescription = mediaMessage.filename,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(alpha = fullImageAlpha),
+                    onLoading = {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "Andromuks",
+                                "⏳ ImageViewer: Full image loading: $imageUrl",
+                            )
+                        }
+                    },
+                    onSuccess = {
+                        fullImageLoaded = true
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Full image loaded: $imageUrl")
+                    },
+                    onError = { state ->
+                        if (BuildConfig.DEBUG) {
+                            Log.e(
+                                "Andromuks",
+                                "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable?.message} cachedFile=$cachedFile",
+                            )
+                        }
+                        if (cachedFile != null) {
+                            // Cached file failed to decode — evict and retry via HTTP.
+                            val badMxcUrl = mediaMessage.url
+                            if (BuildConfig.DEBUG) {
+                                Log.w(
+                                    "Andromuks",
+                                    "ImageViewer: onError decoding cached file. Evicting mxc=$badMxcUrl path=${cachedFile?.absolutePath}",
+                                )
+                            }
+                            cachedFile = null
+                            coroutineScope.launch {
+                                IntelligentMediaCache.evictCachedFile(context, badMxcUrl)
+                            }
+                            bypassCoilCache = true
+                        } else if (bypassCoilCache) {
+                            // Already retried with cache bypass — media is unavailable.
+                            fullImageFailed = true
+                        } else {
+                            // First HTTP failure — retry without Coil caches.
+                            bypassCoilCache = true
+                        }
+                    },
+                )
+            }
+        }
+
+        // Broken image indicator — shown when the media is unavailable on the server.
+        // The backend's error response (status + JSON body) is shown beneath it.
+        if (fullImageFailed) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.BrokenImage,
+                    contentDescription = "Media unavailable",
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(64.dp),
+                )
+                val details = errorDetails
+                if (details != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Surface(
+                        color = Color.Black.copy(alpha = 0.55f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            text = details,
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            modifier = Modifier
+                                .heightIn(max = 240.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(12.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        // Spinner in the bottom-left corner while the full image is downloading.
+        // The thumbnail renders behind it; this disappears once the full image is ready.
+        AnimatedVisibility(
+            visible = !fullImageLoaded && !fullImageFailed,
+            enter = fadeIn(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
+            exit = fadeOut(animationSpec = scaledSpring(stiffness = Spring.StiffnessMediumLow)),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .padding(start = 16.dp, bottom = 16.dp),
+        ) {
+            ContainedExpressiveLoadingIndicator(
+                modifier = Modifier.size(40.dp),
+            )
         }
     }
 }

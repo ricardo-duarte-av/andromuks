@@ -208,11 +208,15 @@ fun GalleryMessageBubble(
                 },
             )
         } else {
+            // Only images page: a video in the middle of the gallery would have nothing to show in
+            // the pager, so the viewer gets the image items and the tapped one's index among them.
+            val imageItems = remember(gallery.items) { gallery.items.filter { it.media.msgType != "m.video" } }
+            val initialIndex = remember(imageItems, openItem) { imageItems.indexOf(openItem).coerceAtLeast(0) }
             ImageViewerDialog(
-                mediaMessage = openItem.media,
+                items = imageItems,
+                initialIndex = initialIndex,
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
-                isEncrypted = openItem.isEncrypted,
                 sourceBounds = openItemBounds,
                 onDismiss = {
                     openItemIndex = null

@@ -127,17 +127,21 @@ The visible-window media prefetchers in `EventContextScreen.kt` and `BubbleTimel
 `info.thumbnail_url` / `thumbnail_file.url` straight off the content and know nothing about
 `itemtypes`, so gallery tiles are not prefetched — they load on display like any uncached media.
 
-Until phase 4 lands, a tile opens that one item in the existing single-image `ImageViewerDialog`
-(videos go straight to `VideoPlayerDialog`); there is no sliding between items yet.
-
 ## Phase 4 — pager viewer
 
-`ImageViewerDialog` takes `items: List<MediaMessage>` plus `initialIndex`, with a single-item
-overload so the seven existing call sites (stickers, avatars, room info, narrator, inline HTML
+`ImageViewerDialog` takes `items: List<GalleryItem>` plus `initialIndex` — `GalleryItem` rather than
+`MediaMessage` because encryption is per item. A single-item overload wraps one `MediaMessage` and
+delegates, so the seven existing call sites (stickers, avatars, room info, narrator, inline HTML
 images, room media gallery, timeline) are unchanged.
 
-Per-page state — scale, offset, rotation, cached file, cache-bypass retry, error body — lives in a
-private `ImageViewerPage`. The toolbar, open animation, and button auto-hide stay at dialog level.
+Per-page *load* state — cached file, the cache-bypass retry, the backend error body, the fade-in of
+the full image — lives in a private `ImageViewerPage`, keyed on that item's URL. The *transform*
+(scale/offset/rotation) stays at dialog level: only one page is interactive at a time and the
+toolbar's rotate buttons act on it. Pages that are not in view get identity transform and a null
+`transformableState`, so only the visible page takes gestures.
+
+Videos never enter the pager. A video tile opens `VideoPlayerDialog` directly, and the pager is
+handed the gallery's image items only, with the tapped item's index among *those*.
 
 Zoom and gesture model:
 
@@ -146,11 +150,15 @@ Zoom and gesture model:
   would undershoot snaps back to `1f`.
 - At `scale == 1f` a horizontal drag goes to the pager: **slide** between items.
 - At `scale > 1f` the pager's `userScrollEnabled` is false and drags **pan** the zoomed image.
+- A pinch that lands back on `1f` also zeroes the pan, so the image cannot be left off-centre with
+  no way to recentre it.
 - Changing page resets scale/offset/rotation, so every new page starts in slide mode.
 
-The shared-element open animation applies to `initialIndex` only; other pages fade in. Save acts on
-`pagerState.currentPage`. Adjacent pages (±1) are prefetched through Coil. A `3 / 9` indicator sits
-in the toolbar row.
+The shared-element open animation applies to `initialIndex` only — the morph geometry is computed
+from that item's aspect ratio; other pages simply appear. Save acts on `pagerState.currentPage`
+(the dialog resolves that item's cached file itself, separately from the page's own copy). Adjacent
+pages (±1) are prefetched through Coil on every page change. A `3 / 9` indicator sits at the bottom
+of the screen, fading with the toolbar, and is hidden entirely for single-image viewing.
 
 ## Phase 5 — text fallbacks
 
