@@ -6173,6 +6173,21 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Calling WebSocketService.setWebSocket()")
         WebSocketService.setWebSocket(webSocket)
 
+        // A resume reconnection opens the command gate by assignment above, rather than through
+        // flushPendingCommandsQueue() — which is where every *other* unblock path signals the RPC
+        // registry. Without this call, replay-safe requests parked by onConnectionLost would never be
+        // reissued on the most common reconnect path, the negative cache would keep a "not found"
+        // learned from the dead connection, and rpcRetryGeneration would never bump, so composables
+        // that gave up would not re-ask either.
+        //
+        // Deliberately placed *after* WebSocketService.setWebSocket: until the service holds the
+        // socket, isWebSocketConnected() is false and the coordinator would route the reissued
+        // requests over /exec instead of the connection we just established. See
+        // docs/RPC_RESILIENCE.md.
+        if (canSendCommandsToBackend) {
+            rpcResilience.onConnectionReady()
+        }
+
         // FCM registration will happen in onInitComplete() after WebSocket is fully ready
         // This prevents duplicate registrations from setWebSocket() and onInitComplete()
         if (BuildConfig.DEBUG) {

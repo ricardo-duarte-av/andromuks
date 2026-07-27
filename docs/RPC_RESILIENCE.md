@@ -168,6 +168,24 @@ rpcResilience.submit(
 Do not add a timeout. If you think you need one, the question to answer first is *which of the five
 signals above* you are actually waiting on.
 
+## Where "connection ready" is signalled
+
+`onConnectionReady()` is what unparks requests, clears the negative cache and bumps
+`rpcRetryGeneration`. It must fire on **every** path that opens the command gate, and there are two:
+
+- `flushPendingCommandsQueue()` — the gate transitioning closed→open (initial connect, `sync_status`
+  early unblock, room-state load completing).
+- `setWebSocket()` — a **resume reconnection** sets `canSendCommandsToBackend = isReconnecting`
+  *by assignment*, never touching the flush path. This one was missed initially, which meant parked
+  requests were never reissued on the most common reconnect path — the exact self-healing property
+  the design exists for.
+
+The `setWebSocket` call sits *after* `WebSocketService.setWebSocket(webSocket)`: until the service
+holds the socket, `isWebSocketConnected()` returns false and reissued requests would be routed over
+`/exec` instead of the connection just established.
+
+If you add another way to open the gate, signal the registry from it too.
+
 ## Payload convention
 
 The delivery channel is a single `Any?`. A **non-null** payload means the backend answered —
