@@ -4,13 +4,11 @@ import net.vrkknn.andromuks.MediaInfo
 import net.vrkknn.andromuks.MediaMessage
 import org.json.JSONObject
 
-/**
- * Parses Matrix media content objects into [MediaMessage].
- *
- * The same shape shows up in three places: a plaintext `m.room.message`, the decrypted content of an
- * encrypted one, and — with `itemtype` instead of `msgtype` — each entry of an MSC4274 gallery's
- * `itemtypes` array (see docs/GALLERIES.md). They all go through [parseMediaMessage].
- */
+// Parses Matrix media content objects into MediaMessage.
+//
+// The same shape shows up in three places: a plaintext `m.room.message`, the decrypted content of an
+// encrypted one, and — with `itemtype` instead of `msgtype` — each entry of an MSC4274 gallery's
+// `itemtypes` array (see docs/GALLERIES.md). They all go through parseMediaMessage.
 
 /**
  * Extracts the MSC1767 voice-message waveform from a message content object.

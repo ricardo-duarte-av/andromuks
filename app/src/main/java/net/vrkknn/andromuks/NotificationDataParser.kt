@@ -124,14 +124,22 @@ class NotificationDataParser {
          */
         fun createNotificationBody(data: NotificationData): String = when (data.type.orEmpty()) {
             "m.text" -> data.body
+
             "m.image" -> "📷 Image"
+
             "m.video" -> "🎥 Video"
+
             "m.audio" -> "🎵 Audio"
+
             "m.file" -> "📎 File"
+
             "m.location" -> "📍 Location"
+
             "m.emote" -> "* ${data.body}"
+
             // MSC4274 gallery: body is the caption, and the FCM payload carries no item count.
             in GALLERY_MSGTYPES -> data.body.takeIf { it.isNotBlank() }?.let { "🖼️ $it" } ?: "🖼️ Gallery"
+
             else -> data.body
         }
 

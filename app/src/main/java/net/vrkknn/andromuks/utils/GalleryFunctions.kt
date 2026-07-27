@@ -57,12 +57,10 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.formatTimestamp
 import org.json.JSONObject
 
-/**
- * MSC4274 inline media galleries — parsing and timeline rendering.
- *
- * See docs/GALLERIES.md for the event shape and the design of the mosaic. Sending galleries is not
- * implemented; this file is receive-only.
- */
+// MSC4274 inline media galleries — parsing and timeline rendering.
+//
+// See docs/GALLERIES.md for the event shape and the design of the mosaic. Sending galleries is not
+// implemented; this file is receive-only.
 
 /** Stable and unstable msgtypes for an MSC4274 gallery. */
 val GALLERY_MSGTYPES = setOf("m.gallery", "dm.filament.gallery")
@@ -109,21 +107,22 @@ fun parseGalleryMessage(content: JSONObject?, localContent: JSONObject?): Galler
     val itemtypes = content?.optJSONArray("itemtypes") ?: return null
     if (itemtypes.length() == 0) return null
 
-    val items = mutableListOf<GalleryItem>()
-    var otherAttachmentCount = 0
-    for (index in 0 until itemtypes.length()) {
-        val itemJson = itemtypes.optJSONObject(index) ?: continue
-        val media = parseMediaMessage(
-            content = itemJson,
-            body = itemJson.optString("body", ""),
-            typeKey = "itemtype",
-        ) ?: continue
-        if (media.msgType == "m.image" || media.msgType == "m.video") {
-            items.add(GalleryItem(media = media, isEncrypted = mediaContentHasEncryptedFile(itemJson)))
-        } else {
-            otherAttachmentCount++
+    val parsed = (0 until itemtypes.length())
+        .mapNotNull { itemtypes.optJSONObject(it) }
+        .mapNotNull { itemJson ->
+            parseMediaMessage(
+                content = itemJson,
+                body = itemJson.optString("body", ""),
+                typeKey = "itemtype",
+            )?.let { itemJson to it }
         }
+    val (visual, other) = parsed.partition { (_, media) ->
+        media.msgType == "m.image" || media.msgType == "m.video"
     }
+    val items = visual.map { (itemJson, media) ->
+        GalleryItem(media = media, isEncrypted = mediaContentHasEncryptedFile(itemJson))
+    }
+    val otherAttachmentCount = other.size
     if (items.isEmpty() && otherAttachmentCount == 0) return null
 
     // The caption is the gallery's own body. sanitized_html is preferred when gomuks produced it,

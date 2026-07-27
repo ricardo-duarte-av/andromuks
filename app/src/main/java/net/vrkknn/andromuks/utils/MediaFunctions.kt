@@ -59,10 +59,10 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -3196,12 +3196,11 @@ internal fun ImageViewerDialog(
 
     // Warm the neighbouring pages so a swipe lands on an image that is already decoded.
     LaunchedEffect(pagerState.currentPage, items) {
-        for (neighbourOffset in intArrayOf(-1, 1)) {
-            val neighbour = items.getOrNull(pagerState.currentPage + neighbourOffset) ?: continue
-            val url = viewerImageUrl(neighbour, homeserverUrl)
-            if (url.isBlank()) continue
-            imageLoader.enqueue(ImageRequest.Builder(context).data(url).build())
-        }
+        listOf(pagerState.currentPage - 1, pagerState.currentPage + 1)
+            .mapNotNull { items.getOrNull(it) }
+            .map { viewerImageUrl(it, homeserverUrl) }
+            .filter { it.isNotBlank() }
+            .forEach { imageLoader.enqueue(ImageRequest.Builder(context).data(it).build()) }
     }
 
     var isOpening by remember(sourceBounds) { mutableStateOf(sourceBounds != null) }
