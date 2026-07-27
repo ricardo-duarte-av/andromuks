@@ -83,6 +83,18 @@ internal class RpcResilienceCoordinator(private val vm: AppViewModel) {
         val data: Map<String, Any>,
         val register: (requestId: Int, deliver: (Any?) -> Unit) -> Unit,
         val unregister: (requestId: Int) -> Unit,
+        /**
+         * What to do when *no transport is reachable* — socket down and `/exec` unusable too.
+         *
+         * `true` (default) parks the request and reissues it on reconnect. Right for background work
+         * like reply-target lookups: nobody is watching, and it heals itself.
+         *
+         * `false` settles with `null` immediately. Right for anything a user is waiting on — a
+         * search or a thread page must not spin indefinitely because the device is offline. Note this
+         * is *not* a timeout: we still wait as long as the backend needs once a request is actually
+         * out. It only decides whether to wait for the *network* to return.
+         */
+        val parkWhenUnreachable: Boolean = true,
     )
 
     private class Pending(
@@ -143,13 +155,19 @@ internal class RpcResilienceCoordinator(private val vm: AppViewModel) {
      */
     fun onConnectionLost() {
         val toUnregister = mutableListOf<Pair<RpcSpec, Int>>()
+        val toFailFast = mutableListOf<String>()
         synchronized(lock) {
-            for (p in pending.values) {
+            for ((dedupKey, p) in pending) {
                 val requestId = p.inFlightRequestId ?: continue
                 toUnregister.add(p.spec to requestId)
                 p.inFlightRequestId = null
-                p.parked = true
-                if (p.attempts > 0) p.attempts--
+                if (p.spec.parkWhenUnreachable) {
+                    p.parked = true
+                    if (p.attempts > 0) p.attempts--
+                } else {
+                    // Someone is waiting on this; tell them now rather than on reconnect.
+                    toFailFast.add(dedupKey)
+                }
             }
         }
         if (toUnregister.isEmpty()) return
@@ -159,8 +177,12 @@ internal class RpcResilienceCoordinator(private val vm: AppViewModel) {
             }
             android.util.Log.w(
                 TAG,
-                "RpcResilience: connection lost with ${toUnregister.size} request(s) in flight — parked for reissue",
+                "RpcResilience: connection lost with ${toUnregister.size} request(s) in flight " +
+                    "(${toFailFast.size} failed fast, ${toUnregister.size - toFailFast.size} parked for reissue)",
             )
+            for (dedupKey in toFailFast) {
+                settle(dedupKey, null, negativeCacheIt = false)
+            }
         }
     }
 
@@ -277,6 +299,13 @@ internal class RpcResilienceCoordinator(private val vm: AppViewModel) {
 
     /** Main thread. Hold the request until the connection comes back rather than burning attempts. */
     private fun park(dedupKey: String, p: Pending, reason: String) {
+        if (!p.spec.parkWhenUnreachable) {
+            // Someone is watching this one; don't leave them staring at a spinner until the network
+            // returns. Not negative-cached: nothing was learned about the request itself.
+            android.util.Log.w(TAG, "RpcResilience: $dedupKey unreachable, failing fast — $reason")
+            settle(dedupKey, null, negativeCacheIt = false)
+            return
+        }
         synchronized(lock) {
             if (p.settled) return
             p.parked = true

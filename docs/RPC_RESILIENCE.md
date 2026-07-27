@@ -36,9 +36,17 @@ The caller (a reply preview) latched that `null` into a permanent `fetchFailed` 
 
 ## Replay safety
 
-Only **replay-safe** commands belong here — re-asking costs a round-trip and nothing else:
-`get_event`, `get_event_context`, `get_room_state`, `paginate`, `get_related_events`, `search_*`,
-`mark_read`.
+Only **replay-safe** commands belong here — re-asking costs a round-trip and nothing else. Currently
+migrated:
+
+| Command | Caller | Fails fast when unreachable? |
+|---|---|---|
+| `get_event` | reply-target resolution, paginate/sync prefetch | no — background, self-heals on reconnect |
+| `get_event_context` | `EventContextScreen` | yes |
+| `paginate_manual` | `ThreadViewerScreen` | yes |
+| `search_local` / `search_server` | `SearchResultsScreen` | yes |
+| `paginate` (gallery) | media gallery | yes |
+| `get_mentions` | `MentionsScreen` | yes |
 
 **Replay-unsafe** commands (`send_message`, redactions, state sets) must NOT use this class. They
 keep their existing send-once paths, and their offline handling stays with
@@ -72,6 +80,30 @@ for retried *non-idempotent* commands only (see [EXEC_ENDPOINT.md](EXEC_ENDPOINT
 - **Negative cache**: a definitive "no" is remembered for 5 minutes so a re-composing UI cannot
   hammer the backend for an event that does not exist. Cleared on reconnect, because "not found" may
   have been a property of the old connection.
+
+## `parkWhenUnreachable` — the one thing that is still allowed to give up
+
+When *no* transport is reachable (socket down and `/exec` unusable too), there is a genuine choice:
+
+- `true` (default) — park and reissue on reconnect. Right for background work like reply-target
+  lookups. Nobody is watching, and it heals itself.
+- `false` — settle `null` immediately. Right for anything a user is waiting on. A search must not
+  spin indefinitely because the device is offline; the screen shows its empty/error state and the
+  user can retry.
+
+This is **not** a timeout in disguise. Once a request is actually out, we wait as long as the backend
+needs. The flag only decides whether to wait for the *network* to come back. A connection loss with a
+`false` request in flight settles it right away for the same reason.
+
+## Error frames must be wired before a timeout is removed
+
+`searchRequests`, `threadPaginateRequests` and `galleryPaginateRequests` had **no** `handleError`
+branch — an `error` frame fell through to the "Unknown error requestId" log and the request stayed
+pending. Their per-call timeouts were quietly doing double duty as the error path (reported to the
+user as "no results", ~15 s late); the gallery had no timeout at all, so its spinner never stopped.
+
+If you migrate another command, check `handleError` covers its map first. Removing a timeout from a
+command whose errors are unhandled turns a slow failure into a permanent one.
 
 ## UI contract: three states, not two
 
@@ -136,8 +168,22 @@ rpcResilience.submit(
 Do not add a timeout. If you think you need one, the question to answer first is *which of the five
 signals above* you are actually waiting on.
 
-## Still to migrate
+## Payload convention
 
-`getEventContext` and several other request maps still use per-call timers and are still orphaned on
-socket teardown (`onWebSocketCleared` drains only the coordinator's registry). Moving them onto
-`RpcSpec` is mechanical and tracked as follow-up work.
+The delivery channel is a single `Any?`. A **non-null** payload means the backend answered —
+*including* answering with an error, which is why `EventContextResult` carries the server's message
+instead of collapsing to null. Retrying a command the backend explicitly refused is pointless, so
+those settle terminally and are not negative-cached. A **null** delivery means no answer was
+obtainable at all (attempts exhausted, or unreachable with `parkWhenUnreachable = false`).
+
+## Not migrated, and why
+
+No per-request wall-clock timers remain in `AppViewModel`. What is left is deliberately different:
+
+- **`requestRoomProfilesForRender`'s 5 s** is a *render deadline*, not a request timeout: it decides
+  when to paint the timeline anyway rather than what a request means. Keep it.
+- **`requestFullUserInfo`'s 10 s** covers an aggregate of three independent sub-requests, so it is a
+  screen-level budget rather than an RPC lifecycle. Migrating it means migrating its parts first.
+- **Fire-and-forget commands** with no per-request callback (`get_room_state`, profile fetches,
+  `mark_read`) never had timeouts and settle through their own state paths. They would need a
+  delivery hook like the one `get_mentions` gained before they could join.

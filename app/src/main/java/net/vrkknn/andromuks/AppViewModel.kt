@@ -107,6 +107,23 @@ enum class WebSocketResult {
     CONNECTION_ERROR,
 }
 
+/**
+ * Payloads carried through [RpcResilienceCoordinator], whose delivery channel is a single `Any?`.
+ *
+ * The convention: a **non-null** payload means the backend answered — including answering with an
+ * error, which is why [EventContextResult] carries the server's message rather than collapsing to
+ * null. Retrying a command the backend explicitly refused is pointless, so those settle terminally.
+ * A **null** delivery means no answer was obtainable at all (attempts exhausted, or nothing to send
+ * over), and only that case is generic.
+ */
+internal class EventContextResult(val events: List<TimelineEvent>?, val error: String?)
+
+internal class ThreadPageResult(val events: List<TimelineEvent>, val nextBatch: String)
+
+internal class SearchPageResult(val events: List<TimelineEvent>, val nextBatch: String)
+
+internal class GalleryPageResult(val events: List<TimelineEvent>, val hasMore: Boolean, val minTimelineRowId: Long)
+
 class AppViewModel : ViewModel() {
     // Track if app was opened from external app (like Contacts) - affects back navigation behavior
     private var _openedFromExternalApp by mutableStateOf(false)
@@ -5923,7 +5940,11 @@ class AppViewModel : ViewModel() {
     // One-shot callbacks fired after get_specific_room_state response, used to gate initial timeline rendering
     private val timelineRenderCallbacks = mutableMapOf<Int, () -> Unit>()
     internal val fullMemberListRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_room_state with include_members requests)
-    private val mentionsRequests = mutableMapOf<Int, Unit>() // requestId -> Unit (for get_mentions requests)
+
+    // requestId -> completion hook for get_mentions. The response handler updates mentionEvents /
+    // isMentionsLoading directly rather than through a callback, so this hook exists purely to let
+    // RpcResilienceCoordinator learn that the request settled.
+    private val mentionsRequests = mutableMapOf<Int, () -> Unit>()
 
     // PERFORMANCE: Track pending full member list requests to prevent duplicate WebSocket commands
     internal val pendingFullMemberListRequests = mutableSetOf<String>() // roomId that have pending full member list requests
@@ -8519,7 +8540,7 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: Mentions request error for requestId=$requestId: $errorMessage",
             )
-            mentionsRequests.remove(requestId)
+            mentionsRequests.remove(requestId)?.invoke()
             isMentionsLoading = false
             mentionEvents = emptyList()
         } else if (mutualRoomsRequests.containsKey(requestId)) {
@@ -8573,6 +8594,29 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Create room error for requestId=$requestId: $errorMessage")
             val callback = createRoomRequests.remove(requestId) ?: return
             callback(null, errorMessage)
+            // The three below had no error branch at all: an `error` frame fell through to the
+            // "Unknown error requestId" log and the request stayed pending. Search and thread
+            // pagination were rescued (late, and reported as "no results") by their per-call
+            // timeouts; the gallery had no timeout either, so its spinner never stopped. Now that
+            // the timeouts are gone, settling here is what guarantees the caller always hears back.
+        } else if (searchRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Search error for requestId=$requestId: $errorMessage")
+            val callback = searchRequests.remove(requestId) ?: return
+            callback(emptyList(), "")
+        } else if (threadPaginateRequests.containsKey(requestId)) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Thread paginate error for requestId=$requestId: $errorMessage",
+            )
+            val callback = threadPaginateRequests.remove(requestId) ?: return
+            callback(emptyList(), "")
+        } else if (galleryPaginateRequests.containsKey(requestId)) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Gallery paginate error for requestId=$requestId: $errorMessage",
+            )
+            val callback = galleryPaginateRequests.remove(requestId) ?: return
+            callback(emptyList(), false, 0L)
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -10191,25 +10235,29 @@ class AppViewModel : ViewModel() {
         limit: Int = 100,
         callback: (events: List<TimelineEvent>, hasMore: Boolean, minTimelineRowId: Long) -> Unit,
     ) {
-        if (!isWebSocketConnected()) {
-            callback(emptyList(), false, 0L)
-            return
-        }
-        val requestId = WebSocketService.allocateRequestId()
-        galleryPaginateRequests[requestId] = callback
-        val result = sendWebSocketCommand(
-            "paginate",
-            requestId,
-            mapOf(
-                "room_id" to roomId,
-                "max_timeline_id" to maxTimelineId,
-                "limit" to limit,
-                "reset" to false,
+        // Replay-safe read. This one had no timeout at all and no error branch, so an `error` frame
+        // left the gallery spinner up forever; the coordinator settles it either way.
+        rpcResilience.submit(
+            RpcResilienceCoordinator.RpcSpec(
+                command = "paginate",
+                dedupKey = "gallery_paginate:$roomId:$maxTimelineId:$limit",
+                data = mapOf(
+                    "room_id" to roomId,
+                    "max_timeline_id" to maxTimelineId,
+                    "limit" to limit,
+                    "reset" to false,
+                ),
+                register = { requestId, deliver ->
+                    galleryPaginateRequests[requestId] = { events, hasMore, minRowId ->
+                        deliver(GalleryPageResult(events, hasMore, minRowId))
+                    }
+                },
+                unregister = { requestId -> galleryPaginateRequests.remove(requestId) },
+                parkWhenUnreachable = false,
             ),
-        )
-        if (result != WebSocketResult.SUCCESS) {
-            galleryPaginateRequests.remove(requestId)
-            callback(emptyList(), false, 0L)
+        ) { payload ->
+            val result = payload as? GalleryPageResult
+            callback(result?.events ?: emptyList(), result?.hasMore ?: false, result?.minTimelineRowId ?: 0L)
         }
     }
 
@@ -10268,51 +10316,37 @@ class AppViewModel : ViewModel() {
         limit: Int = 50,
         callback: (events: List<TimelineEvent>, nextBatch: String) -> Unit,
     ) {
-        if (!isWebSocketConnected()) {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: paginateThread - WebSocket not connected, calling back empty",
-            )
-            callback(emptyList(), "")
-            return
-        }
-        val requestId = WebSocketService.allocateRequestId()
-        threadPaginateRequests[requestId] = callback
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: paginateThread - room=$roomId, root=$threadRootEventId, since='$since', dir=$direction, limit=$limit, requestId=$requestId",
+                "AppViewModel: paginateThread - room=$roomId, root=$threadRootEventId, since='$since', dir=$direction, limit=$limit",
             )
         }
-        val result = sendWebSocketCommand(
-            "paginate_manual",
-            requestId,
-            mapOf(
-                "room_id" to roomId,
-                "thread_root" to threadRootEventId,
-                "since" to since,
-                "direction" to direction,
-                "limit" to limit,
+        // Replay-safe read — see getEvent. The screen can no longer wait forever because the
+        // coordinator settles on a response, an error frame, or a failed send, rather than on a
+        // 10 s timer that could not tell a slow page from a missing one.
+        rpcResilience.submit(
+            RpcResilienceCoordinator.RpcSpec(
+                command = "paginate_manual",
+                dedupKey = "paginate_manual:$roomId:$threadRootEventId:$since:$direction:$limit",
+                data = mapOf(
+                    "room_id" to roomId,
+                    "thread_root" to threadRootEventId,
+                    "since" to since,
+                    "direction" to direction,
+                    "limit" to limit,
+                ),
+                register = { requestId, deliver ->
+                    threadPaginateRequests[requestId] = { events, nextBatch ->
+                        deliver(ThreadPageResult(events, nextBatch))
+                    }
+                },
+                unregister = { requestId -> threadPaginateRequests.remove(requestId) },
+                parkWhenUnreachable = false,
             ),
-        )
-        if (result != WebSocketResult.SUCCESS) {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: paginateThread - failed to send paginate_manual (result=$result)",
-            )
-            threadPaginateRequests.remove(requestId)
-            callback(emptyList(), "")
-            return
-        }
-        // Timeout so the screen never waits forever
-        viewModelScope.launch(Dispatchers.IO) {
-            delay(10000L)
-            if (threadPaginateRequests.containsKey(requestId)) {
-                android.util.Log.w("Andromuks", "AppViewModel: paginateThread timeout for requestId=$requestId")
-                withContext(Dispatchers.Main) {
-                    threadPaginateRequests.remove(requestId)?.invoke(emptyList(), "")
-                }
-            }
+        ) { payload ->
+            val result = payload as? ThreadPageResult
+            callback(result?.events ?: emptyList(), result?.nextBatch ?: "")
         }
     }
 
@@ -10396,16 +10430,6 @@ class AppViewModel : ViewModel() {
         nextBatch: String = "",
         callback: (events: List<TimelineEvent>, nextBatch: String) -> Unit,
     ) {
-        if (!isWebSocketConnected()) {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: searchMessages - WebSocket not connected, calling back empty",
-            )
-            callback(emptyList(), "")
-            return
-        }
-        val requestId = WebSocketService.allocateRequestId()
-        searchRequests[requestId] = callback
         val command = if (searchLocal) "search_local" else "search_server"
         val data = mutableMapOf<String, Any>(
             "search_term" to searchTerm,
@@ -10425,25 +10449,27 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: searchMessages - command=$command, term='$searchTerm', rooms=$roomIds, sortByTime=$sortByTime, includeRedacted=$includeRedacted, requestId=$requestId",
+                "AppViewModel: searchMessages - command=$command, term='$searchTerm', rooms=$roomIds, sortByTime=$sortByTime, includeRedacted=$includeRedacted",
             )
         }
-        val result = sendWebSocketCommand(command, requestId, data)
-        if (result != WebSocketResult.SUCCESS) {
-            android.util.Log.w("Andromuks", "AppViewModel: searchMessages - failed to send $command (result=$result)")
-            searchRequests.remove(requestId)
-            callback(emptyList(), "")
-            return
-        }
-        // Timeout so the screen never waits forever
-        viewModelScope.launch(Dispatchers.IO) {
-            delay(15000L)
-            if (searchRequests.containsKey(requestId)) {
-                android.util.Log.w("Andromuks", "AppViewModel: searchMessages timeout for requestId=$requestId")
-                withContext(Dispatchers.Main) {
-                    searchRequests.remove(requestId)?.invoke(emptyList(), "")
-                }
-            }
+        // Replay-safe read — see getEvent. `search_server` in particular hits the homeserver, which
+        // is exactly the kind of unpredictable latency the old 15 s timer turned into a silent
+        // "no results" — indistinguishable, from the UI's point of view, from an empty result set.
+        // next_batch is part of the dedup key so paging never collapses onto the previous page.
+        rpcResilience.submit(
+            RpcResilienceCoordinator.RpcSpec(
+                command = command,
+                dedupKey = "$command:$searchTerm:$roomIds:$senders:$sortByTime:$includeRedacted:$limit:$nextBatch",
+                data = data,
+                register = { requestId, deliver ->
+                    searchRequests[requestId] = { events, batch -> deliver(SearchPageResult(events, batch)) }
+                },
+                unregister = { requestId -> searchRequests.remove(requestId) },
+                parkWhenUnreachable = false,
+            ),
+        ) { payload ->
+            val result = payload as? SearchPageResult
+            callback(result?.events ?: emptyList(), result?.nextBatch ?: "")
         }
     }
 
@@ -13121,66 +13147,36 @@ class AppViewModel : ViewModel() {
             )
         }
 
-        // Check if WebSocket is connected
-        if (!isWebSocketConnected()) {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: WebSocket not connected - calling back with null, health monitor will handle reconnection",
-            )
-            callback(null, "Not connected to server")
-            return
-        }
-
-        val eventContextRequestId = WebSocketService.allocateRequestId()
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Generated request_id for get_event_context: $eventContextRequestId",
-            )
-        }
-
-        // Store the callback to handle the response
-        eventContextRequests[eventContextRequestId] = roomId to callback
-
-        val commandData = mapOf(
-            "room_id" to roomId,
-            "event_id" to eventId,
-            "limit_before" to limitBefore,
-            "limit_after" to limitAfter,
-        )
-
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: get_event_context with data: $commandData")
-        sendWebSocketCommand("get_event_context", eventContextRequestId, commandData)
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: WebSocket command sent with request_id: $eventContextRequestId",
-            )
-        }
-
-        // Add timeout mechanism to prevent infinite loading
-        viewModelScope.launch(Dispatchers.IO) {
-            val timeoutMs = 10000L // 10 second timeout
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Setting get_event_context timeout to ${timeoutMs}ms for requestId=$eventContextRequestId",
-                )
-            }
-            delay(timeoutMs)
-
-            // Check if request is still pending
-            if (eventContextRequests.containsKey(eventContextRequestId)) {
-                android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: get_event_context timeout after ${timeoutMs}ms for requestId=$eventContextRequestId, calling callback with null",
-                )
-                // Switch to Main dispatcher for callback
-                withContext(Dispatchers.Main) {
-                    eventContextRequests.remove(eventContextRequestId)?.let { (_, callback) ->
-                        callback(null, "Request timed out after 10 seconds")
+        // Replay-safe read: no timeout, no connectivity pre-check. RpcResilienceCoordinator picks
+        // the transport (WebSocket, or /exec while the socket is down or the command gate is still
+        // closed) and completes the request on an actual event. The 10 s timer this replaces made
+        // "the server is being slow" indistinguishable from "the context does not exist", and it
+        // fired against a `get_event_context` that can legitimately take a homeserver round-trip.
+        rpcResilience.submit(
+            RpcResilienceCoordinator.RpcSpec(
+                command = "get_event_context",
+                dedupKey = "get_event_context:$roomId:$eventId:$limitBefore:$limitAfter",
+                data = mapOf(
+                    "room_id" to roomId,
+                    "event_id" to eventId,
+                    "limit_before" to limitBefore,
+                    "limit_after" to limitAfter,
+                ),
+                register = { requestId, deliver ->
+                    eventContextRequests[requestId] = roomId to { events: List<TimelineEvent>?, error: String? ->
+                        deliver(EventContextResult(events, error))
                     }
-                }
+                },
+                unregister = { requestId -> eventContextRequests.remove(requestId) },
+                // A screen is waiting on this; don't spin until the network returns.
+                parkWhenUnreachable = false,
+            ),
+        ) { payload ->
+            val result = payload as? EventContextResult
+            if (result != null) {
+                callback(result.events, result.error)
+            } else {
+                callback(null, "Could not reach the server")
             }
         }
     }
@@ -13199,14 +13195,6 @@ class AppViewModel : ViewModel() {
             )
         }
 
-        val ws = WebSocketService.getWebSocket() ?: run {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - cannot request mentions list")
-            return
-        }
-
-        val mentionsRequestId = WebSocketService.allocateRequestId()
-        mentionsRequests[mentionsRequestId] = Unit
-
         isMentionsLoading = true
         mentionEvents = emptyList()
 
@@ -13217,28 +13205,25 @@ class AppViewModel : ViewModel() {
         )
         if (roomId != null) commandData["room_id"] = roomId
 
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Sending get_mentions command with request_id=$mentionsRequestId, data=$commandData",
-        )
-        }
-        sendWebSocketCommand("get_mentions", mentionsRequestId, commandData)
-
-        // Add timeout mechanism
-        viewModelScope.launch(Dispatchers.IO) {
-            val timeoutMs = 15000L // 15 second timeout
-            delay(timeoutMs)
-
-            if (mentionsRequests.containsKey(mentionsRequestId)) {
-                android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: get_mentions timeout after ${timeoutMs}ms for requestId=$mentionsRequestId",
-                )
-                withContext(Dispatchers.Main) {
-                    mentionsRequests.remove(mentionsRequestId)
-                    isMentionsLoading = false
-                }
+        // Replay-safe read. The dropped `getWebSocket() ?: return` pre-check is deliberate: it used
+        // to leave isMentionsLoading untouched and the screen showing nothing with no explanation.
+        // Now the request is submitted regardless, may go over /exec, and always settles the flag.
+        rpcResilience.submit(
+            RpcResilienceCoordinator.RpcSpec(
+                command = "get_mentions",
+                dedupKey = "get_mentions:$type:$limit:$actualMaxTimestamp:${roomId.orEmpty()}",
+                data = commandData,
+                register = { requestId, deliver ->
+                    mentionsRequests[requestId] = { deliver(Unit) }
+                },
+                unregister = { requestId -> mentionsRequests.remove(requestId) },
+                // The mentions screen is waiting on this.
+                parkWhenUnreachable = false,
+            ),
+        ) { payload ->
+            if (payload == null) {
+                android.util.Log.w("Andromuks", "AppViewModel: get_mentions could not be answered")
+                isMentionsLoading = false
             }
         }
     }
@@ -13247,7 +13232,7 @@ class AppViewModel : ViewModel() {
      * Handle mentions list response from backend
      */
     private fun handleMentionsListResponse(requestId: Int, data: Any) {
-        mentionsRequests.remove(requestId)
+        mentionsRequests.remove(requestId)?.invoke()
         isMentionsLoading = false
 
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling mentions list response for requestId: $requestId")
