@@ -47,7 +47,20 @@ Each call also mirrors to logcat via `Log.i("Androlog", "[$category] $text")`. `
 
 ## Current instrumentation
 
-All under the `"Notifications"` category, so the export groups them together.
+### `"ReplyResolution"` / `"RPC"`
+
+How reply previews resolved their target event, and the retry behaviour underneath. Full tier table
+and how to read the numbers: [RPC_RESILIENCE.md](RPC_RESILIENCE.md#reading-the-instrumentation).
+
+| Location | What it logs |
+|---|---|
+| `ReplyResolutionTracker.record` — `fetched` | A reply target needed a `get_event` round-trip, i.e. the backend's `related_events` did not cover it. Rare by design; a rising count means an ingest path is losing reply context and the failsafe is masking it. |
+| `ReplyResolutionTracker.record` — `unresolved` | Nothing resolved the target; the preview rendered "Reply to unknown event". |
+| `ReplyResolutionTracker.record` — rolling summary | Every 100 resolutions, a one-line tier breakdown. |
+| `RpcResilienceCoordinator.settle` | A request succeeded only on a later attempt (first attempt could not be answered). |
+| `RpcResilienceCoordinator.dispatch` | A request exhausted its attempt budget. |
+
+### `"Notifications"`
 
 | Location | What it logs |
 |---|---|

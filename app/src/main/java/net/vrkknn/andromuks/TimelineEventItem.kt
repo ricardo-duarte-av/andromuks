@@ -2404,6 +2404,10 @@ private fun rememberReplyTargetEvent(
 
     var fetchedEvent by remember(replyInfo.eventId) { mutableStateOf<TimelineEvent?>(null) }
     var resolving by remember(replyInfo.eventId) { mutableStateOf(false) }
+    // Records that a fetch ran and came back empty. Not a retry latch — retries are driven by
+    // rpcRetryGeneration, and this is cleared whenever a new attempt starts. It exists only so the
+    // tracker can tell "not resolved yet" from "looked everywhere and found nothing".
+    var fetchCameBackEmpty by remember(replyInfo.eventId) { mutableStateOf(false) }
 
     // Track timeline update counter to reactively check cache when timeline updates
     val timelineUpdateCounter = appViewModel?.timelineUpdateCounter ?: 0
@@ -2412,17 +2416,47 @@ private fun rememberReplyTargetEvent(
     val eventInTimeline = remember(replyInfo.eventId, timelineEvents) {
         timelineEvents.find { it.eventId == replyInfo.eventId }
     }
-    if (eventInTimeline != null) {
-        return ReplyTargetResolution(eventInTimeline, resolving = false)
-    }
 
     // Second, check RoomTimelineCache — both timeline events and reply-context events
-    // (related_events stored by paginate/sync for reply preview rendering).
-    val eventInCache = remember(replyInfo.eventId, roomId, timelineUpdateCounter) {
-        RoomTimelineCache.findEventForReply(roomId, replyInfo.eventId)
+    // (related_events stored by paginate/sync for reply preview rendering). The source is carried
+    // through so the tracker can tell "the room's own history had it" from "the backend's
+    // related_events covered it", which is what distinguishes a healthy session from one where the
+    // get_event failsafe is quietly papering over a lost ingest path.
+    val cacheHit = remember(replyInfo.eventId, roomId, timelineUpdateCounter, eventInTimeline) {
+        if (eventInTimeline != null) {
+            null
+        } else {
+            RoomTimelineCache.findEventForReplyWithSource(roomId, replyInfo.eventId)
+        }
     }
-    if (eventInCache != null) {
-        return ReplyTargetResolution(eventInCache, resolving = false)
+
+    val resolvedEvent = eventInTimeline ?: cacheHit?.first ?: fetchedEvent
+    val tier = when {
+        eventInTimeline != null -> ReplyResolutionTracker.Tier.TIMELINE
+
+        cacheHit != null -> when (cacheHit.second) {
+            RoomTimelineCache.ReplySource.TIMELINE -> ReplyResolutionTracker.Tier.CACHE_TIMELINE
+            RoomTimelineCache.ReplySource.REPLY_CONTEXT -> ReplyResolutionTracker.Tier.CACHE_REPLY_CONTEXT
+            RoomTimelineCache.ReplySource.REACTION -> ReplyResolutionTracker.Tier.CACHE_REACTION
+        }
+
+        fetchedEvent != null -> ReplyResolutionTracker.Tier.FETCHED
+
+        // Terminal miss: either a fetch ran and produced nothing, or there is no ViewModel to fetch
+        // with. Anything else means we simply have not finished looking, which must NOT be counted
+        // as a failure — every reply passes through that state on its way to being resolved.
+        fetchCameBackEmpty || appViewModel == null -> ReplyResolutionTracker.Tier.UNRESOLVED
+
+        else -> null
+    }
+    if (tier != null) {
+        LaunchedEffect(replyInfo.eventId, tier) {
+            ReplyResolutionTracker.record(tier, roomId, replyInfo.eventId)
+        }
+    }
+
+    if (resolvedEvent != null && fetchedEvent == null) {
+        return ReplyTargetResolution(resolvedEvent, resolving = false)
     }
 
     // Third, fetch via get_event. Re-run when the backend becomes reachable again
@@ -2433,6 +2467,7 @@ private fun rememberReplyTargetEvent(
             if (fetchedEvent != null) return@LaunchedEffect
 
             resolving = true
+            fetchCameBackEmpty = false
             if (BuildConfig.DEBUG) {
                 Log.d(
                     "Andromuks",
@@ -2456,6 +2491,7 @@ private fun rememberReplyTargetEvent(
                     RoomTimelineCache.addFetchedReplyTarget(roomId, event)
                     fetchedEvent = event
                 } else {
+                    fetchCameBackEmpty = true
                     Log.w("Andromuks", "TimelineEventItem: Failed to fetch reply target event ${replyInfo.eventId}")
                 }
             }

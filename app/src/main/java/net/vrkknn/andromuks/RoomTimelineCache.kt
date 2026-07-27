@@ -1448,18 +1448,39 @@ object RoomTimelineCache {
         }
     }
 
+    /** Which cache bucket answered a [findEventForReplyWithSource] lookup. */
+    enum class ReplySource {
+        /** A real timeline event — the room's own history covered it. */
+        TIMELINE,
+
+        /** The reply-context bucket, i.e. the backend's `related_events` did its job. */
+        REPLY_CONTEXT,
+
+        /** The reaction bucket (a reply pointing at a reaction event). */
+        REACTION,
+    }
+
+    /**
+     * Like [findEventForReply], but reports which bucket answered. The distinction matters for
+     * diagnostics: a hit in [ReplySource.REPLY_CONTEXT] means the backend's `related_events` covered
+     * the reply as designed, whereas needing a `get_event` afterwards means that context never
+     * landed. See docs/RPC_RESILIENCE.md.
+     */
+    fun findEventForReplyWithSource(roomId: String, eventId: String): Pair<TimelineEvent, ReplySource>? {
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return null
+            cache.events.find { it.eventId == eventId }?.let { return it to ReplySource.TIMELINE }
+            cache.replyContextEvents.find { it.eventId == eventId }?.let { return it to ReplySource.REPLY_CONTEXT }
+            cache.reactionEvents.find { it.eventId == eventId }?.let { return it to ReplySource.REACTION }
+            return null
+        }
+    }
+
     /**
      * Look up a single event by ID, checking both timeline events and reply-context events.
      * Returns null if not found in either bucket.
      */
-    fun findEventForReply(roomId: String, eventId: String): TimelineEvent? {
-        synchronized(cacheLock) {
-            val cache = roomEventsCache[roomId] ?: return null
-            return cache.events.find { it.eventId == eventId }
-                ?: cache.replyContextEvents.find { it.eventId == eventId }
-                ?: cache.reactionEvents.find { it.eventId == eventId }
-        }
-    }
+    fun findEventForReply(roomId: String, eventId: String): TimelineEvent? = findEventForReplyWithSource(roomId, eventId)?.first
 
     /**
      * Clear cache for a specific room (useful when leaving a room)

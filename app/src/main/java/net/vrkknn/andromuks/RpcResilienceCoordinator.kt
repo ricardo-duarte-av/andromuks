@@ -310,15 +310,28 @@ internal class RpcResilienceCoordinator(private val vm: AppViewModel) {
 
     private fun settle(dedupKey: String, payload: Any?, negativeCacheIt: Boolean) {
         val callbacks: List<(Any?) -> Unit>
+        val attempts: Int
+        val fanOut: Int
+        val command: String
         synchronized(lock) {
             val p = pending[dedupKey] ?: return
             if (p.settled) return
             p.settled = true
             pending.remove(dedupKey)
             callbacks = p.callbacks.toList()
+            attempts = p.attempts
+            fanOut = p.callbacks.size
+            command = p.spec.command
             if (negativeCacheIt) {
                 negativeCache[dedupKey] = System.currentTimeMillis() + NEGATIVE_TTL_MS
             }
+        }
+
+        // Worth a persisted entry: a request that needed more than one attempt means the first one
+        // could not be answered, which is exactly the situation the old fixed timeout mis-reported
+        // as "no such event".
+        if (payload != null && attempts > 1) {
+            Androlog("RPC", "$command succeeded on attempt $attempts ($dedupKey, $fanOut waiter(s))")
         }
         for (callback in callbacks) {
             deliverOnMain(callback, payload)

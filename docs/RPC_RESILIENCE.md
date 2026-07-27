@@ -84,6 +84,37 @@ Composables must also **not latch failure locally**. Instead, key the retry `Lau
 `AppViewModel.rpcRetryGeneration`, which the coordinator bumps whenever the backend becomes reachable
 again. The coordinator's negative cache — not a per-composable boolean — is what stops re-asking.
 
+## Reading the instrumentation
+
+`ReplyResolutionTracker` counts how each reply preview got its target, under the Androlog category
+`ReplyResolution`. The tiers, and what they mean:
+
+| Tier | Meaning |
+|---|---|
+| `timeline` | found among events the screen was already rendering |
+| `cache` | `RoomTimelineCache`, real timeline event |
+| `replyContext` | the reply-context bucket — the backend's `related_events` did its job |
+| `reaction` | the reaction bucket |
+| `fetched` | needed a `get_event` round-trip |
+| `unresolved` | nothing found; the preview showed "Reply to unknown event" |
+
+**`fetched` is a defect signal, not a success.** The backend supplies a reply's target alongside the
+reply itself in `related_events`, so a healthy session resolves essentially everything from the first
+three tiers. A climbing `fetched` count means some ingest path is losing that context and the failsafe
+is covering for it — the preview looks right while the underlying leak stays invisible. That is
+precisely how the original bug hid.
+
+Individual `fetched` and `unresolved` resolutions each write an Androlog entry (they should be rare);
+a rolling summary lands every 100 resolutions:
+
+```
+resolved 100: timeline=71 cache=22 replyContext=6 reaction=0 fetched=1 unresolved=0
+```
+
+`RpcResilienceCoordinator` adds `RPC`-category entries when a request succeeds only on a later attempt
+(the situation the old fixed timeout mis-reported as "no such event") and when one exhausts its
+budget.
+
 ## Adding a command
 
 ```kotlin
