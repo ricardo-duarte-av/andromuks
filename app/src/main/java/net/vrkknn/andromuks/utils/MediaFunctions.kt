@@ -31,12 +31,13 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.TransformableState
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -105,13 +106,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -3150,7 +3154,9 @@ internal fun ImageViewerDialog(
         offsetY = 0f
     }
 
-    val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
+    // Applied by the page's gesture detector, which only claims a gesture once it is a pinch or the
+    // image is already zoomed — see [viewerTransformGestures].
+    val onTransformGesture: (Float, Offset) -> Unit = { zoomChange, offsetChange ->
         resetButtonTimer() // Reset timer on zoom/pan
         // Clamped at 1f: zooming out past "fits the screen" is not allowed.
         scale = (scale * zoomChange).coerceIn(1f, 5f)
@@ -3345,7 +3351,8 @@ internal fun ImageViewerDialog(
                             offsetX = if (isCurrentPage) offsetX else 0f,
                             offsetY = if (isCurrentPage) offsetY else 0f,
                             rotation = if (isCurrentPage) normalizedRotation else 0f,
-                            transformableState = if (isCurrentPage) transformableState else null,
+                            onGesture = if (isCurrentPage) onTransformGesture else null,
+                            isZoomed = { scale > 1f },
                             onTap = {
                                 resetButtonTimer() // Show buttons on tap
                                 resetTransform() // Tap on image: reset zoom and pan to center
@@ -3480,13 +3487,49 @@ internal fun ImageViewerDialog(
 }
 
 /**
+ * Pinch-to-zoom and pan for a viewer page that lives inside a pager.
+ *
+ * `Modifier.transformable` cannot be used here: it claims every drag, including single-finger ones,
+ * so the pager underneath never sees a swipe and the image only ever pans. This detector instead
+ * waits before claiming a gesture — it takes over only once a second finger arrives (a pinch) or the
+ * image is already zoomed in ([isZoomed]). A one-finger drag at rest is left unconsumed and bubbles
+ * up to the pager, which is what makes paging between gallery images work.
+ *
+ * Once a gesture is claimed it stays claimed for its duration, so a pinch that settles back to 1f
+ * still pans until the fingers lift rather than handing the pager a half-finished gesture.
+ */
+private suspend fun PointerInputScope.viewerTransformGestures(isZoomed: () -> Boolean, onGesture: (zoom: Float, pan: Offset) -> Unit) {
+    awaitEachGesture {
+        var claimed = isZoomed()
+        awaitFirstDown(requireUnconsumed = false)
+        do {
+            val event = awaitPointerEvent()
+            val canceled = event.changes.any { it.isConsumed }
+            if (canceled) break
+            if (!claimed && event.changes.count { it.pressed } > 1) {
+                claimed = true
+            }
+            if (claimed) {
+                val zoomChange = event.calculateZoom()
+                val panChange = event.calculatePan()
+                if (zoomChange != 1f || panChange != Offset.Zero) {
+                    onGesture(zoomChange, panChange)
+                    event.changes.forEach { if (it.positionChanged()) it.consume() }
+                }
+            }
+        } while (event.changes.any { it.pressed })
+    }
+}
+
+/**
  * One page of [ImageViewerDialog]: the thumbnail, the full image fading in over it, and the
  * failure UI.
  *
  * Load state is per page — cached file, the cache-bypass retry, and the backend error body all key
  * off this item's URL — while the transform comes from the dialog, which owns the gestures.
  *
- * @param transformableState the dialog's gesture state, or null for pages that are not in view
+ * @param onGesture applies a pinch/pan to the dialog's transform, or null for pages not in view
+ * @param isZoomed whether the image is currently zoomed in, which decides who owns a drag
  */
 @Composable
 private fun ImageViewerPage(
@@ -3497,7 +3540,8 @@ private fun ImageViewerPage(
     offsetX: Float,
     offsetY: Float,
     rotation: Float,
-    transformableState: TransformableState?,
+    onGesture: ((zoom: Float, pan: Offset) -> Unit)?,
+    isZoomed: () -> Boolean,
     onTap: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -3592,7 +3636,13 @@ private fun ImageViewerPage(
                 // instead — if it lived here, panning would slide this box's hit region off screen
                 // and expose the dismiss-on-tap background underneath, so a tap near an edge (while
                 // panning) closed the viewer.
-                .then(if (transformableState != null) Modifier.transformable(state = transformableState) else Modifier)
+                .then(
+                    if (onGesture != null) {
+                        Modifier.pointerInput(Unit) { viewerTransformGestures(isZoomed, onGesture) }
+                    } else {
+                        Modifier
+                    },
+                )
                 .pointerInput(Unit) {
                     detectTapGestures(onTap = { onTap() })
                 },

@@ -150,6 +150,14 @@ Zoom and gesture model:
   would undershoot snaps back to `1f`.
 - At `scale == 1f` a horizontal drag goes to the pager: **slide** between items.
 - At `scale > 1f` the pager's `userScrollEnabled` is false and drags **pan** the zoomed image.
+
+**`Modifier.transformable` cannot be used for this.** It claims every drag, single-finger ones
+included, so the pager underneath never receives a swipe and the image only ever pans — this was the
+first cut of the viewer, and paging did not work at all. `viewerTransformGestures` replaces it: a
+gesture is claimed only once a second finger arrives (a pinch) or the image is already zoomed, and
+an unclaimed one-finger drag is left unconsumed so it bubbles up to the pager. Once claimed, a
+gesture stays claimed until the fingers lift, so a pinch that settles back to `1f` keeps panning
+rather than handing the pager half a gesture.
 - A pinch that lands back on `1f` also zeroes the pan, so the image cannot be left off-centre with
   no way to recentre it.
 - Changing page resets scale/offset/rotation, so every new page starts in slide mode.
