@@ -82,6 +82,9 @@ object SpaceRoomParser {
                     val stripped = stripMatrixReplyQuote(body).trim()
                     if (stripped.isNotBlank()) body = stripped
                 }
+                // A gallery's body is its caption, so it would otherwise preview as bare text.
+                galleryPreviewLabel(if (isEdit) content.optJSONObject("m.new_content") else content)
+                    ?.let { return Triple(it, sender, eventId) }
                 if (body != null) return Triple(body, sender, eventId)
                 if (!isEdit) {
                     val msgtype = content.optString("msgtype", "")
@@ -115,6 +118,8 @@ object SpaceRoomParser {
                         val stripped = stripMatrixReplyQuote(body).trim()
                         if (stripped.isNotBlank()) body = stripped
                     }
+                    galleryPreviewLabel(if (isEdit) decrypted.optJSONObject("m.new_content") else decrypted)
+                        ?.let { return Triple(it, sender, eventId) }
                     if (body != null) return Triple(body, sender, eventId)
                     if (!isEdit) {
                         val msgtype = decrypted.optString("msgtype", "")
@@ -262,6 +267,14 @@ object SpaceRoomParser {
                                 if (body != null && !isEdit && contentHasInReplyTo(content)) {
                                     body = stripMatrixReplyQuote(body).takeIf { it.isNotBlank() } ?: body
                                 }
+                                val galleryLabel =
+                                    galleryPreviewLabel(if (isEdit) content?.optJSONObject("m.new_content") else content)
+                                if (galleryLabel != null) {
+                                    messagePreview = galleryLabel
+                                    messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                    latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+                                    break
+                                }
                                 if (body != null) {
                                     messagePreview = body
                                     val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
@@ -297,6 +310,15 @@ object SpaceRoomParser {
                                     }
                                     if (body != null && !isEdit && contentHasInReplyTo(decrypted)) {
                                         body = stripMatrixReplyQuote(body).takeIf { it.isNotBlank() } ?: body
+                                    }
+                                    val galleryLabel = galleryPreviewLabel(
+                                        if (isEdit) decrypted?.optJSONObject("m.new_content") else decrypted,
+                                    )
+                                    if (galleryLabel != null) {
+                                        messagePreview = galleryLabel
+                                        messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        latestEventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+                                        break
                                     }
                                     if (body != null) {
                                         messagePreview = body

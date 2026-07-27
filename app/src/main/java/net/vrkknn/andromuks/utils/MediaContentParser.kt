@@ -34,6 +34,25 @@ fun extractWaveform(content: JSONObject?): List<Int>? {
 fun mediaContentHasEncryptedFile(content: JSONObject?): Boolean = content?.optJSONObject("file") != null
 
 /**
+ * One-line summary of an MSC4274 gallery for surfaces that only show text: the room list preview,
+ * notifications, reply previews and the edit bar.
+ *
+ * A gallery carries no plain-text fallback of its own (the MSC prescribes none), so without this a
+ * gallery would show as a bare caption — or as nothing at all when it has none. The caption is
+ * preferred when present, with the item count appended either way.
+ *
+ * @return the label, or null when [content] is not a gallery
+ */
+fun galleryPreviewLabel(content: JSONObject?): String? {
+    if (content == null) return null
+    if (content.optString("msgtype", "") !in GALLERY_MSGTYPES) return null
+    val count = content.optJSONArray("itemtypes")?.length() ?: 0
+    val suffix = if (count > 0) " ($count)" else ""
+    val caption = content.optString("body", "").takeIf { it.isNotBlank() }
+    return if (caption != null) "🖼️ $caption$suffix" else "🖼️ Gallery$suffix"
+}
+
+/**
  * Parses a media content object into a [MediaMessage].
  *
  * @param content the media content: an `m.room.message` content, a decrypted content, or one entry

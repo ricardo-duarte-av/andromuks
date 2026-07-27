@@ -1,6 +1,7 @@
 package net.vrkknn.andromuks
 
 import android.util.Log
+import net.vrkknn.andromuks.utils.GALLERY_MSGTYPES
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -121,7 +122,7 @@ class NotificationDataParser {
         /**
          * Create notification body from parsed data
          */
-        fun createNotificationBody(data: NotificationData): String = when (data.type) {
+        fun createNotificationBody(data: NotificationData): String = when (data.type.orEmpty()) {
             "m.text" -> data.body
             "m.image" -> "📷 Image"
             "m.video" -> "🎥 Video"
@@ -129,6 +130,8 @@ class NotificationDataParser {
             "m.file" -> "📎 File"
             "m.location" -> "📍 Location"
             "m.emote" -> "* ${data.body}"
+            // MSC4274 gallery: body is the caption, and the FCM payload carries no item count.
+            in GALLERY_MSGTYPES -> data.body.takeIf { it.isNotBlank() }?.let { "🖼️ $it" } ?: "🖼️ Gallery"
             else -> data.body
         }
 

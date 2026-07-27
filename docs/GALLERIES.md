@@ -171,12 +171,23 @@ of the screen, fading with the toolbar, and is hidden entirely for single-image 
 ## Phase 5 — text fallbacks
 
 A gallery has no plain-text fallback of its own, so every surface that summarises an event by
-msgtype needs a case, preferring the caption when non-blank and otherwise showing
-`🖼️ Gallery (N)`:
+msgtype needs a case. `galleryPreviewLabel(content)` in `utils/MediaContentParser.kt` is the one
+implementation: it returns null unless the content is a gallery, and otherwise `🖼️ <caption> (N)`,
+falling back to `🖼️ Gallery (N)` when there is no caption.
 
-- `utils/SpaceRoomParser.kt` — room list preview
-- `NotificationDataParser.kt`, `NotificationImageWorker.kt` — notification title/body
-- `utils/ReplyFunctions.kt` — reply preview (three sites)
+- **`utils/SpaceRoomParser.kt`** — room list preview, at four sites (message/encrypted × the
+  single-event extractor and the room-loop scan). The label has to be checked **before** the
+  existing body short-circuit: a gallery's `body` is its caption, so it is non-blank and would
+  otherwise preview as bare text with no hint that it is a gallery. Edits are read from
+  `m.new_content`.
+- **`NotificationDataParser.kt`** — `createNotificationBody`. The FCM payload has no item count, so
+  this one shows `🖼️ <caption>` or `🖼️ Gallery` without the `(N)`. The `when` subject became
+  `data.type.orEmpty()` so the set membership check type-checks against a non-null `String`.
+- **`NotificationImageWorker.kt`** — `classifyKind` gains a `"gallery"` kind for logging, and
+  `captionForMedia` returns the gallery label. `extractCaption` cannot serve galleries: it requires
+  a `filename` field, which gallery items have only per item and the gallery itself never has.
+- **`utils/ReplyFunctions.kt`** — three sites: the blank-body media fallback, the msgtype table in
+  `formatEventForReplyPreview`, and the edit-composer preview bar.
 
 ## Not implemented
 

@@ -36,8 +36,10 @@ import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ExecApi
+import net.vrkknn.andromuks.utils.GALLERY_MSGTYPES
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
+import net.vrkknn.andromuks.utils.galleryPreviewLabel
 import net.vrkknn.andromuks.utils.getUserAgent
 import net.vrkknn.andromuks.utils.htmlToNotificationText
 import okhttp3.OkHttpClient
@@ -933,6 +935,8 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
 
             "m.audio" -> if (content != null && isVoiceMessage(content)) "voice" else "audio"
 
+            in GALLERY_MSGTYPES -> "gallery"
+
             // No msgtype: a non-message event, or an encrypted event we couldn't read decrypted.
             "" -> eventJson.optString("decrypted_type").ifBlank { eventJson.optString("type") }.ifBlank { "unknown" }
 
@@ -973,6 +977,7 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
     private fun captionForMedia(eventJson: JSONObject): String? {
         val content = decryptedContent(eventJson) ?: return null
         val caption = extractCaption(content)
+        galleryPreviewLabel(content)?.let { return it }
         return when (content.optString("msgtype")) {
             "m.image" -> caption?.let { "📷 $it" }
 

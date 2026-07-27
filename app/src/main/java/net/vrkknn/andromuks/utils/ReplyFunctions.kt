@@ -184,7 +184,11 @@ fun ReplyPreview(
     // an empty preview. Substitute a type-appropriate placeholder so the reply still reads clearly.
     val mediaFallback: String? = latestOriginalEvent?.let { event ->
         if (event.redactedBy != null) return@let null
-        when (event.getMessagePayload()?.optString("msgtype", "")) {
+        val payload = event.getMessagePayload()
+        // A captionless gallery has a blank body too, so it needs the same treatment.
+        val galleryLabel = galleryPreviewLabel(payload)
+        if (galleryLabel != null) return@let galleryLabel
+        when (payload?.optString("msgtype", "")) {
             "m.image" -> "📷 Sent a photo"
             "m.video" -> "📹 Sent a video"
             "m.audio" -> "🎶 Sent an audio"
@@ -384,6 +388,11 @@ fun formatEventForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.an
                 event.decrypted?.optJSONObject("m.new_content")?.optString("body", "") ?: ""
             } else {
                 content?.optString("body", "") ?: ""
+            }
+
+            if (actualMsgType in GALLERY_MSGTYPES) {
+                return galleryPreviewLabel(if (isEdit) event.decrypted?.optJSONObject("m.new_content") else content)
+                    ?: "🖼️ Sent a gallery"
             }
 
             when (actualMsgType) {
@@ -745,6 +754,7 @@ fun EditPreviewInput(event: TimelineEvent, onCancel: () -> Unit) {
                 )
                 Text(
                     text = when {
+                        msgType in GALLERY_MSGTYPES -> galleryPreviewLabel(content) ?: "🖼️ Gallery"
                         msgType == "m.image" -> "📷 Image"
                         msgType == "m.video" -> "🎥 Video"
                         msgType == "m.audio" -> "🎵 Audio"
