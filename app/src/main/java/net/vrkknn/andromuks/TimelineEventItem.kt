@@ -104,6 +104,9 @@ import net.vrkknn.andromuks.utils.BubbleColors
 import net.vrkknn.andromuks.utils.BubblePalette
 import net.vrkknn.andromuks.utils.EditHistoryDialog
 import net.vrkknn.andromuks.utils.EmoteEventNarrator
+import net.vrkknn.andromuks.utils.GALLERY_MSGTYPES
+import net.vrkknn.andromuks.utils.GalleryMessage
+import net.vrkknn.andromuks.utils.GalleryMessageBubble
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.LocationMessageContent
@@ -121,6 +124,7 @@ import net.vrkknn.andromuks.utils.extractSanitizedHtml
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.mediaBubbleColorFor
 import net.vrkknn.andromuks.utils.mediaContentHasEncryptedFile
+import net.vrkknn.andromuks.utils.parseGalleryMessage
 import net.vrkknn.andromuks.utils.parseGeoUri
 import net.vrkknn.andromuks.utils.parseMediaMessage
 import net.vrkknn.andromuks.utils.stickerBubbleColorFor
@@ -430,7 +434,7 @@ private fun HorizontalRuleMessage(modifier: Modifier = Modifier) {
  */
 @Composable
 private fun MediaMessageItem(
-    mediaMessage: MediaMessage,
+    mediaMessage: MediaMessage?,
     replyInfo: ReplyInfo?,
     originalEvent: TimelineEvent?,
     userProfileCache: Map<String, MemberProfile>,
@@ -458,6 +462,7 @@ private fun MediaMessageItem(
     onShowReactions: (() -> Unit)? = null,
     precomputedHasBeenEdited: Boolean? = null,
     readReceipts: List<ReadReceipt> = emptyList(),
+    gallery: GalleryMessage? = null,
 ) {
     // Check if this is a thread message
     val isThreadMessage = event.isThreadMessage()
@@ -477,6 +482,66 @@ private fun MediaMessageItem(
 
     val hasReceipts = readReceipts.isNotEmpty()
     val moveReceiptsToEdge = appViewModel?.moveReadReceiptsToEdge == true
+
+    // The bubble itself: an MSC4274 gallery mosaic, or a single media item. Shared by the reply and
+    // no-reply layouts below so the two only differ in the reply preview above the bubble.
+    val bubbleContent: @Composable () -> Unit = {
+        if (gallery != null) {
+            GalleryMessageBubble(
+                gallery = gallery,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isMine = isMine,
+                event = event,
+                timestamp = event.timestamp,
+                // Timeline rows already render timestamp outside the bubble.
+                isConsecutive = false,
+                editedBy = editedBy,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                onUserClick = onUserClick,
+                myUserId = myUserId,
+                powerLevels = powerLevels,
+                appViewModel = appViewModel,
+                onBubbleClick = onBubbleClick,
+                onShowEditHistory = onShowEditHistory,
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions,
+                bubbleColorOverride = mediaBubbleColor,
+                hasBeenEditedOverride = mediaHasBeenEdited,
+            )
+        } else if (mediaMessage != null) {
+            MediaMessage(
+                mediaMessage = mediaMessage,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isMine = isMine,
+                isEncrypted = hasEncryptedFile,
+                event = event,
+                timestamp = event.timestamp,
+                // Timeline rows already render timestamp outside the bubble.
+                // Keep media bubbles free of inline timestamps to avoid duplicates.
+                isConsecutive = false,
+                editedBy = editedBy,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                onUserClick = onUserClick,
+                myUserId = myUserId,
+                powerLevels = powerLevels,
+                appViewModel = appViewModel,
+                onBubbleClick = onBubbleClick,
+                onShowEditHistory = onShowEditHistory,
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions,
+                bubbleColorOverride = mediaBubbleColor,
+                hasBeenEditedOverride = mediaHasBeenEdited,
+            )
+        }
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -544,61 +609,10 @@ private fun MediaMessageItem(
                     onMatrixUserClick = onUserClick,
                     appViewModel = appViewModel,
                 )
-                MediaMessage(
-                    mediaMessage = mediaMessage,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    isMine = isMine,
-                    isEncrypted = hasEncryptedFile,
-                    event = event,
-                    timestamp = event.timestamp,
-                    // Timeline rows already render timestamp outside the bubble.
-                    // Keep media bubbles free of inline timestamps to avoid duplicates.
-                    isConsecutive = false,
-                    editedBy = editedBy,
-                    onReply = onReply,
-                    onReact = onReact,
-                    onEdit = onEdit,
-                    onDelete = onDelete,
-                    onUserClick = onUserClick,
-                    myUserId = myUserId,
-                    powerLevels = powerLevels,
-                    appViewModel = appViewModel,
-                    onBubbleClick = onBubbleClick,
-                    onShowEditHistory = onShowEditHistory,
-                    onShowMenu = onShowMenu,
-                    onShowReactions = onShowReactions,
-                    bubbleColorOverride = mediaBubbleColor,
-                    hasBeenEditedOverride = mediaHasBeenEdited,
-                )
+                bubbleContent()
             }
         } else {
-            MediaMessage(
-                mediaMessage = mediaMessage,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                isMine = isMine,
-                isEncrypted = hasEncryptedFile,
-                event = event,
-                timestamp = event.timestamp,
-                // Timeline rows already render timestamp outside the bubble.
-                // Keep media bubbles free of inline timestamps to avoid duplicates.
-                isConsecutive = false,
-                editedBy = editedBy,
-                onReply = onReply,
-                onReact = onReact,
-                onEdit = onEdit,
-                onDelete = onDelete,
-                onUserClick = onUserClick,
-                myUserId = myUserId,
-                powerLevels = powerLevels,
-                appViewModel = appViewModel,
-                onBubbleClick = onBubbleClick,
-                onShowMenu = onShowMenu,
-                onShowReactions = onShowReactions,
-                bubbleColorOverride = mediaBubbleColor,
-                hasBeenEditedOverride = mediaHasBeenEdited,
-            )
+            bubbleContent()
         }
 
         // For others' messages: receipts sit to the RIGHT of the media bubble
@@ -1287,8 +1301,10 @@ private fun RoomMessageContent(
         return
     }
 
-    // Check if it's a media message
-    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
+    // Check if it's a media message or an MSC4274 gallery
+    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file" ||
+        msgType in GALLERY_MSGTYPES
+    ) {
         RoomMediaMessageContent(
             event = event,
             content = content,
@@ -1654,17 +1670,27 @@ private fun RoomMediaMessageContent(
     }
 
     // Whether the media itself is encrypted (delivered as a `file` object rather than a plain `url`)
-    val hasEncryptedFile = mediaContentHasEncryptedFile(content)
+    val effectiveLocalContent = editedBy?.localContent ?: event.localContent
 
     // Prefer the edit event's localContent so stale orig_local_content (e.g. from a failed-decryption
     // notice that was later replaced by an m.image edit) is not used for the caption.
-    val mediaMessage = parseMediaMessage(
+    val singleMedia = parseMediaMessage(
         content = content,
         body = body,
-        localContent = editedBy?.localContent ?: event.localContent,
+        localContent = effectiveLocalContent,
     )
+    // An MSC4274 gallery has no top-level url, so it only reaches here when the single-media parse
+    // came up empty. A one-item gallery renders as a plain image, caption and all.
+    val gallery = if (singleMedia == null) parseGalleryMessage(content, effectiveLocalContent) else null
+    val singleGalleryItem = gallery
+        ?.takeIf { it.items.size == 1 && it.otherAttachmentCount == 0 }
+        ?.items
+        ?.first()
+    val mediaMessage = singleMedia ?: singleGalleryItem?.media?.copy(caption = gallery?.caption)
+    val mosaicGallery = if (singleGalleryItem == null) gallery else null
+    val hasEncryptedFile = singleGalleryItem?.isEncrypted ?: mediaContentHasEncryptedFile(content)
 
-    if (mediaMessage != null) {
+    if (mediaMessage != null || mosaicGallery != null) {
         val mediaIsThreadMessage = event.isThreadMessage()
         val mediaBubbleColor = remember(mediaHasBeenEdited, mediaIsThreadMessage, actualIsMine, colorScheme) {
             mediaBubbleColorFor(
@@ -1708,6 +1734,7 @@ private fun RoomMediaMessageContent(
             onShowMenu = onShowMenu,
             onShowReactions = onShowReactions,
             precomputedHasBeenEdited = mediaHasBeenEdited,
+            gallery = mosaicGallery,
         )
 
         // Add reaction badges for media messages
@@ -2686,8 +2713,10 @@ private fun EncryptedMessageContent(
             return
         }
 
-        // Check if it's a media message (only for non-redacted messages)
-        if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
+        // Check if it's a media message or gallery (only for non-redacted messages)
+        if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file" ||
+            msgType in GALLERY_MSGTYPES
+        ) {
             if (BuildConfig.DEBUG) {
                 Log.d(
                     "Andromuks",
@@ -2696,22 +2725,32 @@ private fun EncryptedMessageContent(
             }
 
             // For encrypted messages, the URL may live in file.url rather than a top-level url.
-            val hasEncryptedFile = mediaContentHasEncryptedFile(decrypted)
-            val mediaMessage = parseMediaMessage(
+            val singleMedia = parseMediaMessage(
                 content = decrypted,
                 body = body,
                 localContent = event.localContent,
             )
+            // A gallery has no top-level url, so it only reaches here when the single-media parse came
+            // up empty. A one-item gallery renders as a plain image, caption and all.
+            val gallery = if (singleMedia == null) parseGalleryMessage(decrypted, event.localContent) else null
+            val singleGalleryItem = gallery
+                ?.takeIf { it.items.size == 1 && it.otherAttachmentCount == 0 }
+                ?.items
+                ?.first()
+            val mediaMessage = singleMedia ?: singleGalleryItem?.media?.copy(caption = gallery?.caption)
+            val mosaicGallery = if (singleGalleryItem == null) gallery else null
+            val hasEncryptedFile = singleGalleryItem?.isEncrypted ?: mediaContentHasEncryptedFile(decrypted)
 
             if (BuildConfig.DEBUG) {
                 Log.d(
                     "Andromuks",
                     "TimelineEventItem: Encrypted media data - url=${mediaMessage?.url}, " +
-                        "filename=${mediaMessage?.filename}, hasEncryptedFile=$hasEncryptedFile",
+                        "filename=${mediaMessage?.filename}, hasEncryptedFile=$hasEncryptedFile, " +
+                        "galleryItems=${mosaicGallery?.items?.size}",
                 )
             }
 
-            if (mediaMessage != null) {
+            if (mediaMessage != null || mosaicGallery != null) {
                 val encryptedMediaIsThreadMessage = event.isThreadMessage()
                 val encryptedMediaHasBeenEdited =
                     remember(event.eventId, appViewModel?.timelineUpdateCounter) {
@@ -2760,6 +2799,7 @@ private fun EncryptedMessageContent(
                     onShowReactions = onShowReactions,
                     precomputedHasBeenEdited = encryptedMediaHasBeenEdited,
                     readReceipts = readReceipts,
+                    gallery = mosaicGallery,
                 )
 
                 // Add reaction badges for encrypted media messages

@@ -101,12 +101,20 @@ Nested `Row`/`Column`, never `LazyVerticalGrid` — the height is then a pure fu
 count, which keeps `LazyColumn` scroll anchoring stable and avoids nested scrolling. Only the root
 layout receives the incoming `modifier` (detekt's `ModifierReused`).
 
+The mosaic as a whole is clipped to a rounded rectangle, so only its outer corners are rounded while
+tiles stay square against each other.
+
+The one-item case is handled *before* the mosaic: `RoomMediaMessageContent` unwraps a single-item
+gallery into its `MediaMessage` (with the gallery caption copied onto it) and hands it to the normal
+`MediaMessageItem` path, so it gets natural aspect, inline video playback, and everything else single
+media already does.
+
 Per tile:
 
 - **Thumbnail first, original as fallback.** Tiles are 94–144 dp, so the pre-baked thumbnail is
-  always the right asset; `shouldUseTimelineThumbnail` takes a `targetWidth` so the 2× stretch rule
-  is evaluated against the tile, not the 288 dp frame. If the thumbnail fails to load, the tile
-  retries with the item's original URL — the same fallback ladder single media uses.
+  always the right asset and the stretch heuristic in `shouldUseTimelineThumbnail` is not consulted
+  at all. If the thumbnail fails to load, the tile flips to the item's original URL — the same
+  fallback ladder single media uses.
 - **BlurHash placeholder** from that item's own hash.
 - **Individually tappable**, reporting its own bounds via `onGloballyPositioned`, so the viewer opens
   at that item's index with the shared-element animation originating from the tapped tile.
@@ -118,6 +126,9 @@ Per tile:
 The visible-window media prefetchers in `EventContextScreen.kt` and `BubbleTimelineScreen.kt` read
 `info.thumbnail_url` / `thumbnail_file.url` straight off the content and know nothing about
 `itemtypes`, so gallery tiles are not prefetched — they load on display like any uncached media.
+
+Until phase 4 lands, a tile opens that one item in the existing single-image `ImageViewerDialog`
+(videos go straight to `VideoPlayerDialog`); there is no sliding between items yet.
 
 ## Phase 4 — pager viewer
 
