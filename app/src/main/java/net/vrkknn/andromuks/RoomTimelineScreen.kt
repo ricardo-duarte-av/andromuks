@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks
 
-import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -8,7 +7,6 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
-import android.os.Build
 import android.util.Log
 import android.view.Surface
 import androidx.activity.compose.BackHandler
@@ -971,10 +969,6 @@ fun RoomTimelineScreen(
     var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
 
-    // Camera state
-    var cameraPhotoUri by remember { mutableStateOf<Uri?>(null) }
-    var cameraVideoUri by remember { mutableStateOf<Uri?>(null) }
-
     // Text input state (moved here to be accessible by mention handler and share intake)
     val urlPreviewController = remember { UrlPreviewController() }
     var draft by remember { mutableStateOf("") }
@@ -1324,153 +1318,15 @@ fun RoomTimelineScreen(
             }
         }
 
-    // Camera photo launcher
-    val cameraPhotoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture(),
-    ) { success ->
-        if (success && cameraPhotoUri != null) {
-            cameraPhotoUri?.let { uri ->
-                selectedMediaUri = uri
-                selectedMediaIsVideo = false
-                showMediaPreview = true
-            }
-        }
-        cameraPhotoUri = null
-    }
-
-    // Camera video launcher
-    val cameraVideoLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CaptureVideo(),
-    ) { success ->
-        if (success && cameraVideoUri != null) {
-            cameraVideoUri?.let { uri ->
-                selectedMediaUri = uri
-                selectedMediaIsVideo = true
-                showMediaPreview = true
-            }
-        }
-        cameraVideoUri = null
-    }
-
-    // Helper function to create camera file URI
-    fun createCameraFileUri(isVideo: Boolean): Uri? = try {
-        val timeStamp = java.text.SimpleDateFormat(
-            "yyyyMMdd_HHmmss",
-            java.util.Locale.getDefault(),
-        ).format(java.util.Date())
-        val fileName = if (isVideo) "VID_$timeStamp.mp4" else "IMG_$timeStamp.jpg"
-        val contentValues = android.content.ContentValues().apply {
-            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
-            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (isVideo) "video/mp4" else "image/jpeg")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(
-                    android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
-                    if (isVideo) android.os.Environment.DIRECTORY_MOVIES else android.os.Environment.DIRECTORY_PICTURES,
-                )
-            }
-        }
-        context.contentResolver.insert(
-            if (isVideo) {
-                android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-            } else {
-                android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-            },
-            contentValues,
-        )
-    } catch (e: Exception) {
-        Log.e("Andromuks", "Error creating camera file URI", e)
-        null
-    }
-
-    // Camera permission launcher for photo
-    val cameraPhotoPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { isGranted ->
-        if (isGranted) {
-            val uri = createCameraFileUri(false) // Photo
-            if (uri != null) {
-                cameraPhotoUri = uri
-                cameraPhotoLauncher.launch(uri)
-                showAttachmentMenu = false
-            } else {
-                android.widget.Toast.makeText(
-                    context,
-                    "Error creating camera file",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-            }
-        } else {
-            android.widget.Toast.makeText(
-                context,
-                "Camera permission is required to take photos",
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
-        }
-    }
-
-    // Camera permission launcher for video
-    val cameraVideoPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { isGranted ->
-        if (isGranted) {
-            val uri = createCameraFileUri(true) // Video
-            if (uri != null) {
-                cameraVideoUri = uri
-                cameraVideoLauncher.launch(uri)
-                showAttachmentMenu = false
-            } else {
-                android.widget.Toast.makeText(
-                    context,
-                    "Error creating camera file",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-            }
-        } else {
-            android.widget.Toast.makeText(
-                context,
-                "Camera permission is required to record videos",
-                android.widget.Toast.LENGTH_SHORT,
-            ).show()
-        }
-    }
-
-    // The in-app PHOTO/VIDEO overlays bind CameraX the moment they become visible, so they
-    // must only be flipped on once CAMERA permission is granted (otherwise the bind fails and
-    // CameraX shows a black frame while retrying for 10s). AttachmentMenuBar owns that
-    // permission gate internally and only invokes onOpenPhotoCamera/onOpenVideoCamera on grant.
-
-    // Helper function to launch camera
-    fun launchCamera(isVideo: Boolean) {
-        if (ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.CAMERA,
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            val uri = createCameraFileUri(isVideo)
-            if (uri != null) {
-                if (isVideo) {
-                    cameraVideoUri = uri
-                    cameraVideoLauncher.launch(uri)
-                } else {
-                    cameraPhotoUri = uri
-                    cameraPhotoLauncher.launch(uri)
-                }
-                showAttachmentMenu = false
-            } else {
-                android.widget.Toast.makeText(
-                    context,
-                    "Error creating camera file",
-                    android.widget.Toast.LENGTH_SHORT,
-                ).show()
-            }
-        } else {
-            if (isVideo) {
-                cameraVideoPermissionLauncher.launch(Manifest.permission.CAMERA)
-            } else {
-                cameraPhotoPermissionLauncher.launch(Manifest.permission.CAMERA)
-            }
-        }
-    }
+    // Camera capture is handled entirely by the in-app CameraX overlays (utils/AttachmentMenu.kt),
+    // not by ACTION_IMAGE_CAPTURE/ACTION_VIDEO_CAPTURE — the system camera app's capture-intent
+    // mode is a stripped viewfinder anyway, and the overlays keep the M3 UI and the capture file
+    // in cacheDir instead of the user's gallery.
+    //
+    // The overlays bind CameraX the moment they become visible, so they must only be flipped on
+    // once CAMERA permission is granted (otherwise the bind fails and CameraX shows a black frame
+    // while retrying for 10s). AttachmentMenuBar owns that permission gate internally and only
+    // invokes onOpenPhotoCamera/onOpenVideoCamera on grant.
 
     // (removed userProfileCache building loop - it was unused and caused main thread jank)
 
