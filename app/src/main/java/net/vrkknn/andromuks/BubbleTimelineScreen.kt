@@ -1579,12 +1579,18 @@ fun BubbleTimelineScreen(
             .filterNotNull()
             .distinctUntilChanged()
             .collect { (visibleStart, visibleEnd) ->
-                if (timelineItems.isEmpty()) return@collect
+                // Snapshot the list ONCE. `timelineItems` is a produceState delegate, so every
+                // mention of it is a fresh State read. This scan happens to run inline on the
+                // collector's dispatcher, which makes bounds-then-index atomic today — but that
+                // is an accident of scheduling, not a guarantee. Hoisting keeps it correct if the
+                // scan is ever moved off Main (that hop is exactly what broke the room timeline).
+                val items = timelineItems
+                if (items.isEmpty()) return@collect
                 val start = (visibleStart - prefetchGuardband).coerceAtLeast(0)
-                val end = (visibleEnd + prefetchGuardband).coerceAtMost(timelineItems.lastIndex)
+                val end = (visibleEnd + prefetchGuardband).coerceAtMost(items.lastIndex)
 
                 for (index in start..end) {
-                    val item = timelineItems[index] as? BubbleTimelineItem.Event ?: continue
+                    val item = items[index] as? BubbleTimelineItem.Event ?: continue
                     val event = item.event
 
                     // Prefetch sender avatar

@@ -2013,20 +2013,25 @@ fun RoomTimelineScreen(
             .filterNotNull()
             .distinctUntilChanged()
             .collect { (visibleStart, visibleEnd) ->
-                if (timelineItems.isEmpty()) return@collect
+                // Snapshot the list ONCE. `timelineItems` is a produceState delegate, so every
+                // mention of it is a fresh State read: bounds computed from one instance could
+                // otherwise be used to index a shorter instance produced moments later (the
+                // LaunchedEffect relaunch is not instant, and the scan below never suspends).
+                val items = timelineItems
+                if (items.isEmpty()) return@collect
                 val start = (visibleStart - prefetchGuardband).coerceAtLeast(0)
-                val end = (visibleEnd + prefetchGuardband).coerceAtMost(timelineItems.lastIndex)
+                val end = (visibleEnd + prefetchGuardband).coerceAtMost(items.lastIndex)
 
                 // Off Main: this walks up to (2 * prefetchGuardband + 1) items doing
                 // optJSONObject/optString per item — allocating JSONObject wrappers and Strings
                 // — and it re-runs every time the visible range changes, i.e. on every item
                 // boundary crossed during a fling. The upstream snapshotFlow still observes
                 // layoutInfo on the composition's context; only this scan moves. Coil's
-                // enqueue() is thread-safe, and timelineItems/memberMapWithFallback are
-                // captured values rather than live snapshot reads.
+                // enqueue() is thread-safe, and items/memberMapWithFallback are captured
+                // values rather than live snapshot reads.
                 withContext(Dispatchers.Default) {
                     for (index in start..end) {
-                        val item = timelineItems[index] as? TimelineItem.Event ?: continue
+                        val item = items[index] as? TimelineItem.Event ?: continue
                         val event = item.event
 
                         // Prefetch sender avatar
