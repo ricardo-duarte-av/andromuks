@@ -117,8 +117,12 @@ Secondary VMs (`ShortcutActivity`, `ChatBubbleActivity`) refresh `timelineEvents
 - `app/src/main/java/net/vrkknn/andromuks/` — all source code
 - `app/src/main/java/net/vrkknn/andromuks/utils/` — utility functions (media, HTML, formatting, avatars, encryption, etc.)
 - `app/src/main/java/net/vrkknn/andromuks/ui/` — reusable Compose components and theme
-- `app/src/main/java/net/vrkknn/andromuks/car/` — Android Automotive OS integration
 - `docs/` — architecture and optimization documentation files (useful for understanding past decisions)
+
+There is **no Android Auto / Automotive code**. The app declares itself a messaging app via
+`automotive_app_desc` in the manifest and is driven entirely by notification `MessagingStyle` plus
+the reply / mark-read actions — so anything that improves notifications improves the car experience,
+and there is no separate car surface to update. See [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md).
 
 ## Coordinator Pattern
 

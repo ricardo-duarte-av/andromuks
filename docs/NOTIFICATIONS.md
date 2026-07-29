@@ -193,6 +193,73 @@ Additional effects:
 
 **The one unsolved edge — dismiss-before-message.** If a dismiss FCM is *delivered before* the message it follows, the directional compare (`dismissTime > messageReceivedAt`) declines to suppress and the notification lingers. This is unsolvable locally because the dismiss payload carries nothing to order it against the message. It is also rare: the message is **high-priority** FCM (delivered immediately, bypasses Doze) while the dismiss is **normal-priority** (deferred) — so ordering normally favours the message. It only inverts if FCM downgrades the message to normal under high-priority quota pressure (e.g. a very bursty DM) and then reorders it past the dismiss. The failure mode is a lingering notification — strictly less-bad than a lost one — so it is accepted rather than fixed. The order-independent fix would be reconciliation against gomuks read state via `/exec` (the message carries `event_rowid`, and the worker already round-trips per notification), or a backend change adding a read-up-to reference to `PushDismiss`.
 
+## Notification enrichment over `/exec`
+
+FCM's payload carries one event and nothing around it. `EnhancedNotificationDisplay` fills the gaps
+from the server before posting, using read-only commands over [`/exec`](EXEC_ENDPOINT.md) — a path
+that needs neither a WebSocket nor a ViewModel, so it works in battery-saver mode and on an FCM cold
+start. Everything here is best-effort: each failure mode degrades to the pre-enrichment notification.
+
+All of it shares one `ExecBudget` (`ExecBudget.forNotification()`: 5 calls, 4 s), created once per
+notification and threaded through every step, so a slow network delays nothing past the deadline
+rather than each lookup imposing its own. Steps run most-valuable-first, so a tight budget drops the
+least useful work. Enrichment happens **after** the low-priority and visible-room suppression
+guards — a notification that will not be posted costs nothing.
+
+| Step | Command | When |
+|---|---|---|
+| Room name | `get_room_summary` | push has no `room_name` |
+| History backfill | `paginate_manual` | `roomMessageCache` is cold |
+| Reply context | `get_event` | incoming event is a reply to something outside the history window |
+| Sender names | `get_specific_room_state` | a backfilled sender is unknown to `ProfileCache` (≤2 senders) |
+
+**Room name** matters more than it looks: it becomes the conversation title, the notification
+*channel* name and the shortcut label, and the channel name outlives the notification.
+
+**Reply context** is read out of the history page we already fetched — FCM carries no relation data,
+so "is this a reply, and to what" has to come from the timeline, and getting it from the page that
+is already in hand is free. A `get_event` is only spent when the parent falls outside that window; a
+parent already in the history is going to render anyway. The parent then takes a slot from the
+recent messages, on the grounds that knowing what a reply answers beats one more line of backlog.
+
+**Sender names** are capped at two lookups because the cost scales with distinct senders while the
+notification waits. Senders past the cap keep the MXID localpart, the pre-existing behaviour.
+Nothing is written back to `ProfileCache` — this path runs outside the sync pipeline and must not
+race `MemberProfilesCoordinator`.
+
+**Not done: unread counts.** Accurate group-summary badges would need `get_state`, which returns the
+entire `ClientState` (every room). That payload has no business on a notification path, so the
+summary keeps counting active notifications.
+
+## MessagingStyle history backfill
+
+`roomMessageCache` is fed **only by notifications we previously posted**, so it is empty on a fresh
+process, after the user clears the shade, and for a room's first message — i.e. most of the time. A
+cold cache produced a single-line notification with no conversation context.
+
+`EnhancedNotificationDisplay.seedHistoryIfCold` fills it from the server before posting, via
+`NotificationBackfill.fetchHistory`.
+
+Design constraints, each of which is load-bearing:
+
+- **Outside the room lock.** The seed does blocking network I/O, and `getRoomLock` is shared with
+  the dismiss and worker-repost paths — holding it across an HTTP call would stall them.
+- **Re-checked under the deque lock.** A concurrent notification for the same room may have posted
+  while the request was in flight; its live message beats our historical snapshot, so a non-empty
+  cache aborts the seed.
+- **`MAX_CACHED_MESSAGES_PER_ROOM - 1` slots.** One is reserved for the incoming message so it can
+  never be the one evicted.
+- **Lettermark avatars only.** Resolving real avatars would cost one media fetch per distinct
+  sender on the critical path; `upgradeAvatarsInCache` stamps the real ones in later.
+- **No cache writes.** Backfilled events never enter `RoomTimelineCache` — this path runs outside
+  the sync pipeline and must not race its view of the timeline.
+
+Redactions, edits and unreadable events are dropped; the page is over-fetched 4× because the window
+is mostly state events, reactions and receipts that never render.
+
+Best-effort by construction: every failure mode (no credentials, budget exhausted, transport error,
+unparseable response) yields an empty list and the notification posts exactly as it did before.
+
 ## Bubble integration
 
 Chat bubbles (Android 11+) are tracked via the `BubbleTracker` singleton. `FCMService` consults it before dismissing notifications to avoid collapsing an open bubble.
