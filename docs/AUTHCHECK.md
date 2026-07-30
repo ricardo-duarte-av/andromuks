@@ -263,8 +263,23 @@ affect the MainActivity and FCM entry paths too — see the release-only races i
 [STATE_INVARIANTS.md](STATE_INVARIANTS.md). The change above avoids the gate on the fast path
 rather than weakening it.
 
-`ChatBubbleActivity` has the same 5 s poll but restores its own timeline state and is exempt from
-the `timelineEvents` clearing invariant, so it was left alone rather than assumed equivalent.
+### Why `ChatBubbleActivity` does *not* get the same treatment
+
+`ChatBubbleActivity` has a superficially identical 5 s WebSocket poll, but `/exec` is the wrong tool
+there and this is not a missing follow-up:
+
+- **The bubble brings the socket up itself.** It calls `startWebSocketService()` and
+  `setAppVisibility(true)` before polling, so there is no "socket is down and staying down" case to
+  rescue — unlike a shortcut tap in battery-saver mode.
+- **An early paint would lie.** Bubble sends go through `appViewModel.sendMessage` →
+  `sendWebSocketCommand`, and `MessageSendCoordinator` does **not** buffer a send while the socket is
+  fully down (`send_message` is non-idempotent, so the offline queue deliberately refuses it).
+  Painting the composer a couple of seconds earlier would hand the user a send button that silently
+  drops what they type. A short spinner is strictly better than a UI whose affordances do not work.
+
+`/exec` covers reads. A shortcut tap can legitimately be a read-only glance at cached history; a
+bubble is a commitment to a live conversation, so the socket is a real precondition rather than
+latency to be engineered away.
 
 ## Cold-start cache-first rendering
 
