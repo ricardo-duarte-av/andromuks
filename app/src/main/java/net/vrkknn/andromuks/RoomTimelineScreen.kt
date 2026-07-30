@@ -17,6 +17,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.ExperimentalSharedTransitionApi
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -166,6 +168,7 @@ import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
 import net.vrkknn.andromuks.ui.theme.scaledColumnExit
+import net.vrkknn.andromuks.ui.theme.scaledTween
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.CodeViewer
@@ -243,11 +246,33 @@ sealed class TimelineItem {
  *    can't spawn a spurious "new messages" line above it.
  * Re-created (via remember(roomId)) on each room open, so reopening re-decides against the current
  * marker.
+ *
+ * [consumed] adds the second half of the lifecycle: the divider is a bookmark for where reading
+ * left off, so the act of *seeing* it spends it (see READ_MARKER_* below). Once consumed it never
+ * comes back for this room open — the divider extinguishes and the jump-to-unread FAB retires.
+ * Observable, because it gates both the FAB and the divider's own rendering.
  */
 private class ReadMarkerDecision {
     var decided = false
     var anchorEventId: String? = null
+    var consumed by mutableStateOf(false)
 }
+
+/**
+ * How long the "New messages" divider must stay continuously on screen before it counts as seen.
+ * Guards a fast fling that whips it through the viewport in a couple of frames from silently
+ * burning the bookmark.
+ */
+private const val READ_MARKER_DWELL_MS = 350L
+
+/** Flare duration: the divider brightens past its resting look before it starts to die. */
+private const val READ_MARKER_FLARE_MS = 320
+
+/** Extinguish duration: the long, slow decay from the flare peak down to nothing. */
+private const val READ_MARKER_EXTINGUISH_MS = 5000
+
+/** Peak of the flare, as a multiple of the divider's resting intensity. */
+private const val READ_MARKER_FLARE_PEAK = 1.4f
 
 /**
  * Snapshot of the values the auto-paginate effect reacts to. pendingScrollRestoration is
@@ -613,34 +638,55 @@ fun DateDivider(date: String) {
     }
 }
 
-/** "New messages" divider separating already-read events from unread ones (m.fully_read). */
+/**
+ * "New messages" divider separating already-read events from unread ones (m.fully_read).
+ *
+ * [intensity] drives the consume-on-sight lifecycle and is owned by the screen, not by this
+ * composable — a LazyColumn disposes items that leave the viewport, so state remembered in here
+ * would reset every time the divider scrolled off. 1f is the resting look; the screen animates it
+ * up to [READ_MARKER_FLARE_PEAK] and then down to 0f once the divider has been seen.
+ *
+ * The whole row is wrapped in AnimatedVisibility so the final height collapse is a real layout
+ * animation rather than a fixed-height guess that would clip at large font scales.
+ */
 @Composable
-fun UnreadMarker() {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
+fun UnreadMarker(intensity: Float = 1f) {
+    // Alpha tracks intensity but saturates at the resting value, so the flare reads as the line
+    // and label *thickening and glowing* rather than as an overshoot into transparency.
+    val contentAlpha = intensity.coerceIn(0f, 1f)
+    val lineAlpha = (0.6f * intensity).coerceIn(0f, 1f)
+    val lineThickness = intensity.coerceIn(1f, READ_MARKER_FLARE_PEAK).dp
+
+    AnimatedVisibility(
+        visible = intensity > 0f,
+        exit = shrinkVertically(animationSpec = scaledTween(240)) + fadeOut(animationSpec = scaledTween(240)),
     ) {
-        androidx.compose.foundation.layout.Spacer(
-            modifier =
-            Modifier.weight(1f)
-                .height(1.dp)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            androidx.compose.foundation.layout.Spacer(
+                modifier =
+                Modifier.weight(1f)
+                    .height(lineThickness)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = lineAlpha)),
+            )
 
-        Text(
-            text = "New messages",
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 16.dp),
-        )
+            Text(
+                text = "New messages",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary.copy(alpha = contentAlpha),
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
 
-        androidx.compose.foundation.layout.Spacer(
-            modifier =
-            Modifier.weight(1f)
-                .height(1.dp)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)),
-        )
+            androidx.compose.foundation.layout.Spacer(
+                modifier =
+                Modifier.weight(1f)
+                    .height(lineThickness)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = lineAlpha)),
+            )
+        }
     }
 }
 
@@ -2185,6 +2231,53 @@ fun RoomTimelineScreen(
             }
             hasSetInitialScrollPosition = true
         }
+    }
+
+    // Position of the "New messages" divider in the (oldest-first) item list, or -1 when absent.
+    // Hoisted here rather than computed at the FAB so the consume effect and the FAB share one
+    // scan — this walks the whole item list on every rebuild and does not want doing twice.
+    val unreadMarkerIndex = remember(timelineItems) {
+        timelineItems.indexOfFirst { it is TimelineItem.ReadMarker }
+    }
+    val readMarkerKey = remember(timelineItems, unreadMarkerIndex) {
+        (timelineItems.getOrNull(unreadMarkerIndex) as? TimelineItem.ReadMarker)?.stableKey
+    }
+
+    // Consume-on-sight for the "New messages" divider. The divider marks where reading left off,
+    // so seeing it is spending it: once the row has been on screen for READ_MARKER_DWELL_MS it
+    // flares, extinguishes over READ_MARKER_EXTINGUISH_MS, and is gone for the rest of this room
+    // open — the jump-to-unread FAB retires at the same moment. This deliberately covers both ways
+    // of reaching it (tapping the FAB and simply scrolling up), because both mean the same thing.
+    //
+    // The animation value lives here, not in UnreadMarker: the LazyColumn disposes the row
+    // whenever it leaves the viewport, and the decay has to keep running across that.
+    val readMarkerIntensity = remember(roomId) { Animatable(1f) }
+    LaunchedEffect(roomId, readMarkerKey) {
+        val markerKey = readMarkerKey ?: return@LaunchedEffect
+        if (readMarkerDecision.consumed) return@LaunchedEffect
+
+        // Wait for the row to be *continuously* visible for the dwell: a fling that flicks it
+        // through the viewport in two frames must not burn the bookmark unseen.
+        val isMarkerVisible = { listState.layoutInfo.visibleItemsInfo.any { it.key == markerKey } }
+        while (true) {
+            snapshotFlow { isMarkerVisible() }.filter { it }.first()
+            kotlinx.coroutines.delay(READ_MARKER_DWELL_MS)
+            if (isMarkerVisible()) break
+        }
+
+        // Latch before animating so the FAB disappears as the flare starts, not 5s later.
+        readMarkerDecision.consumed = true
+        readMarkerIntensity.animateTo(
+            READ_MARKER_FLARE_PEAK,
+            animationSpec = scaledTween(READ_MARKER_FLARE_MS, easing = FastOutSlowInEasing),
+        )
+        readMarkerIntensity.animateTo(
+            0f,
+            // Accelerating (slow out of the peak, steep at the end): the line holds its glow
+            // long enough to be read, then drops away, rather than dimming instantly and
+            // crawling the last 10% for four seconds.
+            animationSpec = scaledTween(READ_MARKER_EXTINGUISH_MS, easing = FastOutLinearInEasing),
+        )
     }
 
     // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
@@ -3744,7 +3837,7 @@ fun RoomTimelineScreen(
                                                 }
 
                                                 is TimelineItem.ReadMarker -> {
-                                                    UnreadMarker()
+                                                    UnreadMarker(intensity = readMarkerIntensity.value)
                                                 }
 
                                                 is TimelineItem.Event -> {
@@ -4973,13 +5066,13 @@ fun RoomTimelineScreen(
                     }
 
                     // Jump-to-unread FAB: shown only when pinned to the bottom (same clause that hides
-                    // the scroll-down FAB) AND a "New messages" divider is present above. Lets the user
-                    // jump straight up to where reading left off. The two FABs are mutually exclusive
-                    // (one needs detached, this needs attached), so they never overlap.
-                    val unreadMarkerIndex = remember(timelineItems) {
-                        timelineItems.indexOfFirst { it is TimelineItem.ReadMarker }
-                    }
-                    if (isAttachedToBottom && unreadMarkerIndex >= 0) {
+                    // the scroll-down FAB) AND a "New messages" divider is present above and still
+                    // unspent. Lets the user jump straight up to where reading left off. The two FABs
+                    // are mutually exclusive (one needs detached, this needs attached), so they never
+                    // overlap. Once the divider has been seen it is consumed (see the consume-on-sight
+                    // effect) and this FAB does not come back for the rest of the room open — after the
+                    // jump there is, by definition, nothing left unread to jump to.
+                    if (isAttachedToBottom && unreadMarkerIndex >= 0 && !readMarkerDecision.consumed) {
                         val menuOpen = showAttachmentMenu || messageMenuConfig != null
                         val fabBottomPadding = if (menuOpen) 200.dp else 90.dp
                         FloatingActionButton(
