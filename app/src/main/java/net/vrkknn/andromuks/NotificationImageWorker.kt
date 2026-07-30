@@ -618,7 +618,7 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
         NotificationCompat.getLocusId(existing.notification)?.let { builder.setLocusId(it) }
         NotificationCompat.getBubbleMetadata(existing.notification)?.let { builder.setBubbleMetadata(it) }
 
-        // Preserve event_id extra and reply / mark-read actions. Use NotificationCompat.getAction
+        // Preserve event_id extra and every action (reply / mark-read / mute). Use NotificationCompat.getAction
         // (not raw Notification.Action copies) so each action keeps its icon and — critically — its
         // RemoteInput: the inline-reply text field would otherwise be dropped on the silent re-post.
         val storedEventId = existing.notification.extras?.getString("event_id") ?: eventId

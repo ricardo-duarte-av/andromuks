@@ -344,6 +344,32 @@ object ExecApi {
     }
 
     /**
+     * Mute a room by putting an empty-actions room-scoped push rule, the same shape
+     * `PushRulesCoordinator.setRoomNotificationLevel(MUTE)` sends over the WebSocket. Blocking —
+     * must be called off the main thread. Returns true on success.
+     */
+    fun muteRoom(creds: Credentials, roomId: String): Boolean {
+        val body = JSONObject().apply {
+            put("kind", "room")
+            put("rule_id", roomId)
+            put("action", "put")
+            put(
+                "new_content",
+                JSONObject().apply {
+                    // Empty actions is what gomuks reads as "muted"; conditions/pattern are
+                    // required-but-empty for a room-scoped rule.
+                    put("actions", org.json.JSONArray())
+                    put("conditions", org.json.JSONArray())
+                    put("pattern", "")
+                },
+            )
+        }
+        // Naturally idempotent (the rule ends up in the same state either way); the envelope just
+        // makes a retry a cheap server-side no-op instead of a second rule write.
+        return execWithIdempotentRetry(creds, "update_push_rule", body) is ExecResult.Success
+    }
+
+    /**
      * Run [command] with a de-duplication envelope, retrying transient network failures under the
      * *same* [Idempotency] so a landed-but-unacknowledged attempt is collapsed by the server rather
      * than re-executed. Terminal outcomes (success, command error, auth) return immediately. A

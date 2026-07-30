@@ -26,6 +26,7 @@ Everything lives in [`ExecApi.kt`](../app/src/main/java/net/vrkknn/andromuks/uti
 |---|---|---|---|
 | `NotificationReplyReceiver` (battery-saver quick reply) | `send_message` via `ExecApi.sendMessage` | yes | **yes** |
 | `NotificationMarkReadReceiver` (battery-saver mark-read) | `mark_read` via `ExecApi.markRead` | yes | yes (cheap no-op) |
+| `NotificationMuteReceiver` (mute action, no ViewModel) | `update_push_rule` via `ExecApi.muteRoom` | yes | yes (cheap no-op) |
 | `ExecCommandCoordinator` (FCM timeline hydrate) | `paginate` etc. | no | no |
 | `NotificationImageWorker` | `get_event` | no | no |
 | `NotificationEnrichment` (missing room name) | `get_room_summary` via `ExecApi.callObject` | no | no — read-only |

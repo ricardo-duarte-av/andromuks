@@ -1170,6 +1170,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         // Add mark as read action
                         val markReadAction = createMarkReadAction(notificationData)
                         addAction(markReadAction)
+                        // Add mute action (third and final slot — see createMuteAction)
+                        addAction(createMuteAction(notificationData))
                         // Wear OS: surface reply action on the watch
                         extend(
                             NotificationCompat.WearableExtender()
@@ -1355,6 +1357,38 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         val name = NotificationEnrichment.fetchRoomName(context, notificationData.roomId, budget) ?: return notificationData
         if (BuildConfig.DEBUG) Log.d(TAG, "Resolved missing room name for ${notificationData.roomId}: $name")
         return notificationData.copy(roomName = name)
+    }
+
+    /**
+     * "Mute" action — silences the room and dismisses the notification, via
+     * [NotificationMuteReceiver].
+     *
+     * Third and last action: Android's standard notification template renders at most three, and
+     * Reply + Mark Read already occupy two. Mute earns the slot over a quick-react because Reply
+     * already covers responding, whereas nothing else in the shade lets a user stop a noisy room
+     * without opening the app.
+     */
+    private fun createMuteAction(data: NotificationData): NotificationCompat.Action {
+        val muteIntent = Intent(context, NotificationMuteReceiver::class.java).apply {
+            action = NotificationMuteReceiver.ACTION_MUTE
+            putExtra("room_id", data.roomId)
+        }
+        val mutePendingIntent = PendingIntent.getBroadcast(
+            context,
+            // Offset by 3 so it cannot collide with the reply (+1) or mark-read (+2) PendingIntents
+            // for the same room, which would otherwise overwrite each other's extras.
+            data.roomId.hashCode() + 3,
+            muteIntent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            },
+        )
+        return NotificationCompat.Action.Builder(R.mipmap.ic_launcher, "Mute", mutePendingIntent)
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MUTE)
+            .setShowsUserInterface(false)
+            .build()
     }
 
     /**
@@ -2210,6 +2244,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     )
                     addAction(createReplyAction(notificationData))
                     addAction(createMarkReadAction(notificationData))
+                    // Re-add Mute too: this rebuild replaces the whole action list, so omitting it
+                    // would make the action vanish as soon as the user replies inline.
+                    addAction(createMuteAction(notificationData))
                 }
                 .build()
 

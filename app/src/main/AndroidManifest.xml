@@ -178,6 +178,11 @@
             android:name=".NotificationMarkReadReceiver"
             android:exported="false"
             android:enabled="true" />
+
+        <receiver
+            android:name=".NotificationMuteReceiver"
+            android:exported="false"
+            android:enabled="true" />
         
         <!-- BootStartReceiver - Restarts service on device boot -->
         <receiver

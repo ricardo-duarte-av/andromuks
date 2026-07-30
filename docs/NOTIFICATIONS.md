@@ -193,6 +193,41 @@ Additional effects:
 
 **The one unsolved edge — dismiss-before-message.** If a dismiss FCM is *delivered before* the message it follows, the directional compare (`dismissTime > messageReceivedAt`) declines to suppress and the notification lingers. This is unsolvable locally because the dismiss payload carries nothing to order it against the message. It is also rare: the message is **high-priority** FCM (delivered immediately, bypasses Doze) while the dismiss is **normal-priority** (deferred) — so ordering normally favours the message. It only inverts if FCM downgrades the message to normal under high-priority quota pressure (e.g. a very bursty DM) and then reorders it past the dismiss. The failure mode is a lingering notification — strictly less-bad than a lost one — so it is accepted rather than fixed. The order-independent fix would be reconciliation against gomuks read state via `/exec` (the message carries `event_rowid`, and the worker already round-trips per notification), or a backend change adding a read-up-to reference to `PushDismiss`.
 
+## Notification actions
+
+| Action | Receiver | Command |
+|---|---|---|
+| Reply (inline `RemoteInput`) | `NotificationReplyReceiver` | `send_message` |
+| Mark Read | `NotificationMarkReadReceiver` | `mark_read` |
+| Mute | `NotificationMuteReceiver` | `update_push_rule` (room rule, empty actions) |
+
+**Three is the cap.** Android's standard notification template renders at most three actions, so the
+list is full. Anything new has to displace something rather than be appended.
+
+Every receiver is **dual-path**: WebSocket via a registered ViewModel when one exists, HTTP `/exec`
+otherwise. The `/exec` arm is not only for battery-saver mode — a notification action must work when
+the app is not running at all, which is precisely when there is no ViewModel to hand off to. Mutating
+commands go through `ExecApi.execWithIdempotentRetry` so a lost response cannot double-apply.
+
+`NotificationMuteReceiver` prefers `PushRulesCoordinator.setRoomNotificationLevel` when a ViewModel
+exists rather than sending a raw command, so the in-memory ruleset updates too — otherwise the
+Settings UI would show the room as unmuted until the next sync. It also clears the room's
+`roomMessageCache` on the way out: the user has said they do not want to hear from this room, so
+buffered lines must not reappear if something re-posts before the mute lands server-side.
+
+`NotificationImageWorker`'s Phase-2 rebuild copies actions generically
+(`NotificationCompat.getActionCount` / `getAction`), so new actions survive it without changes.
+
+### Considered and rejected
+
+- **Quick-react.** Reply already covers responding, and a fixed single emoji with no picker is thin
+  value for the last action slot.
+- **Redact.** Notifications are about *other people's* messages, so this is a moderation action, not
+  "unsend" — a destructive, permission-dependent operation behind a one-tap shade button.
+- **Invite accept/decline.** Blocked upstream, not declined: the gomuks push gateway only emits
+  `messages` and `dismiss` payloads (`FCMService`), so invites never produce a notification to
+  attach actions to. Would need a new push type before the client side is worth building.
+
 ## Notification enrichment over `/exec`
 
 FCM's payload can arrive without a room name. `EnhancedNotificationDisplay.enrichRoomName` fills
