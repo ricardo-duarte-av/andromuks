@@ -110,6 +110,52 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    /**
+     * Terminal `error` frame for a timeline-family request. Returns true if this coordinator owned
+     * [requestId], so [AppViewModel.handleError] can stop its chain.
+     *
+     * These maps had no error branch at all: an error for a paginate fell through to
+     * "Unknown error requestId" and every flag the request had set stayed set forever. That is the
+     * failure docs/RPC_RESILIENCE.md warns about — "Error frames must be wired before a timeout is
+     * removed. Removing a timeout from a command whose errors are unhandled turns a slow failure into
+     * a permanent one." These commands never had timeouts, so the permanent failure was always there.
+     */
+    fun handleRequestError(requestId: Int, errorMessage: String): Boolean {
+        with(vm) {
+            timelineRequests.remove(requestId)?.let { roomId ->
+                roomsWithPendingPaginate.remove(roomId)
+                if (roomId == currentRoomId) isTimelineLoading = false
+                endPostJoinLoading(roomId)
+                android.util.Log.w("Andromuks", "AppViewModel: timeline request failed for $roomId: $errorMessage")
+                return true
+            }
+            paginateRequests.remove(requestId)?.let { roomId ->
+                paginateRequestMaxTimelineIds.remove(requestId)
+                // Unconditional, for the same reason as the success path above.
+                isPaginating = false
+                android.util.Log.w("Andromuks", "AppViewModel: paginate failed for $roomId: $errorMessage")
+                return true
+            }
+            backgroundPrefetchRequests.remove(requestId)?.let { roomId ->
+                roomsWithPendingPaginate.remove(roomId)
+                android.util.Log.w("Andromuks", "AppViewModel: background prefetch failed for $roomId: $errorMessage")
+                return true
+            }
+            freshnessCheckRequests.remove(requestId)?.let { roomId ->
+                roomsWithPendingPaginate.remove(roomId)
+                // Mirror the success path's per-request bookkeeping so a retry starts clean.
+                freshnessProbeAnchors.remove(requestId)
+                hydrateExpectedEventIds.remove(requestId)
+                if (roomId == currentRoomId) isTimelineLoading = false
+                android.util.Log.w("Andromuks", "AppViewModel: freshness probe failed for $roomId: $errorMessage")
+                return true
+            }
+            if (reactionRequests.remove(requestId) != null) return true
+            if (relatedEventsRequests.remove(requestId) != null) return true
+            return false
+        }
+    }
+
     /** Drop stale in-flight paginate tracking so a fresh max_timeline_id=0 fetch can proceed. */
     private fun clearPendingPaginateStateForRoom(roomId: String) {
         with(vm) {
@@ -1957,15 +2003,17 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         // Note: paginateRequestMaxTimelineIds cleanup happens in
                         // handlePaginationMerge
 
-                        // CRITICAL FIX: Only stop paginating indicator if currently viewing this
-                        // room
-                        if (roomId == currentRoomId) {
-                            viewModelScope.launch(Dispatchers.Main) { isPaginating = false }
-                        }
+                        // Cleared unconditionally, NOT gated on `roomId == currentRoomId`. isPaginating
+                        // is a single VM-wide flag that requestPaginationWithSmallestRowId early-returns
+                        // on, so leaving it set for a background room's response did not just keep a
+                        // spinner up — it disabled pagination for every room until the app restarted.
+                        // Switching rooms while a paginate was in flight was enough to trigger it.
+                        // A genuine per-room indicator would need a Set<String>, not this guard.
+                        viewModelScope.launch(Dispatchers.Main) { isPaginating = false }
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
-                                "AppViewModel: Pagination complete - roomId=$roomId, isPaginating set to ${if (roomId == currentRoomId) "FALSE" else "unchanged (background)"}",
+                                "AppViewModel: Pagination complete - roomId=$roomId, isPaginating cleared",
                             )
                         }
                     } else {

@@ -105,6 +105,15 @@ user as "no results", ~15 s late); the gallery had no timeout at all, so its spi
 If you migrate another command, check `handleError` covers its map first. Removing a timeout from a
 command whose errors are unhandled turns a slow failure into a permanent one.
 
+The timeline family (`timelineRequests`, `paginateRequests`, `backgroundPrefetchRequests`,
+`freshnessCheckRequests`, `reactionRequests`, `relatedEventsRequests`) had the same hole and never had
+timeouts to mask it, so the permanent failure was always there — an `error` for a paginate left
+`isPaginating` set, which `requestPaginationWithSmallestRowId` early-returns on, killing pagination for
+**every** room process-wide until restart. It is now covered by
+`TimelineCacheCoordinator.handleRequestError(requestId, errorMessage)`, delegated to from a single
+branch near the end of the `handleError` chain rather than inlined (six more `else if`s would trip
+detekt's complexity rules).
+
 ## UI contract: three states, not two
 
 A resolution is *resolved*, *resolving*, or *unavailable*. Composables must not render "unavailable"
@@ -170,6 +179,10 @@ signals above* you are actually waiting on.
 
 ## Where "connection ready" is signalled
 
+Both call sites go through `AppViewModel.signalBackendReachable(source)`, which calls
+`rpcResilience.onConnectionReady()` **and** `drainDeferredRoomPaginates(source)`. Route any new "gate
+opened" path through that helper so the two cannot drift apart.
+
 `onConnectionReady()` is what unparks requests, clears the negative cache and bumps
 `rpcRetryGeneration`. It must fire on **every** path that opens the command gate, and there are two:
 
@@ -205,3 +218,14 @@ No per-request wall-clock timers remain in `AppViewModel`. What is left is delib
 - **Fire-and-forget commands** with no per-request callback (`get_room_state`, profile fetches,
   `mark_read`) never had timeouts and settle through their own state paths. They would need a
   delivery hook like the one `get_mentions` gained before they could join.
+- **The room-timeline `paginate`** stays out on purpose. `RpcSpec`'s `register`/`unregister` contract
+  assumes a per-request `deliver(payload)` closure, but this command's completion is a multi-step state
+  mutation (`handleTimelineResponse` → `handlePaginationMerge` → `buildTimelineFromChain`, with
+  `expectedRoomId` guards, `hasMoreMessages` and `oldestRowIdPerRoom`). Wrapping that in
+  `(Any?) -> Unit` would either duplicate the routing or push timeline semantics into the coordinator.
+
+  What it needed was the park/reissue *shape*, not the class, and it now has it:
+  `TimelineCacheCoordinator.onConnectionLost(epoch)` parks stalled room opens into
+  `roomsAwaitingInitCompletePaginate` and releases the guard state, and
+  `AppViewModel.drainDeferredRoomPaginates(source)` reissues them. Both halves hang off the same
+  "backend reachable" signal as this class — see below.

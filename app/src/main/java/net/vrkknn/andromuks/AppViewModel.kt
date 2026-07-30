@@ -4102,48 +4102,7 @@ class AppViewModel : ViewModel() {
         // This ensures backend is ready and prevents triple-sending
         flushPendingQueueAfterReconnection()
 
-        // Drain rooms whose initial paginate was deferred because the WS was down at navigate
-        // time (cold resume via notification in battery-saver mode is the common case). We do this
-        // explicitly here instead of relying on RT screen's timelineRefreshTrigger LaunchedEffect,
-        // which is gated by a 500ms isInitialLoadComplete delay and can miss the retry signal.
-        val toRetry = synchronized(roomsAwaitingInitCompletePaginate) {
-            val copy = roomsAwaitingInitCompletePaginate.toList()
-            roomsAwaitingInitCompletePaginate.clear()
-            copy
-        }
-        Androlog("FCMOpen", "onInitComplete: fired, deferredRooms=$toRetry currentRoom=$currentRoomId")
-        WebSocketService.logActivity("FCMOpen: onInitComplete fired, deferredRooms=$toRetry currentRoom=$currentRoomId")
-        if (toRetry.isNotEmpty()) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: onInitComplete — retrying deferred paginate for ${toRetry.size} room(s): $toRetry",
-                )
-            }
-            // Only retry rooms the user still cares about (currently open or pending nav target);
-            // skip rooms abandoned before WS came up, to avoid clobbering currentRoomId state.
-            toRetry.forEach { roomId ->
-                if (roomId == currentRoomId) {
-                    Androlog("FCMOpen", "onInitComplete: retrying deferred paginate room=$roomId")
-                    WebSocketService.logActivity("FCMOpen: onInitComplete retrying deferred paginate room=$roomId")
-                    requestRoomTimeline(roomId)
-                } else {
-                    Androlog(
-                        "FCMOpen",
-                        "onInitComplete: SKIPPED deferred paginate room=$roomId (currentRoom=$currentRoomId) — isTimelineLoading stays stuck",
-                    )
-                    WebSocketService.logActivity(
-                        "FCMOpen: onInitComplete SKIPPED deferred paginate room=$roomId (currentRoom=$currentRoomId) — isTimelineLoading stays stuck",
-                    )
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: onInitComplete — skipping deferred retry for $roomId (no longer current, now=$currentRoomId)",
-                        )
-                    }
-                }
-            }
-        }
+        drainDeferredRoomPaginates("init_complete")
 
         // CRITICAL FIX: Force refresh room list after reconnection to ensure data is up-to-date
         // This handles cases where initial sync queue was empty or rooms weren't properly updated
@@ -6185,7 +6144,7 @@ class AppViewModel : ViewModel() {
         // requests over /exec instead of the connection we just established. See
         // docs/RPC_RESILIENCE.md.
         if (canSendCommandsToBackend) {
-            rpcResilience.onConnectionReady()
+            signalBackendReachable("resume_reconnect")
         }
 
         // FCM registration will happen in onInitComplete() after WebSocket is fully ready
@@ -6256,6 +6215,67 @@ class AppViewModel : ViewModel() {
         // Reset per-connection ViewModel state, then delegate the actual socket teardown to the service.
         onWebSocketCleared(reason)
         WebSocketService.clearWebSocket(reason, closeCode, closeReason)
+    }
+
+    /**
+     * The backend is reachable again: the socket is up and the command gate is open.
+     *
+     * Single choke-point for everything that must be replayed at that moment, so a new reconnect path
+     * cannot forget half of it. Called from exactly two places — [flushPendingCommandsQueue] and the
+     * resume branch of [setWebSocket] — which docs/RPC_RESILIENCE.md documents as the complete set of
+     * "command gate opened" transitions. Do not add a third without updating that doc.
+     */
+    private fun signalBackendReachable(source: String) {
+        // Reissues parked replay-safe reads, clears the negative cache learned from the dead
+        // connection, and bumps rpcRetryGeneration so UI keyed on it re-asks.
+        rpcResilience.onConnectionReady()
+        // Reissues room-open paginates parked by the connection-loss purge.
+        drainDeferredRoomPaginates(source)
+    }
+
+    /**
+     * Reissue room-open paginates that were parked because the socket was unavailable — either it was
+     * already down when the request was attempted, or it died with the request in flight (see
+     * [TimelineCacheCoordinator.onConnectionLost]).
+     *
+     * Retries only rooms with a live surface. [RoomTimelineCache.isRoomOpened] covers the foreground
+     * room *and* any open chat bubble; the previous `roomId == currentRoomId` test dropped bubbles,
+     * which then sat on a permanent spinner. Rooms with no surface are dropped rather than re-queued:
+     * their duplicate-suppression reservation was released on teardown, so the next open paginates
+     * normally.
+     *
+     * Safe to call more than once per reconnect — [requestRoomTimeline] re-reserves
+     * `roomsWithPendingPaginate` and the freshness probe dedups on `freshnessCheckRequests`.
+     */
+    internal fun drainDeferredRoomPaginates(source: String) {
+        val toRetry = synchronized(roomsAwaitingInitCompletePaginate) {
+            val copy = roomsAwaitingInitCompletePaginate.toList()
+            roomsAwaitingInitCompletePaginate.clear()
+            copy
+        }
+        if (toRetry.isEmpty()) return
+
+        Androlog("FCMOpen", "$source: draining deferredRooms=$toRetry currentRoom=$currentRoomId")
+        WebSocketService.logActivity("FCMOpen: $source draining deferredRooms=$toRetry currentRoom=$currentRoomId")
+
+        toRetry.forEach { roomId ->
+            if (roomId == currentRoomId || RoomTimelineCache.isRoomOpened(roomId)) {
+                Androlog("FCMOpen", "$source: retrying deferred paginate room=$roomId")
+                WebSocketService.logActivity("FCMOpen: $source retrying deferred paginate room=$roomId")
+                requestRoomTimeline(roomId)
+            } else {
+                Androlog(
+                    "FCMOpen",
+                    "$source: SKIPPED deferred paginate room=$roomId (no live surface, currentRoom=$currentRoomId)",
+                )
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: $source — skipping deferred retry for $roomId (no live surface, now=$currentRoomId)",
+                    )
+                }
+            }
+        }
     }
 
     /**
@@ -8632,6 +8652,13 @@ class AppViewModel : ViewModel() {
             )
             val callback = galleryPaginateRequests.remove(requestId) ?: return
             callback(emptyList(), false, 0L)
+        } else if (timelineCacheCoordinator.handleRequestError(requestId, errorMessage)) {
+            // Timeline family (timeline / paginate / prefetch / freshness / reactions / related
+            // events). Delegated rather than inlined: this chain is already long enough that six more
+            // branches would trip detekt's complexity rules. The coordinator logs the specifics.
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: timeline-family error handled for requestId=$requestId")
+            }
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -12846,10 +12873,7 @@ class AppViewModel : ViewModel() {
 
     private fun flushPendingCommandsQueue() {
         webSocketCommands.flushPendingQueue()
-        // The command gate just opened, so parked replay-safe reads can go out over the socket
-        // again, and any negative cache entry ("backend said no") from the previous connection is no
-        // longer trustworthy.
-        rpcResilience.onConnectionReady()
+        signalBackendReachable("flush_pending_commands")
         // Drain offline ops queued while the WebSocket was fully down.
         // canSendCommandsToBackend is true here so commands go directly to the socket,
         // not back into pendingCommandsQueue, preventing double-sends.
