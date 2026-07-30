@@ -232,6 +232,40 @@ A composable-local `var navigationHandled by remember { mutableStateOf(false) }`
 
 ---
 
+## `ShortcutActivity` cold open — the socket is not on the critical path
+
+Tapping a shortcut used to wait behind a **10 s WebSocket poll before even calling
+`navigateToRoomWithCache`**, so a cold tap showed a spinner for the whole connect + initial sync
+even when the room's events were already in the LRU cache.
+
+The load now starts as soon as `spacesLoaded` is up (which the persisted room cache satisfies
+without any network — see below), and the screen is revealed the moment there is something real to
+paint:
+
+1. `setCurrentRoomIdForTimeline` + `navigateToRoomWithCache` immediately.
+2. If the socket is **down**, `paginateViaExec(roomId, maxTimelineId = 0L)` hydrates over HTTP.
+   `requestRoomTimeline` early-exits with the socket down and only queues a deferred paginate for
+   `onInitComplete`, so without this a cold-cache room would have nothing to show.
+3. Poll up to `EXEC_PAINT_TIMEOUT_MS` (3 s) for `currentRoomId == roomId && timelineEvents.isNotEmpty()
+   && !isTimelineLoading` — the same "actual data beats a stale flag" test that
+   `awaitRoomDataReadiness` uses for its `haveUsableCachedData` escape hatch.
+4. Only if that produces nothing, fall back to the full `awaitRoomDataReadiness` gate, which also
+   waits on room state so the header is not empty.
+
+**Double-hydrate is expected and safe.** When the socket comes up, `drainDeferredInitialPaginates`
+may run the deferred paginate on top of the `/exec` one; the two merge through
+`handlePaginationMerge`. This is the same double-hydrate the FCM path already produces
+(`FCMService` calls `paginateViaExec`, then the opened app paginates again).
+
+**What was deliberately not changed:** `awaitRoomDataReadiness` itself. Its `syncReady`
+(`initialSyncComplete`) condition still blocks on a genuinely cold process, and relaxing it would
+affect the MainActivity and FCM entry paths too — see the release-only races in
+[STATE_INVARIANTS.md](STATE_INVARIANTS.md). The change above avoids the gate on the fast path
+rather than weakening it.
+
+`ChatBubbleActivity` has the same 5 s poll but restores its own timeline state and is exempt from
+the `timelineEvents` clearing invariant, so it was left alone rather than assumed equivalent.
+
 ## Cold-start cache-first rendering
 
 On cold start, the app paints `RoomListScreen` from the persisted room cache **before** the WebSocket connects. The full flow:

@@ -215,6 +215,15 @@ class ShortcutActivity : ComponentActivity() {
     }
 }
 
+/**
+ * How long the cold-start path waits for something paintable (LRU cache, or an `/exec` hydrate)
+ * before falling back to the full [AppViewModel.awaitRoomDataReadiness] gate. Sized to cover one
+ * HTTP round-trip on a slow radio without approaching the old 10 s WebSocket poll.
+ */
+private const val EXEC_PAINT_TIMEOUT_MS = 3_000L
+
+private const val PAINT_POLL_INTERVAL_MS = 50L
+
 @Composable
 fun ShortcutNavigation(roomId: String) {
     val navController = rememberNavController()
@@ -281,40 +290,66 @@ fun ShortcutNavigation(roomId: String) {
         }
     }
 
-    // Slow path: wait for WebSocket connection and spacesLoaded before navigating.
+    // Slow path: start the room load as soon as the cached room map is up, and reveal the timeline
+    // the moment there is something real to paint.
+    //
+    // This used to sit behind a 10 s WebSocket poll *before* even calling navigateToRoomWithCache,
+    // so a cold tap stared at a spinner for the whole connect + initial sync even when the room's
+    // events were already in the LRU cache. The socket is no longer on the critical path: the load
+    // starts immediately, and when the socket is down the timeline is hydrated over `/exec`
+    // instead. `awaitRoomDataReadiness` remains as the fallback for the case where neither the
+    // cache nor `/exec` produced anything paintable.
     LaunchedEffect(appViewModel.spacesLoaded) {
         if (hasNavigated) return@LaunchedEffect
+        if (!appViewModel.spacesLoaded) return@LaunchedEffect
 
-        if (appViewModel.spacesLoaded) {
-            var websocketConnected = appViewModel.isWebSocketConnected()
-            var pollCount = 0
-            while (!websocketConnected && pollCount < 100) {
-                kotlinx.coroutines.delay(100)
-                websocketConnected = appViewModel.isWebSocketConnected()
-                pollCount++
-            }
-
-            if (websocketConnected || pollCount >= 100) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "ShortcutActivity: WebSocket connected=$websocketConnected (pollCount=$pollCount), waiting for room data readiness for: $roomId",
-                    )
-                }
-                appViewModel.setCurrentRoomIdForTimeline(roomId)
-                appViewModel.navigateToRoomWithCache(roomId)
-                // Wait until the target room actually has state loaded before revealing
-                // the timeline. Without this, cold-start renders an empty header until
-                // the per-room get_room_state response arrives.
-                appViewModel.awaitRoomDataReadiness(timeoutMs = 15_000L, roomId = roomId)
-                // Don't call navController.navigate — the NavHost startDestination is already
-                // room_timeline/$roomId. Navigating again would push a duplicate entry, making
-                // previousBackStackEntry non-null and isRootDestination=false in RoomTimelineScreen,
-                // so the back button would not call finish() on the first press.
-                hasNavigated = true
-                showLoading = false
-            }
+        val websocketConnected = appViewModel.isWebSocketConnected()
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "ShortcutActivity: starting room load for $roomId (websocketConnected=$websocketConnected)",
+            )
         }
+
+        appViewModel.setCurrentRoomIdForTimeline(roomId)
+        appViewModel.navigateToRoomWithCache(roomId)
+
+        if (!websocketConnected) {
+            // With the socket down, requestRoomTimeline early-exits and queues a deferred paginate
+            // that only runs on onInitComplete. Hydrate over HTTP now so a cold-cache room still
+            // paints without waiting for the connection. If the deferred paginate later runs too,
+            // the two merge through handlePaginationMerge — the same double-hydrate the FCM path
+            // already produces.
+            appViewModel.paginateViaExec(roomId, maxTimelineId = 0L)
+        }
+
+        // Reveal as soon as the room has real, settled events. This is the same "actual data beats
+        // a stale flag" test awaitRoomDataReadiness uses for its haveUsableCachedData escape hatch.
+        val paintDeadline = System.currentTimeMillis() + EXEC_PAINT_TIMEOUT_MS
+        var paintable = false
+        while (System.currentTimeMillis() < paintDeadline) {
+            paintable = appViewModel.currentRoomId == roomId &&
+                appViewModel.timelineEvents.isNotEmpty() &&
+                !appViewModel.isTimelineLoading
+            if (paintable) break
+            kotlinx.coroutines.delay(PAINT_POLL_INTERVAL_MS)
+        }
+
+        if (!paintable) {
+            // Nothing paintable yet: fall back to the original gate, which also waits on room state
+            // so the header is not empty.
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "ShortcutActivity: no early paint for $roomId, awaiting full readiness")
+            }
+            appViewModel.awaitRoomDataReadiness(timeoutMs = 15_000L, roomId = roomId)
+        }
+
+        // Don't call navController.navigate — the NavHost startDestination is already
+        // room_timeline/$roomId. Navigating again would push a duplicate entry, making
+        // previousBackStackEntry non-null and isRootDestination=false in RoomTimelineScreen,
+        // so the back button would not call finish() on the first press.
+        hasNavigated = true
+        showLoading = false
     }
 
     // Timeout fallback: proceed after 10 s even if WebSocket never connects.
