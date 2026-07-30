@@ -26,6 +26,32 @@ Helper extensions live in `ConnectionState.kt`: `isReady()`, `isDisconnected()`,
 | Unified health check (adaptive tick) | Detects stuck `Connecting`, `Reconnecting`, or `Disconnected` |
 | `START_STICKY` restart | Triggers stuck-DISCONNECTED recovery after 5s grace period |
 
+## `onFailure`: superseded-socket guard, and who owns scheduling
+
+Two rules, both learned from "the socket dies on a weak network and never comes back":
+
+**1. `onFailure` must ignore a superseded socket.** `WebSocketService.isSupersededWebSocket(ws)` is true
+when the service holds a *different, live* socket. On a lossy link a slow dial gets superseded by a
+reconnection, and the abandoned dial's `onFailure` arrives seconds after the replacement succeeded —
+without the guard it called `clearWebSocket()` on the healthy connection, and the next dial raced the
+same way. `onClosing` has had the equivalent check (via `isActiveWebSocket`) all along; `onFailure`
+never did.
+
+The predicate is deliberately **not** `!isActiveWebSocket(ws)`. The service only stores a socket in
+`setWebSocket`, i.e. on `onOpen`, so a dial that fails *before* opening is never "active" — and its
+failure genuinely does need teardown and a reconnect. Only "someone else is live and it isn't you" may
+be ignored. The guard sits after the per-dial resource cleanup (decompressor + parse queues, which must
+always run) and **before** the 401 and TLS branches: a 401 from an abandoned dial is not evidence the
+live connection's token is bad, and `handleUnauthorizedError()` navigates to login.
+
+**2. The service schedules the reconnection, not a ViewModel.** `NetworkUtils.onFailure` calls
+`WebSocketService.scheduleReconnection(...)` directly. It used to delegate entirely to
+`AppViewModel.handleConnectionFailure`, which meant: with **no** ViewModel attached (always-on
+background) a failure cleared the socket and did nothing else; with **two** attached (main + bubble)
+each scheduled a competing attempt; and the ViewModel's `networkType == NONE` early-return skipped the
+service's correct `WaitingForNetwork` handling. `handleConnectionFailure` / `handleTlsError` now only
+keep error counters and reporting. A `CERTIFICATE_ERROR` still never auto-reconnects.
+
 ## `scheduleReconnection()` Flow
 
 1. If `currentNetworkType == NONE` → set `WaitingForNetwork`, add to `pendingReconnectionReasons`, return.

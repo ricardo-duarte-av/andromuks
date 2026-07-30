@@ -21,6 +21,7 @@ import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.IncomingWebSocketHint
 import net.vrkknn.andromuks.PerformanceMonitoringCoordinator
+import net.vrkknn.andromuks.ReconnectTrigger
 import net.vrkknn.andromuks.SyncRepository
 import net.vrkknn.andromuks.WebSocketService
 import net.vrkknn.andromuks.WebSocketService.Companion.CPUWeight
@@ -926,6 +927,22 @@ fun connectToWebsocket(
             parseQueue.close()
             resultQueue.close()
 
+            // Ignore failures from a socket that has already been replaced by a live one. Everything
+            // below here — clearWebSocket, handleUnauthorizedError, handleTlsError,
+            // handleConnectionFailure — acts on the CURRENT connection, so letting a superseded dial
+            // through tears down a healthy socket. Placed after the per-dial resource cleanup above
+            // (which must always run) and before the 401 branch: a 401 from an abandoned dial is not
+            // evidence the live connection's token is bad, and handleUnauthorizedError navigates to
+            // login — the worst possible false positive on a weak link.
+            if (WebSocketService.isSupersededWebSocket(webSocket)) {
+                Log.w(
+                    "Andromuks",
+                    "NetworkUtils: onFailure from superseded socket - ignoring (${t.message})",
+                )
+                WebSocketService.logActivity("onFailure ignored (stale socket): ${t.message}")
+                return
+            }
+
             // Toast notification is handled by WebSocketService.clearWebSocket() which has access to context
 
             // Check for 401 Unauthorized - invalid/expired token
@@ -1003,7 +1020,15 @@ fun connectToWebsocket(
                 val failureReason = "TLS/SSL error: $tlsErrorDetails"
                 WebSocketService.clearWebSocket(failureReason)
 
-                // Handle TLS error with appropriate strategy - notify registered ViewModels
+                // A certificate error is a hard stop — never auto-reconnect into the same rejection.
+                // Any other TLS error (handshake, protocol) is transient and gets the normal ladder.
+                // Scheduled here rather than in handleTlsError so recovery does not require an
+                // attached ViewModel; see the note on the generic branch below.
+                if (tlsErrorType != "CERTIFICATE_ERROR") {
+                    WebSocketService.scheduleReconnection(ReconnectTrigger.ConnectionFailure(tlsErrorType))
+                }
+
+                // Notify registered ViewModels for state/UI/error-counter purposes only.
                 WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                     for (viewModel in SyncRepository.getAttachedViewModels()) {
                         viewModel.handleTlsError(tlsErrorType, t, failureReason)
@@ -1031,7 +1056,21 @@ fun connectToWebsocket(
             val failureReason = "Connection failure: ${t.message}"
             WebSocketService.clearWebSocket(failureReason)
 
-            // PHASE 4.2: Handle connection failure with error-specific strategies - notify registered ViewModels
+            // Schedule the reconnection HERE, not from a ViewModel. This callback used to delegate
+            // scheduling entirely to handleConnectionFailure, which meant: with no ViewModel attached
+            // (always-on background) a connection failure cleared the socket and did nothing else, and
+            // with two attached (main + bubble) each scheduled its own competing reconnection. The
+            // service's own guards (rate limit, in-progress check) collapse duplicates, so the correct
+            // owner is the service. scheduleReconnection also handles NetworkType.NONE properly by
+            // entering WaitingForNetwork, which the ViewModel path silently skipped.
+            WebSocketService.scheduleReconnection(
+                when (errorType) {
+                    "NETWORK_UNREACHABLE" -> ReconnectTrigger.NetworkUnreachableFallback
+                    else -> ReconnectTrigger.ConnectionFailure(errorType)
+                },
+            )
+
+            // Notify registered ViewModels for state/UI/error-counter purposes only.
             WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                 for (viewModel in SyncRepository.getAttachedViewModels()) {
                     viewModel.handleConnectionFailure(errorType, t, failureReason)

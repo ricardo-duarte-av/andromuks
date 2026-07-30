@@ -49,6 +49,13 @@ sealed class ReconnectTrigger {
     /** No application traffic for 60s (message stale / ping loop). */
     object MessageTimeout : ReconnectTrigger()
 
+    /**
+     * OkHttp reported onFailure for the live socket and the cause did not classify as DNS or
+     * unreachable-network. Scheduled by the failure callback itself rather than by an attached
+     * ViewModel, so recovery does not depend on a ViewModel existing.
+     */
+    data class ConnectionFailure(val errorType: String) : ReconnectTrigger()
+
     data class DnsFailure(val attempt: Int) : ReconnectTrigger()
 
     object NetworkUnreachableFallback : ReconnectTrigger()
@@ -84,6 +91,7 @@ fun ReconnectTrigger.toLogString(): String = when (this) {
     is ReconnectTrigger.RunIdTimeout -> "Run ID timeout — reconnecting"
     is ReconnectTrigger.HardConnectingTimeout -> "Hard timeout recovery from stuck Connecting state"
     is ReconnectTrigger.MessageTimeout -> "60 second message timeout"
+    is ReconnectTrigger.ConnectionFailure -> "Connection failure ($errorType)"
     is ReconnectTrigger.DnsFailure -> "DNS resolution failure (attempt $attempt)"
     is ReconnectTrigger.NetworkUnreachableFallback -> "Network unreachable (fallback retry)"
     is ReconnectTrigger.TlsFailure -> "TLS error (attempt $attempt)"

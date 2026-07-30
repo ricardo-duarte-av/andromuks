@@ -1617,6 +1617,28 @@ class WebSocketService : Service() {
         }
 
         /**
+         * Returns true when the service currently holds a *different*, live socket than [ws] — i.e.
+         * [ws] is a superseded dial whose late failure must not tear down the connection that
+         * replaced it.
+         *
+         * Deliberately NOT `!isActiveWebSocket(ws)`. The service only stores a socket in
+         * [setWebSocket], i.e. on onOpen, so a dial that fails *before* opening is never "active" —
+         * and its failure genuinely does need teardown + reconnect. Only the case "someone else is
+         * live and it isn't you" may be ignored.
+         *
+         * This is the weak-network failure mode: a slow dial gets superseded by a reconnection, the
+         * abandoned dial's onFailure lands seconds after the replacement succeeded, and without this
+         * guard it called clearWebSocket() on the healthy socket — then the next dial raced the same
+         * way, which is why the connection never recovered on a lossy link. onClosing has had the
+         * equivalent guard (via [isActiveWebSocket]) all along; onFailure never did.
+         */
+        fun isSupersededWebSocket(ws: WebSocket): Boolean {
+            val serviceInstance = instance ?: return false
+            val current = serviceInstance.webSocket
+            return current != null && current !== ws
+        }
+
+        /**
          * Check if WebSocket is connected and ready
          * 
          * CRITICAL: This checks both the connection state AND the WebSocket reference.

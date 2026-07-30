@@ -6309,91 +6309,31 @@ class AppViewModel : ViewModel() {
         android.util.Log.w("Andromuks", "AppViewModel: Connection failure - Type: $errorType, Reason: $reason")
         logActivity("Connection Failure - $errorType: ${error.message}", null)
 
-        // CRITICAL FIX: Check if network is available before scheduling reconnection
-        // This prevents reconnection attempts when network is lost (WiFi turned off, etc.)
-        val networkType = WebSocketService.getCurrentNetworkType()
-        if (networkType == net.vrkknn.andromuks.WebSocketService.NetworkType.NONE) {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: Connection failure but no network available - not scheduling reconnection (reason: $reason)",
-            )
-            logActivity("Connection Failure - No Network Available", null)
-            return
-        }
-
+        // NOTE: this no longer schedules the reconnection. NetworkUtils.onFailure does, immediately
+        // and unconditionally, because scheduling must not depend on a ViewModel being attached (with
+        // none, a failure used to clear the socket and do nothing at all) nor be duplicated per
+        // attached ViewModel (main + bubble each scheduled a competing attempt). The service's own
+        // backoff ladder also subsumes the second, independent exponential delay that used to be
+        // computed here — two stacked backoffs were a large part of why reconnect timing was
+        // unpredictable. What remains is error-type bookkeeping and reporting.
         when (errorType) {
             "DNS_FAILURE" -> {
-                // DNS failures are often persistent - use exponential backoff with longer delays
+                val nextDnsFailureCount = getDnsFailureCount() + 1
+                setDnsFailureCount(nextDnsFailureCount)
                 android.util.Log.w(
                     "Andromuks",
-                    "AppViewModel: DNS resolution failure detected - using exponential backoff",
+                    "AppViewModel: DNS resolution failure #$nextDnsFailureCount",
                 )
-
-                // Track DNS failure count for exponential backoff
-                val dnsFailureCount = getDnsFailureCount()
-                val nextDnsFailureCount = dnsFailureCount + 1
-                setDnsFailureCount(nextDnsFailureCount)
-
-                // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 64s (max)
-                val delayMs = minOf(2000L * (1L shl (nextDnsFailureCount - 1)), 64000L)
-
-                android.util.Log.i("Andromuks", "AppViewModel: DNS failure #$nextDnsFailureCount - scheduling reconnection in ${delayMs}ms")
-                logActivity("DNS Failure #$nextDnsFailureCount - Retry in ${delayMs}ms", null)
-
-                viewModelScope.launch {
-                    delay(delayMs)
-                    // CRITICAL FIX: Check network again before executing reconnection
-                    // Network might have been lost during the delay
-                    val currentNetworkType = WebSocketService.getCurrentNetworkType()
-                    if (currentNetworkType == net.vrkknn.andromuks.WebSocketService.NetworkType.NONE) {
-                        android.util.Log.w(
-                            "Andromuks",
-                            "AppViewModel: DNS retry delayed but network now unavailable - cancelling reconnection",
-                        )
-                        return@launch
-                    }
-                    // Reset DNS failure count on successful reconnection attempt
-                    // (will be reset when connection succeeds)
-                    scheduleReconnection(ReconnectTrigger.DnsFailure(nextDnsFailureCount))
-                }
+                logActivity("DNS Failure #$nextDnsFailureCount", null)
             }
 
             "NETWORK_UNREACHABLE" -> {
-                // Network unreachable - wait for network availability before retrying
-                // WebSocketService's NetworkMonitor will trigger reconnection when network becomes available
                 android.util.Log.w("Andromuks", "AppViewModel: Network unreachable - waiting for network availability")
                 logActivity("Network Unreachable - Waiting for Network", null)
-
-                // Don't retry immediately - NetworkMonitor in WebSocketService will handle reconnection
-                // when network becomes available. This prevents battery drain from rapid retries.
-                // We still schedule a delayed reconnection as a fallback (in case NetworkMonitor misses the event)
-                viewModelScope.launch {
-                    // Wait 10 seconds - if network is still unavailable, NetworkMonitor will handle it
-                    delay(10000L)
-                    // CRITICAL FIX: Check network again before executing reconnection
-                    val currentNetworkType = WebSocketService.getCurrentNetworkType()
-                    if (currentNetworkType == net.vrkknn.andromuks.WebSocketService.NetworkType.NONE) {
-                        android.util.Log.w(
-                            "Andromuks",
-                            "AppViewModel: Network still unavailable after 10s - not scheduling fallback reconnection",
-                        )
-                        return@launch
-                    }
-                    // Only schedule if still disconnected (NetworkMonitor may have already reconnected)
-                    if (!isWebSocketConnected()) {
-                        android.util.Log.i(
-                            "Andromuks",
-                            "AppViewModel: Network available after 10s - scheduling fallback reconnection",
-                        )
-                        scheduleReconnection(ReconnectTrigger.NetworkUnreachableFallback)
-                    }
-                }
             }
 
             else -> {
-                // Generic error - use standard reconnection strategy
-                android.util.Log.w("Andromuks", "AppViewModel: Generic connection error - using standard reconnection")
-                scheduleReconnection(ReconnectTrigger.Unclassified(reason))
+                android.util.Log.w("Andromuks", "AppViewModel: Generic connection error - service is handling reconnection")
             }
         }
     }
@@ -6467,37 +6407,23 @@ class AppViewModel : ViewModel() {
             }
 
             "TLS_ERROR" -> {
-                // Other TLS errors (handshake failures, protocol errors) - reconnect with exponential backoff
+                // Non-certificate TLS errors (handshake, protocol) are transient. The reconnection is
+                // scheduled by NetworkUtils.onFailure — see handleConnectionFailure for why ownership
+                // moved to the service. Only the failure counter is tracked here.
+                val nextTlsFailureCount = getTlsFailureCount() + 1
+                setTlsFailureCount(nextTlsFailureCount)
                 android.util.Log.w(
                     "Andromuks",
-                    "AppViewModel: TLS error detected (non-certificate) - reconnecting with exponential backoff",
+                    "AppViewModel: TLS error (non-certificate) #$nextTlsFailureCount",
                 )
-                logActivity("TLS Error - Reconnecting", null)
-
-                // Track TLS failure count for exponential backoff
-                val tlsFailureCount = getTlsFailureCount()
-                val nextTlsFailureCount = tlsFailureCount + 1
-                setTlsFailureCount(nextTlsFailureCount)
-
-                // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 64s (max)
-                val delayMs = minOf(2000L * (1L shl (nextTlsFailureCount - 1)), 64000L)
-
-                android.util.Log.i("Andromuks", "AppViewModel: TLS failure #$nextTlsFailureCount - scheduling reconnection in ${delayMs}ms")
-                logActivity("TLS Error #$nextTlsFailureCount - Retry in ${delayMs}ms", null)
-
-                viewModelScope.launch {
-                    delay(delayMs)
-                    // Reset TLS failure count on successful reconnection attempt
-                    scheduleReconnection(ReconnectTrigger.TlsFailure(nextTlsFailureCount))
-                }
+                logActivity("TLS Error #$nextTlsFailureCount", null)
             }
 
             else -> {
                 android.util.Log.w(
                     "Andromuks",
-                    "AppViewModel: Unknown TLS error type: $errorType - using standard reconnection",
+                    "AppViewModel: Unknown TLS error type: $errorType - service is handling reconnection",
                 )
-                scheduleReconnection(ReconnectTrigger.Unclassified(reason))
             }
         }
     }
