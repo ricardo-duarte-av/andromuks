@@ -6259,6 +6259,25 @@ class AppViewModel : ViewModel() {
     }
 
     /**
+     * Off-Main half of the connection teardown, invoked synchronously by
+     * [WebSocketService.clearWebSocket] before the Main-thread [onWebSocketCleared] is queued.
+     *
+     * It exists because the Main hop is too late: on a weak link the replacement dial can open and
+     * begin issuing request_ids 1..n before a queued task runs, at which point a purge would delete
+     * the *new* connection's entries. Only thread-safe state may be touched here — concurrent maps,
+     * synchronized sets, and Compose snapshot writes.
+     */
+    fun onWebSocketTornDownSync(reason: String, epoch: Int) {
+        timelineCacheCoordinator.onConnectionLost(epoch)
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: onWebSocketTornDownSync - timeline request state released (reason: $reason)",
+            )
+        }
+    }
+
+    /**
      * Called by [WebSocketService.clearWebSocket] (on Main) whenever the active WebSocket is
      * torn down — whether by a network-type change, ping timeout, or any other trigger.
      *
@@ -6266,7 +6285,7 @@ class AppViewModel : ViewModel() {
      * It must NOT call back into WebSocketService (no clearWebSocket, no scheduleReconnection)
      * to avoid reentrancy. All reconnection logic lives in the service.
      */
-    fun onWebSocketCleared(reason: String) {
+    fun onWebSocketCleared(reason: String, epoch: Int = WebSocketService.currentConnectionEpoch()) {
         // Reset initialization flag — will be set again when init_complete arrives.
         if (initializationComplete) {
             initializationComplete = false
@@ -6293,14 +6312,69 @@ class AppViewModel : ViewModel() {
         // wall-clock timeouts would otherwise cause).
         rpcResilience.onConnectionLost()
 
+        releaseUnansweredRequestsOnMain(epoch)
+
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: onWebSocketCleared - sync state reset (reason: $reason)")
         }
     }
 
     /**
-     * PHASE 4.2: Handle connection failure with error-specific strategies
-     * 
+     * Main-thread half of the teardown purge: the request maps that are plain (unsynchronized)
+     * [mutableMapOf]s and so must only ever be touched from Main. The concurrent ones are handled
+     * off-Main in [onWebSocketTornDownSync].
+     *
+     * Same epoch rule and same positive-id rule as there: negative ids belong to in-flight /exec
+     * responses that survive a reconnect and must not be dropped.
+     *
+     * Callbacks are invoked with their "unavailable" value rather than silently discarded — a screen
+     * is blocked on each of them, and dropping the entry alone would leave it spinning forever.
+     * [messageRequests] and the local-echo state are deliberately untouched: send_message is
+     * replay-unsafe and has its own retry path (docs/MESSAGE_SENDING.md).
+     */
+    private fun releaseUnansweredRequestsOnMain(epoch: Int) {
+        if (WebSocketService.currentConnectionEpoch() != epoch) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Main-thread request purge skipped — id space advanced past epoch $epoch",
+            )
+            return
+        }
+
+        synchronized(roomStateRequests) {
+            roomStateRequests.keys.filter { it > 0 }.toList().forEach { id ->
+                roomStateRequests.remove(id)?.let { pendingRoomStateRequests.remove(it) }
+            }
+        }
+
+        // These gate future requests; a stale entry blocks the room permanently.
+        roomSpecificStateRequests.keys.filter { it > 0 }.toList().forEach { roomSpecificStateRequests.remove(it) }
+        reactionRequests.keys.filter { it > 0 }.toList().forEach { reactionRequests.remove(it) }
+        relatedEventsRequests.keys.filter { it > 0 }.toList().forEach { relatedEventsRequests.remove(it) }
+
+        // A queued notification action (reply / mark-read) must not hang its completion callback.
+        markReadRequests.keys.filter { it > 0 }.toList().forEach { id ->
+            markReadRequests.remove(id)
+            notificationActionCompletionCallbacks.remove(id)?.invoke()
+        }
+
+        basicProfileCallbacks.keys.filter { it > 0 }.toList().forEach { id ->
+            basicProfileCallbacks.remove(id)?.invoke(null)
+        }
+        roomStateWithMembersRequests.keys.filter { it > 0 }.toList().forEach { id ->
+            roomStateWithMembersRequests.remove(id)?.invoke(null, "Connection lost")
+        }
+        fullMemberListRequests.keys.filter { it > 0 }.toList().forEach { id ->
+            fullMemberListRequests.remove(id)?.let { pendingFullMemberListRequests.remove(it) }
+        }
+    }
+
+    /**
+     * Record a connection failure for reporting and per-error-type counters.
+     *
+     * Reconnection itself is scheduled by `NetworkUtils.onFailure` against [WebSocketService], not
+     * here — see the note in the body.
+     *
      * @param errorType Type of error: "DNS_FAILURE", "NETWORK_UNREACHABLE", or "GENERIC_ERROR"
      * @param error The original exception
      * @param reason Human-readable failure reason

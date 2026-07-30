@@ -16,6 +16,100 @@ import org.json.JSONObject
  * [with] on the ViewModel so internal timeline APIs stay on [AppViewModel].
  */
 internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
+    /**
+     * The socket died. Release every piece of timeline request state that was waiting on it, and
+     * queue the rooms that lost a room-open paginate for reissue on the next connection.
+     *
+     * Why this exists: timeline requests set their in-flight state *before* the send and clear it
+     * *only* from the response handler. There is deliberately no wall-clock timeout (docs/RPC_RESILIENCE.md
+     * — "completion is an event, never a clock"), and until now nothing translated "connection lost"
+     * into that event for the timeline maps. So a paginate in flight when the socket died left
+     * [AppViewModel.isPaginating] true forever — and because [AppViewModel.requestPaginationWithSmallestRowId]
+     * early-returns on that flag, pagination stayed dead for *every* room, process-wide, until restart.
+     * That is the "weak network leaves the app in a silly state" bug.
+     *
+     * Called synchronously from [WebSocketService.clearWebSocket] (see [AppViewModel.onWebSocketTornDownSync]),
+     * so it may only touch thread-safe state: the concurrent request maps, the synchronized room
+     * sets, and Compose snapshot writes (safe from any thread — see docs/TIMELINE_PAGINATE.md).
+     *
+     * @param epoch id-space generation captured at teardown; entries are only purged if the id space
+     *   has not already been reset by a newer connection, otherwise we would delete *its* entries.
+     */
+    fun onConnectionLost(epoch: Int) {
+        with(vm) {
+            // Unconditional: a global "a paginate is running" flag cannot outlive the socket that
+            // was running it, whatever the epoch says.
+            isPaginating = false
+
+            if (WebSocketService.currentConnectionEpoch() != epoch) {
+                android.util.Log.w(
+                    "Andromuks",
+                    "TimelineCacheCoordinator: connection-lost purge skipped — id space already " +
+                        "advanced past epoch $epoch (entries now belong to a newer connection)",
+                )
+                return
+            }
+
+            // Positive ids ONLY. /exec allocates negative, reset-immune ids (see
+            // WebSocketService.allocateExecRequestId) precisely so an in-flight HTTP response
+            // survives a reconnect; purging those would orphan a battery-saver paginate that is
+            // still perfectly capable of completing.
+            val stalledRooms = mutableSetOf<String>()
+
+            fun purge(map: java.util.concurrent.ConcurrentHashMap<Int, String>, collect: Boolean) {
+                map.keys.filter { it > 0 }.forEach { id ->
+                    val roomId = map.remove(id)
+                    stopOpenRoomTrace(id, "connection_lost")
+                    if (collect && roomId != null) stalledRooms.add(roomId)
+                }
+            }
+
+            // Room-open paths: worth reissuing, the user is (or was) looking at these.
+            purge(timelineRequests, collect = true)
+            purge(backgroundPrefetchRequests, collect = true)
+            purge(freshnessCheckRequests, collect = true)
+
+            // Backward-history pagination: NOT reissued. That was a scroll gesture whose intent is
+            // gone; with isPaginating cleared and the reservation released below, the auto-paginate
+            // burst or a pull re-fires it on demand. Reissuing blind would fight scroll restoration.
+            paginateRequests.keys.filter { it > 0 }.forEach { id ->
+                paginateRequests.remove(id)
+                paginateRequestMaxTimelineIds.remove(id)
+                stopOpenRoomTrace(id, "connection_lost")
+            }
+
+            // Release the duplicate-suppression reservation only for rooms that no longer have ANY
+            // request outstanding. A room still riding an /exec negative id keeps its reservation,
+            // otherwise a second paginate would race the one that is still in flight.
+            val stillTracked = buildSet {
+                addAll(timelineRequests.values)
+                addAll(backgroundPrefetchRequests.values)
+                addAll(freshnessCheckRequests.values)
+                addAll(paginateRequests.values)
+            }
+            synchronized(roomsWithPendingPaginate) {
+                roomsWithPendingPaginate.removeAll { it !in stillTracked }
+            }
+
+            // Park the room-open work for reissue once the backend is reachable again. This is the
+            // same mechanism the "WebSocket was already down at send time" path uses; draining is
+            // handled by AppViewModel.drainDeferredRoomPaginates.
+            if (stalledRooms.isNotEmpty()) {
+                roomsAwaitingInitCompletePaginate.addAll(stalledRooms)
+                android.util.Log.w(
+                    "Andromuks",
+                    "TimelineCacheCoordinator: connection lost — parked ${stalledRooms.size} room " +
+                        "open(s) for reissue: $stalledRooms",
+                )
+            }
+
+            // isTimelineLoading is deliberately left as-is for parked rooms: they are queued for
+            // reissue, exactly like the WS-down-at-send branch in requestRoomTimeline, and flipping
+            // it false with an empty timeline would repaint the loader gate as an "empty room"
+            // instead of a spinner. The drain, not this method, ends that state.
+        }
+    }
+
     /** Drop stale in-flight paginate tracking so a fresh max_timeline_id=0 fetch can proceed. */
     private fun clearPendingPaginateStateForRoom(roomId: String) {
         with(vm) {

@@ -754,8 +754,22 @@ class WebSocketService : Service() {
         /** Next ID that would be allocated. Read-only; does not increment. */
         fun peekNextRequestId(): Int = globalRequestIdCounter.get() + 1
 
+        // Monotonic id-space generation. Bumped in lockstep with resetRequestIdCounter so that any
+        // holder of a request_id can ask "is my id from the connection that is live right now?".
+        //
+        // Needed because request_ids restart at 1 on every socket. A teardown handler that purges
+        // stale request maps runs partly on Main, and on a weak link the replacement dial can open —
+        // resetting the counter and issuing ids 1..n — before that queued purge executes. Without an
+        // epoch the purge would delete the NEW connection's entries and the app would look wedged in
+        // exactly the way the purge exists to prevent.
+        private val connectionEpoch = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /** Current id-space generation. Capture before a teardown, re-check before acting on it. */
+        fun currentConnectionEpoch(): Int = connectionEpoch.get()
+
         fun resetRequestIdCounter() {
             globalRequestIdCounter.set(0)
+            connectionEpoch.incrementAndGet()
         }
 
         // Local-only routing ids for HTTP /exec responses (battery-saver mode). The /exec endpoint
@@ -1530,13 +1544,27 @@ class WebSocketService : Service() {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket connection cleared in service")
             logPingStatus()
 
+            // Capture the id-space generation this teardown belongs to, so both halves below can tell
+            // whether the entries they are about to purge are still theirs (see connectionEpoch).
+            val epoch = currentConnectionEpoch()
+
+            // Synchronous half: drop request-map entries belonging to the connection that just died,
+            // before this method returns. It CANNOT wait for the Main hop below — on a weak link the
+            // replacement dial can open and start issuing request_ids 1..n in that window, and the
+            // purge would then delete the new connection's entries instead of the dead one's. Only
+            // thread-safe state (concurrent maps, synchronized sets, Compose snapshot writes) may be
+            // touched here; everything unsynchronized stays on Main.
+            for (vm in getRegisteredViewModels()) {
+                vm.onWebSocketTornDownSync(reason, epoch)
+            }
+
             // Notify all registered ViewModels to reset their per-connection sync state.
             // Must run on Main because the flags are read by Compose (e.g. initialSyncPhase,
             // initializationComplete). We use the service scope so this survives even if a
             // ViewModel is being destroyed simultaneously.
             serviceInstance.serviceScope.launch(kotlinx.coroutines.Dispatchers.Main) {
                 for (vm in getRegisteredViewModels()) {
-                    vm.onWebSocketCleared(reason)
+                    vm.onWebSocketCleared(reason, epoch)
                 }
             }
         }

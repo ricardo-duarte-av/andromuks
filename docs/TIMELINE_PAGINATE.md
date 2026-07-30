@@ -59,6 +59,43 @@ Two companion guards keep this flash-free:
 
 The four request-tracking maps (`timelineRequests`, `paginateRequests`, `paginateRequestMaxTimelineIds`, `backgroundPrefetchRequests`) are declared as `ConcurrentHashMap` in `AppViewModel`. This is required because `handleResponse` runs on `Dispatchers.Default` (see below), so these maps are written from a background thread while potentially being read from other coroutines.
 
+## Critical Invariant: The Connection-Loss Purge Must Only Touch **Positive** Request IDs
+
+`TimelineCacheCoordinator.onConnectionLost(epoch)` runs when the socket dies and drops every request-map
+entry belonging to the dead connection. It filters to `requestId > 0` — this is not defensive, it is
+required.
+
+`/exec` allocates **negative** ids via `WebSocketService.allocateExecRequestId()` specifically so an
+in-flight HTTP response survives a reconnect (the WS counter is reset to 0 on every `setWebSocket`, so
+positive ids would collide). `ExecCommandCoordinator` writes those negative ids straight into
+`paginateRequests`. Purging them would orphan a battery-saver paginate that is still perfectly capable
+of completing. Likewise `roomsWithPendingPaginate` is released only for rooms that have **no** remaining
+entry in any of the four maps, so a room still riding an `/exec` id keeps its duplicate-suppression
+reservation.
+
+**The `epoch` guard.** `WebSocketService.currentConnectionEpoch()` is bumped inside
+`resetRequestIdCounter()`, in lockstep with the id space. The purge captures the epoch at teardown and
+re-checks it before acting. Without it: request ids restart at 1 on every socket, the Main-thread half
+of the purge runs on a queued task, and on a weak link the replacement dial can open and issue ids
+`1..n` in that window — so the purge would delete the **new** connection's entries. For the same reason
+the concurrent-map half runs *synchronously* from `clearWebSocket`
+(`AppViewModel.onWebSocketTornDownSync`) rather than waiting for the Main hop; only thread-safe state
+may be touched there.
+
+**Why the purge exists at all.** These requests set their in-flight state *before* the send and clear it
+*only* from the response handler, and there is deliberately no wall-clock timeout
+(docs/RPC_RESILIENCE.md — "completion is an event, never a clock"). A `paginate` in flight when the
+socket died therefore left `isPaginating` true forever, and because
+`requestPaginationWithSmallestRowId` early-returns on that flag, pagination was dead for **every** room,
+process-wide, until the app restarted.
+
+`isTimelineLoading` is deliberately **not** cleared for parked rooms: they are queued into
+`roomsAwaitingInitCompletePaginate` for reissue by `AppViewModel.drainDeferredRoomPaginates`, exactly
+like the "WebSocket was already down at send time" branch. Clearing it with an empty `timelineEvents`
+would repaint the loader gate as an *empty room* instead of a spinner. Backward-history
+`paginateRequests` are **not** reissued — that was a scroll gesture whose intent is gone, and replaying
+it would fight scroll-anchor restoration.
+
 ## Auto-Pagination (Scroll-Triggered)
 
 `RoomTimelineScreen` and `BubbleTimelineScreen` each contain a `LaunchedEffect(listState, roomId)` with a `snapshotFlow` that monitors how many rendered events are above the viewport. With `reverseLayout=true`, "above" means items with index > last visible index.
