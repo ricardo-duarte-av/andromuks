@@ -34,6 +34,18 @@ Helper extensions live in `ConnectionState.kt`: `isReady()`, `isDisconnected()`,
 
 `invokeReconnectionCallback()` reads credentials from `SharedPreferences` (no AppViewModel required), picks the primary/attached ViewModel if available, and calls `connectWebSocket()`.
 
+The backoff is `BASE_RECONNECTION_DELAY_MS shl (min(attempt, 7) + 1)`, capped at 120s. The exponent
+**must** be clamped and the shift **must** be on a `Long`: this was `1000L * (1 shl attemptCount)`, an
+`Int` shift, while `MAX_RECONNECTION_ATTEMPTS` is 99 — at attempt 31 it produced `Int.MIN_VALUE`,
+`minOf` picked the negative, and `delay(negative)` returned immediately, so attempts 31+ hot-looped with
+no backoff at all.
+
+`pendingReconnectionReasons` is written and read under `pendingReconnectionLock` (it was previously
+written under `reconnectionLock` — a different monitor). It is drained by `processPendingReconnections()`,
+which snapshots-and-clears inside the lock and calls `scheduleReconnection` **outside** it, and which is
+invoked both when a ViewModel becomes primary and from `onNetworkAvailable` — the moment those triggers
+were queued for.
+
 ## Startup / `START_STICKY` Restart Recovery
 
 **Known gap (fixed):** `NetworkMonitor.start()` calls `updateCurrentNetworkState()` before registering the Android callback. Android then delivers `onAvailable()` with `previousType = WIFI`, so `wasOffline = false` and `onNetworkAvailable` is never called. `WebSocketService.currentNetworkType` would stay `NONE` even on a device with an active network.
@@ -280,6 +292,10 @@ Battery optimization exemption is recommended for reliable background operation.
 | `PING_INTERVAL_BACKGROUND_MS` | 45s | Ping cadence while backgrounded — see the constraint below |
 | `MESSAGE_TIMEOUT_FOREGROUND_MS` | 60s | No message at all for this long ⇒ stale, re-dial |
 | `MESSAGE_TIMEOUT_BACKGROUND_MS` | 135s | Same, scaled to the background ping interval |
+| `PONG_CLEAR_INFLIGHT_MS` | 5s | Clears `pingInFlight` so the next ping may be sent (cadence only) |
+| `PONG_DEADLINE_MS` | 10s | No inbound traffic within this long of a ping ⇒ one missed pong |
+| `MAX_CONSECUTIVE_PING_TIMEOUTS` | 3 | Missed pongs in a row before tearing down and re-dialling |
+| `BASE_RECONNECTION_DELAY_MS` | 500ms | Backoff base; delay is `BASE << (min(attempt,7) + 1)`, capped at 120s |
 | `MONITOR_INTERVAL_TRANSIENT_MS` | 1s | Unified-monitoring tick while not `Ready` |
 | `MONITOR_INTERVAL_READY_MS` | 15s | Unified-monitoring tick once `Ready` |
 | `DEEP_CHECK_INTERVAL_MS` | 30s | Cadence of the expensive monitoring checks |
@@ -288,6 +304,39 @@ Battery optimization exemption is recommended for reliable background operation.
 | `INIT_COMPLETE_TIMEOUT_MS_BASE` | — | Max wait for `init_complete` after run_id |
 | Reconnect stuck guard | 30s | Reset stuck reconnection lock |
 | Stuck-Disconnected delay | 5s | Grace period before health-check recovery |
+
+## The backend ignores RFC 6455 ping frames — never set OkHttp's `pingInterval`
+
+The WebSocket `OkHttpClient` is built bare (`OkHttpClient.Builder().build()`), so `pingInterval` is `0`
+and OkHttp sends no protocol-level ping frames. **This is deliberate and must stay that way.** The
+gomuks backend does not answer WebSocket control-frame pings. OkHttp fails a connection with
+`SocketTimeoutException` when a pong does not arrive within one interval, so enabling `pingInterval`
+against a backend that never pongs would tear down every *healthy* connection on a fixed timer.
+
+It looks like an oversight — especially when hunting half-open-TCP detection on weak networks — and it
+is not. The app-level JSON `{"command":"ping"}` loop is the only liveness channel. `connectTimeout` and
+`readTimeout(0)` on that builder remain safe to set.
+
+## Missed-pong detection (`consecutivePingTimeouts`)
+
+`startPongTimeout` is a two-stage watchdog armed by each `sendPing()`:
+
+- **Stage 1**, at `PONG_CLEAR_INFLIGHT_MS`, clears `pingInFlight` so the next ping may be sent. This is
+  cadence regulation only and is **not** gated on connection state — it used to be, and whenever the
+  state left `Ready` at exactly that moment the flag latched `true`. The ping loop's only send gate is
+  `if (!pingInFlight)`, so pings then stopped for the entire life of the connection.
+- **Stage 2**, at `PONG_DEADLINE_MS`, is the liveness check. If `lastMessageReceivedTimestamp` has not
+  advanced past the moment the ping was sent, `consecutivePingTimeouts` is incremented; at
+  `MAX_CONSECUTIVE_PING_TIMEOUTS` the socket is cleared and `ReconnectTrigger.PingTimeout` scheduled.
+  Any inbound traffic counts as liveness, not just the matching pong.
+
+Before this existed, `consecutivePingTimeouts` was reset in five places and incremented in none, so a
+**half-open TCP connection** — no FIN, the normal failure on a lossy link — was only ever caught by
+`MESSAGE_TIMEOUT_*`, i.e. 60s foreground / 135s background. `MESSAGE_TIMEOUT_*` remains the backstop.
+
+`clearWebSocket` resets `consecutivePingTimeouts` along with the other per-connection health fields;
+without that, a teardown caused by hitting the limit would leave the counter at its limit and the first
+missed pong on the *new* connection would immediately tear that one down too.
 
 ## Ping cadence — the 60s backend constraint
 

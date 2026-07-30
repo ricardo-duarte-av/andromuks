@@ -55,8 +55,8 @@ class WebSocketService : Service() {
         private var instance: WebSocketService? = null
 
         // Constants
-        private val BASE_RECONNECTION_DELAY_MS = 500L // 3 seconds - give network time to stabilize
-        private val MIN_RECONNECTION_INTERVAL_MS = 1000L // 5 seconds minimum between any reconnections
+        private const val BASE_RECONNECTION_DELAY_MS = 500L // doubled per attempt: 1s, 2s, 4s … capped at 120s
+        private const val MIN_RECONNECTION_INTERVAL_MS = 1000L // 1 second minimum between any reconnections
         private val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 1000L // 500ms minimum between notification updates (UI smoothing)
         private const val BACKEND_HEALTH_RETRY_DELAY_MS = 1_000L
 
@@ -73,6 +73,17 @@ class WebSocketService : Service() {
         private const val MESSAGE_TIMEOUT_FOREGROUND_MS = 60_000L
         private const val MESSAGE_TIMEOUT_BACKGROUND_MS = 135_000L
         private const val PONG_CLEAR_INFLIGHT_MS = 5_000L // Clear pingInFlight after 5s so next ping can be sent
+
+        // Missed-pong detection. The gomuks backend ignores RFC 6455 ping frames entirely (OkHttp's
+        // pingInterval is deliberately left at 0 — enabling it would fail every healthy connection on
+        // a fixed timer), so the app-level JSON ping is the ONLY liveness channel. Without acting on
+        // a missing pong, a half-open TCP connection — the normal failure mode on a lossy link, where
+        // no FIN ever arrives — was only caught by MESSAGE_TIMEOUT_*, i.e. 60s foreground / 135s
+        // background. Counting consecutive misses cuts that to ~3 ping intervals while keeping the
+        // message timeout as the backstop. The deadline is generous (10s) so ordinary latency on a
+        // weak link does not count as a miss.
+        private const val PONG_DEADLINE_MS = 10_000L
+        private const val MAX_CONSECUTIVE_PING_TIMEOUTS = 3
         private const val INIT_COMPLETE_TIMEOUT_MS_BASE = 15_000L // init_complete wait before run_id (unified monitoring / timeouts)
         private const val HARD_CONNECTING_TIMEOUT_MS = 5_000L // stuck in Connecting — force recovery
         private const val RUN_ID_TIMEOUT_MS = 2_000L // run_id must arrive shortly after dial
@@ -1016,32 +1027,35 @@ class WebSocketService : Service() {
                 return
             }
 
-            // Process all queued requests
-            synchronized(serviceInstance.pendingReconnectionLock) {
-                if (serviceInstance.pendingReconnectionReasons.isEmpty()) {
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d(
-                            "WebSocketService",
-                            "processPendingReconnections: No pending reconnection requests",
-                        )
-                    }
-                    return
-                }
-
-                val queuedReasons = serviceInstance.pendingReconnectionReasons.toList()
+            // Snapshot-and-clear inside the lock, then schedule OUTSIDE it. scheduleReconnection can
+            // re-enter this queue (its no-network branch appends to it), and holding the monitor
+            // across that call means the drain and the refill contend on the same lock — harmless
+            // today only because `synchronized` is reentrant, and a trap for whoever swaps the lock.
+            val queuedReasons = synchronized(serviceInstance.pendingReconnectionLock) {
+                val copy = serviceInstance.pendingReconnectionReasons.toList()
                 serviceInstance.pendingReconnectionReasons.clear()
+                copy
+            }
 
-                android.util.Log.i("WebSocketService", "processPendingReconnections: Processing ${queuedReasons.size} queued reconnection request(s)")
-
-                // Process each queued request
-                queuedReasons.forEach { queuedTrigger ->
-                    android.util.Log.i(
+            if (queuedReasons.isEmpty()) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
                         "WebSocketService",
-                        "processPendingReconnections: Processing queued reconnection: $queuedTrigger",
+                        "processPendingReconnections: No pending reconnection requests",
                     )
-                    // Use scheduleReconnection to ensure proper handling (rate limiting, state checks, etc.)
-                    scheduleReconnection(queuedTrigger)
                 }
+                return
+            }
+
+            android.util.Log.i("WebSocketService", "processPendingReconnections: Processing ${queuedReasons.size} queued reconnection request(s)")
+
+            queuedReasons.forEach { queuedTrigger ->
+                android.util.Log.i(
+                    "WebSocketService",
+                    "processPendingReconnections: Processing queued reconnection: $queuedTrigger",
+                )
+                // Use scheduleReconnection to ensure proper handling (rate limiting, state checks, etc.)
+                scheduleReconnection(queuedTrigger)
             }
         }
 
@@ -1435,6 +1449,10 @@ class WebSocketService : Service() {
             }
 
             serviceInstance.pingInFlight = false // Reset ping-in-flight flag
+            // Per-connection, like every other health counter reset below. Without this a teardown
+            // triggered by MAX_CONSECUTIVE_PING_TIMEOUTS would leave the counter at its limit, and
+            // the first missed pong on the *new* connection would immediately tear that down too.
+            serviceInstance.consecutivePingTimeouts = 0
 
             // Check if we're in a state that needs clearing (any active state)
             // DISCONNECTED state means we're already cleared, so we can skip
@@ -2519,7 +2537,10 @@ class WebSocketService : Service() {
             if (serviceInstance.currentNetworkType == NetworkType.NONE) {
                 val lastEv = getLastReceivedRequestId(serviceInstance.applicationContext)
                 updateConnectionState(ConnectionState.WaitingForNetwork(lastEv))
-                synchronized(serviceInstance.reconnectionLock) {
+                // pendingReconnectionLock, NOT reconnectionLock: this queue is read and cleared by
+                // processPendingReconnections() under pendingReconnectionLock, so writing it under a
+                // different monitor left the two sides unsynchronized against each other.
+                synchronized(serviceInstance.pendingReconnectionLock) {
                     serviceInstance.pendingReconnectionReasons.add(trigger)
                 }
                 android.util.Log.w(
@@ -2639,11 +2660,16 @@ class WebSocketService : Service() {
                 // Cancel any existing reconnection job
                 serviceInstance.reconnectionJob?.cancel()
 
-                // Calculate exponential backoff (1s → 2s → 4s → 8s → 16s → 32s → 64s → 120s max)
-                val backoffDelayMs = minOf(
-                    1000L * (1 shl serviceInstance.reconnectionAttemptCount),
-                    120_000L, // Max 120 seconds
-                )
+                // Exponential backoff: 1s → 2s → 4s → 8s → 16s → 32s → 64s → 120s max.
+                //
+                // The shift MUST be on a Long with a clamped exponent. This was `1 shl attemptCount`,
+                // an *Int* shift, while MAX_RECONNECTION_ATTEMPTS is 99: at attempt 31 it produced
+                // Int.MIN_VALUE, minOf() then picked the negative value, and delay(negative) returns
+                // immediately — so attempts 31+ hot-looped with no backoff at all (32+ aliased mod 32).
+                // On a weak link that turned a slow retry ladder into a reconnect storm.
+                val backoffExponent = serviceInstance.reconnectionAttemptCount.coerceIn(0, 7)
+                val backoffDelayMs = (BASE_RECONNECTION_DELAY_MS shl (backoffExponent + 1))
+                    .coerceAtMost(120_000L)
 
                 val rid = getCurrentRunId()
                 val nextAttempt = serviceInstance.reconnectionAttemptCount + 1
@@ -3527,6 +3553,12 @@ class WebSocketService : Service() {
 
                     android.util.Log.i("WebSocketService", "Network validated - checking if reconnection needed")
 
+                    // Drain anything scheduleReconnection parked while we were in WaitingForNetwork.
+                    // This is the moment those triggers were queued for; previously the only drain
+                    // site was setReconnectionCallback (i.e. a ViewModel becoming primary), so a
+                    // link that dropped and returned without any VM churn never replayed them.
+                    processPendingReconnections()
+
                     // USER REQUIREMENT: Implement network change logic
                     // WiFi AP Alpha -> WiFi AP Alpha: Do nothing (except if pings fail, then retrigger reconnection)
                     // WiFi AP Alpha -> WiFi AP Beta: Force reconnect (handled by onNetworkIdentityChanged)
@@ -4247,14 +4279,25 @@ class WebSocketService : Service() {
     }
 
     /**
-     * Start pong timeout - clears pingInFlight after delay so next ping can be sent.
-     * Reconnection is handled by 60s message timeout, not pong timeout.
+     * Two-stage pong watchdog for a single ping.
+     *
+     * Stage 1 (PONG_CLEAR_INFLIGHT_MS) clears [pingInFlight] so the next ping can be sent — this only
+     * regulates send cadence and must NOT be gated on connection state: the old `if (!isReady())
+     * return@launch` guard here left pingInFlight latched true whenever the state happened to leave
+     * Ready at the 5s mark, and the ping loop's only send gate is `if (!pingInFlight)`, so pings
+     * stopped for the life of the connection.
+     *
+     * Stage 2 (PONG_DEADLINE_MS) is the actual liveness check. Nothing acted on a missing pong before,
+     * so a half-open TCP connection — no FIN, the normal lossy-link failure — was only caught by the
+     * 60s/135s message timeout. [consecutivePingTimeouts] existed for this and was reset in five
+     * places but incremented in none. Any inbound traffic counts as liveness, not just the matching
+     * pong; [handlePong] and the sync path both advance [lastMessageReceivedTimestamp].
      */
     private fun startPongTimeout(pingRequestId: Int) {
+        val pingSentAt = lastPingTimestamp
         pongTimeoutJob?.cancel()
         pongTimeoutJob = serviceScope.launch {
             delay(PONG_CLEAR_INFLIGHT_MS)
-            if (!connectionState.isReady()) return@launch
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "WebSocketService",
@@ -4262,6 +4305,22 @@ class WebSocketService : Service() {
                 )
             }
             pingInFlight = false
+
+            delay(PONG_DEADLINE_MS - PONG_CLEAR_INFLIGHT_MS)
+            if (!connectionState.isReady()) return@launch
+            if (lastMessageReceivedTimestamp > pingSentAt) return@launch
+
+            consecutivePingTimeouts++
+            android.util.Log.w(
+                "WebSocketService",
+                "No reply within ${PONG_DEADLINE_MS}ms of ping $pingRequestId " +
+                    "(consecutive: $consecutivePingTimeouts/$MAX_CONSECUTIVE_PING_TIMEOUTS)",
+            )
+            if (consecutivePingTimeouts < MAX_CONSECUTIVE_PING_TIMEOUTS) return@launch
+
+            logActivity("Pong Timeout x$consecutivePingTimeouts - Reconnecting", currentNetworkType.name)
+            clearWebSocket("No pong for $consecutivePingTimeouts consecutive pings")
+            scheduleReconnection(ReconnectTrigger.PingTimeout)
         }
     }
 

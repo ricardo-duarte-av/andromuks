@@ -10,6 +10,12 @@ sealed class ReconnectTrigger {
     /** Link is back; used where we must not tear down local resume state (e.g. skip aggressive clear). */
     object NetworkAvailable : ReconnectTrigger()
 
+    /**
+     * Several app-level pings in a row went unanswered (see MAX_CONSECUTIVE_PING_TIMEOUTS in
+     * [WebSocketService]). The backend ignores
+     * RFC 6455 ping frames, so this JSON ping/pong is the only liveness channel and the only thing
+     * that detects a half-open TCP connection before [MessageTimeout].
+     */
     object PingTimeout : ReconnectTrigger()
 
     /** Push wake / high-level external wake (no ViewModel — service must not recurse into the same path). */
@@ -64,7 +70,7 @@ sealed class ReconnectTrigger {
 fun ReconnectTrigger.toLogString(): String = when (this) {
     is ReconnectTrigger.NetworkLost -> "Network lost"
     is ReconnectTrigger.NetworkAvailable -> "Network restored"
-    is ReconnectTrigger.PingTimeout -> "Ping timeout"
+    is ReconnectTrigger.PingTimeout -> "Consecutive ping timeouts — no pong"
     is ReconnectTrigger.FcmPush -> "FCM push wake"
     is ReconnectTrigger.FailsafeReconnection -> "Failsafe reconnection"
     is ReconnectTrigger.ServiceRestarted -> "Service restarted"
