@@ -2203,6 +2203,33 @@ fun RoomTimelineScreen(
         }
     }
 
+    // Safety fallback for a pull-to-refresh whose paginate never actually left the device.
+    //
+    // The scroll-restoration effect below owns these flags, but it only fires on an isPaginating
+    // true→false edge. requestPaginationWithSmallestRowId can return *before* setting that flag — it
+    // early-returns when the socket is down, and again when isPaginating is already set — so on a
+    // weak link the pull sets pendingScrollRestoration/isRefreshingPull and nothing ever clears them.
+    // That matters well beyond a stuck spinner: while pendingScrollRestoration is true it suppresses
+    // auto-scroll, bottom-attachment tracking and the auto-paginate burst, so the timeline looks
+    // alive but stops responding to scrolling entirely.
+    //
+    // Mirrors the isRefreshing fallback below: wait, then release only if nothing is genuinely
+    // in flight, so a slow-but-live paginate is never cut short.
+    LaunchedEffect(pendingScrollRestoration, isRefreshingPull) {
+        if (!pendingScrollRestoration && !isRefreshingPull) return@LaunchedEffect
+        kotlinx.coroutines.delay(2000)
+        if (appViewModel.isPaginating || appViewModel.hasPendingTimelineRequest(roomId)) return@LaunchedEffect
+        if (!pendingScrollRestoration && !isRefreshingPull) return@LaunchedEffect
+        Log.w(
+            "Andromuks",
+            "RoomTimelineScreen: pull-to-refresh never started a paginate - releasing scroll restoration for $roomId",
+        )
+        pendingScrollRestoration = false
+        highestVisibleIndexBeforePagination = null
+        expectedTimelineSizeBeforePagination = null
+        isRefreshingPull = false
+    }
+
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
 
@@ -3140,6 +3167,43 @@ fun RoomTimelineScreen(
         // Always sync the tracker so the next increment is detectable regardless of whether
         // the refresh condition was met (prevents the second effect from racing to update it first).
         lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
+    }
+
+    // Recover after a reconnect. Nothing in this screen used to observe the connection at all: a
+    // socket death while the room was open produced a CloudOff icon in the header and no other
+    // change, so a stuck "Room loading…" or a dead spinner sat there with no way out but the manual
+    // refresh button.
+    //
+    // Keyed on rpcRetryGeneration, NOT SyncRepository.connectionState. That counter bumps exactly
+    // once per "socket up AND command gate open" transition (see AppViewModel.signalBackendReachable),
+    // whereas connectionState flips through Connecting/Ready repeatedly on a weak link and would
+    // trigger a redundant-paginate storm. It is also the pattern docs/RPC_RESILIENCE.md prescribes
+    // for UI that needs to re-ask after a reconnect.
+    var lastSeenRetryGeneration by remember(roomId) { mutableIntStateOf(appViewModel.rpcRetryGeneration) }
+    LaunchedEffect(appViewModel.rpcRetryGeneration) {
+        val generation = appViewModel.rpcRetryGeneration
+        if (generation == lastSeenRetryGeneration) return@LaunchedEffect // first composition, not a reconnect
+        lastSeenRetryGeneration = generation
+        if (appViewModel.currentRoomId != roomId || !isInitialLoadComplete) return@LaunchedEffect
+
+        // Anything captured against the dead connection is meaningless now.
+        isRefreshingPull = false
+        pendingScrollRestoration = false
+        highestVisibleIndexBeforePagination = null
+        expectedTimelineSizeBeforePagination = null
+        // The member-list wait is only ever ended by a memberUpdateCounter bump, i.e. by the
+        // response. Nothing bumps it when the request dies with the socket (nor on an error frame),
+        // so without this the @-mention list stays dead for the life of the screen.
+        isWaitingForFullMemberList = false
+
+        // Only re-ask when actually stuck. AppViewModel.drainDeferredRoomPaginates already reissues
+        // the room-open paginate for rooms that had one in flight; this covers the case where nothing
+        // was in flight when the socket died but the screen has nothing to show. Overlap is bounded by
+        // the roomsWithPendingPaginate reservation and the freshness-probe dedup.
+        if (appViewModel.timelineEvents.isEmpty() || appViewModel.isTimelineLoading) {
+            Log.i("Andromuks", "RoomTimelineScreen: backend reachable again — re-requesting timeline for $roomId")
+            appViewModel.requestRoomTimeline(roomId)
+        }
     }
 
     // Listen for foreground refresh broadcast to refresh timeline when app comes to foreground

@@ -1716,6 +1716,25 @@ fun BubbleTimelineScreen(
         }
     }
 
+    // Safety fallback for a pull-to-refresh whose paginate never actually left the device — the
+    // scroll-restoration effect below only fires on an isPaginating true→false edge, and
+    // requestPaginationWithSmallestRowId early-returns without setting that flag when the socket is
+    // down. See the matching effect in RoomTimelineScreen for the full rationale.
+    LaunchedEffect(pendingScrollRestoration, isRefreshingPull) {
+        if (!pendingScrollRestoration && !isRefreshingPull) return@LaunchedEffect
+        kotlinx.coroutines.delay(2000)
+        if (appViewModel.isPaginating || appViewModel.hasPendingTimelineRequest(roomId)) return@LaunchedEffect
+        if (!pendingScrollRestoration && !isRefreshingPull) return@LaunchedEffect
+        Log.w(
+            "Andromuks",
+            "BubbleTimelineScreen: pull-to-refresh never started a paginate - releasing scroll restoration for $roomId",
+        )
+        pendingScrollRestoration = false
+        highestVisibleIndexBeforePagination = null
+        expectedTimelineSizeBeforePagination = null
+        isRefreshingPull = false
+    }
+
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
 
