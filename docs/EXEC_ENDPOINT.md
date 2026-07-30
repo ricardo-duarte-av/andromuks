@@ -18,6 +18,14 @@ use first — see [the RPC spec's command list](https://spec.mau.fi/gomuks/rpc.h
 does not document `/exec` itself; it mentions the endpoint only as the request channel for the SSE
 transport.
 
+**The governing rule** (confirmed with the gomuks dev): *`/exec` is the same as using the WebSocket
+for the command — parameters and response are identical, except where explicitly noted.* The only
+noted exception today is the optional `?txn_id&start_ts` query pair (below), which has no WebSocket
+equivalent. So the spec's per-command request/response docs are authoritative for `/exec` too, and a
+command's quirks travel with it: an argument that is subtly conditional over the socket is just as
+conditional here (see the `paginate_manual` `since` trap in
+[THREADS.md](THREADS.md#paginate_manual-parameters--since-is-only-emptyable-for-threads)).
+
 Everything lives in [`ExecApi.kt`](../app/src/main/java/net/vrkknn/andromuks/utils/ExecApi.kt).
 
 ## Callers

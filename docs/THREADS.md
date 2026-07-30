@@ -22,6 +22,22 @@ Route: `thread_viewer/{roomId}/{threadRootId}` (registered in `MainActivity`). T
 
 The live copy wins on conflict (it carries sync-applied edits/reactions). `threadRootEvent` is then `threadMessages.firstOrNull { it.eventId == threadRootEventId }`.
 
+### `paginate_manual` parameters — `since` is only emptyable for threads
+
+Per the [RPC spec](https://spec.mau.fi/gomuks/rpc.html), `PaginateManualParams` is `room_id`,
+`thread_root` (optional), `since` (optional), `direction` (a **single character**, `b`/`f`), `limit`.
+The `since` token is documented as *"`next_batch` from a previous request, or the `start`/`end`
+fields of `get_event_context`. Can be empty for starting thread pagination."*
+
+That last sentence is the trap: **an empty `since` is only meaningful when `thread_root` is set.**
+`paginateThread` is therefore correct in passing `since = ""` on the first page, but a *non-thread*
+`paginate_manual` needs a real token, which means a `get_event_context` call first. Non-thread
+history is what the ordinary `paginate` command is for — reach for that instead.
+
+This was gotten wrong once: a since-less, thread_root-less `paginate_manual` was used to backfill
+notification history (removed for unrelated reasons — see
+[NOTIFICATIONS.md](NOTIFICATIONS.md#why-notifications-never-render-server-fetched-history)).
+
 ## Opening a thread from the long-press menu
 
 The More dropdown ([docs/MESSAGE_MENU.md](MESSAGE_MENU.md)) has two mutually-exclusive thread entries, gated on `event.isThreadMessage()`:
