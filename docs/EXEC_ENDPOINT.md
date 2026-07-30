@@ -28,7 +28,7 @@ Everything lives in [`ExecApi.kt`](../app/src/main/java/net/vrkknn/andromuks/uti
 | `NotificationMarkReadReceiver` (battery-saver mark-read) | `mark_read` via `ExecApi.markRead` | yes | yes (cheap no-op) |
 | `ExecCommandCoordinator` (FCM timeline hydrate) | `paginate` etc. | no | no |
 | `NotificationImageWorker` | `get_event` | no | no |
-| `NotificationBackfill` (notification enrichment) | `paginate_manual`, `get_event`, `get_specific_room_state`, `get_room_summary` via `ExecApi.callObject` | no | no — read-only |
+| `NotificationEnrichment` (missing room name) | `get_room_summary` via `ExecApi.callObject` | no | no — read-only |
 | `RpcResilienceCoordinator` (replay-safe reads: socket down **or** command gate still closed) | `get_event` | yes | no — read-only, see below |
 
 `RpcResilienceCoordinator` is the one caller that uses `/exec` as a *routine alternative transport*

@@ -35,7 +35,7 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ExecBudget
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
-import net.vrkknn.andromuks.utils.NotificationBackfill
+import net.vrkknn.andromuks.utils.NotificationEnrichment
 import net.vrkknn.andromuks.utils.htmlToNotificationText
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
@@ -882,13 +882,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     "Entering synchronized block for notification display - room: ${notificationData.roomId}",
                 )
             }
-            // Seed MessagingStyle history from the server when the in-memory cache is cold, so the
-            // shade shows a conversation instead of one orphaned line. Deliberately outside the room
-            // lock below: this does blocking network I/O, and that lock is also held by the dismiss
-            // and worker-repost paths (see getRoomLock) — holding it across an HTTP call would stall
-            // them for the length of the request.
-            seedHistoryIfCold(notificationData, enrichmentBudget)
-
             val roomLock = getRoomLock(notificationData.roomId)
             synchronized(roomLock) {
                 if (BuildConfig.DEBUG) {
@@ -1350,68 +1343,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     }
 
     /**
-     * Fills [roomMessageCache] for this room from the server when it is empty, so the notification
-     * about to be posted renders with conversation history behind it.
-     *
-     * The cache is only ever fed by notifications we previously posted, so it is cold on a fresh
-     * process, after the user clears the shade, and for a room's first message — i.e. most of the
-     * time. A cold cache produced a single-line notification with no context. This seeds it from
-     * `paginate_manual` over `/exec`, which needs neither a WebSocket nor a ViewModel and therefore
-     * works in battery-saver mode and on an FCM cold start.
-     *
-     * Best-effort by construction: any failure leaves the cache empty and the notification posts
-     * exactly as it did before. The caller must not depend on this having succeeded.
-     */
-    private suspend fun seedHistoryIfCold(notificationData: NotificationData, budget: ExecBudget) {
-        if (roomMessageCache[notificationData.roomId]?.isNotEmpty() == true) return
-
-        // Leave one slot for the message we are about to append — Android only renders
-        // MAX_CACHED_MESSAGES_PER_ROOM of them, and the incoming one must not be evicted.
-        val slots = MAX_CACHED_MESSAGES_PER_ROOM - 1
-        if (slots <= 0) return
-
-        // fetchHistory absorbs its own transport failures and returns empty rather than throwing,
-        // so a dead network degrades to "no history" instead of losing the notification.
-        val history = NotificationBackfill.fetchHistory(
-            context = context,
-            roomId = notificationData.roomId,
-            limit = slots,
-            excludeEventId = notificationData.eventId,
-            budget = budget,
-        )
-        if (history.isEmpty()) return
-
-        // A reply parent from outside the history window is the oldest thing shown and takes a slot
-        // from the recent messages. That trade is deliberate: knowing what a reply answers is worth
-        // more than one extra line of unrelated backlog.
-        val ordered = if (history.replyParent != null) {
-            listOf(history.replyParent) + history.messages.takeLast(slots - 1)
-        } else {
-            history.messages
-        }
-
-        val incomingTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
-        val cachedMessages = roomMessageCache.getOrPut(notificationData.roomId) { ArrayDeque() }
-        synchronized(cachedMessages) {
-            // Re-check under the lock: a concurrent notification for the same room may have posted
-            // (and thus populated the cache) while our HTTP request was in flight. Its live message
-            // is better than our historical snapshot, so leave it alone.
-            if (cachedMessages.isNotEmpty()) return@synchronized
-            for (message in ordered) {
-                // Never let history duplicate or post-date the message being notified about; the
-                // event-id filter in NotificationBackfill misses echoes that arrive re-keyed.
-                if (message.timestamp >= incomingTimestamp) continue
-                cachedMessages.addLast(
-                    MessagingStyle.Message(message.text, message.timestamp, backfilledPerson(message)),
-                )
-            }
-        }
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Seeded ${cachedMessages.size} historical message(s) for ${notificationData.roomId}")
-        }
-    }
-
-    /**
      * Fills in a missing room name from `get_room_summary`.
      *
      * A push without `room_name` otherwise surfaces the raw room ID as the conversation title, the
@@ -1421,22 +1352,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private suspend fun enrichRoomName(notificationData: NotificationData, budget: ExecBudget): NotificationData {
         if (!notificationData.roomName.isNullOrBlank()) return notificationData
-        val name = NotificationBackfill.fetchRoomName(context, notificationData.roomId, budget) ?: return notificationData
+        val name = NotificationEnrichment.fetchRoomName(context, notificationData.roomId, budget) ?: return notificationData
         if (BuildConfig.DEBUG) Log.d(TAG, "Resolved missing room name for ${notificationData.roomId}: $name")
         return notificationData.copy(roomName = name)
     }
-
-    /**
-     * Person for a backfilled message. Always a lettermark: resolving real avatars would cost one
-     * media fetch per distinct sender on the notification's critical path. The real icons are
-     * stamped in later by [upgradeAvatarsInCache] once a live message from that sender arrives.
-     */
-    private fun backfilledPerson(message: NotificationBackfill.BackfilledMessage): Person = Person.Builder()
-        .setKey(message.senderId)
-        .setName(message.senderDisplayName)
-        .setUri("matrix:u/${message.senderId.removePrefix("@")}")
-        .setIcon(createFallbackAvatarIcon(message.senderDisplayName, message.senderId))
-        .build()
 
     /**
      * Create room intent with Matrix URI scheme

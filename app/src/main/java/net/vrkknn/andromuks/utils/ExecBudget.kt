@@ -50,12 +50,12 @@ class ExecBudget(private val maxCalls: Int, private val deadlineAtMs: Long) {
         private const val TAG = "ExecBudget"
 
         /**
-         * Default ceiling for enriching one notification. Five covers the current worst case — a
-         * missing room name, the history page, a reply parent outside it, and two unresolved
-         * senders — and the common case spends one or two. Beyond this the marginal notification
-         * quality is not worth the delay.
+         * Default ceiling for enriching one notification. Today's only enrichment (a missing room
+         * name) spends one, and the common case spends none; the headroom is for notification
+         * *actions*, which may need a lookup before acting. Kept deliberately small — beyond a
+         * couple of calls the marginal notification quality is not worth the delay.
          */
-        const val DEFAULT_MAX_CALLS = 5
+        const val DEFAULT_MAX_CALLS = 2
 
         /**
          * Default wall-clock allowance. Deliberately shorter than `ExecApi`'s 20 s read timeout: a
