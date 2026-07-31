@@ -6264,10 +6264,20 @@ class AppViewModel : ViewModel() {
         WebSocketService.logActivity("FCMOpen: $source draining deferredRooms=$parked currentRoom=$currentRoomId")
 
         parked.forEach { roomId ->
-            if (roomId == currentRoomId || RoomTimelineCache.isRoomOpened(roomId)) {
+            val isCurrent = roomId == currentRoomId
+            val isOpened = RoomTimelineCache.isRoomOpened(roomId)
+            if (isCurrent || isOpened) {
                 // Consume only what we actually retry (see the note above about staying parked).
                 roomsAwaitingInitCompletePaginate.remove(roomId)
-                Androlog("FCMOpen", "$source: retrying deferred paginate room=$roomId")
+                // Record WHICH clause matched. A retry that passes only on isOpened is an off-screen
+                // room: it reserves roomsWithPendingPaginate while some other room is foreground, and
+                // if navigation to it lands moments later the real open hits the "already pending"
+                // guard and blanks. That is the shape to look for when a timeline fails to render.
+                Androlog(
+                    "FCMOpen",
+                    "$source: retrying deferred paginate room=$roomId " +
+                        "(isCurrent=$isCurrent isOpened=$isOpened currentRoom=$currentRoomId)",
+                )
                 WebSocketService.logActivity("FCMOpen: $source retrying deferred paginate room=$roomId")
                 requestRoomTimeline(roomId)
             } else {

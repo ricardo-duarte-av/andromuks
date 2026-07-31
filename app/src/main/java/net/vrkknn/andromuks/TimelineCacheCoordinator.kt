@@ -101,6 +101,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     "TimelineCacheCoordinator: connection lost — parked ${stalledRooms.size} room " +
                         "open(s) for reissue: $stalledRooms",
                 )
+                // Release-visible: this is the other way the parked set gains entries, and without it
+                // a release log shows rooms being drained that were never seen being queued.
+                Androlog("FCMOpen", "connection lost → parked ${stalledRooms.size} room open(s): $stalledRooms")
             }
 
             // isTimelineLoading is deliberately left as-is for parked rooms: they are queued for
@@ -1344,6 +1347,14 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         roomsWithPendingPaginate.remove(roomId)
                     }
                     roomsAwaitingInitCompletePaginate.add(roomId)
+                    // The warm/cached sibling of the "WS down → queued paginate" line below. This
+                    // branch parks silently, which made the parked set appear to gain entries from
+                    // nowhere when reading a release log.
+                    Androlog(
+                        "FCMOpen",
+                        "requestRoomTimeline: WS down on WARM path → parked room=$roomId " +
+                            "(cache served, currentRoom=$currentRoomId)",
+                    )
                 }
 
                 return
@@ -1418,6 +1429,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 "Andromuks",
                                 "🟢 requestRoomTimeline: Paginate still pending after force-fresh reset - roomId=$roomId",
                             )
+                            Androlog(
+                                "FCMOpen",
+                                "requestRoomTimeline: BLANKED room=$roomId — paginate still pending after " +
+                                    "force-fresh reset, isTimelineLoading=true, nothing sent (currentRoom=$currentRoomId)",
+                            )
                             timelineEvents = emptyList()
                             isTimelineLoading = true
                             return
@@ -1426,6 +1442,15 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         android.util.Log.d(
                             "Andromuks",
                             "🟢 requestRoomTimeline: Paginate already pending - roomId=$roomId",
+                        )
+                        // Release-visible: this is the path that leaves a room permanently blank when
+                        // an off-screen retry reserved the slot just before the real room open.
+                        Androlog(
+                            "FCMOpen",
+                            "requestRoomTimeline: BLANKED room=$roomId — paginate already pending, " +
+                                "isTimelineLoading=true, nothing sent (currentRoom=$currentRoomId, " +
+                                "inFlightTimelineReq=${timelineRequests.containsValue(roomId)}, " +
+                                "inFlightProbe=${freshnessCheckRequests.containsValue(roomId)})",
                         )
                         timelineEvents = emptyList()
                         isTimelineLoading = true
@@ -3587,6 +3612,15 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         "🟡 handleInitialTimelineBuild: Skipping timeline build - roomId ($roomId) != currentRoomId ($currentRoomId). Cache seeded only.",
                     )
                 }
+                // Release-visible counterpart of the "built room=..." line above. Without it, a
+                // paginate that was requested for an off-screen room simply produces no log at all,
+                // and a release capture cannot distinguish "response never arrived" from "response
+                // arrived but was not for the foreground room".
+                Androlog(
+                    "FCMOpen",
+                    "handleInitialTimelineBuild: cache-only room=$roomId events=${timelineList.size} " +
+                        "(not foreground, currentRoom=$currentRoomId) → no render, isTimelineLoading untouched",
+                )
             }
 
             // Persist initial paginated events to cache
