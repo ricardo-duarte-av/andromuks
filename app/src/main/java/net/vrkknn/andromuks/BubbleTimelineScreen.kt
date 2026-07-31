@@ -23,6 +23,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1744,13 +1745,15 @@ fun BubbleTimelineScreen(
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
 
+    // Set by a finger on the list, cleared the next time we settle at the bottom. This is what
+    // makes detaching a *user intent* rather than a scroll-position reading — see the attachment
+    // snapshotFlow below for why the position alone is not trustworthy.
+    var userDraggedSinceSettle by remember { mutableStateOf(false) }
+
     // Sending is an unconditional "take me to the bottom" intent — never a scroll-position question.
-    // Re-attaching here is what makes the local echo actually land in view: the attachment
-    // snapshotFlow only ever *detaches* while the IME is open (so the FAB can appear when the user
-    // scrolls up), so any layout jitter from the composer growing to a second line leaves
-    // isAttachedToBottom == false, and every auto-scroll effect below is gated on it.
     fun snapToBottomForOutgoing() {
         isAttachedToBottom = true
+        userDraggedSinceSettle = false
         coroutineScope.launch { listState.scrollToItem(0) }
     }
 
@@ -1853,6 +1856,16 @@ fun BubbleTimelineScreen(
         }
     }
 
+    // A finger on the list is the only thing that expresses "I want to leave the bottom" — see the
+    // long note on the same effect in RoomTimelineScreen for why position alone can't decide this.
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                userDraggedSinceSettle = true
+            }
+        }
+    }
+
     // Bottom attachment: single snapshotFlow over (index, offset) — same as RoomTimelineScreen.
     // Replaces fragile lastVisibleIndex heuristics + separate frame reads that disagreed during IME.
     // With reverseLayout=true, bottom == first item; offset < 100 avoids FAB flicker on tiny scrolls.
@@ -1873,28 +1886,32 @@ fun BubbleTimelineScreen(
                     return@collect
                 }
                 val atBottom = index == 0 && offset < 100
-                if (!isKeyboardOpen) {
-                    // Keyboard closed: full bidirectional sync (avoids IME jitter by gating above)
-                    if (atBottom != isAttachedToBottom) {
-                        isAttachedToBottom = atBottom
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                "Andromuks",
-                                "BubbleTimelineScreen: Attachment updated, isAttachedToBottom=$atBottom (index=$index, offset=$offset)",
-                            )
+                // Only a drag detaches; settling at the bottom always re-attaches, IME or not. The
+                // previous IME-gated rule latched a transient prepend index shift into a permanent
+                // detach for our own sends (keyboard up) but not for incoming ones (keyboard down).
+                when {
+                    atBottom -> {
+                        userDraggedSinceSettle = false
+                        if (!isAttachedToBottom) {
+                            isAttachedToBottom = true
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "Andromuks",
+                                    "BubbleTimelineScreen: Settled at bottom — re-attached (index=$index, offset=$offset)",
+                                )
+                            }
                         }
                     }
-                } else {
-                    // Keyboard open: keyboard LaunchedEffect sets attached=true after scroll-to-bottom.
-                    // If we never detach here, scrolling up while IME is open leaves isAttachedToBottom stuck
-                    // true and the scroll-to-bottom FAB never appears. Only allow detach while open.
-                    if (!atBottom && isAttachedToBottom) {
-                        isAttachedToBottom = false
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                "Andromuks",
-                                "BubbleTimelineScreen: Keyboard open, user scrolled up — detached (index=$index, offset=$offset) so FAB can show",
-                            )
+
+                    userDraggedSinceSettle -> {
+                        if (isAttachedToBottom) {
+                            isAttachedToBottom = false
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "Andromuks",
+                                    "BubbleTimelineScreen: User dragged away from bottom — detached (index=$index, offset=$offset) so FAB can show",
+                                )
+                            }
                         }
                     }
                 }

@@ -33,6 +33,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -2238,14 +2239,15 @@ fun RoomTimelineScreen(
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
 
+    // Set by a finger on the list, cleared the next time we settle at the bottom. This is what
+    // makes detaching a *user intent* rather than a scroll-position reading — see the attachment
+    // snapshotFlow below for why the position alone is not trustworthy.
+    var userDraggedSinceSettle by remember { mutableStateOf(false) }
+
     // Sending is an unconditional "take me to the bottom" intent — never a scroll-position question.
-    // Re-attaching here is what makes the local echo actually land in view: the attachment
-    // snapshotFlow only ever *detaches* while the IME is open (so the FAB can appear when the user
-    // scrolls up), so any layout jitter from the keyboard opening or the composer growing to a
-    // second line leaves isAttachedToBottom == false, and every auto-scroll effect below is gated
-    // on it. Call this from every send path before the echo is appended.
     fun snapToBottomForOutgoing() {
         isAttachedToBottom = true
+        userDraggedSinceSettle = false
         coroutineScope.launch { listState.scrollToItem(0) }
     }
 
@@ -2420,9 +2422,38 @@ fun RoomTimelineScreen(
         previousAppVisibleState = appViewModel.isAppVisible
     }
 
+    // A finger on the list is the only thing that expresses "I want to leave the bottom".
+    // DragInteraction is emitted for touch drags only — never for programmatic scrolls — and the
+    // flag stays set through the fling that follows the lift, so a flick away from the bottom still
+    // detaches even though the position only crosses the threshold after DragInteraction.Stop.
+    LaunchedEffect(listState) {
+        listState.interactionSource.interactions.collect { interaction ->
+            if (interaction is DragInteraction.Start) {
+                userDraggedSinceSettle = true
+            }
+        }
+    }
+
     // Bottom attachment: single snapshotFlow over (index, offset) so both read in one frame.
-    // Avoids races between separate isScrollInProgress vs offset effects during keyboard transitions.
     // With reverseLayout=true, bottom == first item; offset tolerance matches Signal/WhatsApp UX.
+    //
+    // Position alone cannot decide attachment, because every prepend transiently *looks* like a
+    // detach: the new event is inserted at index 0, LazyList keeps the previously-first item as the
+    // anchor, so firstVisibleItemIndex becomes 1 until the new-items effect above scrolls back to
+    // 0. Whether that round trip fits inside the 50 ms debounce is a coin flip decided by how long
+    // the new row takes to compose — which is exactly why the bug was intermittent.
+    //
+    // The old rule ("while the IME is open, only ever detach") turned that coin flip into a
+    // permanent latch, and only for our own sends: we send with the keyboard up, so a transient
+    // detach could never be undone, and every auto-scroll effect is gated on isAttachedToBottom.
+    // Other people's messages arrive with the keyboard down, where the flow re-attached on the very
+    // next emission — hence "others' messages keep the attachment, ours randomly lose it".
+    // f1ae7dec re-attached at send time, one moment *before* the echo that causes the transient.
+    //
+    // So: only a drag detaches, and settling at the bottom always re-attaches, IME or not. The FAB
+    // still appears when the user scrolls up mid-typing (that is a drag), and programmatic jumps
+    // that mean to land detached (reply jump, unread jump) set the flag themselves at a non-bottom
+    // index, which this flow leaves alone.
     LaunchedEffect(listState) {
         snapshotFlow {
             listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
@@ -2434,25 +2465,29 @@ fun RoomTimelineScreen(
                     return@collect
                 }
                 val atBottom = index == 0 && offset < 100
-                if (!isKeyboardOpen) {
-                    if (atBottom != isAttachedToBottom) {
-                        isAttachedToBottom = atBottom
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                "Andromuks",
-                                "RoomTimelineScreen: Attachment updated, isAttachedToBottom=$atBottom (index=$index, offset=$offset)",
-                            )
+                when {
+                    atBottom -> {
+                        userDraggedSinceSettle = false
+                        if (!isAttachedToBottom) {
+                            isAttachedToBottom = true
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "Andromuks",
+                                    "RoomTimelineScreen: Settled at bottom — re-attached (index=$index, offset=$offset)",
+                                )
+                            }
                         }
                     }
-                } else {
-                    // Same as BubbleTimelineScreen: allow detach while IME open so FAB can show
-                    if (!atBottom && isAttachedToBottom) {
-                        isAttachedToBottom = false
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                "Andromuks",
-                                "RoomTimelineScreen: Keyboard open, user scrolled up — detached (index=$index, offset=$offset)",
-                            )
+
+                    userDraggedSinceSettle -> {
+                        if (isAttachedToBottom) {
+                            isAttachedToBottom = false
+                            if (BuildConfig.DEBUG) {
+                                Log.d(
+                                    "Andromuks",
+                                    "RoomTimelineScreen: User dragged away from bottom — detached (index=$index, offset=$offset)",
+                                )
+                            }
                         }
                     }
                 }
