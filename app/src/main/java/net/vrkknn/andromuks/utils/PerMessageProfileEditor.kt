@@ -234,6 +234,10 @@ private fun migrateLegacyProfilesIfNeeded(appViewModel: AppViewModel): List<PerM
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: AppViewModel) {
+    // The avatar-rendering composables below take these as parameters rather than reading the
+    // view model, so hoist them once here.
+    val homeserverUrl = appViewModel.homeserverUrl
+    val authToken = appViewModel.authToken
     var profiles by remember { mutableStateOf(readPerMessageProfiles()) }
     var showAddEditDialog by remember { mutableStateOf(false) }
     var editingIndex by remember { mutableStateOf<Int?>(null) }
