@@ -2233,6 +2233,17 @@ fun RoomTimelineScreen(
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
 
+    // Sending is an unconditional "take me to the bottom" intent — never a scroll-position question.
+    // Re-attaching here is what makes the local echo actually land in view: the attachment
+    // snapshotFlow only ever *detaches* while the IME is open (so the FAB can appear when the user
+    // scrolls up), so any layout jitter from the keyboard opening or the composer growing to a
+    // second line leaves isAttachedToBottom == false, and every auto-scroll effect below is gated
+    // on it. Call this from every send path before the echo is appended.
+    fun snapToBottomForOutgoing() {
+        isAttachedToBottom = true
+        coroutineScope.launch { listState.scrollToItem(0) }
+    }
+
     // Track previous app visibility state to detect background/foreground transitions
     var previousAppVisibleState by remember(roomId) { mutableStateOf(appViewModel.isAppVisible) }
 
@@ -3569,6 +3580,12 @@ fun RoomTimelineScreen(
                     // But we can explicitly scroll to 0 to ensure we're at bottom
                     coroutineScope.launch {
                         animatedScrollTo(0)
+                        // Re-assert attachment (same as BubbleTimelineScreen): the IME transition
+                        // pushes the offset past the 100px tolerance mid-animation, and the
+                        // attachment snapshotFlow's keyboard-open branch only ever detaches — it
+                        // never re-attaches — so without this we stay detached for the whole
+                        // typing session and new messages stop auto-scrolling.
+                        isAttachedToBottom = true
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
@@ -4870,6 +4887,12 @@ fun RoomTimelineScreen(
                                                             }
                                                         }
 
+                                                        // Sending always means "put me at the bottom" — except an edit, which
+                                                        // rewrites a message that may be far up the timeline and must stay put.
+                                                        if (editingEvent == null) {
+                                                            snapToBottomForOutgoing()
+                                                        }
+
                                                         // Send edit if editing a message
                                                         if (editingEvent != null) {
                                                             appViewModel.sendEdit(roomId, draft, editingEvent!!)
@@ -4978,6 +5001,12 @@ fun RoomTimelineScreen(
                                                         return@Button
                                                     }
                                                 }
+                                            }
+
+                                            // Sending always means "put me at the bottom" — except an edit, which
+                                            // rewrites a message that may be far up the timeline and must stay put.
+                                            if (editingEvent == null) {
+                                                snapToBottomForOutgoing()
                                             }
 
                                             // Send edit if editing a message

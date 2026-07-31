@@ -1738,6 +1738,16 @@ fun BubbleTimelineScreen(
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
 
+    // Sending is an unconditional "take me to the bottom" intent — never a scroll-position question.
+    // Re-attaching here is what makes the local echo actually land in view: the attachment
+    // snapshotFlow only ever *detaches* while the IME is open (so the FAB can appear when the user
+    // scrolls up), so any layout jitter from the composer growing to a second line leaves
+    // isAttachedToBottom == false, and every auto-scroll effect below is gated on it.
+    fun snapToBottomForOutgoing() {
+        isAttachedToBottom = true
+        coroutineScope.launch { listState.scrollToItem(0) }
+    }
+
     // Track previous app visibility state to detect background/foreground transitions
     var previousAppVisibleState by remember(roomId) { mutableStateOf(appViewModel.isAppVisible) }
 
@@ -3682,6 +3692,12 @@ fun BubbleTimelineScreen(
                                                             }
                                                         }
 
+                                                        // Sending always means "put me at the bottom" — except an edit, which
+                                                        // rewrites a message that may be far up the timeline and must stay put.
+                                                        if (editingEvent == null) {
+                                                            snapToBottomForOutgoing()
+                                                        }
+
                                                         // Send edit if editing a message
                                                         if (editingEvent != null) {
                                                             appViewModel.sendEdit(roomId, draft, editingEvent!!)
@@ -3787,6 +3803,12 @@ fun BubbleTimelineScreen(
                                                         return@Button
                                                     }
                                                 }
+                                            }
+
+                                            // Sending always means "put me at the bottom" — except an edit, which
+                                            // rewrites a message that may be far up the timeline and must stay put.
+                                            if (editingEvent == null) {
+                                                snapToBottomForOutgoing()
                                             }
 
                                             // Send edit if editing a message
