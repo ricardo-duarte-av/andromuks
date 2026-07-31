@@ -841,7 +841,11 @@ object SpaceRoomParser {
 
             // Method 3: Fallback - Check if room name is exactly a Matrix user ID (not just contains @)
             val roomName = meta.optString("name", "")
-            val isExactMatrixUserId = roomName.matches(Regex("^@[^:]+:[^:]+$")) // Exact Matrix user ID format
+            // The localpart and server name of an MXID never contain whitespace, so excluding it
+            // keeps names that merely *begin* with a user ID from matching — e.g. a bot room called
+            // "@janitor:example.com's Policy Change Notifications", which the old "[^:]+" pattern
+            // happily swallowed (spaces and apostrophes are "not a colon") and mislabelled as a DM.
+            val isExactMatrixUserId = roomName.matches(Regex("^@[^\\s:]+:[^\\s:/]+$"))
 
             if (isExactMatrixUserId) {
                 // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name is exact Matrix user ID: '$roomName')")
