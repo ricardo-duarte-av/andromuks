@@ -6239,44 +6239,56 @@ class AppViewModel : ViewModel() {
      * [TimelineCacheCoordinator.onConnectionLost]).
      *
      * Retries only rooms with a live surface. [RoomTimelineCache.isRoomOpened] covers the foreground
-     * room *and* any open chat bubble; the previous `roomId == currentRoomId` test dropped bubbles,
-     * which then sat on a permanent spinner. Rooms with no surface are dropped rather than re-queued:
-     * their duplicate-suppression reservation was released on teardown, so the next open paginates
-     * normally.
+     * room *and* any open chat bubble; a bare `roomId == currentRoomId` test drops bubbles, which
+     * then sit on a permanent spinner.
+     *
+     * Rooms without a surface **stay parked** — this must not become a snapshot-and-clear. This runs
+     * on every "backend reachable" transition, and the earliest of those (`setWebSocket`) fires as
+     * soon as the socket opens. On a notification cold-open that is typically *before* the deferred
+     * navigation lands, so the room we are opening is not yet `currentRoomId`. Dropping it there
+     * strands `isTimelineLoading = true` — which `RoomTimelineScreen`'s `isAlreadyLoaded` guard then
+     * reads as "a load is already running", so it issues nothing and the timeline stays blank until
+     * the room is re-entered. Leaving the entry parked lets a later drain, or
+     * [claimDeferredPaginate] at room-open, pick it up.
      *
      * Safe to call more than once per reconnect — [requestRoomTimeline] re-reserves
      * `roomsWithPendingPaginate` and the freshness probe dedups on `freshnessCheckRequests`.
      */
     internal fun drainDeferredRoomPaginates(source: String) {
-        val toRetry = synchronized(roomsAwaitingInitCompletePaginate) {
-            val copy = roomsAwaitingInitCompletePaginate.toList()
-            roomsAwaitingInitCompletePaginate.clear()
-            copy
+        val parked = synchronized(roomsAwaitingInitCompletePaginate) {
+            roomsAwaitingInitCompletePaginate.toList()
         }
-        if (toRetry.isEmpty()) return
+        if (parked.isEmpty()) return
 
-        Androlog("FCMOpen", "$source: draining deferredRooms=$toRetry currentRoom=$currentRoomId")
-        WebSocketService.logActivity("FCMOpen: $source draining deferredRooms=$toRetry currentRoom=$currentRoomId")
+        Androlog("FCMOpen", "$source: draining deferredRooms=$parked currentRoom=$currentRoomId")
+        WebSocketService.logActivity("FCMOpen: $source draining deferredRooms=$parked currentRoom=$currentRoomId")
 
-        toRetry.forEach { roomId ->
+        parked.forEach { roomId ->
             if (roomId == currentRoomId || RoomTimelineCache.isRoomOpened(roomId)) {
+                // Consume only what we actually retry (see the note above about staying parked).
+                roomsAwaitingInitCompletePaginate.remove(roomId)
                 Androlog("FCMOpen", "$source: retrying deferred paginate room=$roomId")
                 WebSocketService.logActivity("FCMOpen: $source retrying deferred paginate room=$roomId")
                 requestRoomTimeline(roomId)
             } else {
                 Androlog(
                     "FCMOpen",
-                    "$source: SKIPPED deferred paginate room=$roomId (no live surface, currentRoom=$currentRoomId)",
+                    "$source: room=$roomId stays parked (no live surface yet, currentRoom=$currentRoomId)",
                 )
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: $source — skipping deferred retry for $roomId (no live surface, now=$currentRoomId)",
-                    )
-                }
             }
         }
     }
+
+    /**
+     * Claim a room's parked paginate at the moment its screen opens.
+     *
+     * Needed because none of the drain signals is guaranteed to fire *after* navigation lands. On a
+     * notification cold-open the socket typically becomes Ready while the user is still on the
+     * previous screen, so every drain runs too early, and no further drain happens once the room
+     * finally opens. Returns true if the room was parked, in which case the caller must issue the
+     * request rather than trusting [isTimelineLoading].
+     */
+    internal fun claimDeferredPaginate(roomId: String): Boolean = roomsAwaitingInitCompletePaginate.remove(roomId)
 
     /**
      * Off-Main half of the connection teardown, invoked synchronously by

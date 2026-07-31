@@ -2981,7 +2981,14 @@ fun RoomTimelineScreen(
             // Per-room equivalent (step 2 — read by the open path in a later step).
             RoomTimelineCache.markAllStale()
         }
-        val mustFetchFreshTimeline = appViewModel.needsFreshTimelinePaginate()
+        // A paginate for this room was deferred while the WebSocket was down and is still waiting to
+        // be reissued. None of the reconnect-driven drains is guaranteed to run after navigation
+        // lands — on a notification cold-open the socket usually goes Ready while the previous
+        // screen is still showing — so the room open is the last, and only certain, claimant.
+        // Must be OR'd into mustFetchFreshTimeline: the deferred attempt left isTimelineLoading
+        // true, and the isAlreadyLoaded guard below reads that as "a load is already in progress".
+        val hasDeferredPaginate = appViewModel.claimDeferredPaginate(roomId)
+        val mustFetchFreshTimeline = appViewModel.needsFreshTimelinePaginate() || hasDeferredPaginate
 
         // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded.
         // RoomListScreen already calls it when user clicks, so we skip duplicate processing.

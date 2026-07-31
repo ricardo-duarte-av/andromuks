@@ -89,6 +89,21 @@ socket died therefore left `isPaginating` true forever, and because
 `requestPaginationWithSmallestRowId` early-returns on that flag, pagination was dead for **every** room,
 process-wide, until the app restarted.
 
+**The parked set is not a queue you may drain-and-clear.** `drainDeferredRoomPaginates` removes only
+the rooms it actually retries; rooms without a live surface stay parked. It runs on every "backend
+reachable" transition, and the earliest of those (`setWebSocket`) fires the instant the socket opens —
+on a notification cold-open that is normally *before* the deferred navigation lands, so the room being
+opened is not yet `currentRoomId`. A snapshot-and-clear drain therefore discards exactly the entry
+that mattered, and `onInitComplete` then finds nothing. Because the deferred attempt left
+`isTimelineLoading = true`, `RoomTimelineScreen`'s `isAlreadyLoaded` guard reads that as "a load is
+already running" and issues nothing — a permanently blank timeline that only re-entering the room
+fixes (dispose clears `currentRoomId`, so the guard fails and the normal open path runs). This shipped
+once; don't reintroduce it.
+
+Since no drain signal is guaranteed to fire *after* navigation lands, the room open itself is the last
+certain claimant: `RoomTimelineScreen` calls `AppViewModel.claimDeferredPaginate(roomId)` and ORs the
+result into `mustFetchFreshTimeline`, which defeats the `isAlreadyLoaded` guard.
+
 `isTimelineLoading` is deliberately **not** cleared for parked rooms: they are queued into
 `roomsAwaitingInitCompletePaginate` for reissue by `AppViewModel.drainDeferredRoomPaginates`, exactly
 like the "WebSocket was already down at send time" branch. Clearing it with an empty `timelineEvents`
