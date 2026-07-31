@@ -6238,9 +6238,10 @@ class AppViewModel : ViewModel() {
      * already down when the request was attempted, or it died with the request in flight (see
      * [TimelineCacheCoordinator.onConnectionLost]).
      *
-     * Retries only rooms with a live surface. [RoomTimelineCache.isRoomOpened] covers the foreground
-     * room *and* any open chat bubble; a bare `roomId == currentRoomId` test drops bubbles, which
-     * then sit on a permanent spinner.
+     * Retries **only the foreground room**. Reissuing for a room that is merely "opened" (e.g. a
+     * bubble) races the navigation that is about to bring it on screen and blanks it — see the note
+     * on the branch below. Everything else stays parked for [claimDeferredPaginate] to claim when
+     * its screen actually opens.
      *
      * Rooms without a surface **stay parked** — this must not become a snapshot-and-clear. This runs
      * on every "backend reachable" transition, and the earliest of those (`setWebSocket`) fires as
@@ -6264,22 +6265,33 @@ class AppViewModel : ViewModel() {
         WebSocketService.logActivity("FCMOpen: $source draining deferredRooms=$parked currentRoom=$currentRoomId")
 
         parked.forEach { roomId ->
-            val isCurrent = roomId == currentRoomId
-            val isOpened = RoomTimelineCache.isRoomOpened(roomId)
-            if (isCurrent || isOpened) {
+            // Foreground room ONLY. An earlier version also accepted
+            // RoomTimelineCache.isRoomOpened(roomId) to cover chat bubbles — a guess, made without a
+            // reported bug behind it, and it backfired: a room that is "opened" but not foreground
+            // got its paginate reissued while another room was on screen. That reserves
+            // roomsWithPendingPaginate and its response seeds cache without rendering (the build is
+            // gated on roomId == currentRoomId), so when navigation to that room lands a moment
+            // later the real open hits the "paginate already pending" guard, which empties
+            // timelineEvents, sets isTimelineLoading = true and sends nothing — a permanently blank
+            // timeline until the room is re-entered. Rooms that are not foreground stay parked;
+            // claimDeferredPaginate picks them up when their screen actually opens.
+            val isOpenedNotForeground = roomId != currentRoomId && RoomTimelineCache.isRoomOpened(roomId)
+            if (roomId == currentRoomId) {
                 // Consume only what we actually retry (see the note above about staying parked).
                 roomsAwaitingInitCompletePaginate.remove(roomId)
-                // Record WHICH clause matched. A retry that passes only on isOpened is an off-screen
-                // room: it reserves roomsWithPendingPaginate while some other room is foreground, and
-                // if navigation to it lands moments later the real open hits the "already pending"
-                // guard and blanks. That is the shape to look for when a timeline fails to render.
                 Androlog(
                     "FCMOpen",
-                    "$source: retrying deferred paginate room=$roomId " +
-                        "(isCurrent=$isCurrent isOpened=$isOpened currentRoom=$currentRoomId)",
+                    "$source: retrying deferred paginate room=$roomId (foreground, currentRoom=$currentRoomId)",
                 )
                 WebSocketService.logActivity("FCMOpen: $source retrying deferred paginate room=$roomId")
                 requestRoomTimeline(roomId)
+            } else if (isOpenedNotForeground) {
+                // Kept as its own branch purely so the log distinguishes "opened but not foreground"
+                // from "no surface at all" — this is the case the old isOpened clause used to retry.
+                Androlog(
+                    "FCMOpen",
+                    "$source: room=$roomId stays parked (opened but NOT foreground, currentRoom=$currentRoomId)",
+                )
             } else {
                 Androlog(
                     "FCMOpen",

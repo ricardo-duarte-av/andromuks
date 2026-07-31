@@ -100,9 +100,19 @@ already running" and issues nothing — a permanently blank timeline that only r
 fixes (dispose clears `currentRoomId`, so the guard fails and the normal open path runs). This shipped
 once; don't reintroduce it.
 
+**The drain retries the foreground room only.** It must not reissue for a room that is merely
+"opened" (`RoomTimelineCache.isRoomOpened`, which also covers bubbles). A reissue for a non-foreground
+room reserves `roomsWithPendingPaginate`, and its response seeds cache *without rendering* because
+`handleInitialTimelineBuild` builds only when `roomId == currentRoomId`. If navigation to that room
+then lands a moment later — the normal case on a notification tap, where the previous room is still on
+screen when the socket comes up — the real open hits the "paginate already pending" guard, which
+empties `timelineEvents`, sets `isTimelineLoading = true` and sends nothing. The room stays blank until
+re-entered. This shipped once, as a widening added on a guess; don't reintroduce it.
+
 Since no drain signal is guaranteed to fire *after* navigation lands, the room open itself is the last
 certain claimant: `RoomTimelineScreen` calls `AppViewModel.claimDeferredPaginate(roomId)` and ORs the
-result into `mustFetchFreshTimeline`, which defeats the `isAlreadyLoaded` guard.
+result into `mustFetchFreshTimeline`, which defeats the `isAlreadyLoaded` guard. That is what covers
+bubbles and any other non-foreground surface.
 
 `isTimelineLoading` is deliberately **not** cleared for parked rooms: they are queued into
 `roomsAwaitingInitCompletePaginate` for reissue by `AppViewModel.drainDeferredRoomPaginates`, exactly

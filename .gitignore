@@ -24,3 +24,6 @@ keystore.properties
 app/gomuks.keystore
 *.keystore
 /baselineprofile/build
+
+# Local scratch notes for an in-progress investigation — deliberately untracked
+/DEBUG_JOURNAL.md
