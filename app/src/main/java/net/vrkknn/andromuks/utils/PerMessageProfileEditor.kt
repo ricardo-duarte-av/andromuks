@@ -18,13 +18,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
@@ -43,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,38 +68,167 @@ import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.AccountDataCache
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import org.json.JSONArray
+import org.json.JSONObject
 
-data class PerMessageProfileEntry(val shortcode: String, val id: String, val displayname: String, val avatarUrl: String)
+/**
+ * One stored per-message profile (MSC4461 revision 2).
+ *
+ * [id], [displayname] and [avatarUrl] come from MSC4144 and are copied verbatim into the outgoing
+ * `com.beeper.per_message_profile`. [prefixes] is the private `trigger.prefix` list and MUST NOT be
+ * sent — the backend matches it against the composer text, strips it, and attaches the profile.
+ *
+ * Prefixes are case-sensitive and matched verbatim, trailing space included: `cat:` does not match
+ * `cat: meow`, only `cat: ` does. Order matters both inside [prefixes] and across the stored list —
+ * all prefixes of the first profile take priority over the second profile's.
+ */
+data class PerMessageProfileEntry(val id: String, val displayname: String, val avatarUrl: String, val prefixes: List<String>) {
+    /** The profile as it is sent inside `com.beeper.per_message_profile` — never includes `trigger`. */
+    fun toContentMap(): Map<String, Any> {
+        val map = mutableMapOf<String, Any>(
+            "id" to id,
+            "displayname" to displayname,
+        )
+        if (avatarUrl.isNotBlank()) map["avatar_url"] = avatarUrl
+        return map
+    }
+}
 
-private val PRIMARY_KEY = "m.per_message_profiles"
-private val SECONDARY_KEY = "fi.mau.msc4461.per_message_profiles"
+/** MSC4461 rev-2 unstable key — the only one gomuks reads (`event.AccountDataPerMessageProfiles`). */
+private const val V2_UNSTABLE_KEY = "fi.mau.msc4461.per_message_profiles.v2"
 
-fun readPerMessageProfiles(): Map<String, PerMessageProfileEntry> {
-    val data = AccountDataCache.getAccountData(PRIMARY_KEY)
-        ?: AccountDataCache.getAccountData(SECONDARY_KEY)
-    val content = data?.optJSONObject("content") ?: return emptyMap()
-    val result = mutableMapOf<String, PerMessageProfileEntry>()
-    val keys = content.keys()
-    while (keys.hasNext()) {
-        val shortcode = keys.next()
-        val entry = content.optJSONObject(shortcode) ?: continue
-        result[shortcode] = PerMessageProfileEntry(
-            shortcode = shortcode,
-            id = entry.optString("id", shortcode),
-            displayname = entry.optString("displayname", shortcode),
-            avatarUrl = entry.optString("avatar_url", ""),
+/** Stable key. Same name in rev-1 and rev-2, but the content shape differs — always check for `profiles`. */
+private const val STABLE_KEY = "m.per_message_profiles"
+
+/** Rev-1 unstable key, holding the old shortcode→profile map. Read for migration, then blanked. */
+private const val LEGACY_V1_KEY = "fi.mau.msc4461.per_message_profiles"
+
+/**
+ * Read the stored profiles, preferring the rev-2 array. Falls back to converting rev-1 data so the
+ * picker keeps working before [migrateLegacyProfilesIfNeeded] has run.
+ */
+fun readPerMessageProfiles(): List<PerMessageProfileEntry> {
+    readV2Profiles()?.let { return it }
+    return readLegacyProfiles()
+}
+
+/** Rev-2 profiles, or null when no key holds array-shaped content. */
+private fun readV2Profiles(): List<PerMessageProfileEntry>? {
+    val content = contentOf(V2_UNSTABLE_KEY)?.takeIf { it.has("profiles") }
+        ?: contentOf(STABLE_KEY)?.takeIf { it.has("profiles") }
+        ?: return null
+    val array = content.optJSONArray("profiles") ?: return emptyList()
+    val result = mutableListOf<PerMessageProfileEntry>()
+    for (i in 0 until array.length()) {
+        val entry = array.optJSONObject(i)
+        val id = entry?.optString("id").orEmpty()
+        if (entry == null || id.isBlank()) continue
+        val prefixArray = entry.optJSONObject("trigger")?.optJSONArray("prefix")
+        val prefixes = mutableListOf<String>()
+        if (prefixArray != null) {
+            for (p in 0 until prefixArray.length()) {
+                prefixArray.optString(p).takeIf { it.isNotEmpty() }?.let { prefixes.add(it) }
+            }
+        }
+        result.add(
+            PerMessageProfileEntry(
+                id = id,
+                displayname = entry.optString("displayname", id),
+                avatarUrl = entry.optString("avatar_url", ""),
+                prefixes = prefixes,
+            ),
         )
     }
     return result
 }
 
-private fun buildProfilesContentMap(profiles: Map<String, PerMessageProfileEntry>): Map<String, Any> = profiles.mapValues { (_, entry) ->
-    val m = mutableMapOf<String, Any>(
-        "id" to entry.id,
-        "displayname" to entry.displayname,
-    )
-    if (entry.avatarUrl.isNotBlank()) m["avatar_url"] = entry.avatarUrl
-    m
+/**
+ * Rev-1 profiles converted to the rev-2 model. The old format had no triggers, so each shortcode
+ * becomes a `"<shortcode>: "` prefix — the colon convention gomuks used before commit 951bac5.
+ */
+private fun readLegacyProfiles(): List<PerMessageProfileEntry> {
+    val content = contentOf(LEGACY_V1_KEY)?.takeIf { !it.has("profiles") }
+        ?: contentOf(STABLE_KEY)?.takeIf { !it.has("profiles") }
+        ?: return emptyList()
+    val result = mutableListOf<PerMessageProfileEntry>()
+    val keys = content.keys()
+    while (keys.hasNext()) {
+        val shortcode = keys.next()
+        val entry = content.optJSONObject(shortcode) ?: continue
+        result.add(
+            PerMessageProfileEntry(
+                id = entry.optString("id", shortcode),
+                displayname = entry.optString("displayname", shortcode),
+                avatarUrl = entry.optString("avatar_url", ""),
+                prefixes = listOf("$shortcode: "),
+            ),
+        )
+    }
+    return result.sortedBy { it.id }
+}
+
+private fun contentOf(type: String): JSONObject? = AccountDataCache.getAccountData(type)?.optJSONObject("content")
+
+/**
+ * True when [draft] is a bare `/pmp` / `/profile` command with no shortcode after it — the composer
+ * opens the profile picker on this, and clears the draft once a profile is picked.
+ */
+fun isBarePerMessageProfileCommand(draft: String): Boolean {
+    val trimmed = draft.trim()
+    return trimmed.equals("/pmp", ignoreCase = true) || trimmed.equals("/profile", ignoreCase = true)
+}
+
+/** `{"profiles": [...]}` — the account data content for [profiles], triggers included. */
+private fun buildProfilesContentMap(profiles: List<PerMessageProfileEntry>): Map<String, Any> {
+    val list = profiles.map { entry ->
+        val map = entry.toContentMap().toMutableMap()
+        if (entry.prefixes.isNotEmpty()) {
+            map["trigger"] = mapOf("prefix" to entry.prefixes)
+        }
+        map
+    }
+    return mapOf("profiles" to list)
+}
+
+/**
+ * Persist [profiles] to both the rev-2 unstable key and the stable key, and update
+ * [AccountDataCache] optimistically so the picker reflects the change before the sync round-trip.
+ */
+private fun writePerMessageProfiles(appViewModel: AppViewModel, profiles: List<PerMessageProfileEntry>) {
+    val contentMap = buildProfilesContentMap(profiles)
+    appViewModel.setAccountDataContent(V2_UNSTABLE_KEY, contentMap)
+    appViewModel.setAccountDataContent(STABLE_KEY, contentMap)
+
+    val array = JSONArray()
+    profiles.forEach { entry ->
+        val entryJson = JSONObject()
+            .put("id", entry.id)
+            .put("displayname", entry.displayname)
+        if (entry.avatarUrl.isNotBlank()) entryJson.put("avatar_url", entry.avatarUrl)
+        if (entry.prefixes.isNotEmpty()) {
+            entryJson.put("trigger", JSONObject().put("prefix", JSONArray(entry.prefixes)))
+        }
+        array.put(entryJson)
+    }
+    val wrapper = JSONObject().put("content", JSONObject().put("profiles", array))
+    AccountDataCache.setAccountData(V2_UNSTABLE_KEY, wrapper)
+    AccountDataCache.setAccountData(STABLE_KEY, wrapper)
+}
+
+/**
+ * One-shot rev-1 → rev-2 migration: if nothing holds array-shaped content but legacy data exists,
+ * rewrite it in the new shape and blank the old unstable key so it stops shadowing.
+ * Returns the profiles to display.
+ */
+private fun migrateLegacyProfilesIfNeeded(appViewModel: AppViewModel): List<PerMessageProfileEntry> {
+    readV2Profiles()?.let { return it }
+    val legacy = readLegacyProfiles()
+    if (legacy.isEmpty()) return emptyList()
+    android.util.Log.i("Andromuks", "PerMessageProfiles: migrating ${legacy.size} profile(s) to MSC4461 rev-2")
+    writePerMessageProfiles(appViewModel, legacy)
+    appViewModel.setAccountDataContent(LEGACY_V1_KEY, emptyMap())
+    AccountDataCache.setAccountData(LEGACY_V1_KEY, JSONObject().put("content", JSONObject()))
+    return legacy
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -103,27 +236,16 @@ private fun buildProfilesContentMap(profiles: Map<String, PerMessageProfileEntry
 fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: AppViewModel) {
     var profiles by remember { mutableStateOf(readPerMessageProfiles()) }
     var showAddEditDialog by remember { mutableStateOf(false) }
-    var editingProfile by remember { mutableStateOf<PerMessageProfileEntry?>(null) }
-    var showDeleteConfirmFor by remember { mutableStateOf<String?>(null) }
+    var editingIndex by remember { mutableStateOf<Int?>(null) }
+    var showDeleteConfirmFor by remember { mutableStateOf<Int?>(null) }
 
-    fun saveProfiles(updated: Map<String, PerMessageProfileEntry>) {
+    LaunchedEffect(Unit) {
+        profiles = migrateLegacyProfilesIfNeeded(appViewModel)
+    }
+
+    fun saveProfiles(updated: List<PerMessageProfileEntry>) {
         profiles = updated
-        val contentMap = buildProfilesContentMap(updated)
-        appViewModel.setAccountDataContent(PRIMARY_KEY, contentMap)
-        appViewModel.setAccountDataContent(SECONDARY_KEY, contentMap)
-        // Update local cache optimistically so the picker reflects changes immediately
-        val contentJson = org.json.JSONObject()
-        contentMap.forEach { (shortcode, entryAny) ->
-            @Suppress("UNCHECKED_CAST")
-            val entryMap = entryAny as Map<String, Any>
-            val entryJson = org.json.JSONObject()
-            entryMap.forEach { (k, v) -> entryJson.put(k, v) }
-            contentJson.put(shortcode, entryJson)
-        }
-        val wrapper = org.json.JSONObject()
-        wrapper.put("content", contentJson)
-        AccountDataCache.setAccountData(PRIMARY_KEY, wrapper)
-        AccountDataCache.setAccountData(SECONDARY_KEY, wrapper)
+        writePerMessageProfiles(appViewModel, updated)
     }
 
     Scaffold(
@@ -139,7 +261,7 @@ fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: Ap
         },
         floatingActionButton = {
             FloatingActionButton(onClick = {
-                editingProfile = null
+                editingIndex = null
                 showAddEditDialog = true
             }) {
                 Icon(Icons.Filled.Add, contentDescription = "Add profile")
@@ -161,20 +283,22 @@ fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: Ap
                         .padding(32.dp),
                 )
             } else {
+                // Stored order is match priority (MSC4461: earlier profiles win), so never sort here.
                 LazyColumn(
                     contentPadding = PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    items(profiles.values.sortedBy { it.shortcode }, key = { it.shortcode }) { profile ->
+                    itemsIndexed(profiles) { index, profile ->
                         ProfileListItem(
                             profile = profile,
-                            appViewModel = appViewModel,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
                             onEdit = {
-                                editingProfile = profile
+                                editingIndex = index
                                 showAddEditDialog = true
                             },
-                            onDelete = { showDeleteConfirmFor = profile.shortcode },
+                            onDelete = { showDeleteConfirmFor = index },
                         )
                     }
                 }
@@ -184,32 +308,35 @@ fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: Ap
 
     if (showAddEditDialog) {
         AddEditProfileDialog(
-            existing = editingProfile,
-            existingShortcodes = profiles.keys,
-            appViewModel = appViewModel,
+            existing = editingIndex?.let { profiles.getOrNull(it) },
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
             onDismiss = { showAddEditDialog = false },
             onSave = { updated ->
-                val newProfiles = profiles.toMutableMap()
-                if (editingProfile != null && editingProfile!!.shortcode != updated.shortcode) {
-                    newProfiles.remove(editingProfile!!.shortcode)
+                val newProfiles = profiles.toMutableList()
+                val index = editingIndex
+                if (index != null && index in newProfiles.indices) {
+                    newProfiles[index] = updated
+                } else {
+                    newProfiles.add(updated)
                 }
-                newProfiles[updated.shortcode] = updated
                 saveProfiles(newProfiles)
                 showAddEditDialog = false
             },
         )
     }
 
-    showDeleteConfirmFor?.let { shortcode ->
+    showDeleteConfirmFor?.let { index ->
+        val profile = profiles.getOrNull(index)
         AlertDialog(
             onDismissRequest = { showDeleteConfirmFor = null },
             title = { Text("Delete profile") },
-            text = { Text("Delete the \"$shortcode\" profile?") },
+            text = { Text("Delete the \"${profile?.displayname ?: profile?.id}\" profile?") },
             confirmButton = {
                 Button(
                     onClick = {
-                        val newProfiles = profiles.toMutableMap()
-                        newProfiles.remove(shortcode)
+                        val newProfiles = profiles.toMutableList()
+                        if (index in newProfiles.indices) newProfiles.removeAt(index)
                         saveProfiles(newProfiles)
                         showDeleteConfirmFor = null
                     },
@@ -226,7 +353,7 @@ fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: Ap
 }
 
 @Composable
-private fun ProfileListItem(profile: PerMessageProfileEntry, appViewModel: AppViewModel, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun ProfileListItem(profile: PerMessageProfileEntry, homeserverUrl: String, authToken: String, onEdit: () -> Unit, onDelete: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -237,8 +364,8 @@ private fun ProfileListItem(profile: PerMessageProfileEntry, appViewModel: AppVi
     ) {
         AvatarImage(
             mxcUrl = profile.avatarUrl.takeIf { it.isNotBlank() },
-            homeserverUrl = appViewModel.homeserverUrl,
-            authToken = appViewModel.authToken,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
             fallbackText = profile.displayname,
             size = 44.dp,
         )
@@ -250,7 +377,7 @@ private fun ProfileListItem(profile: PerMessageProfileEntry, appViewModel: AppVi
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = "${profile.shortcode} — ${profile.id}",
+                text = profile.subtitle(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
@@ -271,20 +398,28 @@ private fun ProfileListItem(profile: PerMessageProfileEntry, appViewModel: AppVi
     }
 }
 
+/** `id — "prefix" "prefix"`, with prefixes quoted so trailing spaces stay visible. */
+private fun PerMessageProfileEntry.subtitle(): String = if (prefixes.isEmpty()) {
+    id
+} else {
+    "$id — ${prefixes.joinToString(" ") { "\"$it\"" }}"
+}
+
 @Composable
 private fun AddEditProfileDialog(
     existing: PerMessageProfileEntry?,
-    existingShortcodes: Set<String>,
-    appViewModel: AppViewModel,
+    homeserverUrl: String,
+    authToken: String,
     onDismiss: () -> Unit,
     onSave: (PerMessageProfileEntry) -> Unit,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
-    var shortcode by remember { mutableStateOf(existing?.shortcode ?: "") }
+    var id by remember { mutableStateOf(existing?.id ?: "") }
     var displayname by remember { mutableStateOf(existing?.displayname ?: "") }
     var avatarUrl by remember { mutableStateOf(existing?.avatarUrl ?: "") }
+    var prefixes by remember { mutableStateOf(existing?.prefixes?.ifEmpty { listOf("") } ?: listOf("")) }
     var avatarUploadInProgress by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -300,8 +435,8 @@ private fun AddEditProfileDialog(
                         val result = MediaUploadUtils.uploadMedia(
                             context = context,
                             uri = selectedUri,
-                            homeserverUrl = appViewModel.homeserverUrl,
-                            authToken = appViewModel.authToken,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
                             isEncrypted = false,
                             compressOriginal = false,
                         )
@@ -328,13 +463,22 @@ private fun AddEditProfileDialog(
         onDismissRequest = { if (!avatarUploadInProgress) onDismiss() },
         title = { Text(if (existing != null) "Edit Profile" else "Add Profile") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+            ) {
                 OutlinedTextField(
-                    value = shortcode,
-                    onValueChange = { shortcode = it.replace(" ", "").replace("\n", "") },
-                    label = { Text("Shortcode (no spaces)") },
+                    value = id,
+                    onValueChange = { newId ->
+                        val cleaned = newId.replace(" ", "").replace("\n", "")
+                        // Keep the default prefix in step with the id until the user edits it.
+                        if (prefixes.size == 1 && (prefixes[0].isEmpty() || prefixes[0] == "$id: ")) {
+                            prefixes = listOf(if (cleaned.isEmpty()) "" else "$cleaned: ")
+                        }
+                        id = cleaned
+                    },
+                    label = { Text("ID (no spaces)") },
                     singleLine = true,
-                    enabled = existing == null,
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 )
@@ -344,14 +488,18 @@ private fun AddEditProfileDialog(
                     label = { Text("Display Name") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                )
+                PrefixEditor(
+                    prefixes = prefixes,
+                    onPrefixesChange = { prefixes = it },
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     val previewHttpUrl = remember(avatarUrl) {
-                        AvatarUtils.getFullImageUrl(context, avatarUrl, appViewModel.homeserverUrl)
+                        AvatarUtils.getFullImageUrl(context, avatarUrl, homeserverUrl)
                     }
                     if (previewHttpUrl != null) {
                         val imageLoader = remember { ImageLoaderSingleton.get(context) }
@@ -367,9 +515,9 @@ private fun AddEditProfileDialog(
                     } else {
                         AvatarImage(
                             mxcUrl = null,
-                            homeserverUrl = appViewModel.homeserverUrl,
-                            authToken = appViewModel.authToken,
-                            fallbackText = displayname.ifBlank { shortcode },
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = displayname.ifBlank { id },
                             size = 44.dp,
                         )
                     }
@@ -410,30 +558,27 @@ private fun AddEditProfileDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val trimmedShortcode = shortcode.trim()
+                    val trimmedId = id.trim()
                     val trimmedDisplayname = displayname.trim()
-                    if (trimmedShortcode.isBlank()) {
-                        error = "Shortcode is required"
+                    if (trimmedId.isBlank()) {
+                        error = "ID is required"
                         return@Button
                     }
-                    if (trimmedShortcode.contains(" ")) {
-                        error = "Shortcode must not contain spaces"
+                    if (trimmedId.contains(" ")) {
+                        error = "ID must not contain spaces"
                         return@Button
                     }
                     if (trimmedDisplayname.isBlank()) {
                         error = "Display name is required"
                         return@Button
                     }
-                    if (existing == null && trimmedShortcode in existingShortcodes) {
-                        error = "A profile with this shortcode already exists"
-                        return@Button
-                    }
                     onSave(
                         PerMessageProfileEntry(
-                            shortcode = trimmedShortcode,
-                            id = existing?.id ?: trimmedShortcode,
+                            id = trimmedId,
                             displayname = trimmedDisplayname,
                             avatarUrl = avatarUrl,
+                            // Prefixes are stored verbatim — trailing spaces are part of the match.
+                            prefixes = prefixes.filter { it.isNotEmpty() },
                         ),
                     )
                 },
@@ -447,12 +592,111 @@ private fun AddEditProfileDialog(
 }
 
 /**
- * Floating per-message profile picker shown when the user types `/pmp` in the composer.
- * Displays all available profiles with avatar images; selecting one fills in the shortcode.
+ * Editor for a profile's `trigger.prefix` list. Typing a prefix at the start of a message makes the
+ * backend use this profile and strip the prefix. Values are never trimmed — `"cat: "` and `"cat:"`
+ * are different triggers.
  */
 @Composable
-fun PerMessageProfilePicker(appViewModel: AppViewModel, onProfileSelected: (PerMessageProfileEntry) -> Unit, modifier: Modifier = Modifier) {
-    val profiles = remember { readPerMessageProfiles().values.sortedBy { it.shortcode } }
+private fun PrefixEditor(prefixes: List<String>, onPrefixesChange: (List<String>) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = "Trigger prefixes",
+            style = MaterialTheme.typography.labelMedium,
+        )
+        Text(
+            text = "Typing one of these at the start of a message uses this profile. Case-sensitive; " +
+                "include the trailing space if you want \"cat: meow\" to match.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        prefixes.forEachIndexed { index, prefix ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                OutlinedTextField(
+                    value = prefix,
+                    onValueChange = { newValue ->
+                        onPrefixesChange(prefixes.toMutableList().also { it[index] = newValue.replace("\n", "") })
+                    },
+                    label = { Text("Prefix ${index + 1}") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                )
+                IconButton(
+                    onClick = { onPrefixesChange(prefixes.toMutableList().also { it.removeAt(index) }) },
+                    enabled = prefixes.size > 1,
+                ) {
+                    Icon(Icons.Filled.Close, contentDescription = "Remove prefix", modifier = Modifier.size(18.dp))
+                }
+            }
+        }
+        TextButton(
+            onClick = { onPrefixesChange(prefixes + "") },
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(4.dp))
+            Text("Add prefix", style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+/**
+ * Composer chip showing the profile armed for the next send. Tapping it reopens the picker; the ✕
+ * disarms it. Sits above the input, like the reply/edit previews.
+ */
+@Composable
+fun PerMessageProfileChip(
+    profile: PerMessageProfileEntry,
+    homeserverUrl: String,
+    authToken: String,
+    onClick: () -> Unit,
+    onClear: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AvatarImage(
+            mxcUrl = profile.avatarUrl.takeIf { it.isNotBlank() },
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = profile.displayname,
+            size = 24.dp,
+        )
+        Text(
+            text = "Sending as ${profile.displayname}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        IconButton(onClick = onClear, modifier = Modifier.size(24.dp)) {
+            Icon(
+                Icons.Filled.Close,
+                contentDescription = "Clear per-message profile",
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/**
+ * Floating per-message profile picker opened from the composer. Selecting a profile arms it for the
+ * next send (the profile travels in `base_content`); it does not rewrite the draft.
+ */
+@Composable
+fun PerMessageProfilePicker(homeserverUrl: String, authToken: String, onProfileSelected: (PerMessageProfileEntry) -> Unit, modifier: Modifier = Modifier) {
+    val profiles = remember { readPerMessageProfiles() }
 
     androidx.compose.material3.Surface(
         modifier = modifier,
@@ -480,10 +724,11 @@ fun PerMessageProfilePicker(appViewModel: AppViewModel, onProfileSelected: (PerM
                 contentPadding = PaddingValues(8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                items(profiles, key = { it.shortcode }) { profile ->
+                itemsIndexed(profiles) { _, profile ->
                     PerMessageProfilePickerItem(
                         profile = profile,
-                        appViewModel = appViewModel,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
                         onSelected = { onProfileSelected(profile) },
                     )
                 }
@@ -493,7 +738,7 @@ fun PerMessageProfilePicker(appViewModel: AppViewModel, onProfileSelected: (PerM
 }
 
 @Composable
-private fun PerMessageProfilePickerItem(profile: PerMessageProfileEntry, appViewModel: AppViewModel, onSelected: () -> Unit) {
+private fun PerMessageProfilePickerItem(profile: PerMessageProfileEntry, homeserverUrl: String, authToken: String, onSelected: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -504,8 +749,8 @@ private fun PerMessageProfilePickerItem(profile: PerMessageProfileEntry, appView
     ) {
         AvatarImage(
             mxcUrl = profile.avatarUrl.takeIf { it.isNotBlank() },
-            homeserverUrl = appViewModel.homeserverUrl,
-            authToken = appViewModel.authToken,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
             fallbackText = profile.displayname,
             size = 36.dp,
         )
@@ -517,7 +762,7 @@ private fun PerMessageProfilePickerItem(profile: PerMessageProfileEntry, appView
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = profile.shortcode,
+                text = profile.subtitle(),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,

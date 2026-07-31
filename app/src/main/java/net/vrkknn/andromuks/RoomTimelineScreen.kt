@@ -187,6 +187,8 @@ import net.vrkknn.andromuks.utils.MediaUploadUtils
 import net.vrkknn.andromuks.utils.MessageMenuBar
 import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.utils.MessageSoundPlayer
+import net.vrkknn.andromuks.utils.PerMessageProfileChip
+import net.vrkknn.andromuks.utils.PerMessageProfileEntry
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
@@ -195,6 +197,7 @@ import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
+import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1143,8 +1146,10 @@ fun RoomTimelineScreen(
     var commandQuery by remember { mutableStateOf("") }
     var commandStartIndex by remember { mutableIntStateOf(-1) }
 
-    // Per-message profile picker state
+    // Per-message profile picker state. A picked profile is "armed" until the next send, and travels
+    // in base_content — gomuks no longer understands /pmp (MSC4461 rev-2, gomuks 951bac5).
     var showPmpProfilePicker by remember { mutableStateOf(false) }
+    var selectedPmpProfile by remember { mutableStateOf<PerMessageProfileEntry?>(null) }
 
     // Avatar command state (for commands that need image picker)
     var pendingAvatarCommand by remember {
@@ -4407,6 +4412,17 @@ fun RoomTimelineScreen(
                                     modifier = Modifier.weight(1f),
                                 ) {
                                     Column {
+                                        // Armed per-message profile (MSC4461) — travels in base_content on send
+                                        selectedPmpProfile?.let { armed ->
+                                            PerMessageProfileChip(
+                                                profile = armed,
+                                                homeserverUrl = appViewModel.homeserverUrl,
+                                                authToken = appViewModel.authToken,
+                                                onClick = { showPmpProfilePicker = true },
+                                                onClear = { selectedPmpProfile = null },
+                                            )
+                                        }
+
                                         // Edit preview inside the text input (if editing)
                                         if (editingEvent != null) {
                                             EditPreviewInput(
@@ -4616,22 +4632,8 @@ fun RoomTimelineScreen(
                                                     replacedValue.text,
                                                     replacedValue.selection.start,
                                                 )
-                                                // Detect /pmp picker: draft is exactly "/pmp" or "/pmp " with nothing after
-                                                val trimmedForPmp = replacedValue.text.trimEnd()
-                                                showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
-                                                    trimmedForPmp.equals("/profile", ignoreCase = true) ||
-                                                    (
-                                                        trimmedForPmp.startsWith(
-                                                            "/pmp ",
-                                                            ignoreCase = true,
-                                                        ) && trimmedForPmp.drop(5).isBlank()
-                                                        ) ||
-                                                    (
-                                                        trimmedForPmp.startsWith(
-                                                            "/profile ",
-                                                            ignoreCase = true,
-                                                        ) && trimmedForPmp.drop(9).isBlank()
-                                                        )
+                                                // Detect /pmp picker: draft is exactly "/pmp" or "/profile", nothing after
+                                                showPmpProfilePicker = isBarePerMessageProfileCommand(replacedValue.text)
 
                                                 if (commandResult != null) {
                                                     val (query, startIndex) = commandResult
@@ -4909,10 +4911,16 @@ fun RoomTimelineScreen(
                                                                     text = draft,
                                                                     threadRootEventId = threadInfo.threadRootEventId,
                                                                     fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                                    perMessageProfile = selectedPmpProfile?.toContentMap(),
                                                                 )
                                                             } else {
                                                                 // Send normal reply
-                                                                appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                                                appViewModel.sendReply(
+                                                                    roomId,
+                                                                    draft,
+                                                                    replyingToEvent!!,
+                                                                    selectedPmpProfile?.toContentMap(),
+                                                                )
                                                             }
                                                             replyingToEvent = null // Clear reply state
                                                             messageSoundPlayer.play() // Play sound when sending reply
@@ -4923,10 +4931,12 @@ fun RoomTimelineScreen(
                                                                 roomId,
                                                                 draft,
                                                                 urlPreviewController.getReadyPreviews(),
+                                                                selectedPmpProfile?.toContentMap(),
                                                             )
                                                             messageSoundPlayer.play() // Play sound when sending message
                                                         }
                                                         urlPreviewController.clearAll()
+                                                        selectedPmpProfile = null // Armed for one message only
                                                         draft = "" // Clear the input after sending
                                                     }
                                                 },
@@ -5025,20 +5035,27 @@ fun RoomTimelineScreen(
                                                         text = draft,
                                                         threadRootEventId = threadInfo.threadRootEventId,
                                                         fallbackReplyToEventId = replyingToEvent!!.eventId,
+                                                        perMessageProfile = selectedPmpProfile?.toContentMap(),
                                                     )
                                                 } else {
                                                     // Send normal reply
-                                                    appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                                    appViewModel.sendReply(roomId, draft, replyingToEvent!!, selectedPmpProfile?.toContentMap())
                                                 }
                                                 replyingToEvent = null // Clear reply state
                                                 messageSoundPlayer.play() // Play sound when sending reply
                                             }
                                             // Otherwise send regular message
                                             else {
-                                                appViewModel.sendMessage(roomId, draft, urlPreviewController.getReadyPreviews())
+                                                appViewModel.sendMessage(
+                                                    roomId,
+                                                    draft,
+                                                    urlPreviewController.getReadyPreviews(),
+                                                    selectedPmpProfile?.toContentMap(),
+                                                )
                                                 messageSoundPlayer.play() // Play sound when sending message
                                             }
                                             urlPreviewController.clearAll()
+                                            selectedPmpProfile = null // Armed for one message only
                                             draft = "" // Clear the input after sending
                                         }
                                     },
@@ -5361,11 +5378,15 @@ fun RoomTimelineScreen(
                                 .zIndex(9f),
                         ) {
                             net.vrkknn.andromuks.utils.PerMessageProfilePicker(
-                                appViewModel = appViewModel,
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = appViewModel.authToken,
                                 onProfileSelected = { profile ->
-                                    val newText = "/pmp ${profile.shortcode} "
-                                    draft = newText
-                                    textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
+                                    selectedPmpProfile = profile
+                                    // The profile now rides in base_content, so the command text is dead weight.
+                                    if (isBarePerMessageProfileCommand(draft)) {
+                                        draft = ""
+                                        textFieldValue = TextFieldValue("")
+                                    }
                                     showPmpProfilePicker = false
                                 },
                                 modifier = Modifier.zIndex(10f),

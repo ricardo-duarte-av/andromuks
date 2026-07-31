@@ -171,6 +171,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Push notifications (FCM, two-phase images, image auth token, People/Conversation widget tile updates) | [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md) |
 | Secure credentials at rest, silent re-auth on token expiry, biometric lock | [docs/CREDENTIALS_REAUTH.md](docs/CREDENTIALS_REAUTH.md) |
 | Bridge support (detection, tab, badges, per-message profiles) | [docs/bridges.md](docs/bridges.md) |
+| Per-message profiles, outgoing (MSC4461 rev-2 storage, trigger prefixes, `base_content` send path) | [docs/PER_MESSAGE_PROFILES.md](docs/PER_MESSAGE_PROFILES.md) |
 | Room display name & avatar resolution (m.heroes) | [docs/ROOM_DISPLAY.md](docs/ROOM_DISPLAY.md) |
 | RoomListScreen composable reference | [docs/ROOMLISTSCREEN.md](docs/ROOMLISTSCREEN.md) |
 | Sticky date indicator | [docs/STICKY_DATE_INDICATOR.md](docs/STICKY_DATE_INDICATOR.md) |

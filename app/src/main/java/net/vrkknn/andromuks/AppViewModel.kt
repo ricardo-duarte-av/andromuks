@@ -7058,7 +7058,8 @@ class AppViewModel : ViewModel() {
     }
 
     // Send a message and track the response
-    fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList()) = messageSendCoordinator.sendMessage(roomId, text, mentions)
+    fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList(), perMessageProfile: Map<String, Any>? = null) =
+        messageSendCoordinator.sendMessage(roomId, text, mentions, perMessageProfile = perMessageProfile)
 
     /**
      * Helper function to process cached events and display them
@@ -8132,7 +8133,8 @@ class AppViewModel : ViewModel() {
 
     fun sendMessage(roomId: String, text: String) = messageSendCoordinator.sendMessage(roomId, text)
 
-    fun sendMessage(roomId: String, text: String, urlPreviews: org.json.JSONArray) = messageSendCoordinator.sendMessage(roomId, text, urlPreviews)
+    fun sendMessage(roomId: String, text: String, urlPreviews: org.json.JSONArray, perMessageProfile: Map<String, Any>? = null) =
+        messageSendCoordinator.sendMessage(roomId, text, urlPreviews, perMessageProfile)
 
     /**
      * Sends a message from a notification action.
@@ -8176,7 +8178,8 @@ class AppViewModel : ViewModel() {
         replyToEventId,
     )
 
-    fun sendReply(roomId: String, text: String, originalEvent: TimelineEvent) = messageSendCoordinator.sendReply(roomId, text, originalEvent)
+    fun sendReply(roomId: String, text: String, originalEvent: TimelineEvent, perMessageProfile: Map<String, Any>? = null) =
+        messageSendCoordinator.sendReply(roomId, text, originalEvent, perMessageProfile)
 
     fun sendEdit(roomId: String, text: String, originalEvent: TimelineEvent) = messageSendCoordinator.sendEdit(roomId, text, originalEvent)
 
@@ -14079,7 +14082,8 @@ class AppViewModel : ViewModel() {
         threadRootEventId: String,
         fallbackReplyToEventId: String? = null,
         urlPreviews: org.json.JSONArray = org.json.JSONArray(),
-    ) = messageSendCoordinator.sendThreadReply(roomId, text, threadRootEventId, fallbackReplyToEventId, urlPreviews)
+        perMessageProfile: Map<String, Any>? = null,
+    ) = messageSendCoordinator.sendThreadReply(roomId, text, threadRootEventId, fallbackReplyToEventId, urlPreviews, perMessageProfile)
 
     /**
      * Requests complete user profile information (profile, encryption info, mutual rooms)

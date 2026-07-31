@@ -9,6 +9,22 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
+ * MSC4144 per-message profile key. MSC4461 rev-2 changed how profiles are *stored*, not how they
+ * are sent — the wire key is still the Beeper-prefixed one.
+ */
+private const val PER_MESSAGE_PROFILE_KEY = "com.beeper.per_message_profile"
+
+/**
+ * `base_content` carrying an explicitly picked per-message profile. gomuks copies `base` into the
+ * outgoing content after its own prefix matching, so a picked profile survives; `trigger` is never
+ * included (MSC4461 requires it stay client-side).
+ */
+private fun perMessageProfileBaseContent(profile: Map<String, Any>): Map<String, Any> = mapOf(
+    "msgtype" to "m.text",
+    PER_MESSAGE_PROFILE_KEY to profile,
+)
+
+/**
  * Outgoing message sending for [AppViewModel]: plain text, replies, edits, media, typing,
  * notification FIFO, and thread replies. WebSocket transport uses [AppViewModel.sendWebSocketCommand].
  *
@@ -21,7 +37,13 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
 
     // --- send_message variants ---
 
-    fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList(), urlPreviews: JSONArray = JSONArray()) {
+    fun sendMessage(
+        roomId: String,
+        text: String,
+        mentions: List<String> = emptyList(),
+        urlPreviews: JSONArray = JSONArray(),
+        perMessageProfile: Map<String, Any>? = null,
+    ) {
         notifyUserSentTo(roomId)
         val reqId = vm.getAndIncrementRequestId()
 
@@ -32,7 +54,12 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             )
         }
 
-        vm.localEchoCoordinator.insert(roomId, reqId, "m.room.message", textContent(text))
+        vm.localEchoCoordinator.insert(
+            roomId,
+            reqId,
+            "m.room.message",
+            textContent(text, perMessageProfile = perMessageProfile),
+        )
         vm.trackOutgoingRequest(reqId, roomId)
 
         val mentionsData = mapOf(
@@ -43,16 +70,14 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         for (i in 0 until urlPreviews.length()) {
             urlPreviews.optJSONObject(i)?.let { urlPreviewsList.add(it) }
         }
-        vm.sendWebSocketCommand(
-            "send_message",
-            reqId,
-            mapOf(
-                "room_id" to roomId,
-                "text" to text,
-                "mentions" to mentionsData,
-                "url_previews" to urlPreviewsList,
-            ),
+        val commandData = mutableMapOf<String, Any>(
+            "room_id" to roomId,
+            "text" to text,
+            "mentions" to mentionsData,
+            "url_previews" to urlPreviewsList,
         )
+        perMessageProfile?.let { commandData["base_content"] = perMessageProfileBaseContent(it) }
+        vm.sendWebSocketCommand("send_message", reqId, commandData)
     }
 
     fun sendMessage(roomId: String, text: String) {
@@ -79,7 +104,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun sendMessage(roomId: String, text: String, urlPreviews: JSONArray) {
+    fun sendMessage(roomId: String, text: String, urlPreviews: JSONArray, perMessageProfile: Map<String, Any>? = null) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
@@ -88,7 +113,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         }
 
         notifyUserSentTo(roomId)
-        val result = sendMessageInternal(roomId, text, urlPreviews)
+        val result = sendMessageInternal(roomId, text, urlPreviews, perMessageProfile)
 
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w(
@@ -98,30 +123,39 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    internal fun sendMessageInternal(roomId: String, text: String, urlPreviews: JSONArray = JSONArray()): WebSocketResult {
+    internal fun sendMessageInternal(
+        roomId: String,
+        text: String,
+        urlPreviews: JSONArray = JSONArray(),
+        perMessageProfile: Map<String, Any>? = null,
+    ): WebSocketResult {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageInternal called")
         val messageRequestId = vm.getAndIncrementRequestId()
 
-        vm.localEchoCoordinator.insert(roomId, messageRequestId, "m.room.message", textContent(text))
+        vm.localEchoCoordinator.insert(
+            roomId,
+            messageRequestId,
+            "m.room.message",
+            textContent(text, perMessageProfile = perMessageProfile),
+        )
 
         val urlPreviewsList = mutableListOf<Any>()
         for (i in 0 until urlPreviews.length()) {
             urlPreviews.optJSONObject(i)?.let { urlPreviewsList.add(it) }
         }
 
-        val result = vm.sendWebSocketCommand(
-            "send_message",
-            messageRequestId,
-            mapOf(
-                "room_id" to roomId,
-                "text" to text,
-                "mentions" to mapOf(
-                    "user_ids" to emptyList<String>(),
-                    "room" to false,
-                ),
-                "url_previews" to urlPreviewsList,
+        val commandData = mutableMapOf<String, Any>(
+            "room_id" to roomId,
+            "text" to text,
+            "mentions" to mapOf(
+                "user_ids" to emptyList<String>(),
+                "room" to false,
             ),
+            "url_previews" to urlPreviewsList,
         )
+        perMessageProfile?.let { commandData["base_content"] = perMessageProfileBaseContent(it) }
+
+        val result = vm.sendWebSocketCommand("send_message", messageRequestId, commandData)
 
         if (result == WebSocketResult.SUCCESS) {
             vm.messageRequests[messageRequestId] = roomId
@@ -406,7 +440,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    fun sendReply(roomId: String, text: String, originalEvent: TimelineEvent) {
+    fun sendReply(roomId: String, text: String, originalEvent: TimelineEvent, perMessageProfile: Map<String, Any>? = null) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
@@ -415,7 +449,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         }
 
         notifyUserSentTo(roomId)
-        val result = sendReplyInternal(roomId, text, originalEvent)
+        val result = sendReplyInternal(roomId, text, originalEvent, perMessageProfile)
 
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w(
@@ -425,7 +459,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    private fun sendReplyInternal(roomId: String, text: String, originalEvent: TimelineEvent): WebSocketResult {
+    private fun sendReplyInternal(roomId: String, text: String, originalEvent: TimelineEvent, perMessageProfile: Map<String, Any>? = null): WebSocketResult {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendReplyInternal called")
         val messageRequestId = vm.getAndIncrementRequestId()
 
@@ -433,7 +467,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             roomId,
             messageRequestId,
             "m.room.message",
-            textContent(text, originalEvent.eventId),
+            textContent(text, originalEvent.eventId, perMessageProfile),
         )
 
         val mentions = mutableListOf<String>()
@@ -441,7 +475,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             mentions.add(originalEvent.sender)
         }
 
-        val commandData = mapOf(
+        val commandData = mutableMapOf<String, Any>(
             "room_id" to roomId,
             "text" to text,
             "relates_to" to mapOf(
@@ -455,6 +489,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             ),
             "url_previews" to emptyList<String>(),
         )
+        perMessageProfile?.let { commandData["base_content"] = perMessageProfileBaseContent(it) }
 
         val result = vm.sendWebSocketCommand("send_message", messageRequestId, commandData)
 
@@ -1098,6 +1133,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         threadRootEventId: String,
         fallbackReplyToEventId: String? = null,
         urlPreviews: JSONArray = JSONArray(),
+        perMessageProfile: Map<String, Any>? = null,
     ) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
@@ -1146,7 +1182,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         for (i in 0 until urlPreviews.length()) {
             urlPreviews.optJSONObject(i)?.let { urlPreviewsList.add(it) }
         }
-        val commandData = mapOf(
+        val commandData = mutableMapOf<String, Any>(
             "room_id" to roomId,
             "text" to text,
             "relates_to" to relatesTo,
@@ -1156,12 +1192,13 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             ),
             "url_previews" to urlPreviewsList,
         )
+        perMessageProfile?.let { commandData["base_content"] = perMessageProfileBaseContent(it) }
 
         vm.localEchoCoordinator.insert(
             roomId = roomId,
             requestId = messageRequestId,
             type = "m.room.message",
-            content = textContent(text, resolvedReplyTarget),
+            content = textContent(text, resolvedReplyTarget, perMessageProfile),
             relationType = "m.thread",
             relatesTo = threadRootEventId,
         )
@@ -1180,7 +1217,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
     // --- send-time placeholder helpers (LocalEchoCoordinator) ---
 
     /** Minimal text/reply content for an optimistic placeholder bubble. */
-    private fun textContent(text: String, replyToEventId: String? = null): JSONObject {
+    private fun textContent(text: String, replyToEventId: String? = null, perMessageProfile: Map<String, Any>? = null): JSONObject {
         val content = JSONObject().put("msgtype", "m.text").put("body", text)
         if (replyToEventId != null) {
             content.put(
@@ -1188,6 +1225,8 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
                 JSONObject().put("m.in_reply_to", JSONObject().put("event_id", replyToEventId)),
             )
         }
+        // Render the placeholder with the same profile the confirmed event will carry.
+        perMessageProfile?.let { content.put(PER_MESSAGE_PROFILE_KEY, JSONObject(it)) }
         return content
     }
 

@@ -126,12 +126,15 @@ import net.vrkknn.andromuks.utils.MediaPreviewDialog
 import net.vrkknn.andromuks.utils.MediaUploadUtils
 import net.vrkknn.andromuks.utils.MessageMenuBar
 import net.vrkknn.andromuks.utils.MessageMenuConfig
+import net.vrkknn.andromuks.utils.PerMessageProfileChip
+import net.vrkknn.andromuks.utils.PerMessageProfileEntry
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
+import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import kotlin.math.min
 
@@ -574,6 +577,9 @@ fun ThreadViewerScreen(
 
     // Per-message profile picker state
     var showPmpProfilePicker by remember { mutableStateOf(false) }
+    // A picked profile stays armed until the next send and travels in base_content — gomuks no
+    // longer understands /pmp (MSC4461 rev-2, gomuks 951bac5).
+    var selectedPmpProfile by remember { mutableStateOf<PerMessageProfileEntry?>(null) }
 
     var showEmojiPickerForText by remember { mutableStateOf(false) }
     var showStickerPickerForText by remember { mutableStateOf(false) }
@@ -1638,6 +1644,17 @@ fun ThreadViewerScreen(
                                     modifier = Modifier.weight(1f),
                                 ) {
                                     Column {
+                                        // Armed per-message profile (MSC4461) — travels in base_content on send
+                                        selectedPmpProfile?.let { armed ->
+                                            PerMessageProfileChip(
+                                                profile = armed,
+                                                homeserverUrl = appViewModel.homeserverUrl,
+                                                authToken = appViewModel.authToken,
+                                                onClick = { showPmpProfilePicker = true },
+                                                onClear = { selectedPmpProfile = null },
+                                            )
+                                        }
+
                                         // Reply preview (thread reply target)
                                         if (replyingToEvent != null) {
                                             ReplyPreviewInput(
@@ -1951,21 +1968,8 @@ fun ThreadViewerScreen(
                                                     replacedValue.text,
                                                     replacedValue.selection.start,
                                                 )
-                                                val trimmedForPmp = replacedValue.text.trimEnd()
-                                                showPmpProfilePicker = trimmedForPmp.equals("/pmp", ignoreCase = true) ||
-                                                    trimmedForPmp.equals("/profile", ignoreCase = true) ||
-                                                    (
-                                                        trimmedForPmp.startsWith(
-                                                            "/pmp ",
-                                                            ignoreCase = true,
-                                                        ) && trimmedForPmp.drop(5).isBlank()
-                                                        ) ||
-                                                    (
-                                                        trimmedForPmp.startsWith(
-                                                            "/profile ",
-                                                            ignoreCase = true,
-                                                        ) && trimmedForPmp.drop(9).isBlank()
-                                                        )
+                                                // Detect /pmp picker: draft is exactly "/pmp" or "/profile", nothing after
+                                                showPmpProfilePicker = isBarePerMessageProfileCommand(replacedValue.text)
 
                                                 if (commandResult != null) {
                                                     val (query, startIndex) = commandResult
@@ -2187,6 +2191,7 @@ fun ThreadViewerScreen(
                                                                     threadRootEventId = threadRootEventId,
                                                                     fallbackReplyToEventId = replyingToEvent!!.eventId,
                                                                     urlPreviews = urlPreviewController.getReadyPreviews(),
+                                                                    perMessageProfile = selectedPmpProfile?.toContentMap(),
                                                                 )
                                                                 replyingToEvent = null
                                                             }
@@ -2199,10 +2204,12 @@ fun ThreadViewerScreen(
                                                                     threadRootEventId = threadRootEventId,
                                                                     fallbackReplyToEventId = null,
                                                                     urlPreviews = urlPreviewController.getReadyPreviews(),
+                                                                    perMessageProfile = selectedPmpProfile?.toContentMap(),
                                                                 )
                                                             }
                                                         }
                                                         urlPreviewController.clearAll()
+                                                        selectedPmpProfile = null // Armed for one message only
                                                         draft = ""
                                                     }
                                                 },
@@ -2285,6 +2292,7 @@ fun ThreadViewerScreen(
                                                         threadRootEventId = threadRootEventId,
                                                         fallbackReplyToEventId = replyingToEvent!!.eventId,
                                                         urlPreviews = urlPreviewController.getReadyPreviews(),
+                                                        perMessageProfile = selectedPmpProfile?.toContentMap(),
                                                     )
                                                     replyingToEvent = null
                                                 }
@@ -2297,10 +2305,12 @@ fun ThreadViewerScreen(
                                                         threadRootEventId = threadRootEventId,
                                                         fallbackReplyToEventId = null,
                                                         urlPreviews = urlPreviewController.getReadyPreviews(),
+                                                        perMessageProfile = selectedPmpProfile?.toContentMap(),
                                                     )
                                                 }
                                             }
                                             urlPreviewController.clearAll()
+                                            selectedPmpProfile = null // Armed for one message only
                                             draft = ""
                                         }
                                     },
@@ -2544,11 +2554,15 @@ fun ThreadViewerScreen(
                             contentAlignment = Alignment.BottomStart,
                         ) {
                             net.vrkknn.andromuks.utils.PerMessageProfilePicker(
-                                appViewModel = appViewModel,
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = appViewModel.authToken,
                                 onProfileSelected = { profile ->
-                                    val newText = "/pmp ${profile.shortcode} "
-                                    draft = newText
-                                    textFieldValue = TextFieldValue(text = newText, selection = TextRange(newText.length))
+                                    selectedPmpProfile = profile
+                                    // The profile now rides in base_content, so the command text is dead weight.
+                                    if (isBarePerMessageProfileCommand(draft)) {
+                                        draft = ""
+                                        textFieldValue = TextFieldValue("")
+                                    }
                                     showPmpProfilePicker = false
                                 },
                                 modifier = Modifier.zIndex(10f),

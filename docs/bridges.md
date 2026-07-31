@@ -71,6 +71,10 @@ Mautrix bridges can attach `com.beeper.per_message_profile` to individual messag
 
 The on-demand sender-profile fetch is gated on "per-message supplies BOTH fields"; otherwise we still need the sender cache populated so the fallback target is available.
 
+This section covers the **incoming** side only. For sending *our own* messages under a stored
+profile (MSC4461 rev-2 account data, trigger prefixes, the `base_content` path), see
+[PER_MESSAGE_PROFILES.md](PER_MESSAGE_PROFILES.md).
+
 ## Bridge Send Status (`com.beeper.message_send_status`)
 
 Some bridges (when configured) send `com.beeper.message_send_status` events to confirm delivery of a Matrix message to the other network. These are **not** displayed in the timeline — they update the sender's message bubble with a small delivery status icon, and expose a "Delivery Info" dialog via the message long-press menu.

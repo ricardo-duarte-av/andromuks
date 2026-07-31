@@ -363,23 +363,27 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                 }
 
                 command == "/pmp" || command == "/profile" -> {
-                    // No args or only shortcode with no message text: let the UI profile picker handle it
+                    // gomuks removed /pmp in commit 951bac5 (MSC4461 rev-2), so this must never fall
+                    // through to send_message — the raw text would trip the backend's leading-slash
+                    // guard. We resolve the profile here and attach it via base_content instead.
+                    // No args: let the composer open the profile picker.
                     if (args.isEmpty()) return false
-                    val shortcode = args[0]
-                    val messageBody = args.drop(1).joinToString(" ")
+                    val selector = args[0]
+                    val messageBody = trimmed.removePrefix(parts[0]).trimStart().removePrefix(selector).trimStart()
                     if (messageBody.isBlank()) return false
-                    // Validate that the shortcode exists in account data
-                    val profiles = net.vrkknn.andromuks.utils.readPerMessageProfiles()
-                    if (!profiles.containsKey(shortcode)) {
+                    val profile = net.vrkknn.andromuks.utils.readPerMessageProfiles().firstOrNull {
+                        it.id == selector || it.prefixes.any { prefix -> prefix.trimEnd().trimEnd(':') == selector }
+                    }
+                    if (profile == null) {
                         android.widget.Toast.makeText(
                             context,
-                            "Failed to send message: Error: unknown per-message profile: $shortcode",
+                            "Failed to send message: Error: unknown per-message profile: $selector",
                             android.widget.Toast.LENGTH_SHORT,
                         ).show()
                         return true
                     }
-                    // Valid: let the text fall through to normal sendMessage (gomuks handles /pmp natively)
-                    false
+                    sendMessage(roomId, messageBody, perMessageProfile = profile.toContentMap())
+                    true
                 }
 
                 else -> false

@@ -135,8 +135,8 @@ object Commands {
         CommandDefinition(
             command = "/pmp",
             aliases = listOf("/profile"),
-            description = "Send message as a per-message profile",
-            parameters = listOf("shortcode", "message"),
+            description = "Pick a per-message profile to send as",
+            parameters = listOf("id?", "message?"),
         ),
     )
 
