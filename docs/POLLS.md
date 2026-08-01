@@ -50,9 +50,14 @@ to be fixed:
 
 - `MessageTypeContent` matched its `"m.room.encrypted"` branch before the poll branch and rendered
   the generic "Encrypted message" placeholder. Polls are therefore dispatched *before* that `when`.
-- In `processTimelineEvents`, poll responses/ends pass the `allowedEventTypes` whitelist in an E2EE
-  room, because `m.room.encrypted` is whitelisted. They are dropped structurally via
+- In the render filters, poll responses/ends pass the `allowedEventTypes` whitelist in an E2EE room,
+  because `m.room.encrypted` is whitelisted. They are dropped structurally via
   `isPollSatelliteEvent`, next to the unconditional redaction drop, rather than by type.
+
+> **There are two render filters, not one.** `processTimelineEvents` (RoomTimelineScreen) is shared
+> by the room timeline *and* the thread viewer, but `BubbleTimelineScreen` carries its own
+> near-duplicate `bubbleProcessTimelineEvents`. Any structural filter rule has to be added to both.
+> Likewise `allowedEventTypes` is declared separately in all three screens.
 
 ## Aggregation rules
 
