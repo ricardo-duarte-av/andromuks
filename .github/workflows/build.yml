@@ -3,23 +3,39 @@ name: AV Andromuks
 on:
   push:
     branches: [ main, develop, master ]
-    # Don't burn CI on doc-only changes.
+    tags: [ 'v*' ]
+    # Don't burn CI on doc-only changes. NOTE: GitHub does not evaluate path filters for tag
+    # pushes, so tagging a doc-only commit still cuts a full release — which is what we want.
     paths-ignore:
       - '**.md'
       - 'docs/**'
   workflow_dispatch:
 
-# Cancel superseded runs on the same ref.
+# Keyed by commit SHA (not ref) so the branch-push run and the tag-push run for the same release
+# commit share one group. Releasing means pushing master first, then the `vX.Y.Z` tag on the same
+# commit; the tag run then cancels the now-redundant master run, so a release builds once (via the
+# tag) instead of twice. Normal pushes each have a unique SHA and are unaffected.
 concurrency:
-  group: build-${{ github.ref }}
+  group: build-${{ github.sha }}
   cancel-in-progress: true
 
+# Least privilege by default; the two jobs that publish assets opt into `contents: write`.
+permissions:
+  contents: read
+
 # Sequential pipeline (each phase gates the next via `needs:`) so an early failure short-circuits the
-# rest instead of wasting parallel cycles:
-#   Phase 1  lint     — detekt + Android lint
-#   Phase 2  base     — build base flavor (debug + release APKs + release AAB), nightly deploy
-#   Phase 3  play     — upload the base AAB to the Play Console internal track
-#   Phase 4  variants — build the a/b/c flavors (release only), nightly deploy
+# rest instead of wasting parallel cycles. Two paths, split on whether the ref is a `v*` tag:
+#
+#   push master  →  lint → base
+#   tag v*       →  lint → base → play → release → variants
+#                   verify-tag (runs alongside lint/base, gates the tag-only phases)
+#
+#   Phase 1  lint       — detekt + Android lint (hard gate; every push)
+#   Phase 1' verify-tag — tag-only: `vX.Y.Z` must match versionName in app/build.gradle.kts
+#   Phase 2  base       — build base flavor (debug + release APKs + release AAB), nightly deploy
+#   Phase 3  play       — tag-only: upload the base AAB to the Play Console internal track
+#   Phase 4  release    — tag-only: cut a GitHub Release carrying the versioned APKs
+#   Phase 5  variants   — tag-only: build the a/b/c flavors (release only), nightly deploy
 jobs:
   # ---------------------------------------------------------------------------------------------
   # Phase 1 — Lint. Same detekt + Android lint gate as pr-check.yml. Secret-free. Gates everything.
@@ -58,12 +74,39 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------------------------
+  # Phase 1' — Tag sanity check. `versionCode` is time-derived (app/build.gradle.kts) so it's always
+  # unique and monotonic — Play can never reject a duplicate. But `versionName` is bumped by hand,
+  # and now that a tag means "release", a `v1.0.102` tag shipping an APK that reports 1.0.103 would
+  # be a silent footgun. Runs in parallel with lint/base and fails the run in seconds.
+  # ---------------------------------------------------------------------------------------------
+  verify-tag:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tag must match versionName
+        run: |
+          set -euo pipefail
+          want="${GITHUB_REF_NAME#v}"
+          have=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          echo "tag=$want  build.gradle.kts=$have"
+          if [ "$want" != "$have" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName $have in app/build.gradle.kts"
+            exit 1
+          fi
+
+  # ---------------------------------------------------------------------------------------------
   # Phase 2 — Base flavor: debug + release APKs and the release AAB in one Gradle invocation (shared
   # compile + R8 outputs). Publishes nightly APK assets and hands the AAB to Phase 3 via an artifact.
+  # Runs on every push (not just tags) so the rolling nightly channels stay current per-commit.
   # ---------------------------------------------------------------------------------------------
   base:
     needs: lint
     runs-on: ubuntu-latest
+    # deploy-nightly pushes assets onto existing releases.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -161,9 +204,15 @@ jobs:
   # ---------------------------------------------------------------------------------------------
   # Phase 3 — Publish the base AAB (built + signed in Phase 2) to the Play Console internal track.
   # No Gradle/JDK needed: just pull the artifact and upload.
+  #
+  # TAG-ONLY: "tag = release". Ordinary pushes to master build and nightly-deploy but never touch
+  # the Play Console. Push a `vX.Y.Z` tag to ship.
   # ---------------------------------------------------------------------------------------------
   play:
-    needs: base
+    needs: [ base, verify-tag ]
+    if: >
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Download AAB artifact
@@ -197,13 +246,72 @@ jobs:
           status: completed
 
   # ---------------------------------------------------------------------------------------------
-  # Phase 4 — Side-by-side variants a/b/c. Release only (no debug builds/deploys for these). One job
+  # Phase 4 — Cut a real GitHub Release for the tag, carrying the base debug + release APKs renamed
+  # with the version. Reuses the artifacts Phase 2 already uploaded — no rebuild.
+  #
+  # This is additive: the pinned `deploy-nightly` releases below and in Phase 2 are untouched and
+  # keep serving the rolling bleeding edge. Tagged releases are the permanent, versioned ones.
+  #
+  # TAG-ONLY.
+  # ---------------------------------------------------------------------------------------------
+  release:
+    needs: play
+    if: >
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      # Both artifacts land in the same directory so the rename loop below sees them together.
+      - name: Download debug APK
+        uses: actions/download-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-debug
+          path: apks
+
+      - name: Download release APK
+        uses: actions/download-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-release
+          path: apks
+
+      # ABI splits mean the APK filenames aren't fixed, so glob + classify rather than hardcode.
+      - name: Rename APKs with version tag
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          for f in apks/*.apk; do
+            case "$f" in
+              *debug*) mv "$f" "apks/andromuks-${tag}-debug.apk" ;;
+              *)       mv "$f" "apks/andromuks-${tag}-release.apk" ;;
+            esac
+          done
+          ls -la apks
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: apks/*.apk
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+
+  # ---------------------------------------------------------------------------------------------
+  # Phase 5 — Side-by-side variants a/b/c. Release only (no debug builds/deploys for these). One job
   # per flavor via the matrix; independent (fail-fast: false) so one variant's failure doesn't sink
   # the others.
+  #
+  # TAG-ONLY: the a/b/c nightly channels now refresh on tagged releases rather than on every push.
   # ---------------------------------------------------------------------------------------------
   variants:
-    needs: play
+    needs: release
+    if: >
+      github.event_name == 'push' &&
+      startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    # deploy-nightly pushes assets onto existing releases.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
