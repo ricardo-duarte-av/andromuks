@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -130,11 +131,11 @@ fun PollMessageContent(
 }
 
 /**
- * One selectable answer: a track, a proportional fill, and the label/count overlay.
+ * One selectable answer card: the label and count on top, a proportional result bar underneath.
  *
- * The fill is scaled against the *leading* option rather than the total, so the front-runner always
- * reads as a full bar. That makes relative standing easier to compare at a glance in a 300dp bubble;
- * the exact share is still spelled out as a percentage in the overlay.
+ * The bar is filled to the answer's share of all votes *cast* — see [PollResults.fractionFor] — so
+ * the bars across a poll always add up to a full width, even on a multi-select poll where one voter
+ * contributes several votes.
  */
 @Composable
 private fun PollAnswerRow(
@@ -149,23 +150,13 @@ private fun PollAnswerRow(
     val isPicked = answer.id in results.myAnswerIds
     val count = results.countFor(answer.id)
     val showResults = !results.resultsHidden
+    val percentage = results.percentFor(answer.id)
 
-    val targetFraction = when {
-        !showResults -> 0f
-        results.topCount <= 0 -> 0f
-        else -> count.toFloat() / results.topCount.toFloat()
-    }
     val fillFraction by animateFloatAsState(
-        targetValue = targetFraction.coerceIn(0f, 1f),
+        targetValue = if (showResults) results.fractionFor(answer.id).coerceIn(0f, 1f) else 0f,
         animationSpec = scaledTween(300),
         label = "pollBarFill",
     )
-
-    val percentage = if (results.totalVoters > 0) {
-        (count * 100f / results.totalVoters).toInt()
-    } else {
-        0
-    }
 
     val rowDescription = buildString {
         append(answer.text)
@@ -173,12 +164,12 @@ private fun PollAnswerRow(
         if (isPicked) append(", selected")
     }
 
-    Box(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 44.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(contentColor.copy(alpha = 0.12f))
+            .background(contentColor.copy(alpha = 0.10f))
             .then(
                 if (canVote && onToggleAnswer != null) {
                     Modifier.clickable { onToggleAnswer(answer.id) }
@@ -186,27 +177,12 @@ private fun PollAnswerRow(
                     Modifier
                 },
             )
+            .padding(horizontal = 10.dp, vertical = 8.dp)
             .semantics { contentDescription = rowDescription },
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        if (showResults && fillFraction > 0f) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(fillFraction)
-                    .background(
-                        if (isPicked) {
-                            colorScheme.primary.copy(alpha = 0.35f)
-                        } else {
-                            contentColor.copy(alpha = 0.28f)
-                        },
-                    ),
-            )
-        }
-
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 10.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
@@ -234,6 +210,28 @@ private fun PollAnswerRow(
                         Modifier
                     },
                 )
+            }
+        }
+
+        if (showResults) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(contentColor.copy(alpha = 0.18f)),
+            ) {
+                if (fillFraction > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(fillFraction)
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(
+                                if (isPicked) colorScheme.primary else contentColor.copy(alpha = 0.55f),
+                            ),
+                    )
+                }
             }
         }
     }

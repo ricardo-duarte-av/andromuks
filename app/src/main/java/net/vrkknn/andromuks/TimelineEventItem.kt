@@ -126,12 +126,14 @@ import net.vrkknn.andromuks.utils.SystemEventNarrator
 import net.vrkknn.andromuks.utils.computePollResults
 import net.vrkknn.andromuks.utils.extractSanitizedHtml
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
+import net.vrkknn.andromuks.utils.isPollStartType
 import net.vrkknn.andromuks.utils.mediaBubbleColorFor
 import net.vrkknn.andromuks.utils.mediaContentHasEncryptedFile
 import net.vrkknn.andromuks.utils.parseGalleryMessage
 import net.vrkknn.andromuks.utils.parseGeoUri
 import net.vrkknn.andromuks.utils.parseMediaMessage
 import net.vrkknn.andromuks.utils.parsePollStart
+import net.vrkknn.andromuks.utils.pollEventType
 import net.vrkknn.andromuks.utils.stickerBubbleColorFor
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import org.json.JSONObject
@@ -668,6 +670,37 @@ private fun MessageTypeContent(
     onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
     onShowReactions: (() -> Unit)? = null,
 ) {
+    // Polls are dispatched BEFORE the type switch below, because in an E2EE room gomuks delivers
+    // them as `m.room.encrypted` with the real type in `decrypted_type`. Switching on `event.type`
+    // would match the "m.room.encrypted" branch first and render the generic encrypted placeholder.
+    // [pollEventType] looks through decryption, so this works in both encrypted and plain rooms.
+    val pollType = pollEventType(event)
+    if (pollType != null) {
+        if (isPollStartType(pollType)) {
+            RoomPollMessageContent(
+                event = event,
+                actualIsMine = actualIsMine,
+                mentionsMe = mentionsMe,
+                isRedacted = event.redactedBy != null,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                readReceipts = readReceipts,
+                appViewModel = appViewModel,
+                myUserId = myUserId,
+                onReply = onReply,
+                onReact = onReact,
+                onDelete = onDelete,
+                onUserClick = onUserClick,
+                onThreadClick = onThreadClick,
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions,
+            )
+        }
+        // Poll responses and ends only mutate the poll bubble's counts — never render them.
+        return
+    }
+
     when (event.type) {
         "m.room.redaction" -> {
             // Handle redaction events - these should not be displayed as regular messages
@@ -767,28 +800,6 @@ private fun MessageTypeContent(
             // on messages
             // No need to render them as separate timeline items
             return
-        }
-
-        in POLL_START_TYPES -> {
-            RoomPollMessageContent(
-                event = event,
-                actualIsMine = actualIsMine,
-                mentionsMe = mentionsMe,
-                isRedacted = event.redactedBy != null,
-                userProfileCache = userProfileCache,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                readReceipts = readReceipts,
-                appViewModel = appViewModel,
-                myUserId = myUserId,
-                onReply = onReply,
-                onReact = onReact,
-                onDelete = onDelete,
-                onUserClick = onUserClick,
-                onThreadClick = onThreadClick,
-                onShowMenu = onShowMenu,
-                onShowReactions = onShowReactions,
-            )
         }
 
         else -> {

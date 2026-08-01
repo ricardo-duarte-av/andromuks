@@ -101,8 +101,28 @@ data class PollResults(
 
     fun countFor(answerId: String): Int = votesByAnswer[answerId]?.size ?: 0
 
-    /** The highest single-answer count, used to scale the result bars. */
-    val topCount: Int get() = votesByAnswer.values.maxOfOrNull { it.size } ?: 0
+    /**
+     * Total individual votes cast across all answers.
+     *
+     * This is the denominator for [percentFor], and it is *not* [totalVoters]: on a poll with
+     * `max_selections > 1` one voter contributes several votes, so dividing by voters would let the
+     * percentages sum past 100 (two picks by a single voter would read 100% each).
+     */
+    val totalVotes: Int get() = votesByAnswer.values.sumOf { it.size }
+
+    /** This answer's share of all votes cast, 0..100. Shares across answers sum to 100. */
+    fun percentFor(answerId: String): Int {
+        val total = totalVotes
+        if (total <= 0) return 0
+        return Math.round(countFor(answerId) * 100f / total)
+    }
+
+    /** This answer's share of all votes cast as a 0..1 fraction, for the result bar. */
+    fun fractionFor(answerId: String): Float {
+        val total = totalVotes
+        if (total <= 0) return 0f
+        return countFor(answerId).toFloat() / total.toFloat()
+    }
 }
 
 /**

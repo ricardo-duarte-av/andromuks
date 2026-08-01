@@ -64,7 +64,11 @@ class PollAggregationTest {
         assertEquals(0, results.countFor("c"))
         assertEquals(3, results.totalVoters)
         assertEquals(setOf("a"), results.myAnswerIds)
-        assertEquals(2, results.topCount)
+        assertEquals(3, results.totalVotes)
+        // Three voters, one pick each: shares are a straight split of the votes cast.
+        assertEquals(67, results.percentFor("a"))
+        assertEquals(33, results.percentFor("b"))
+        assertEquals(0, results.percentFor("c"))
     }
 
     @Test
@@ -116,6 +120,46 @@ class PollAggregationTest {
         assertEquals(0, results.countFor("c"))
         // One voter, even though they picked two answers.
         assertEquals(1, results.totalVoters)
+    }
+
+    @Test
+    fun `multi-select percentages split the vote instead of summing past 100`() {
+        // One voter picking two of four options must read 50%/50%/0%/0%, not 100%/100%. Dividing by
+        // voters rather than by votes cast is what produced the 200% total.
+        val results = computePollResults(
+            start = poll(maxSelections = 2),
+            votes = listOf(vote("\$1", alice, listOf("a", "b"), 100)),
+            ends = emptyList(),
+            myUserId = alice,
+        )
+
+        assertEquals(1, results.totalVoters)
+        assertEquals(2, results.totalVotes)
+        assertEquals(50, results.percentFor("a"))
+        assertEquals(50, results.percentFor("b"))
+        assertEquals(0, results.percentFor("c"))
+        assertEquals(100, results.start.answers.sumOf { results.percentFor(it.id) })
+    }
+
+    @Test
+    fun `percentages are shares of votes cast across several multi-select voters`() {
+        val results = computePollResults(
+            start = poll(maxSelections = 2),
+            votes = listOf(
+                vote("\$1", alice, listOf("a", "b"), 100),
+                vote("\$2", bob, listOf("a"), 200),
+                vote("\$3", carol, listOf("a"), 300),
+            ),
+            ends = emptyList(),
+            myUserId = alice,
+        )
+
+        assertEquals(3, results.totalVoters)
+        assertEquals(4, results.totalVotes)
+        assertEquals(75, results.percentFor("a"))
+        assertEquals(25, results.percentFor("b"))
+        assertEquals(0.75f, results.fractionFor("a"), 0.0001f)
+        assertEquals(0.25f, results.fractionFor("b"), 0.0001f)
     }
 
     @Test
@@ -326,7 +370,8 @@ class PollAggregationTest {
         val results = computePollResults(poll(), emptyList(), emptyList(), myUserId = alice)
 
         assertEquals(0, results.totalVoters)
-        assertEquals(0, results.topCount)
+        assertEquals(0, results.totalVotes)
+        assertEquals(0, results.percentFor("a"))
         assertFalse(results.isEnded)
         assertTrue(results.myAnswerIds.isEmpty())
     }

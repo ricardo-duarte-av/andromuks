@@ -37,8 +37,22 @@ Text is read as `org.matrix.msc1767.text`, then `m.text` (string or array of `{m
 then a plain `body`. An empty `answers` array is a **withdrawal**, which is what tapping a selected
 option sends.
 
-In E2EE rooms gomuks surfaces the decrypted type at the top level, but `pollEventType()` also looks
-at `decryptedType`, so an `m.room.encrypted` wrapper is handled either way.
+### E2EE: never switch on `event.type`
+
+In an encrypted room the live sync frame arrives as `type = "m.room.encrypted"` with the real type in
+`decrypted_type` and the poll content in `decrypted`. (A resolved event fetched from the gomuks DB
+shows the poll type at the top level with an `encrypted` block alongside — do not let that mislead
+you about the sync path.)
+
+**Always route polls through `pollEventType(event)`**, which looks through `decryptedType`. Switching
+on `event.type` silently breaks encrypted rooms in two distinct ways, both of which shipped and had
+to be fixed:
+
+- `MessageTypeContent` matched its `"m.room.encrypted"` branch before the poll branch and rendered
+  the generic "Encrypted message" placeholder. Polls are therefore dispatched *before* that `when`.
+- In `processTimelineEvents`, poll responses/ends pass the `allowedEventTypes` whitelist in an E2EE
+  room, because `m.room.encrypted` is whitelisted. They are dropped structurally via
+  `isPollSatelliteEvent`, next to the unconditional redaction drop, rather than by type.
 
 ## Aggregation rules
 
@@ -143,12 +157,19 @@ immediately, on send failure, which also rolls the UI back).
   contract, so it contrasts correctly in every bubble variant. Everything else comes from
   `MaterialTheme.colorScheme` — the app defaults to Material You dynamic colour, so nothing is
   hardcoded.
-- Result bars use the played/unplayed alpha pairing established by the audio waveform
+- Each answer is a card: label, count and percentage on the first line, a 6dp result bar underneath.
+  The bar uses the played/unplayed alpha pairing established by the audio waveform
   (`WaveformSeekBar`, `utils/MediaFunctions.kt`) rather than a `LinearProgressIndicator`; there is no
-  determinate progress indicator anywhere else in the app.
-- Bars are scaled against the **leading** option, not the total, so the front-runner reads as a full
-  bar and relative standing is easy to compare in a 300dp bubble. The exact share is spelled out as a
-  percentage alongside.
+  determinate progress indicator anywhere else in the app. The fill is `colorScheme.primary` for the
+  user's own picks and a muted `contentColor` otherwise.
+
+### Percentages are shares of votes cast, not of voters
+
+`PollResults.percentFor` / `fractionFor` divide by **`totalVotes`** (the sum of all per-answer
+counts), *not* by `totalVoters`. On a `max_selections > 1` poll a single voter contributes several
+votes, so dividing by voters lets the percentages sum past 100 — one voter picking two of four
+options would read 100%/100%/0%/0%. Dividing by votes cast gives the correct 50%/50%/0%/0%, and the
+bars always add up to one full width.
 - Tapping a vote count opens `PollVotersDialog`, which reuses the `ReactionDetailsDialog` shape and
   its opportunistic `requestUserProfileOnDemand` effect so avatars fill in.
 

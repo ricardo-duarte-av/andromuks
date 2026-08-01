@@ -200,6 +200,7 @@ import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
 import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
+import net.vrkknn.andromuks.utils.isPollSatelliteEvent
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -367,6 +368,11 @@ suspend fun processTimelineEvents(
         if (!renderContextEvents && event.timelineRowid == -1L) return@filter false
         // Redaction events are always hidden (they replace other events, not standalone content)
         if (event.type == "m.room.redaction") return@filter false
+        // Poll responses/ends are satellites of a poll bubble, never rows — same rule as redactions,
+        // and unconditional for the same reason. This also has to be checked structurally rather
+        // than via the whitelist: in an E2EE room they arrive as "m.room.encrypted", which IS
+        // whitelisted, so the type filter below would let them through as encrypted placeholders.
+        if (isPollSatelliteEvent(event)) return@filter false
         // Hide joins/leaves/profile-changes when show_membership_events is off. Checked before the
         // show_hidden_events short-circuit so the more specific membership preference wins.
         // Moderation events (invite, ban, kick) fall through and stay visible.
