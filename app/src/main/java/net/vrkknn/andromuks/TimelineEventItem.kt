@@ -126,6 +126,7 @@ import net.vrkknn.andromuks.utils.SystemEventNarrator
 import net.vrkknn.andromuks.utils.computePollResults
 import net.vrkknn.andromuks.utils.extractSanitizedHtml
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
+import net.vrkknn.andromuks.utils.hasNoDisplayableAsset
 import net.vrkknn.andromuks.utils.isPollStartType
 import net.vrkknn.andromuks.utils.mediaBubbleColorFor
 import net.vrkknn.andromuks.utils.mediaContentHasEncryptedFile
@@ -1918,10 +1919,13 @@ private fun RoomMediaMessageContent(
     // An MSC4274 gallery has no top-level url, so it only reaches here when the single-media parse
     // came up empty. A one-item gallery renders as a plain image, caption and all.
     val gallery = if (singleMedia == null) parseGalleryMessage(content, effectiveLocalContent) else null
+    // Not unwrapped when the item has no displayable asset: the single-media path would spin on
+    // ciphertext, while the mosaic renders it as explicitly unsupported (see hasNoDisplayableAsset).
     val singleGalleryItem = gallery
         ?.takeIf { it.items.size == 1 && it.otherAttachmentCount == 0 }
         ?.items
         ?.first()
+        ?.takeIf { !it.hasNoDisplayableAsset }
     val mediaMessage = singleMedia ?: singleGalleryItem?.media?.copy(caption = gallery?.caption)
     val mosaicGallery = if (singleGalleryItem == null) gallery else null
     val hasEncryptedFile = singleGalleryItem?.isEncrypted ?: mediaContentHasEncryptedFile(content)
@@ -2970,10 +2974,12 @@ private fun EncryptedMessageContent(
             // A gallery has no top-level url, so it only reaches here when the single-media parse came
             // up empty. A one-item gallery renders as a plain image, caption and all.
             val gallery = if (singleMedia == null) parseGalleryMessage(decrypted, event.localContent) else null
+            // See the plaintext path above: an undisplayable item stays in the mosaic renderer.
             val singleGalleryItem = gallery
                 ?.takeIf { it.items.size == 1 && it.otherAttachmentCount == 0 }
                 ?.items
                 ?.first()
+                ?.takeIf { !it.hasNoDisplayableAsset }
             val mediaMessage = singleMedia ?: singleGalleryItem?.media?.copy(caption = gallery?.caption)
             val mosaicGallery = if (singleGalleryItem == null) gallery else null
             val hasEncryptedFile = singleGalleryItem?.isEncrypted ?: mediaContentHasEncryptedFile(decrypted)

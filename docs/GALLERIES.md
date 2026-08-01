@@ -189,6 +189,41 @@ falling back to `🖼️ Gallery (N)` when there is no caption.
 - **`utils/ReplyFunctions.kt`** — three sites: the blank-body media fallback, the msgtype table in
   `formatEventForReplyPreview`, and the edit-composer preview bar.
 
+## Encrypted galleries are a backend gap
+
+Gallery media in an **E2EE room does not render**, and cannot be made to from the client.
+
+The backend decrypts media on our behalf, but only for media whose keys it cached. gomuks caches them
+in `cacheMedia` (`pkg/hicli/sync.go`), working off mautrix-go's typed `MessageEventContent` —
+`content.file`, `info.thumbnail_file`, plus the legacy `com.beeper.gallery` images. Neither gomuks nor
+mautrix-go knows about MSC4274 `itemtypes`, so for an encrypted gallery **no keys are cached at all**.
+
+What that produces, per item, is a trap worth spelling out:
+
+1. we request `?encrypted=true` → `M_NOT_FOUND "Media encryption keys not found in cache"`
+   (`GetMediaCacheEntry`, `pkg/gomuks/mediadownload.go`);
+2. `EncryptedMediaRetryInterceptor` recognises that exact string and retries with `?encrypted=false`;
+3. with no cache entry and the flag now `false`, gomuks proxies the **raw ciphertext** and returns
+   `200`;
+4. Coil cannot decode it, the tile falls back to the original — a second full ciphertext download —
+   and fails again, leaving the BlurHash in place, indistinguishable from still loading.
+
+So `GalleryItem.hasNoDisplayableAsset` short-circuits the whole thing: an item with no decryptable
+asset issues **no request**, renders a lock chip reading "Encrypted", and ignores taps (the viewer
+would only reach the same dead end full-screen). Long-press still opens the message menu. The check is
+per asset, so an item with a plaintext thumbnail and an encrypted original still renders from the
+thumbnail, and the thumbnail→original fallback is skipped only when the original is encrypted.
+
+A one-item gallery is normally unwrapped into a plain `MediaMessage`; an undisplayable one is not,
+since only the mosaic knows how to present it. That is the sole path into `GalleryMosaic`'s one-item
+branch.
+
+Upstream's position (tulir): gomuks will support this once Element X enables galleries by default.
+When that lands, deleting `hasNoDisplayableAsset` and its call sites is the whole client-side change.
+Doing it sooner would mean decrypting attachments in-app (AES-256-CTR from the item's JWK `key`/`iv`,
+verifying `hashes.sha256`) and routing Coil, ExoPlayer and the download paths through it — a second
+attachment-crypto implementation the app does not otherwise need.
+
 ## Not implemented
 
 - **Sending.** Composing a gallery, and the `file` vs `url` split for encrypted rooms on upload.

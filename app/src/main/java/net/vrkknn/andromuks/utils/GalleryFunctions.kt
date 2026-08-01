@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +39,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -80,6 +82,33 @@ private val GALLERY_MOSAIC_CORNER = 10.dp
  */
 @Immutable
 data class GalleryItem(val media: MediaMessage, val isEncrypted: Boolean)
+
+/**
+ * True when neither the item's thumbnail nor its original can be displayed, because both are
+ * encrypted.
+ *
+ * The backend decrypts media for us, but only for media whose keys it cached — and gomuks caches keys
+ * off mautrix-go's typed `MessageEventContent` (`content.file`, `info.thumbnail_file`), which has no
+ * notion of MSC4274 `itemtypes`. So for an encrypted gallery it holds no keys at all: a request with
+ * `?encrypted=true` gets `M_NOT_FOUND "Media encryption keys not found in cache"`, and
+ * [EncryptedMediaRetryInterceptor] then retries with `?encrypted=false`, at which point the backend
+ * cheerfully proxies the raw ciphertext with a 200. Coil cannot decode that, so the tile would fall
+ * back to the original — another full ciphertext download — and end up sitting on its BlurHash
+ * forever, indistinguishable from still loading.
+ *
+ * Rather than burn two full downloads per item to reach that state, such tiles skip the network
+ * entirely and render as explicitly unsupported. Upstream will support this once Element X enables
+ * galleries by default; until then this is a backend gap the client cannot close on its own (short of
+ * decrypting attachments in-app, which the app does not do anywhere today).
+ *
+ * Encryption is per item and per asset, so this is deliberately narrow: an item whose original is
+ * encrypted but whose thumbnail is not is still displayable, and vice versa.
+ */
+internal val GalleryItem.hasNoDisplayableAsset: Boolean
+    get() {
+        val thumbnailUsable = !media.info.thumbnailUrl.isNullOrBlank() && !media.info.thumbnailIsEncrypted
+        return !thumbnailUsable && isEncrypted
+    }
 
 /**
  * A parsed MSC4274 gallery.
@@ -314,7 +343,8 @@ fun GalleryMessageBubble(
  * so the height is known without measuring — which keeps timeline scroll anchoring stable.
  *
  * Callers handle the single-item case before reaching here: a one-item gallery renders as a plain
- * image instead.
+ * image instead — unless its item has no displayable asset, which only this renderer knows how to
+ * present.
  */
 @Composable
 private fun GalleryMosaic(
@@ -340,7 +370,13 @@ private fun GalleryMosaic(
             revealed = revealed,
             overflowCount = if (isOverflowTile) items.size - GALLERY_MAX_TILES else 0,
             onClick = { bounds ->
-                if (!revealed) isRevealed = true else onTileClick(index, bounds)
+                // An undisplayable item is not opened: the viewer would only reach the same dead end,
+                // full-screen. Long-press still raises the message menu, so the event stays actionable.
+                when {
+                    !revealed -> isRevealed = true
+                    items[index].hasNoDisplayableAsset -> Unit
+                    else -> onTileClick(index, bounds)
+                }
             },
             onLongPress = onTileLongPress,
             modifier = Modifier
@@ -351,6 +387,10 @@ private fun GalleryMosaic(
 
     Column(modifier = modifier.padding(2.dp).clip(RoundedCornerShape(GALLERY_MOSAIC_CORNER))) {
         when (items.size) {
+            // Only reached by a one-item gallery the caller declined to unwrap into a plain image,
+            // i.e. one with no displayable asset. It keeps the footprint a single image would have had.
+            1 -> tile(0, frameWidth, frameWidth, false)
+
             2 -> {
                 val side = (frameWidth - gap) / 2
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
@@ -413,12 +453,19 @@ private fun GalleryTile(
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
     val media = item.media
 
-    // Thumbnail first; flipped to the original when the thumbnail fails to load.
-    var useOriginal by remember(media.url) { mutableStateOf(media.info.thumbnailUrl.isNullOrBlank()) }
+    // Encrypted gallery media has no displayable asset (see GalleryItem.hasNoDisplayableAsset): no
+    // request is issued for it at all, and the tile renders as unsupported below.
+    val unsupported = item.hasNoDisplayableAsset
+
+    // Thumbnail first; flipped to the original when the thumbnail fails to load. An encrypted
+    // thumbnail is treated as absent, so such a tile starts on the original rather than spending a
+    // download on ciphertext.
+    val thumbnailUsable = !media.info.thumbnailUrl.isNullOrBlank() && !media.info.thumbnailIsEncrypted
+    var useOriginal by remember(media.url) { mutableStateOf(!thumbnailUsable) }
     val displayMxcUrl = if (useOriginal) media.url else media.info.thumbnailUrl!!
     val displayIsEncrypted = if (useOriginal) item.isEncrypted else media.info.thumbnailIsEncrypted
 
-    val imageUrl = remember(displayMxcUrl, displayIsEncrypted, homeserverUrl) {
+    val imageUrl = remember(displayMxcUrl, displayIsEncrypted, useOriginal, homeserverUrl) {
         val targetHttp = if (useOriginal) {
             MediaUtils.mxcToHttpUrl(displayMxcUrl, homeserverUrl, registerMapping = false)
         } else {
@@ -432,7 +479,8 @@ private fun GalleryTile(
         }
     }
 
-    LaunchedEffect(imageUrl, displayMxcUrl) {
+    LaunchedEffect(imageUrl, displayMxcUrl, unsupported) {
+        if (unsupported) return@LaunchedEffect
         val url = imageUrl ?: return@LaunchedEffect
         CoilUrlMapper.registerMapping(url, displayMxcUrl)
     }
@@ -473,7 +521,10 @@ private fun GalleryTile(
             )
         }
 
-        if (revealed) {
+        if (unsupported) {
+            // Legibly unsupported rather than a BlurHash that looks like it is still loading.
+            GalleryTileChip(icon = Icons.Filled.Lock, text = "Encrypted")
+        } else if (revealed) {
             val imageRequest = remember(imageUrl, useOriginal) {
                 ImageRequest.Builder(context)
                     .data(imageUrl ?: "")
@@ -490,21 +541,16 @@ private fun GalleryTile(
                 modifier = Modifier.fillMaxSize(),
                 onError = {
                     // Thumbnail unavailable — retry with the original, matching single-media behaviour.
-                    if (!useOriginal) useOriginal = true
+                    // Skipped when the original is encrypted: that request can only come back as
+                    // ciphertext, so it would cost a full download to fail again.
+                    if (!useOriginal && !item.isEncrypted) useOriginal = true
                 },
             )
         } else {
-            Text(
-                text = "Tap to show",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-            )
+            GalleryTileChip(icon = null, text = "Tap to show")
         }
 
-        if (media.msgType == "m.video" && revealed) {
+        if (media.msgType == "m.video" && revealed && !unsupported) {
             Surface(
                 shape = CircleShape,
                 color = Color.Black.copy(alpha = 0.6f),
@@ -535,6 +581,36 @@ private fun GalleryTile(
                 )
             }
         }
+    }
+}
+
+/**
+ * The small label a tile shows in place of its image: "Tap to show" behind the preview gate, or the
+ * encrypted-media notice. Sits over the tile's BlurHash, so it keeps a surface backing to stay
+ * readable against whatever the hash decodes to.
+ */
+@Composable
+private fun GalleryTileChip(icon: ImageVector?, text: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.8f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(12.dp),
+            )
+        }
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
