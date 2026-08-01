@@ -553,6 +553,18 @@ fun ChatBubbleNavigation(
                 onCloseBubble = onCloseBubble,
             )
         }
+        // Bubbles are first-class: /poll works here too, so the bubble's own nav graph needs the
+        // poll maker (MainActivity's graph is a separate NavHost and is not reachable from here).
+        composable("poll_maker/{roomId}?threadRoot={threadRoot}") { backStackEntry: NavBackStackEntry ->
+            val pollRoomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            val threadRoot = backStackEntry.arguments?.getString("threadRoot")?.takeIf { it.isNotBlank() }
+            PollMakerScreen(
+                roomId = pollRoomId,
+                appViewModel = appViewModel,
+                navController = navController,
+                threadRootEventId = threadRoot,
+            )
+        }
         composable(
             route = "chat_bubble/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType }),

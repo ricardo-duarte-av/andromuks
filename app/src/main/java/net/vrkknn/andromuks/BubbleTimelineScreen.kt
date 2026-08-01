@@ -181,6 +181,7 @@ import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
 import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
+import net.vrkknn.andromuks.utils.isBarePollCommand
 import net.vrkknn.andromuks.utils.isPollSatelliteEvent
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -766,6 +767,10 @@ fun BubbleTimelineScreen(
 
     // Per-message profile picker state
     var showPmpProfilePicker by remember { mutableStateOf(false) }
+
+    // Set when the draft becomes a bare "/poll"; consumed by the effect below, which clears
+    // the draft and opens the full-screen poll maker.
+    var pendingPollMaker by remember { mutableStateOf(false) }
     // A picked profile stays armed until the next send and travels in base_content — gomuks no
     // longer understands /pmp (MSC4461 rev-2, gomuks 951bac5).
     var selectedPmpProfile by remember { mutableStateOf<PerMessageProfileEntry?>(null) }
@@ -801,6 +806,18 @@ fun BubbleTimelineScreen(
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableLongStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+
+    // A bare "/poll" opens the full-screen poll maker. The draft is cleared first so returning
+    // from the maker doesn't leave the command text sitting in the composer.
+    LaunchedEffect(pendingPollMaker) {
+        if (pendingPollMaker) {
+            pendingPollMaker = false
+            draft = ""
+            textFieldValue = TextFieldValue("")
+            showCommandSuggestionList = false
+            navController.navigate("poll_maker/$roomId")
+        }
+    }
 
     // Focus requester for text field (to focus when replying)
     val textFieldFocusRequester = remember { FocusRequester() }
@@ -3490,6 +3507,12 @@ fun BubbleTimelineScreen(
                                                 )
                                                 // Detect /pmp picker: draft is exactly "/pmp" or "/profile", nothing after
                                                 showPmpProfilePicker = isBarePerMessageProfileCommand(replacedValue.text)
+                                                // Detect /poll: navigation is deferred to a
+                                                // LaunchedEffect so we never navigate from inside
+                                                // onValueChange while the field is committing.
+                                                if (isBarePollCommand(replacedValue.text)) {
+                                                    pendingPollMaker = true
+                                                }
 
                                                 if (commandResult != null) {
                                                     val (query, startIndex) = commandResult

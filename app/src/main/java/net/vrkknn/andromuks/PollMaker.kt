@@ -53,13 +53,22 @@ private const val MAX_POLL_OPTIONS = 20
  * floating window would be fighting the keyboard for space every time an option is added. Follows
  * the [RoomMakerScreen] layout conventions (Scaffold + TopAppBar + `imePadding`).
  *
+ * Reached from the room timeline, a thread, or a chat bubble. [threadRootEventId] is non-null when
+ * the poll should be posted into a thread; it travels through to the command's `relates_to`.
+ *
  * The poll itself is created by gomuks from an MSC4391 command envelope — see
  * [PollCoordinator.sendPollCreate]. That route offers no `kind` argument, so there is deliberately no
  * disclosed/undisclosed control here: gomuks hardcodes disclosed.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PollMakerScreen(roomId: String, appViewModel: AppViewModel, navController: NavController, modifier: Modifier = Modifier) {
+fun PollMakerScreen(
+    roomId: String,
+    appViewModel: AppViewModel,
+    navController: NavController,
+    modifier: Modifier = Modifier,
+    threadRootEventId: String? = null,
+) {
     var question by remember { mutableStateOf("") }
     val options = remember { mutableStateListOf("", "") }
     var allowMultiple by remember { mutableStateOf(false) }
@@ -81,7 +90,7 @@ fun PollMakerScreen(roomId: String, appViewModel: AppViewModel, navController: N
         modifier = modifier,
         topBar = {
             TopAppBar(
-                title = { Text("Create poll") },
+                title = { Text(if (threadRootEventId != null) "Poll in thread" else "Create poll") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -96,6 +105,7 @@ fun PollMakerScreen(roomId: String, appViewModel: AppViewModel, navController: N
                                 question = question,
                                 options = filledOptions,
                                 maxSelections = effectiveMaxSelections,
+                                threadRootEventId = threadRootEventId,
                             )
                             navController.popBackStack()
                         },

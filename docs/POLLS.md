@@ -176,6 +176,38 @@ We require ≥2 options client-side even though gomuks accepts 1 — a poll with
 choice. `max_selections` is a mode toggle in the UI ("Single answer" / "Multiple answers" with a
 count), never a raw number field.
 
+The `body` uses the `/poll@gomuks …` fallback syntax webmuks produces, and quotes an argument only
+when it contains whitespace or a quote — bare words stay bare so the output matches webmuks, while
+multi-word options still survive a shell-style re-parse.
+
+### Threads and bubbles
+
+Both are first-class. A poll started inside a thread adds the thread relation to the command, so
+gomuks roots the resulting `poll.start` in the thread:
+
+```jsonc
+"relates_to": {
+  "rel_type": "m.thread",
+  "event_id": "$threadRoot",
+  "is_falling_back": true,
+  "m.in_reply_to": { "event_id": "$latestEventInThread" }
+}
+```
+
+`is_falling_back: true` sits *alongside* `m.in_reply_to` on purpose: per the threads spec that pairing
+means "this in_reply_to is a fallback for non-threaded clients, not a real reply", which is what a
+poll posted into a thread is. Note the app's shared `MessageSendCoordinator.buildMediaRelatesTo`
+instead sets `is_falling_back` only when there is *no* reply target — a discrepancy worth a separate
+look; `PollCoordinator.pollThreadRelatesTo` deliberately does not inherit it.
+
+**Votes need no thread relation at all** — a vote inside a thread carries only the `m.reference` to
+the poll start, exactly like one in the main timeline, so `sendPollResponse` is unchanged.
+
+Three composers trigger `/poll`, each with its own `pendingPollMaker` flag and `LaunchedEffect`:
+`RoomTimelineScreen`, `ThreadViewerScreen` (passes `?threadRoot=`), and `BubbleTimelineScreen`.
+`ChatBubbleActivity` runs a **separate NavHost**, so it registers its own `poll_maker` route —
+MainActivity's graph is not reachable from a bubble.
+
 ### Why there is no disclosed/undisclosed control
 
 gomuks hardcodes `Kind: "org.matrix.msc3381.disclosed"` in `handleCmdPoll`, and `pollParams` has no

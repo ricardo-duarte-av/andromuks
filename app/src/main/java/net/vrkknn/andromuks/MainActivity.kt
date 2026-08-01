@@ -1843,14 +1843,18 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                             modifier = modifier,
                         )
                     }
-                    composable("poll_maker/{roomId}") { backStackEntry ->
+                    // threadRoot is optional: present when the poll is being started from inside a
+                    // thread, so it can be routed into that thread rather than the main timeline.
+                    composable("poll_maker/{roomId}?threadRoot={threadRoot}") { backStackEntry ->
                         val pollRoomId = backStackEntry.arguments?.getString("roomId").orEmpty()
+                        val threadRoot = backStackEntry.arguments?.getString("threadRoot")?.takeIf { it.isNotBlank() }
                         // No `modifier` here: the enclosing Box already applies it, and reusing it
                         // in a child trips detekt's ModifierReused rule.
                         PollMakerScreen(
                             roomId = pollRoomId,
                             appViewModel = appViewModel,
                             navController = navController,
+                            threadRootEventId = threadRoot,
                         )
                     }
                     composable(

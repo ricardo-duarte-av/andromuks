@@ -57,7 +57,9 @@ internal class PollCoordinator(private val vm: AppViewModel) {
      * round-trips through a shell-style parser without changing meaning.
      */
     private fun pollCommandFallbackBody(question: String, options: List<String>, maxSelections: Int): String = buildString {
-        append("/poll ")
+        append("/poll")
+        append(GOMUKS_BOT_USER_ID)
+        append(' ')
         append(quoteCommandArg(question))
         append(' ')
         append(maxSelections)
@@ -67,7 +69,37 @@ internal class PollCoordinator(private val vm: AppViewModel) {
         }
     }
 
-    private fun quoteCommandArg(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    /**
+     * Quotes only when needed — the fallback syntax splits on whitespace, so a bare word must stay
+     * bare to match what webmuks produces, while anything containing a space or quote has to be
+     * wrapped or it would read back as several arguments.
+     */
+    private fun quoteCommandArg(value: String): String = if (value.none { it.isWhitespace() || it == '"' || it == '\\' }) {
+        value
+    } else {
+        "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
+    }
+
+    /**
+     * The `relates_to` for a poll created inside a thread, matching the shape gomuks/webmuks send.
+     *
+     * Note this deliberately keeps `is_falling_back = true` *alongside* `m.in_reply_to`: per the
+     * threads spec that pairing means "this in_reply_to is a fallback for non-threaded clients, not
+     * a real reply", which is exactly the case for a poll posted into a thread. (The app's shared
+     * `buildMediaRelatesTo` instead sets `is_falling_back` only when there is no reply target — a
+     * discrepancy worth looking at separately, but not one to change from here.)
+     */
+    private fun pollThreadRelatesTo(roomId: String, threadRootEventId: String, replyToEventId: String?): Map<String, Any> {
+        val replyTarget = replyToEventId
+            ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
+            ?: threadRootEventId
+        return mapOf(
+            "rel_type" to "m.thread",
+            "event_id" to threadRootEventId,
+            "is_falling_back" to true,
+            "m.in_reply_to" to mapOf("event_id" to replyTarget),
+        )
+    }
 
     /**
      * Routes any poll event into the raw stores. Returns true if it changed anything.
@@ -337,7 +369,14 @@ internal class PollCoordinator(private val vm: AppViewModel) {
      *  - **No `kind` argument exists.** gomuks hardcodes `org.matrix.msc3381.disclosed`, so undisclosed
      *    polls cannot be created through this route at all.
      */
-    fun sendPollCreate(roomId: String, question: String, options: List<String>, maxSelections: Int) {
+    fun sendPollCreate(
+        roomId: String,
+        question: String,
+        options: List<String>,
+        maxSelections: Int,
+        threadRootEventId: String? = null,
+        replyToEventId: String? = null,
+    ) {
         val cleanQuestion = question.trim()
         val cleanOptions = options.map { it.trim() }.filter { it.isNotEmpty() }
         if (cleanQuestion.isEmpty() || cleanOptions.size < MIN_POLL_OPTIONS) {
@@ -367,27 +406,30 @@ internal class PollCoordinator(private val vm: AppViewModel) {
         vm.trackOutgoingRequest(requestId, roomId)
         vm.messageRequests[requestId] = roomId
 
-        val result = vm.sendWebSocketCommand(
-            "send_message",
-            requestId,
-            mapOf(
-                "room_id" to roomId,
-                "base_content" to baseContent,
-                "text" to "",
-                // MSC4391: mention the bot so the command cannot be picked up by the wrong one.
-                // "@gomuks" has no domain part — that is gomuks' internal local-bot address, not a
-                // malformed MXID. Sent verbatim, matching webmuks.
-                "mentions" to mapOf("user_ids" to listOf(GOMUKS_BOT_USER_ID), "room" to false),
-                "url_previews" to emptyList<Any>(),
-            ),
+        val commandData = mutableMapOf<String, Any>(
+            "room_id" to roomId,
+            "base_content" to baseContent,
+            "text" to "",
+            // MSC4391: mention the bot so the command cannot be picked up by the wrong one.
+            // "@gomuks" has no domain part — that is gomuks' internal local-bot address, not a
+            // malformed MXID. Sent verbatim, matching webmuks.
+            "mentions" to mapOf("user_ids" to listOf(GOMUKS_BOT_USER_ID), "room" to false),
+            "url_previews" to emptyList<Any>(),
         )
+        // A poll started from a thread carries the thread relation, so gomuks roots the resulting
+        // poll.start in that thread rather than the main timeline.
+        if (threadRootEventId != null) {
+            commandData["relates_to"] = pollThreadRelatesTo(roomId, threadRootEventId, replyToEventId)
+        }
+
+        val result = vm.sendWebSocketCommand("send_message", requestId, commandData)
 
         if (result == WebSocketResult.SUCCESS) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
                     "PollCoordinator: sent poll command for $roomId - ${cleanOptions.size} options, " +
-                        "max_selections=$effectiveMaxSelections",
+                        "max_selections=$effectiveMaxSelections, thread=$threadRootEventId",
                 )
             }
         } else {
