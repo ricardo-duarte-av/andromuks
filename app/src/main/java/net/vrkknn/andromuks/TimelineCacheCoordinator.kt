@@ -5,6 +5,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.utils.isPollSatelliteEvent
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -155,6 +156,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             }
             if (reactionRequests.remove(requestId) != null) return true
             if (relatedEventsRequests.remove(requestId) != null) return true
+            if (pollRequests.remove(requestId) != null) return true
             return false
         }
     }
@@ -753,6 +755,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             MessageReactionsCache.clear()
             messageReactions = emptyMap()
             roomsWithLoadedReactions.remove(roomId)
+            pollCoordinator.clearRoomPollState(roomId)
 
             // Reset pagination state
             smallestRowId = -1L
@@ -968,6 +971,9 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     }
                     loadReactionsForRoom(roomId, cachedEvents)
                     applyAggregatedReactionsFromEvents(cachedEvents, "cache")
+                    // Polls are rebuilt from the same two sources: start events in the timeline
+                    // and the dedicated response/end bucket in RoomTimelineCache.
+                    pollCoordinator.loadPollsForRoom(roomId, cachedEvents, forceReload = true)
                     updateRoomStateFromTimelineEvents(roomId, cachedEvents)
                     updateMemberProfilesFromTimelineEvents(roomId, cachedEvents)
                     val smallestCached =
@@ -1532,6 +1538,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 MessageReactionsCache.clear()
                 messageReactions = emptyMap()
                 roomsWithLoadedReactions.remove(roomId)
+                pollCoordinator.clearRoomPollState(roomId)
 
                 // Load essential data
                 val missNavigationState = getRoomNavigationState(roomId)
@@ -1714,6 +1721,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // pagination silently no-op (the live sync path caches its own reactions, but the
                 // paginate path did not). Collect them here and merge once after the loop.
                 val paginatedReactionEvents = mutableListOf<TimelineEvent>()
+                // Poll (MSC3381) response/end events get exactly the same treatment as reactions:
+                // filtered out of timelineList, but persisted so the poll's vote counts survive a
+                // room reopen and so a later redaction of a vote can be resolved.
+                val paginatedPollEvents = mutableListOf<TimelineEvent>()
                 val memberMap = RoomMemberCache.getRoomMembers(roomId)
 
                 var ownMessageCount = 0
@@ -1767,6 +1778,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                 // Persist so findEventForReply can resolve a later redaction of
                                 // this reaction (see paginatedReactionEvents declaration above).
                                 paginatedReactionEvents.add(event)
+                                filteredByType++
+                            } else if (isPollSatelliteEvent(event)) {
+                                // Poll responses/ends never render — collect, persist and aggregate.
+                                // (Poll *starts* fall through to timelineList like any other row.)
+                                paginatedPollEvents.add(event)
                                 filteredByType++
                             } else if (event.type == "com.beeper.message_send_status") {
                                 // Bridge delivery confirmation from paginated history
@@ -1831,6 +1847,14 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 // leaving the timeline event list untouched.
                 if (paginatedReactionEvents.isNotEmpty()) {
                     RoomTimelineCache.mergePaginatedEvents(roomId, paginatedReactionEvents)
+                }
+
+                // Same load-bearing re-merge for polls: mergePaginatedEvents routes response/end
+                // events into the dedicated pollEvents bucket, leaving the timeline list untouched.
+                // Skipping this would make paginated votes vanish on the next room open.
+                if (paginatedPollEvents.isNotEmpty()) {
+                    RoomTimelineCache.mergePaginatedEvents(roomId, paginatedPollEvents)
+                    vm.pollCoordinator.processPollEvents(paginatedPollEvents)
                 }
                 if (ownMessageCount > 0) {
                     if (BuildConfig.DEBUG) {
@@ -3571,6 +3595,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             // background rooms
             loadReactionsForRoom(roomId, timelineList, forceReload = true)
             applyAggregatedReactionsFromEvents(timelineList, "handleInitialTimelineBuild")
+            pollCoordinator.loadPollsForRoom(roomId, timelineList, forceReload = true)
 
             // CRITICAL FIX: Only update timeline state if this is the currently open room
             // This prevents race conditions where a background pagination for a previous room

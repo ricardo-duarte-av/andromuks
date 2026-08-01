@@ -41,6 +41,9 @@ import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.SpaceRoomParser
 import net.vrkknn.andromuks.utils.applyIncomingWebSocketMessageForViewModel
 import net.vrkknn.andromuks.utils.extractReactionEventFromTimeline
+import net.vrkknn.andromuks.utils.isPollEventType
+import net.vrkknn.andromuks.utils.isPollStartType
+import net.vrkknn.andromuks.utils.pollEventType
 import net.vrkknn.andromuks.utils.processReactionEvent
 import okhttp3.WebSocket
 import org.json.JSONArray
@@ -900,6 +903,21 @@ class AppViewModel : ViewModel() {
             _messageReactions = value
         }
 
+    // Aggregated poll state (MSC3381): poll start eventId -> PollResults.
+    // Backed by the singleton PollCache and mirrored into Compose state for reactivity, exactly
+    // like messageReactions above. See PollCoordinator and docs/POLLS.md.
+    private var _pollResults by mutableStateOf(mapOf<String, net.vrkknn.andromuks.utils.PollResults>())
+    var pollResults: Map<String, net.vrkknn.andromuks.utils.PollResults>
+        get() = PollCache.getAllPolls().also {
+            if (_pollResults != it) {
+                _pollResults = it
+            }
+        }
+        internal set(value) {
+            PollCache.setAll(value)
+            _pollResults = value
+        }
+
     // Track processed reaction events to prevent duplicate processing
     internal val processedReactions = mutableSetOf<String>()
 
@@ -1182,6 +1200,10 @@ class AppViewModel : ViewModel() {
     var reactionUpdateCounter by mutableIntStateOf(0)
         internal set
 
+    /** Bumped whenever any poll's aggregate changes, so poll bubbles recompose. */
+    var pollUpdateCounter by mutableIntStateOf(0)
+        internal set
+
     // Bumped by [RpcResilienceCoordinator] whenever the backend becomes reachable again (reconnect,
     // command gate opening). Composables that gave up on a lookup key their retry LaunchedEffect on
     // this instead of latching a permanent "failed" flag of their own — see the reply-target
@@ -1423,6 +1445,9 @@ class AppViewModel : ViewModel() {
 
     /** Reaction orchestration — see [ReactionCoordinator]. */
     internal val reactionCoordinator by lazy { ReactionCoordinator(this) }
+
+    /** Poll (MSC3381) aggregation and voting — see [PollCoordinator]. */
+    internal val pollCoordinator by lazy { PollCoordinator(this) }
 
     /** Outgoing messages (text, media, typing, notification FIFO) — see [MessageSendCoordinator]. */
     internal val messageSendCoordinator by lazy { MessageSendCoordinator(this) }
@@ -5768,6 +5793,20 @@ class AppViewModel : ViewModel() {
     internal val readReceiptsIndex = mutableMapOf<String, MutableMap<String, String>>()
     internal val readReceiptsLock = Any() // Synchronization lock for readReceipts / readReceiptsIndex access
     internal val roomsWithLoadedReactions = mutableSetOf<String>() // Track rooms with reactions loaded from cache
+    internal val roomsWithLoadedPolls = mutableSetOf<String>() // Track rooms with polls rebuilt from cache
+
+    // Raw poll response/end events, keyed by poll start eventId. The aggregate in [pollResults] is
+    // always recomputed from these, so out-of-order and superseded votes resolve correctly.
+    internal val pollVoteEvents = ConcurrentHashMap<String, MutableMap<String, net.vrkknn.andromuks.utils.PollVote>>()
+    internal val pollEndEvents = ConcurrentHashMap<String, MutableMap<String, net.vrkknn.andromuks.utils.PollEndInfo>>()
+    internal val pollStartInfos = ConcurrentHashMap<String, net.vrkknn.andromuks.utils.PollStartInfo>()
+
+    // Unconfirmed optimistic votes by the local user, keyed by poll start eventId. Deliberately kept
+    // out of [pollVoteEvents] so they can never win the latest-timestamp race against the server's
+    // own copy of the same vote.
+    internal val pollLocalVotes = ConcurrentHashMap<String, net.vrkknn.andromuks.utils.PollVote>()
+    internal val pollRequests = mutableMapOf<Int, String>() // requestId -> pollStartEventId
+    internal val pollLock = Any() // Guards the poll maps above during recompute
 
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
     // THREAD SAFETY: Protected by readReceiptsLock since it's accessed from background threads
@@ -6405,6 +6444,7 @@ class AppViewModel : ViewModel() {
         roomSpecificStateRequests.keys.filter { it > 0 }.toList().forEach { roomSpecificStateRequests.remove(it) }
         reactionRequests.keys.filter { it > 0 }.toList().forEach { reactionRequests.remove(it) }
         relatedEventsRequests.keys.filter { it > 0 }.toList().forEach { relatedEventsRequests.remove(it) }
+        pollRequests.keys.filter { it > 0 }.toList().forEach { pollRequests.remove(it) }
 
         // A queued notification action (reply / mark-read) must not hang its completion callback.
         markReadRequests.keys.filter { it > 0 }.toList().forEach { id ->
@@ -8374,6 +8414,7 @@ class AppViewModel : ViewModel() {
                 messageRequests.containsKey(requestId) ||
                 reactionRequests.containsKey(requestId) ||
                 relatedEventsRequests.containsKey(requestId) ||
+                pollRequests.containsKey(requestId) ||
                 markReadRequests.containsKey(requestId) ||
                 roomSummaryRequests.containsKey(requestId) ||
                 joinRoomRequests.containsKey(requestId) ||
@@ -8450,6 +8491,8 @@ class AppViewModel : ViewModel() {
             reactionCoordinator.handleReactionResponse(requestId, data)
         } else if (relatedEventsRequests.containsKey(requestId)) {
             reactionCoordinator.handleRelatedEventsResponse(requestId, data)
+        } else if (pollRequests.containsKey(requestId)) {
+            pollCoordinator.handlePollRelatedEventsResponse(requestId, data)
         } else if (markReadRequests.containsKey(requestId)) {
             // Handle mark_read response - data should be a boolean
             val success = data as? Boolean ?: false
@@ -11539,6 +11582,10 @@ class AppViewModel : ViewModel() {
             processVersionedMessages(events)
         }
 
+        // Poll (MSC3381) start ids touched by this batch, recomputed once after the loop so a sync
+        // carrying several votes for the same poll rebuilds its aggregate a single time.
+        val touchedPolls = mutableSetOf<String>()
+
         for (event in events) {
             if (event.type == "m.room.member" && (event.timelineRowid == 0L || event.timelineRowid == -1L)) {
                 // State member event or profile-hint (timeline_rowid=0 or -1 only); update cache only
@@ -11602,6 +11649,12 @@ class AppViewModel : ViewModel() {
                     // Look the redacted event up in the cache and, if it is a reaction, remove it
                     // from messageReactions so it stops rendering on the target message.
                     val cachedRedacted = RoomTimelineCache.findEventForReply(roomId, redactsEventId)
+                    // Poll responses/ends are never in timelineEvents either, for the same reason.
+                    // Drop the redacted vote and rebuild the poll rather than decrementing a count:
+                    // a full recompute is cheap here and is immune to double-apply.
+                    if (cachedRedacted != null) {
+                        pollCoordinator.removeRedactedPollEvent(cachedRedacted)?.let { touchedPolls.add(it) }
+                    }
                     if (cachedRedacted != null && cachedRedacted.type == "m.reaction") {
                         val reactionEvent = extractReactionEventFromTimeline(cachedRedacted)
                         if (reactionEvent != null) {
@@ -11675,6 +11728,22 @@ class AppViewModel : ViewModel() {
                                 processReactionEvent(reactionEvent)
                             }
                         }
+                    }
+                }
+            } else if (isPollEventType(pollEventType(event))) {
+                // Polls (MSC3381). A poll START is an ordinary timeline row and goes into the chain;
+                // RESPONSE and END events are satellites that only mutate the poll bubble's counts,
+                // so they are cached (to survive a room reopen) and folded into the aggregate, but
+                // never added to the chain — the same split reactions use.
+                if (isPollStartType(pollEventType(event))) {
+                    pollCoordinator.ingestPollEvent(event)?.let { touchedPolls.add(it) }
+                    addNewEventToChain(event)
+                } else {
+                    RoomTimelineCache.mergePaginatedEvents(roomId, listOf(event))
+                    if (event.redactedBy != null) {
+                        pollCoordinator.removeRedactedPollEvent(event)?.let { touchedPolls.add(it) }
+                    } else {
+                        pollCoordinator.ingestPollEvent(event)?.let { touchedPolls.add(it) }
                     }
                 }
             } else if (event.type == "m.room.message" || event.type == "m.room.encrypted" ||
@@ -11781,6 +11850,11 @@ class AppViewModel : ViewModel() {
         // Nothing ever read them — not even a log — and R8 cannot strip them because count{}
         // with a lambda is not provably pure. Four full traversals of every sync's event list,
         // on the hot path, for nothing.
+
+        // Rebuild every poll this batch touched — one pass, regardless of how many votes arrived.
+        if (touchedPolls.isNotEmpty()) {
+            pollCoordinator.recomputePolls(touchedPolls)
+        }
 
         // Update room state from new timeline events (name/avatar) if present
         // CRITICAL: Only update room state if this is the currently open room

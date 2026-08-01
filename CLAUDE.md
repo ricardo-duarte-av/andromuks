@@ -183,6 +183,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Settings & preferences (4-scope gomuks prefs, resolution order, reactivity, UI screens) | [docs/SETTINGS_PREFS.md](docs/SETTINGS_PREFS.md) |
 | Emoji picker, search, generated data files, JVM 64 KB chunk pattern | [docs/EMOJI.md](docs/EMOJI.md) |
 | Reactions lifecycle, storage, redaction path, `removeReaction` internals | [docs/REACTIONS.md](docs/REACTIONS.md) |
+| Polls (MSC3381 render + vote, aggregation rules, satellite-event pipeline) | [docs/POLLS.md](docs/POLLS.md) |
 | Element Call (WebView/WebRTC, call state, incoming banners, timeline narrator, widget protocol) | [docs/ELEMENT_CALL.md](docs/ELEMENT_CALL.md) |
 | Androlog (persistent release-safe event log, `Androlog(category, text)`, viewer screen) | [docs/ANDROLOG.md](docs/ANDROLOG.md) |
 | Observability (opt-in Firebase Crashlytics + Performance, `ws_connect` trace, mapping upload, Android vitals) | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |

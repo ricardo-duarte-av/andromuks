@@ -48,6 +48,9 @@ object ReplyResolutionTracker {
         /** RoomTimelineCache reaction bucket. */
         CACHE_REACTION,
 
+        /** RoomTimelineCache poll bucket (poll responses / ends). */
+        CACHE_POLL,
+
         /** Needed a `get_event` round-trip. Expected to be rare; see the class note. */
         FETCHED,
 

@@ -188,6 +188,7 @@ import net.vrkknn.andromuks.utils.MediaUploadUtils
 import net.vrkknn.andromuks.utils.MessageMenuBar
 import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.utils.MessageSoundPlayer
+import net.vrkknn.andromuks.utils.POLL_START_TYPES
 import net.vrkknn.andromuks.utils.PerMessageProfileChip
 import net.vrkknn.andromuks.utils.PerMessageProfileEntry
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
@@ -1748,6 +1749,9 @@ fun RoomTimelineScreen(
             "m.room.tombstone",
             "m.reaction",
             "m.sticker",
+            // Poll (MSC3381) starts render as bubbles. Responses and ends are deliberately
+            // absent — they only mutate the poll bubble's counts and must never be rows.
+            *POLL_START_TYPES.toTypedArray(),
             // m.room.redaction is intentionally excluded - redaction events should not appear in
             // timeline
             // org.matrix.msc3401.call.member is intentionally excluded — it only renders when

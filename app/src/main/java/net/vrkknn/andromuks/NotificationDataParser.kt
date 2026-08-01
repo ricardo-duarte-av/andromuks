@@ -2,6 +2,8 @@ package net.vrkknn.andromuks
 
 import android.util.Log
 import net.vrkknn.andromuks.utils.GALLERY_MSGTYPES
+import net.vrkknn.andromuks.utils.POLL_START_TYPES
+import net.vrkknn.andromuks.utils.pollPreviewLabel
 import org.json.JSONException
 import org.json.JSONObject
 
@@ -139,6 +141,10 @@ class NotificationDataParser {
 
             // MSC4274 gallery: body is the caption, and the FCM payload carries no item count.
             in GALLERY_MSGTYPES -> data.body.takeIf { it.isNotBlank() }?.let { "🖼️ $it" } ?: "🖼️ Gallery"
+
+            // Poll (MSC3381). The push payload carries no poll content, so the fallback body (which
+            // senders set to the question) is the best available text.
+            in POLL_START_TYPES -> pollPreviewLabel(data.body.takeIf { it.isNotBlank() })
 
             else -> data.body
         }

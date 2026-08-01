@@ -126,6 +126,7 @@ import net.vrkknn.andromuks.utils.MediaPreviewDialog
 import net.vrkknn.andromuks.utils.MediaUploadUtils
 import net.vrkknn.andromuks.utils.MessageMenuBar
 import net.vrkknn.andromuks.utils.MessageMenuConfig
+import net.vrkknn.andromuks.utils.POLL_START_TYPES
 import net.vrkknn.andromuks.utils.PerMessageProfileChip
 import net.vrkknn.andromuks.utils.PerMessageProfileEntry
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
@@ -675,6 +676,9 @@ fun ThreadViewerScreen(
             "m.room.pinned_events",
             "m.reaction",
             "m.sticker",
+            // Poll (MSC3381) starts render as bubbles. Responses and ends are deliberately
+            // absent — they only mutate the poll bubble's counts and must never be rows.
+            *POLL_START_TYPES.toTypedArray(),
         )
 
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations

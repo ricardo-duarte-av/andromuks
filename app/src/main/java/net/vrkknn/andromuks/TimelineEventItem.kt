@@ -114,12 +114,16 @@ import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.MessageMenuConfig
+import net.vrkknn.andromuks.utils.POLL_START_TYPES
+import net.vrkknn.andromuks.utils.PollMessageContent
+import net.vrkknn.andromuks.utils.PollVotersDialog
 import net.vrkknn.andromuks.utils.ReactionBadges
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.StickerMessage
 import net.vrkknn.andromuks.utils.SystemEventNarrator
+import net.vrkknn.andromuks.utils.computePollResults
 import net.vrkknn.andromuks.utils.extractSanitizedHtml
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.mediaBubbleColorFor
@@ -127,6 +131,7 @@ import net.vrkknn.andromuks.utils.mediaContentHasEncryptedFile
 import net.vrkknn.andromuks.utils.parseGalleryMessage
 import net.vrkknn.andromuks.utils.parseGeoUri
 import net.vrkknn.andromuks.utils.parseMediaMessage
+import net.vrkknn.andromuks.utils.parsePollStart
 import net.vrkknn.andromuks.utils.stickerBubbleColorFor
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import org.json.JSONObject
@@ -762,6 +767,28 @@ private fun MessageTypeContent(
             // on messages
             // No need to render them as separate timeline items
             return
+        }
+
+        in POLL_START_TYPES -> {
+            RoomPollMessageContent(
+                event = event,
+                actualIsMine = actualIsMine,
+                mentionsMe = mentionsMe,
+                isRedacted = event.redactedBy != null,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                readReceipts = readReceipts,
+                appViewModel = appViewModel,
+                myUserId = myUserId,
+                onReply = onReply,
+                onReact = onReact,
+                onDelete = onDelete,
+                onUserClick = onUserClick,
+                onThreadClick = onThreadClick,
+                onShowMenu = onShowMenu,
+                onShowReactions = onShowReactions,
+            )
         }
 
         else -> {
@@ -1559,6 +1586,204 @@ private fun RoomLocationMessageContent(
     }
 }
 
+/**
+ * Bubble wrapper for a poll (MSC3381) start event.
+ *
+ * Owns the bubble chrome — palette, shape, long-press menu, read receipts, reaction badges — and
+ * delegates the poll itself to [net.vrkknn.andromuks.utils.PollMessageContent]. Modelled on
+ * [RoomLocationMessageContent]; the avatar, sender name and timestamp come from [TimelineEventItem]
+ * itself, so they are deliberately not repeated here.
+ */
+@Composable
+private fun RoomPollMessageContent(
+    event: TimelineEvent,
+    actualIsMine: Boolean,
+    mentionsMe: Boolean,
+    isRedacted: Boolean,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    readReceipts: List<ReadReceipt>,
+    appViewModel: AppViewModel?,
+    myUserId: String?,
+    onReply: (TimelineEvent) -> Unit,
+    onReact: (TimelineEvent) -> Unit,
+    onDelete: (TimelineEvent) -> Unit,
+    onUserClick: (String) -> Unit,
+    onThreadClick: (TimelineEvent) -> Unit,
+    onShowMenu: ((MessageMenuConfig) -> Unit)? = null,
+    onShowReactions: (() -> Unit)? = null,
+) {
+    val isThreadMessage = event.isThreadMessage()
+
+    // Prefer the aggregated results; fall back to the start event alone so a poll that has not been
+    // ingested yet (or one opened from a context/search screen) still renders its question and
+    // options instead of an empty bubble.
+    val pollResults = remember(appViewModel?.pollUpdateCounter, event.eventId) {
+        appViewModel?.pollResults?.get(event.eventId)
+            ?: parsePollStart(event)?.let { start ->
+                computePollResults(
+                    start = start,
+                    votes = emptyList(),
+                    ends = emptyList(),
+                    myUserId = myUserId,
+                )
+            }
+    }
+
+    var votersForAnswerId by remember(event.eventId) { mutableStateOf<String?>(null) }
+
+    val bubbleShape = if (actualIsMine) {
+        RoundedCornerShape(topStart = 12.dp, topEnd = 2.dp, bottomEnd = 12.dp, bottomStart = 12.dp)
+    } else {
+        RoundedCornerShape(topStart = 2.dp, topEnd = 12.dp, bottomEnd = 12.dp, bottomStart = 12.dp)
+    }
+
+    val bubbleColors = if (isRedacted) {
+        BubblePalette.colors(MaterialTheme.colorScheme, isMine = actualIsMine, isRedacted = true)
+    } else {
+        BubblePalette.colors(
+            MaterialTheme.colorScheme,
+            isMine = actualIsMine,
+            mentionsMe = mentionsMe,
+            isThreadMessage = isThreadMessage,
+        )
+    }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start,
+        ) {
+            MessageBubbleWithMenu(
+                event = event,
+                bubbleColor = bubbleColors.container,
+                bubbleShape = bubbleShape,
+                modifier = Modifier.widthIn(max = 300.dp).padding(top = 2.dp),
+                isMine = actualIsMine,
+                myUserId = myUserId,
+                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                onReply = { onReply(event) },
+                onReact = { onReact(event) },
+                onEdit = {},
+                onDelete = { onDelete(event) },
+                appViewModel = appViewModel,
+                onBubbleClick = if (isThreadMessage) {
+                    { onThreadClick(event) }
+                } else {
+                    null
+                },
+                onShowEditHistory = null,
+                onShowMenu = onShowMenu,
+                mentionBorder = bubbleColors.mentionBorder,
+                threadBorder = bubbleColors.threadBorder,
+                onShowReactions = onShowReactions,
+            ) {
+                if (isRedacted) {
+                    val deletionMessage = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(
+                        event.redactionSender,
+                        event.redactionReason,
+                        event.redactionTimestamp,
+                        userProfileCache,
+                    )
+                    Text(
+                        text = deletionMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = bubbleColors.content,
+                        fontStyle = FontStyle.Italic,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
+                } else if (pollResults == null) {
+                    Text(
+                        text = "Unsupported poll",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = bubbleColors.content,
+                        fontStyle = FontStyle.Italic,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
+                } else {
+                    PollMessageContent(
+                        results = pollResults,
+                        contentColor = bubbleColors.content,
+                        modifier = Modifier.fillMaxWidth(),
+                        onToggleAnswer = if (appViewModel != null) {
+                            { answerId ->
+                                appViewModel.pollCoordinator.toggleAnswer(
+                                    event.roomId,
+                                    event.eventId,
+                                    answerId,
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                        onShowVoters = { answerId -> votersForAnswerId = answerId },
+                    )
+                }
+            }
+        }
+
+        if (readReceipts.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+                horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start,
+            ) {
+                net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars(
+                    receipts = readReceipts,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    appViewModel = appViewModel,
+                    messageSender = event.sender,
+                    eventId = event.eventId,
+                    isMine = actualIsMine,
+                )
+            }
+        }
+
+        if (appViewModel != null) {
+            val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
+                appViewModel.messageReactions[event.eventId] ?: emptyList()
+            }
+            if (reactions.isNotEmpty()) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 2.dp),
+                    horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start,
+                ) {
+                    ReactionBadges(
+                        eventId = event.eventId,
+                        reactions = reactions,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        isMine = actualIsMine,
+                        onReactionClick = { emoji ->
+                            appViewModel.sendReaction(event.roomId, event.eventId, emoji)
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    val showVotersFor = votersForAnswerId
+    if (showVotersFor != null && pollResults != null) {
+        PollVotersDialog(
+            results = pollResults,
+            answerId = showVotersFor,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            onDismiss = { votersForAnswerId = null },
+            onUserClick = onUserClick,
+            appViewModel = appViewModel,
+            roomId = event.roomId,
+        )
+    }
+}
+
 @Composable
 private fun RoomMediaMessageContent(
     event: TimelineEvent,
@@ -2349,6 +2574,7 @@ private fun rememberReplyTargetEvent(
             RoomTimelineCache.ReplySource.TIMELINE -> ReplyResolutionTracker.Tier.CACHE_TIMELINE
             RoomTimelineCache.ReplySource.REPLY_CONTEXT -> ReplyResolutionTracker.Tier.CACHE_REPLY_CONTEXT
             RoomTimelineCache.ReplySource.REACTION -> ReplyResolutionTracker.Tier.CACHE_REACTION
+            RoomTimelineCache.ReplySource.POLL -> ReplyResolutionTracker.Tier.CACHE_POLL
         }
 
         fetchedEvent != null -> ReplyResolutionTracker.Tier.FETCHED
@@ -3756,6 +3982,9 @@ fun TimelineEventItem(
                 "m.sticker",
                 "m.reaction",
                 "m.room.redaction",
+                // Polls (MSC3381) render as real bubbles, which is what earns them the avatar,
+                // sender name, timestamp, read receipts and long-press menu below.
+                *POLL_START_TYPES.toTypedArray(),
             )
 
     // Check if this message is being edited by another event (moved to function start)

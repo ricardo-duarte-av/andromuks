@@ -100,11 +100,24 @@ object SpaceRoomParser {
                     // Server didn't provide decrypted content. Return a generic label so the
                     // preview updates (rather than preserving stale text from a previous message).
                     // Skip reaction/redaction events — they must not replace the message preview.
-                    return when (decryptedType) {
-                        "m.reaction", "m.room.redaction" -> null
-                        "m.sticker" -> Triple(previewFromMsgtype("m.sticker", null) ?: "Sticker", sender, eventId)
+                    return when {
+                        decryptedType == "m.reaction" || decryptedType == "m.room.redaction" -> null
+
+                        // Poll responses/ends must not replace the preview either — they are
+                        // satellites of the poll bubble, not messages in their own right.
+                        isPollResponseType(decryptedType) || isPollEndType(decryptedType) -> null
+
+                        isPollStartType(decryptedType) -> Triple(pollPreviewLabel(null), sender, eventId)
+
+                        decryptedType == "m.sticker" ->
+                            Triple(previewFromMsgtype("m.sticker", null) ?: "Sticker", sender, eventId)
+
                         else -> Triple("Encrypted message", sender, eventId)
                     }
+                }
+                if (isPollResponseType(decryptedType) || isPollEndType(decryptedType)) return null
+                if (isPollStartType(decryptedType)) {
+                    return Triple(pollPreviewLabel(pollQuestionFromContent(decrypted)), sender, eventId)
                 }
                 if (decryptedType == "m.room.message" || decryptedType == "m.text") {
                     val relatesTo = decrypted.optJSONObject("m.relates_to")
@@ -137,6 +150,14 @@ object SpaceRoomParser {
                 val label = previewFromMsgtype("m.sticker", content.optString("body")) ?: return null
                 return Triple(label, sender, eventId)
             }
+
+            in POLL_START_TYPES -> {
+                val content = event.optJSONObject("content")
+                return Triple(pollPreviewLabel(pollQuestionFromContent(content)), sender, eventId)
+            }
+
+            // Votes and poll closures never become the room's preview text.
+            in POLL_RESPONSE_TYPES, in POLL_END_TYPES -> return null
         }
         return null
     }

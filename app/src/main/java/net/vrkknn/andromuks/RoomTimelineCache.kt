@@ -6,6 +6,8 @@ import android.widget.Toast
 import androidx.compose.runtime.IntState
 import androidx.compose.runtime.mutableIntStateOf
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.isPollSatelliteEvent
+import net.vrkknn.andromuks.utils.pollRelatesToEventId
 import org.json.JSONArray
 
 /**
@@ -97,6 +99,10 @@ object RoomTimelineCache {
         val redactionEvents: MutableList<TimelineEvent> = mutableListOf(),
         // Store reaction events separately (they're filtered from main events list but needed to restore reactions)
         val reactionEvents: MutableList<TimelineEvent> = mutableListOf(),
+        // Store poll response/end events separately, for the same reason as reactions: they never
+        // render as timeline rows, but the poll bubble's vote counts are recomputed from them every
+        // time the room is opened. Poll *start* events are real timeline rows and live in [events].
+        val pollEvents: MutableList<TimelineEvent> = mutableListOf(),
         // Store reply-context events (from related_events in paginate/sync) — used for reply
         // preview rendering only, never returned as timeline items.
         val replyContextEvents: MutableList<TimelineEvent> = mutableListOf(),
@@ -173,6 +179,7 @@ object RoomTimelineCache {
                 // 5. Message versions (by eventIds)
                 if (eventIds.isNotEmpty()) {
                     MessageVersionsCache.clearForEventIds(eventIds)
+                    PollCache.clearForEventIds(eventIds)
                 }
 
                 if (BuildConfig.DEBUG) {
@@ -204,7 +211,8 @@ object RoomTimelineCache {
     private fun estimateCacheMemoryUsageMB(): Long {
         synchronized(cacheLock) {
             val totalEvents = roomEventsCache.values.sumOf {
-                it.events.size + it.redactionEvents.size + it.reactionEvents.size + it.replyContextEvents.size
+                it.events.size + it.redactionEvents.size + it.reactionEvents.size + it.pollEvents.size +
+                    it.replyContextEvents.size
             }
             val estimatedBytes = totalEvents.toLong() * ESTIMATED_BYTES_PER_EVENT
             return estimatedBytes / (1024 * 1024) // Convert to MB (result is Long)
@@ -424,6 +432,31 @@ object RoomTimelineCache {
                         Log.d(
                             TAG,
                             "RoomTimelineCache: Updated reaction event ${event.eventId} in cache (redactedBy=${event.redactedBy})",
+                        )
+                    }
+                }
+            } else if (isPollSatelliteEvent(event)) {
+                // Poll responses/ends never render as timeline rows — the poll bubble's counts are
+                // recomputed from them. Same upsert-by-event-id treatment as reactions above, so a
+                // re-sent event carrying redacted_by replaces the copy we already hold.
+                val existingPollIndex = cache.pollEvents.indexOfFirst { it.eventId == event.eventId }
+                if (existingPollIndex < 0) {
+                    cache.pollEvents.add(event)
+                    addedCount++
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            TAG,
+                            "RoomTimelineCache: Cached poll event ${event.eventId} " +
+                                "relatesTo=${pollRelatesToEventId(event)} " +
+                                "(room=$roomId, totalPollEvents=${cache.pollEvents.size})",
+                        )
+                    }
+                } else {
+                    cache.pollEvents[existingPollIndex] = event
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            TAG,
+                            "RoomTimelineCache: Updated poll event ${event.eventId} in cache (redactedBy=${event.redactedBy})",
                         )
                     }
                 }
@@ -705,6 +738,7 @@ object RoomTimelineCache {
             ReadReceiptCache.clearForEventIds(roomId, removedEventIds)
             MessageReactionsCache.clearForEventIds(removedEventIds)
             MessageVersionsCache.clearForEventIds(removedEventIds)
+            PollCache.clearForEventIds(removedEventIds)
         }
 
         // Clean up processed state for removed events
@@ -1301,6 +1335,7 @@ object RoomTimelineCache {
             cache.eventIds.clear()
             cache.redactionEvents.clear()
             cache.reactionEvents.clear()
+            cache.pollEvents.clear()
             cache.replyContextEvents.clear()
             cache.replyContextEventIds.clear()
             synchronized(cacheStateLock) {
@@ -1389,6 +1424,19 @@ object RoomTimelineCache {
     }
 
     /**
+     * Get all cached poll response/end events for a room.
+     *
+     * Used to recompute poll vote counts when reopening a room. Poll *start* events are ordinary
+     * timeline events and come back from [getCachedEventsForTimeline] instead.
+     */
+    fun getCachedPollEvents(roomId: String): List<TimelineEvent> {
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return emptyList()
+            return cache.pollEvents.toList()
+        }
+    }
+
+    /**
      * Store events that were delivered as reply context (related_events) — for reply preview
      * rendering only.  These are never included in getCachedEventsForTimeline(), so they
      * will not appear as standalone timeline items.
@@ -1458,6 +1506,9 @@ object RoomTimelineCache {
 
         /** The reaction bucket (a reply pointing at a reaction event). */
         REACTION,
+
+        /** The poll bucket (a redaction pointing at a poll response/end event). */
+        POLL,
     }
 
     /**
@@ -1472,6 +1523,7 @@ object RoomTimelineCache {
             cache.events.find { it.eventId == eventId }?.let { return it to ReplySource.TIMELINE }
             cache.replyContextEvents.find { it.eventId == eventId }?.let { return it to ReplySource.REPLY_CONTEXT }
             cache.reactionEvents.find { it.eventId == eventId }?.let { return it to ReplySource.REACTION }
+            cache.pollEvents.find { it.eventId == eventId }?.let { return it to ReplySource.POLL }
             return null
         }
     }
@@ -1515,6 +1567,7 @@ object RoomTimelineCache {
             // 5. Message versions (by eventIds)
             if (eventIds.isNotEmpty()) {
                 MessageVersionsCache.clearForEventIds(eventIds)
+                PollCache.clearForEventIds(eventIds)
             }
 
             if (BuildConfig.DEBUG) {
@@ -1541,6 +1594,7 @@ object RoomTimelineCache {
             ReadReceiptCache.clear()
             MessageReactionsCache.clear()
             MessageVersionsCache.clear()
+            PollCache.clear()
 
             if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches (also cleared all profiles, members, receipts, reactions, versions)")
         }
@@ -1578,6 +1632,7 @@ object RoomTimelineCache {
                     if (allEventIds.isNotEmpty()) {
                         MessageReactionsCache.clearForEventIds(allEventIds)
                         MessageVersionsCache.clearForEventIds(allEventIds)
+                        PollCache.clearForEventIds(allEventIds)
                     }
 
                     if (BuildConfig.DEBUG) {
@@ -1618,6 +1673,7 @@ object RoomTimelineCache {
                     if (eventIdsToClear.isNotEmpty()) {
                         MessageReactionsCache.clearForEventIds(eventIdsToClear)
                         MessageVersionsCache.clearForEventIds(eventIdsToClear)
+                        PollCache.clearForEventIds(eventIdsToClear)
                     }
 
                     // Preserve opened rooms:
@@ -1844,6 +1900,7 @@ object RoomTimelineCache {
                     if (allEventIds.isNotEmpty()) {
                         MessageReactionsCache.clearForEventIds(allEventIds)
                         MessageVersionsCache.clearForEventIds(allEventIds)
+                        PollCache.clearForEventIds(allEventIds)
                     }
 
                     if (BuildConfig.DEBUG) {
@@ -1875,6 +1932,7 @@ object RoomTimelineCache {
                     if (eventIdsToClear.isNotEmpty()) {
                         MessageReactionsCache.clearForEventIds(eventIdsToClear)
                         MessageVersionsCache.clearForEventIds(eventIdsToClear)
+                        PollCache.clearForEventIds(eventIdsToClear)
                     }
 
                     if (BuildConfig.DEBUG) {
