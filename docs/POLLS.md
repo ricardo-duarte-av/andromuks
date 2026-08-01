@@ -197,8 +197,10 @@ gomuks roots the resulting `poll.start` in the thread:
 `is_falling_back: true` sits *alongside* `m.in_reply_to` on purpose: per the threads spec that pairing
 means "this in_reply_to is a fallback for non-threaded clients, not a real reply", which is what a
 poll posted into a thread is. Note the app's shared `MessageSendCoordinator.buildMediaRelatesTo`
-instead sets `is_falling_back` only when there is *no* reply target — a discrepancy worth a separate
-look; `PollCoordinator.pollThreadRelatesTo` deliberately does not inherit it.
+instead derives `is_falling_back` from the *resolved* reply target, so threaded media claims to be a
+real reply — tracked in [issue #28](https://github.com/ricardo-duarte-av/andromuks/issues/28).
+`PollCoordinator.pollThreadRelatesTo` deliberately does not inherit that; if #28 is fixed the two
+should collapse into one shared helper.
 
 **Votes need no thread relation at all** — a vote inside a thread carries only the `m.reference` to
 the poll start, exactly like one in the main timeline, so `sendPollResponse` is unchanged.
