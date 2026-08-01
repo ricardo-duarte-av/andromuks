@@ -85,6 +85,8 @@ import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.SingleEventRendererDialog
+import net.vrkknn.andromuks.utils.isPollStartType
+import net.vrkknn.andromuks.utils.pollEventType
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 
 val LocalActiveMessageMenuEventId = compositionLocalOf<String?> { null }
@@ -1076,6 +1078,20 @@ fun MessageBubbleWithMenu(
         null
     }
 
+    // "End poll" — only on an open poll we're actually allowed to close. canEndPoll mirrors the
+    // receive-side authorisation check, so we never offer an action that every client (ours
+    // included) would then ignore. Keyed on pollUpdateCounter so the entry disappears the moment
+    // someone else's end event lands.
+    val onEndPoll: (() -> Unit)? = remember(event.eventId, appViewModel?.pollUpdateCounter) {
+        if (appViewModel != null && isPollStartType(pollEventType(event)) &&
+            appViewModel.pollCoordinator.canEndPoll(event.eventId)
+        ) {
+            { appViewModel.pollCoordinator.sendPollEnd(roomId, event.eventId) }
+        } else {
+            null
+        }
+    }
+
     // Watch external trigger and show menu when it changes
     LaunchedEffect(externalMenuTrigger) {
         if (externalMenuTrigger > 0) {
@@ -1106,6 +1122,7 @@ fun MessageBubbleWithMenu(
                 appViewModel = appViewModel,
                 onShowReactions = onShowReactions,
                 onRequestKeys = onRequestKeys,
+                onEndPoll = onEndPoll,
             )
             onShowMenu?.invoke(menuConfig)
         }

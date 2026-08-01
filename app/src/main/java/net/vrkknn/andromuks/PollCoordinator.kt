@@ -3,12 +3,16 @@ package net.vrkknn.andromuks
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.utils.POLL_END_STABLE
+import net.vrkknn.andromuks.utils.POLL_END_UNSTABLE
 import net.vrkknn.andromuks.utils.POLL_RESPONSE_STABLE
 import net.vrkknn.andromuks.utils.POLL_RESPONSE_UNSTABLE
+import net.vrkknn.andromuks.utils.PollEndInfo
 import net.vrkknn.andromuks.utils.PollResults
 import net.vrkknn.andromuks.utils.PollStartInfo
 import net.vrkknn.andromuks.utils.PollVote
 import net.vrkknn.andromuks.utils.computePollResults
+import net.vrkknn.andromuks.utils.isAuthorizedPollEnd
 import net.vrkknn.andromuks.utils.isPollStartType
 import net.vrkknn.andromuks.utils.parsePollEnd
 import net.vrkknn.andromuks.utils.parsePollResponse
@@ -29,6 +33,41 @@ import org.json.JSONObject
  * superseded votes correct by construction rather than by careful bookkeeping. See docs/POLLS.md.
  */
 internal class PollCoordinator(private val vm: AppViewModel) {
+
+    companion object {
+        /** MSC4391 command envelope key, unstable prefix — what gomuks and webmuks exchange today. */
+        const val MSC4391_COMMAND_KEY = "org.matrix.msc4391.command"
+
+        /**
+         * gomuks' internal local-bot address. Deliberately not a full MXID (no domain part) — this
+         * is the literal value webmuks sends, and gomuks matches on it.
+         */
+        const val GOMUKS_BOT_USER_ID = "@gomuks"
+
+        /** A one-option "poll" offers no choice, so the composer requires at least two. */
+        const val MIN_POLL_OPTIONS = 2
+    }
+
+    /**
+     * Human-readable `/poll` fallback for the command envelope's `body`.
+     *
+     * MSC4391 treats the body as non-authoritative (the JSON arguments win, and the body may be
+     * omitted entirely), but we generate a faithful one anyway: every option is quoted, so unlike
+     * webmuks' own example — where unquoted `Fourth Option` reads back as two separate options — this
+     * round-trips through a shell-style parser without changing meaning.
+     */
+    private fun pollCommandFallbackBody(question: String, options: List<String>, maxSelections: Int): String = buildString {
+        append("/poll ")
+        append(quoteCommandArg(question))
+        append(' ')
+        append(maxSelections)
+        options.forEach {
+            append(' ')
+            append(quoteCommandArg(it))
+        }
+    }
+
+    private fun quoteCommandArg(value: String): String = "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
     /**
      * Routes any poll event into the raw stores. Returns true if it changed anything.
@@ -279,6 +318,151 @@ internal class PollCoordinator(private val vm: AppViewModel) {
                 "PollCoordinator: related_events for poll $pollStartEventId - consumed $consumed of ${events.size}",
             )
         }
+    }
+
+    /**
+     * Creates a poll by asking the gomuks bot to build it, via an MSC4391 command envelope.
+     *
+     * We deliberately do NOT construct the `poll.start` event ourselves. gomuks exposes a `poll`
+     * command (`pkg/hicli/cmdspec/commands.go`) and builds the event server-side, which is what
+     * webmuks does; following it keeps us interoperable and means this rides the ordinary
+     * `send_message` path — including its local echo — instead of the echo-less `send_event`.
+     *
+     * Two consequences of gomuks' implementation are baked in here:
+     *
+     *  - **`max_selections` is always sent explicitly, and always in range.** `handleCmdPoll` clamps
+     *    with `if maxSelections <= 0 || maxSelections > len(options) { maxSelections = len(options) }`,
+     *    and since Go unmarshals a missing field to 0, *omitting* it yields a poll where every option
+     *    is selectable — not the `DefaultValue: 1` the command schema advertises.
+     *  - **No `kind` argument exists.** gomuks hardcodes `org.matrix.msc3381.disclosed`, so undisclosed
+     *    polls cannot be created through this route at all.
+     */
+    fun sendPollCreate(roomId: String, question: String, options: List<String>, maxSelections: Int) {
+        val cleanQuestion = question.trim()
+        val cleanOptions = options.map { it.trim() }.filter { it.isNotEmpty() }
+        if (cleanQuestion.isEmpty() || cleanOptions.size < MIN_POLL_OPTIONS) {
+            android.util.Log.w(
+                "Andromuks",
+                "PollCoordinator: refusing to create poll - question blank or fewer than $MIN_POLL_OPTIONS options",
+            )
+            return
+        }
+        val effectiveMaxSelections = maxSelections.coerceIn(1, cleanOptions.size)
+
+        val commandArguments = mapOf(
+            "question" to cleanQuestion,
+            "max_selections" to effectiveMaxSelections,
+            "options" to cleanOptions,
+        )
+        val baseContent = mapOf(
+            "msgtype" to "m.text",
+            "body" to pollCommandFallbackBody(cleanQuestion, cleanOptions, effectiveMaxSelections),
+            MSC4391_COMMAND_KEY to mapOf(
+                "command" to "poll",
+                "arguments" to commandArguments,
+            ),
+        )
+
+        val requestId = vm.getAndIncrementRequestId()
+        vm.trackOutgoingRequest(requestId, roomId)
+        vm.messageRequests[requestId] = roomId
+
+        val result = vm.sendWebSocketCommand(
+            "send_message",
+            requestId,
+            mapOf(
+                "room_id" to roomId,
+                "base_content" to baseContent,
+                "text" to "",
+                // MSC4391: mention the bot so the command cannot be picked up by the wrong one.
+                // "@gomuks" has no domain part — that is gomuks' internal local-bot address, not a
+                // malformed MXID. Sent verbatim, matching webmuks.
+                "mentions" to mapOf("user_ids" to listOf(GOMUKS_BOT_USER_ID), "room" to false),
+                "url_previews" to emptyList<Any>(),
+            ),
+        )
+
+        if (result == WebSocketResult.SUCCESS) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "PollCoordinator: sent poll command for $roomId - ${cleanOptions.size} options, " +
+                        "max_selections=$effectiveMaxSelections",
+                )
+            }
+        } else {
+            vm.messageRequests.remove(requestId)
+            android.util.Log.w("Andromuks", "PollCoordinator: failed to send poll command (result=$result)")
+        }
+    }
+
+    /**
+     * Closes a poll, freezing its results.
+     *
+     * Built and sent directly rather than through a command envelope, because gomuks has no
+     * poll-end command — mautrix-go does not even define a poll-end content type (`event/content.go`
+     * registers only `EventUnstablePollStart` and `EventUnstablePollResponse`). Other clients
+     * (Element) do honour `poll.end`, and so do we, so sending it ourselves is interoperable.
+     *
+     * The end is only honoured by receivers if the sender is the poll's creator or has the room's
+     * redact power level — see [net.vrkknn.andromuks.utils.isAuthorizedPollEnd] — so callers should
+     * only offer this where [canEndPoll] is true.
+     */
+    fun sendPollEnd(roomId: String, pollStartEventId: String) {
+        val start = vm.pollStartInfos[pollStartEventId]
+        if (start == null) {
+            android.util.Log.w("Andromuks", "PollCoordinator: cannot end unknown poll $pollStartEventId")
+            return
+        }
+        if (vm.pollResults[pollStartEventId]?.isEnded == true) return
+        if (WebSocketService.getWebSocket() == null) return
+
+        // Echo the poll's own prefix flavour, as the response path does.
+        val endType = if (start.isStablePrefix) POLL_END_STABLE else POLL_END_UNSTABLE
+
+        val requestId = vm.getAndIncrementRequestId()
+        val result = vm.sendWebSocketCommand(
+            "send_event",
+            requestId,
+            mapOf(
+                "room_id" to roomId,
+                "type" to endType,
+                "content" to mapOf(
+                    "m.relates_to" to mapOf(
+                        "rel_type" to "m.reference",
+                        "event_id" to pollStartEventId,
+                    ),
+                    endType to emptyMap<String, Any>(),
+                ),
+                "disable_encryption" to false,
+                "synchronous" to false,
+            ),
+        )
+
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.w(
+                "Andromuks",
+                "PollCoordinator: failed to end poll $pollStartEventId (result=$result)",
+            )
+        } else if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "PollCoordinator: sent $endType for poll $pollStartEventId")
+        }
+    }
+
+    /**
+     * Whether the local user may close [pollStartEventId] — i.e. whether an end event from us would
+     * actually be honoured. Mirrors the receive-side authorisation check so the UI never offers an
+     * action that every client (including ours) would then ignore.
+     */
+    fun canEndPoll(pollStartEventId: String): Boolean {
+        val results = vm.pollResults[pollStartEventId] ?: return false
+        if (results.isEnded) return false
+        val myUserId = vm.currentUserId.takeIf { it.isNotBlank() } ?: return false
+        return isAuthorizedPollEnd(
+            PollEndInfo(eventId = "", sender = myUserId, timestamp = 0L),
+            results.start,
+            vm.currentRoomState?.powerLevels,
+        )
     }
 
     /**

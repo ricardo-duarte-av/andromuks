@@ -1843,6 +1843,16 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                             modifier = modifier,
                         )
                     }
+                    composable("poll_maker/{roomId}") { backStackEntry ->
+                        val pollRoomId = backStackEntry.arguments?.getString("roomId").orEmpty()
+                        // No `modifier` here: the enclosing Box already applies it, and reusing it
+                        // in a child trips detekt's ModifierReused rule.
+                        PollMakerScreen(
+                            roomId = pollRoomId,
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
                     composable(
                         "auth_check",
                         // Instant exit — AuthCheck is now a logic-only blank screen so there's no

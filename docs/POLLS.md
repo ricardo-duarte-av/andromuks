@@ -1,7 +1,6 @@
 # Polls (MSC3381)
 
-Andromuks renders polls as message bubbles and lets the user vote. **Creating** a poll is not
-supported — there is no compose-side entry point.
+Andromuks renders polls as message bubbles, lets the user vote, and can create and close polls.
 
 ## Wire format
 
@@ -133,6 +132,69 @@ a batch contains an edit, a reaction or a redaction. Poll responses are delibera
 they never enter `cache.events` or `eventChainMap`, so the processed timeline state stays valid.
 Broadening that predicate to `m.reference` would also match every Beeper
 `com.beeper.message_send_status` event and thrash the processed-state cache for no benefit.
+
+## Creating a poll — via gomuks, not by hand
+
+Typing a bare `/poll` opens the full-screen `PollMakerScreen` (nav route `poll_maker/{roomId}`,
+registered in `MainActivity`). Detection mirrors `/pmp`: `isBarePollCommand(draft)` sets a flag in
+`onValueChange`, and a `LaunchedEffect` clears the draft and navigates — deferred so we never
+navigate from inside the text field's edit commit.
+
+**We do not build the `poll.start` event.** `PollCoordinator.sendPollCreate` sends an ordinary
+`send_message` whose `base_content` carries an MSC4391 command envelope, and gomuks builds the event
+server-side (`pkg/hicli/commands.go` → `handleCmdPoll`). This is what webmuks does, so following it
+keeps us interoperable — and because it is a `send_message`, poll creation rides the existing local
+echo instead of the echo-less `send_event`.
+
+```jsonc
+"base_content": {
+  "msgtype": "m.text",
+  "body": "/poll \"Lunch?\" 1 \"Pizza\" \"Sushi\"",
+  "org.matrix.msc4391.command": {
+    "command": "poll",
+    "arguments": { "question": "Lunch?", "max_selections": 1, "options": ["Pizza", "Sushi"] }
+  }
+},
+"mentions": { "user_ids": ["@gomuks"], "room": false }
+```
+
+Three things about that envelope:
+
+- **`@gomuks` has no domain part.** That is gomuks' internal local-bot address, not a malformed
+  MXID. Sent verbatim, matching webmuks. MSC4391 wants the bot mentioned so commands can't be picked
+  up by the wrong one.
+- **`max_selections` is always sent, and always in range.** `handleCmdPoll` clamps with
+  `if maxSelections <= 0 || maxSelections > len(options) { maxSelections = len(options) }`, and Go
+  unmarshals a *missing* field to `0` — so omitting it produces a poll where every option is
+  selectable, **not** the `DefaultValue: 1` the command schema advertises. That default lives only in
+  `cmdspec/commands.go`; the handler never reads it.
+- **The `body` fallback quotes every option.** MSC4391 treats it as non-authoritative and optional,
+  but webmuks' own example is lossy (unquoted `Fourth Option` reads back as two options), so we quote
+  each argument instead of reproducing that.
+
+We require ≥2 options client-side even though gomuks accepts 1 — a poll with one option offers no
+choice. `max_selections` is a mode toggle in the UI ("Single answer" / "Multiple answers" with a
+count), never a raw number field.
+
+### Why there is no disclosed/undisclosed control
+
+gomuks hardcodes `Kind: "org.matrix.msc3381.disclosed"` in `handleCmdPoll`, and `pollParams` has no
+`kind` field. There is no argument to pass. We *render* undisclosed polls correctly, but cannot
+create one without abandoning the command envelope for a hand-built `send_event` — and with it the
+local echo. Not worth it for a kind gomuks' own clients can't produce.
+
+## Ending a poll
+
+`PollCoordinator.sendPollEnd` builds `poll.end` and sends it via `send_event`. Unlike creation there
+is no alternative: gomuks has **no** poll-end command, and mautrix-go does not even define a poll-end
+content type (`event/content.go` registers only `EventUnstablePollStart` and
+`EventUnstablePollResponse`). Element does honour `poll.end` on receive, and so do we, so sending it
+ourselves is interoperable.
+
+The "End poll" entry appears in the message long-press menu only when `canEndPoll` is true — which
+mirrors the receive-side `isAuthorizedPollEnd` check, so the UI never offers an action that every
+client (ours included) would then ignore. It is keyed on `pollUpdateCounter`, so it disappears the
+moment someone else's end event lands.
 
 ## Voting
 

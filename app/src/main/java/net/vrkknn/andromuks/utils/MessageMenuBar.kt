@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.TagFaces
 import androidx.compose.material.icons.filled.TextFields
@@ -100,6 +101,9 @@ data class MessageMenuConfig(
     // Re-request Megolm keys for an event that failed to decrypt. Only set for undecrypted
     // m.room.encrypted events; null hides the "Request Keys" dropdown item.
     val onRequestKeys: (() -> Unit)? = null,
+    // Close a poll this user is allowed to end (creator, or redact power level). Null hides the
+    // "End poll" dropdown item — which is every event that isn't an open poll of ours.
+    val onEndPoll: (() -> Unit)? = null,
 )
 
 /**
@@ -363,6 +367,19 @@ fun MessageMenuBar(menuConfig: MessageMenuConfig?, onDismiss: () -> Unit, button
                                     },
                                     enabled = if (menuConfig.isPinned) menuConfig.canUnpin else menuConfig.canPin,
                                 )
+                                if (menuConfig.onEndPoll != null) {
+                                    DropdownMenuItem(
+                                        text = { Text("End poll") },
+                                        onClick = {
+                                            moreExpanded = false
+                                            onDismiss()
+                                            menuConfig.onEndPoll.invoke()
+                                        },
+                                        leadingIcon = {
+                                            Icon(Icons.Filled.Lock, contentDescription = null)
+                                        },
+                                    )
+                                }
                                 DropdownMenuItem(
                                     text = { Text("Original") },
                                     onClick = {

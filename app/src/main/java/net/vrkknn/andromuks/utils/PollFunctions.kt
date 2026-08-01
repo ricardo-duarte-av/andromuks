@@ -57,6 +57,13 @@ fun isPollEventType(type: String?): Boolean = isPollStartType(type) || isPollRes
 fun isPollSatelliteEvent(event: TimelineEvent): Boolean = pollEventType(event)
     ?.let { isPollResponseType(it) || isPollEndType(it) } == true
 
+/**
+ * True when [draft] is a bare `/poll` command with nothing after it — the composer opens the
+ * full-screen poll maker on this and clears the draft, mirroring how `/pmp` opens the profile
+ * picker (see [isBarePerMessageProfileCommand]).
+ */
+fun isBarePollCommand(draft: String): Boolean = draft.trim().equals("/poll", ignoreCase = true)
+
 /** One selectable answer in a poll. */
 data class PollAnswer(val id: String, val text: String)
 

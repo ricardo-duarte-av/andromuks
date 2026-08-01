@@ -51,6 +51,10 @@ object Commands {
             description = "Leave the current room",
         ),
         CommandDefinition(
+            command = "/poll",
+            description = "Create a poll",
+        ),
+        CommandDefinition(
             command = "/invite",
             description = "Invite a user to the current room",
             parameters = listOf("user_id", "reason?"),
