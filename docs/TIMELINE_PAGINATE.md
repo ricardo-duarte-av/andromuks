@@ -55,6 +55,54 @@ Two companion guards keep this flash-free:
 - `navigateToRoomWithCache` only does `timelineEvents = emptyList()` when `getCachedEventCount(roomId) == 0`. Clearing with a cache present would produce a one-frame "empty room" flash before the async rebuild swaps the events back.
 - `RoomTimelineScreen`'s loader gate is `!readinessCheckComplete || (timelineItems.isEmpty() && (isLoading || !hasInitialSnapCompleted))` — a bare `isTimelineLoading=true` (briefly true during the async rebuild) must never paint the spinner over an already-populated list. Room *switches* clear `timelineEvents` synchronously, so `timelineItems.isEmpty()` still gates the loader correctly on a true room change.
 
+## The Anchored Freshness Probe Must Always Terminate
+
+There are **two** freshness probes, and they are not interchangeable:
+
+| Probe | Fired by | Transport / tracking | Response handler |
+|---|---|---|---|
+| Rowid probe (`limit=1`) | `requestRoomTimeline` cache-hit / LRU-restore | WS, `freshnessCheckRequests` | `handleFreshnessCheckResponse` |
+| **Anchored** probe (`limit=FRESHNESS_PROBE_LIMIT`) | `navigateToRoomWithCache`, `mightBeStale` branch | **`/exec`**, `paginateRequests` + `freshnessProbeAnchors` | `handlePaginationMerge` fast path |
+
+The anchored probe is the one that runs after an intentional WS drop, and the open path commits to it
+before it is sent: `timelineEvents` is emptied and `isTimelineLoading` left true, on the promise that a
+probe *response* will build the verified timeline. So every way the probe can end must reach that
+promise. Three did not, and all three ended in a room stuck on a spinner until it was re-entered:
+
+1. **`/exec` pre-flight failure.** `ExecCommandCoordinator.execute` returned early — logging only — when
+   the app context or credentials were missing, *before* calling `register`. Nothing was in flight and
+   nothing knew. It now allocates and registers first, so a pre-flight failure takes the same
+   `handleError` path as a network one.
+2. **Error frames.** The anchored probe lands in `paginateRequests`, whose error branch only cleared
+   `isPaginating` — not the anchor, the pending epoch, or the loading flag (contrast the
+   `freshnessCheckRequests` branch right below it, which does all three).
+3. **Empty responses.** `processEventsArray`'s zero-displayable-events early return never reaches
+   `handlePaginationMerge`, so the anchor and epoch entries leaked.
+
+All three now funnel into `recoverFromFailedFreshnessProbe`, which releases the bookkeeping, renders the
+cached window if there is one (an unverified tail beats an indefinite spinner) or clears
+`isTimelineLoading` if the reseed already purged it, and **leaves `mightBeStale` set** — we learned
+nothing about this cache, so the next open must probe again.
+
+**Consuming the pending epoch is gated on `requestId < 0`** (or on the request actually holding an
+anchor). The escalated reseed carries no anchor and is identifiable only by transport: `/exec` ids are
+negative, user pull-to-paginate ids are positive. Without that gate a failed backward-scroll paginate
+consumes the epoch of a probe that is still alive, and that probe's terminal merge then never clears
+`mightBeStale`.
+
+### Duplicate Anchored Probes Corrupt the Cache
+
+A single room open invokes the open path **twice** — the `RoomListScreen` tap and `RoomTimelineScreen`'s
+mount effect, whose `isAlreadyLoaded` guard is defeated by the `forceFreshPaginateAfterWsDown` that a
+batterySaver resume always sets. `sendFreshnessProbe` has dedupped on `freshnessCheckRequests` for
+exactly this reason since it was written; the anchored branch called `paginateViaExec` directly and had
+no guard.
+
+Two probes produce two GAP verdicts, and the loser's `clearTimelineEventsForReseed` lands *after* the
+winner's reseed has already refilled the cache — wiping it again. `freshnessProbePendingEpoch[roomId]`
+is now the in-flight signal: it covers the whole probe → reseed → terminal-merge lifecycle (the merge
+removes it, and so does every failure path above), so the second open skips and lets the first finish.
+
 ## Thread Safety of Request Maps
 
 The four request-tracking maps (`timelineRequests`, `paginateRequests`, `paginateRequestMaxTimelineIds`, `backgroundPrefetchRequests`) are declared as `ConcurrentHashMap` in `AppViewModel`. This is required because `handleResponse` runs on `Dispatchers.Default` (see below), so these maps are written from a background thread while potentially being read from other coroutines.

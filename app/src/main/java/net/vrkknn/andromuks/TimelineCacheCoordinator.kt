@@ -137,6 +137,23 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 paginateRequestMaxTimelineIds.remove(requestId)
                 // Unconditional, for the same reason as the success path above.
                 isPaginating = false
+                // An anchored freshness probe (and the full reseed it escalates to) rides /exec into
+                // THIS map, not freshnessCheckRequests — so without the recovery below it got only the
+                // two lines above. That is not enough: navigateToRoomWithCache's mightBeStale branch
+                // emptied timelineEvents and left isTimelineLoading true on the promise that a probe
+                // RESPONSE would build the verified timeline. On error nothing ever did, and the room
+                // stayed on a spinner until it was re-entered.
+                val wasProbe = freshnessProbeAnchors.remove(requestId) != null
+                // The escalated reseed carries no anchor, so it is identified by transport: it rides
+                // /exec and therefore holds a NEGATIVE id (WebSocketService.allocateExecRequestId),
+                // while a user pull-to-paginate rides the socket with a positive one. Without that
+                // gate a failed backward-scroll paginate would consume the epoch of a probe that is
+                // still perfectly alive, and its terminal merge would then never clear mightBeStale.
+                val pendingEpoch =
+                    if (wasProbe || requestId < 0) freshnessProbePendingEpoch.remove(roomId) else null
+                if (wasProbe || pendingEpoch != null) {
+                    recoverFromFailedFreshnessProbe(roomId, requestId, wasProbe, errorMessage)
+                }
                 android.util.Log.w("Andromuks", "AppViewModel: paginate failed for $roomId: $errorMessage")
                 return true
             }
@@ -158,6 +175,57 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
             if (relatedEventsRequests.remove(requestId) != null) return true
             if (pollRequests.remove(requestId) != null) return true
             return false
+        }
+    }
+
+    /**
+     * Unwind a failed anchored freshness probe (or its escalated reseed) so the room-open path that
+     * is waiting on it isn't stranded.
+     *
+     * The caller has already removed the request from `paginateRequests` and dropped this room's
+     * `freshnessProbePendingEpoch` entry — dropping it matters twice over: it releases the duplicate
+     * guard in `navigateToRoomWithCache` (a stuck entry would block every future probe for this room),
+     * and it stops a later unrelated paginate response from consuming it and clearing `mightBeStale`
+     * on a cache nothing ever verified.
+     *
+     * `mightBeStale` is deliberately left SET. We learned nothing about this cache, so the next open
+     * must probe again rather than trust it. Rendering the cached window here is a usability fallback,
+     * not a freshness claim — an unverified tail on screen beats an indefinite spinner, and the events
+     * are the ones the user was already looking at before they backgrounded the app.
+     */
+    private fun recoverFromFailedFreshnessProbe(roomId: String, requestId: Int, wasProbe: Boolean, errorMessage: String) {
+        with(vm) {
+            roomsWithPendingPaginate.remove(roomId)
+            hydrateExpectedEventIds.remove(requestId)
+            val kind = if (wasProbe) "probe" else "reseed"
+            if (roomId != currentRoomId) {
+                android.util.Log.w(
+                    "Andromuks",
+                    "TimelineCacheCoordinator: freshness $kind failed for background room $roomId " +
+                        "($errorMessage) — cache left flagged stale, next open will re-probe",
+                )
+                return
+            }
+            val cached = RoomTimelineCache.getCachedEventsForTimeline(roomId)
+            if (cached.isNotEmpty()) {
+                android.util.Log.w(
+                    "Andromuks",
+                    "TimelineCacheCoordinator: freshness $kind failed for open room $roomId ($errorMessage) — " +
+                        "rendering ${cached.size} unverified cached events; cache stays flagged stale",
+                )
+                processCachedEvents(roomId, cached, openingFromNotification = false)
+            } else {
+                // The reseed already purged the cache, so there is nothing to fall back to. Clear the
+                // loading flag rather than spin forever; the room still holds a (now empty) cache entry,
+                // so the next open falls below the fast-path threshold and takes requestRoomTimeline's
+                // full paginate.
+                android.util.Log.w(
+                    "Andromuks",
+                    "TimelineCacheCoordinator: freshness $kind failed for open room $roomId ($errorMessage) " +
+                        "with no cache to fall back on — clearing loading state, re-open will paginate fresh",
+                )
+                isTimelineLoading = false
+            }
         }
     }
 
@@ -1958,6 +2026,22 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     paginateRequestMaxTimelineIds.remove(requestId)
                     backgroundPrefetchRequests.remove(requestId)
                     viewModelScope.launch(Dispatchers.Main) { isPaginating = false }
+                    // This early return never reaches handlePaginationMerge, so an anchored freshness
+                    // probe (or its reseed) that comes back with nothing displayable would leave its
+                    // anchor and pending-epoch entries set forever — and those entries are what the
+                    // open path's duplicate guard reads, so the room would never probe again. Treat it
+                    // as a failed probe: same unwind as an error frame, cache stays flagged stale.
+                    val emptyProbeAnchor = freshnessProbeAnchors.remove(requestId) != null
+                    val emptyProbeEpoch =
+                        if (emptyProbeAnchor || requestId < 0) freshnessProbePendingEpoch.remove(roomId) else null
+                    if (emptyProbeAnchor || emptyProbeEpoch != null) {
+                        recoverFromFailedFreshnessProbe(
+                            roomId,
+                            requestId,
+                            emptyProbeAnchor,
+                            "empty paginate response ($totalEventsReturned raw events, none displayable)",
+                        )
+                    }
                     android.util.Log.w(
                         "Andromuks",
                         "🟡 processEventsArray: EMPTY response handled - roomId=$roomId, requestId=$requestId, returning early, isTimelineLoading=$isTimelineLoading",

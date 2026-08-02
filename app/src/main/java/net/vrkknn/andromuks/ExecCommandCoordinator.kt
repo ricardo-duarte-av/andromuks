@@ -42,24 +42,33 @@ internal class ExecCommandCoordinator(private val vm: AppViewModel) {
      *   to the correct handler. Called synchronously, before the network request is issued.
      */
     fun execute(command: String, data: JSONObject, register: (requestId: Int) -> Unit) {
-        val context = vm.appContext
-        if (context == null) {
-            Log.w(tag, "execute($command): no app context")
-            return
-        }
-        val creds = ExecApi.readCredentials(context)
-        if (!creds.isValid()) {
-            Log.w(tag, "execute($command): missing credentials")
-            return
-        }
-
         // Synthetic request_id: a local routing token only. The /exec endpoint ignores request_id;
         // the WS dispatcher uses it to find the registered handler. Allocated from the dedicated
         // NEGATIVE space (not the shared WS counter) so an async /exec response in flight across a
         // reconnect can never collide with a WS-reissued id after resetRequestIdCounter() — see
         // WebSocketService.allocateExecRequestId.
+        //
+        // Allocated and registered BEFORE the context/credential checks so that a local pre-flight
+        // failure takes the exact same path as a network one: handleError, which runs the command's
+        // registered cleanup. Returning early without registering (the previous behaviour) left every
+        // flag the caller had set before calling us — isTimelineLoading, freshnessProbePendingEpoch,
+        // an emptied timelineEvents — set forever, with nothing to clear them. A caller that never
+        // finds out its request wasn't sent is stuck, not degraded.
         val requestId = WebSocketService.allocateExecRequestId()
         register(requestId)
+
+        val context = vm.appContext
+        if (context == null) {
+            Log.w(tag, "execute($command): no app context")
+            vm.handleError(requestId, "exec $command: no app context")
+            return
+        }
+        val creds = ExecApi.readCredentials(context)
+        if (!creds.isValid()) {
+            Log.w(tag, "execute($command): missing credentials")
+            vm.handleError(requestId, "exec $command: missing credentials")
+            return
+        }
 
         vm.viewModelScope.launch(Dispatchers.Default) {
             when (val result = ExecApi.execRaw(creds, command, data)) {
