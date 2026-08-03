@@ -100,11 +100,67 @@ Kicks (`sender != stateKey` + `membership=leave`) with `timelineRowid <= 0` are 
 
 ## `eventChainMap` — Central Data Structure
 
-`eventChainMap` is a `LinkedHashMap<String, TimelineEvent>` keyed by `eventId`. It is the single source of truth for everything `buildTimelineFromChain()` renders.
+`eventChainMap` is a `ConcurrentHashMap<String, EventChainEntry>` keyed by `eventId` (with `eventChainMapLock` guarding composite clear+rebuild operations). It is the single source of truth for everything `buildTimelineFromChain()` renders.
 
 - Managed by `EditVersionCoordinator`
 - `addNewEventToChain(event)` deduplicates by `eventId` — safe to call multiple times for the same event
 - `buildTimelineFromChain()` / `executeTimelineRebuild()` rebuilds `timelineEvents` state on the Main dispatcher
+
+### The Rebuild Replaces, It Does Not Patch
+
+`executeTimelineRebuild` assigns `timelineEvents = sortedTimelineEvents`, derived entirely from an
+`eventChainMap` snapshot. **An event that is rendered but absent from the chain is not merely
+un-updated — it is deleted at the next rebuild.** Any code path that puts something on screen must put
+it in the chain, or it is living on borrowed time.
+
+Borrowed time is short, because sending a message rebuilds: `LocalEchoCoordinator.insert` calls
+`buildTimelineFromChain` to paint the pending bubble. So the usual presentation of a chain/render
+divergence is "message disappears the moment I reply", not "message never appears".
+
+### The LRU Snapshot Must Be Reconciled With the Cache
+
+`TimelineCacheCoordinator.restoreFromLruCache` restores the timeline and the chain from **two different
+sources**:
+
+```kotlin
+timelineEvents = cachedEvents                      // RoomTimelineCache — authoritative, current
+eventChainMap.putAll(processedState.eventChainMap) // snapshot — only as fresh as its last save
+```
+
+`saveProcessedTimelineState` runs in exactly two places: `saveToLruCache` (navigate-away) and
+`appendEventsToCachedRoom`. **Every other path that writes the cache leaves the snapshot behind.** The
+common one is a catch-up or notification paginate merging into a *closed* room's cache
+(`handleBackgroundPrefetch` → `mergePaginatedEvents`) — no snapshot save, so the cache moves ahead and
+the snapshot does not.
+
+**The bug this caused** (bridge DMs surface it most, because the traffic pattern fits): you reply and
+leave the room — snapshot saved, ending with your message. They answer while the room is closed — their
+message reaches the cache only. You reopen; the LRU path renders `cachedEvents`, so their message is
+visible and correct. You send a reply; the chain rebuilds from the stale snapshot; their message
+vanishes. Reopening brings it back, because the cache still holds it.
+
+The no-snapshot branch of `restoreFromLruCache` has always rebuilt the chain from the cache for exactly
+this reason (its comment: "would wipe the visible timeline to a single message"). The snapshot branch
+trusted the snapshot. It now tops the chain up with any cached event missing from it:
+
+```kotlin
+val cachedForChain = RoomTimelineCache.getCachedEventsForTimeline(roomId)
+val missingFromChain = cachedForChain.filter {
+    it.eventId !in eventChainMap && it.eventId !in editEventsMap
+}
+if (missingFromChain.isNotEmpty()) {
+    buildEditChainsFromEvents(missingFromChain, clearExisting = false)
+    processEditRelationships()
+}
+```
+
+`getCachedEventsForTimeline` is the same source the no-snapshot branch uses, which is what keeps the
+top-up honest: reactions, poll satellites and `com.beeper.message_send_status` live in side-buckets and
+so stay out of the chain (as intended — see [POLLS.md](POLLS.md), [REACTIONS.md](REACTIONS.md),
+[bridges.md](bridges.md)), while redaction events are included so `redactedBy` still resolves.
+
+Reconciling at the restore, rather than adding a snapshot-save to `handleBackgroundPrefetch`, is
+deliberate: it defends against every path that can bypass the save, not just the one that was found.
 
 ## Plain-Reply `m.relates_to` Shape
 
