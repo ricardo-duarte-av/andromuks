@@ -365,10 +365,39 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                 editEventsMap.clear()
                 editEventsMap.putAll(processedState.editEventsMap)
 
+                // Reconcile the snapshot against the cache. timelineEvents was just set from
+                // `cachedEvents` — the authoritative, current window — while the snapshot is only as
+                // fresh as the last saveProcessedTimelineState for this room. Every path that writes
+                // the cache without going through appendEventsToCachedRoom leaves the two diverged:
+                // a catch-up/notification paginate merging into a CLOSED room's cache is the common
+                // one (handleBackgroundPrefetch → mergePaginatedEvents, no snapshot save).
+                //
+                // Events in the cache but not in the chain render fine here and then vanish at the
+                // first buildTimelineFromChain — which fully replaces timelineEvents from the chain,
+                // and which SENDING A MESSAGE triggers immediately (LocalEchoCoordinator.insert). The
+                // visible bug: you open a bridge DM whose newest message arrived while it was closed,
+                // send a reply, and their message disappears. The no-snapshot branch below has always
+                // rebuilt from the cache for exactly this reason ("would wipe the visible timeline");
+                // the snapshot branch trusted the snapshot and did not.
+                val cachedForChain = RoomTimelineCache.getCachedEventsForTimeline(roomId)
+                val missingFromChain = cachedForChain.filter {
+                    it.eventId !in eventChainMap && it.eventId !in editEventsMap
+                }
+                if (missingFromChain.isNotEmpty()) {
+                    buildEditChainsFromEvents(missingFromChain, clearExisting = false)
+                    processEditRelationships()
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: LRU restore for $roomId — snapshot was behind the cache by " +
+                            "${missingFromChain.size} event(s); topped up the chain " +
+                            "(newest missing: ${missingFromChain.maxByOrNull { it.timelineRowid }?.eventId})",
+                    )
+                }
+
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: Restored room $roomId from cache (${timelineEvents.size} events, ${processedState.eventChainMap.size} chains, ${processedState.editEventsMap.size} edits)",
+                        "AppViewModel: Restored room $roomId from cache (${timelineEvents.size} events, ${eventChainMap.size} chains, ${editEventsMap.size} edits)",
                     )
                 }
             } else {
