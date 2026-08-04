@@ -306,6 +306,67 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    /**
+     * Applies one reaction event delivered by `sync_complete`: caches it for persistence, then adds
+     * or removes it from the render state.
+     *
+     * Shared by the current room's ingest in [AppViewModel.processSyncEventsArray] and by
+     * [ingestReactionsFromSync] for rooms open in a secondary VM, which must behave identically.
+     */
+    fun handleSyncReactionEvent(roomId: String, event: TimelineEvent) {
+        // Cached so the reaction survives a room reopen and so a later redaction of it can be
+        // resolved by findEventForReply.
+        RoomTimelineCache.mergePaginatedEvents(roomId, listOf(event))
+
+        val reaction = extractReactionEventFromTimeline(event)?.copy(roomId = roomId) ?: return
+        if (event.redactedBy != null) {
+            // Dedicated removal — bypasses the dedup guard, which would otherwise block the removal
+            // when the reaction was already processed in an earlier sync.
+            removeReaction(reaction)
+        } else {
+            processReactionEvent(reaction)
+        }
+    }
+
+    /**
+     * Ingests reactions and reaction redactions for a room that is open in a secondary VM (a chat
+     * bubble or ShortcutActivity) rather than being [AppViewModel.currentRoomId].
+     *
+     * `processSyncEventsArray` only runs for the current room, so those rooms previously got their
+     * timeline cache refreshed but no reaction updates at all: badges in a bubble stayed frozen at
+     * whatever the last full room open produced. Reaction render state is global (keyed by target
+     * event ID, not per room), so ingesting here is safe, and the MessageReactionsCache change
+     * listener repaints every registered VM.
+     */
+    fun ingestReactionsFromSync(roomId: String, eventsArray: JSONArray) {
+        for (i in 0 until eventsArray.length()) {
+            val event = eventsArray.optJSONObject(i)?.let { json ->
+                try {
+                    TimelineEvent.fromJson(json)
+                } catch (e: Exception) {
+                    android.util.Log.w("Andromuks", "ReactionCoordinator: Failed to parse sync event for $roomId: ${e.message}")
+                    null
+                }
+            }
+            when {
+                event == null -> Unit
+                isReactionEvent(event) -> handleSyncReactionEvent(roomId, event)
+                isRedactionEvent(event) -> removeRedactedReaction(roomId, event)
+            }
+        }
+    }
+
+    private fun isRedactionEvent(event: TimelineEvent): Boolean =
+        event.type == "m.room.redaction" || (event.type == "m.room.encrypted" && event.decryptedType == "m.room.redaction")
+
+    /** Reaction half of the redaction handling, for rooms the full sync dispatch does not run for. */
+    private fun removeRedactedReaction(roomId: String, event: TimelineEvent) {
+        val redacts = (event.decrypted ?: event.content)?.optString("redacts")?.takeIf { it.isNotBlank() } ?: return
+        val cachedRedacted = RoomTimelineCache.findEventForReply(roomId, redacts) ?: return
+        if (!isReactionEvent(cachedRedacted)) return
+        extractReactionEventFromTimeline(cachedRedacted)?.let { removeReaction(it) }
+    }
+
     fun requestHistoricalReactions(roomId: String, smallestCached: Long) {
         if (vm.hasInitialPaginate(roomId)) {
             vm.logSkippedPaginate(roomId, "historical_reactions")

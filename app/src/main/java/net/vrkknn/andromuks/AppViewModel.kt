@@ -11366,6 +11366,11 @@ class AppViewModel : ViewModel() {
                     if (events == null || events.length() == 0) continue
                     val memberMap = RoomMemberCache.getRoomMembers(bubbleRoomId)
                     RoomTimelineCache.addEventsFromSync(bubbleRoomId, events, memberMap)
+                    // Reaction render state lives outside the timeline cache and is keyed by target
+                    // event ID, not by room, so refreshing the cache alone leaves a bubble's badges
+                    // frozen. Ingest reactions here too; the MessageReactionsCache change listener
+                    // repaints the bubble's own VM.
+                    reactionCoordinator.ingestReactionsFromSync(bubbleRoomId, events)
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
@@ -11685,56 +11690,9 @@ class AppViewModel : ViewModel() {
 
                 // OPTIMIZED: UI update will be triggered by buildTimelineFromChain() at the end of processSyncEventsArray
             } else if (isReactionEvent(event)) {
-                // CRITICAL FIX: Add reaction events to cache so they can be restored when reopening room
-                // Reaction events are processed in-memory AND cached for persistence
-                RoomTimelineCache.mergePaginatedEvents(roomId, listOf(event))
-
-                // Process reaction events (don't add to timeline). In an encrypted room the
-                // m.relates_to lives in the decrypted payload, not in the (ciphertext) content.
-                val content = reactionContent(event)
-                if (content != null) {
-                    val relatesTo = content.optJSONObject("m.relates_to")
-                    if (relatesTo != null) {
-                        val relatesToEventId = relatesTo.optString("event_id")
-                        val emoji = relatesTo.optString("key")
-                        val relType = relatesTo.optString("rel_type")
-
-                        if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
-                            // Check if this reaction has been redacted
-                            if (event.redactedBy != null) {
-                                val reactionEvent = ReactionEvent(
-                                    roomId = roomId,
-                                    eventId = event.eventId,
-                                    sender = event.sender,
-                                    emoji = emoji,
-                                    relatesToEventId = relatesToEventId,
-                                    timestamp = normalizeTimestamp(
-                                        event.timestamp,
-                                        event.unsigned?.optLong("age_ts") ?: 0L,
-                                    ),
-                                )
-                                // Use dedicated removal — bypasses the dedup guard that would block
-                                // removal when the reaction was already processed in a prior sync.
-                                removeReaction(reactionEvent)
-                            } else {
-                                // Normal reaction, add it
-                                // Process all reactions normally - no special handling for our own reactions
-                                val reactionEvent = ReactionEvent(
-                                    roomId = roomId,
-                                    eventId = event.eventId,
-                                    sender = event.sender,
-                                    emoji = emoji,
-                                    relatesToEventId = relatesToEventId,
-                                    timestamp = normalizeTimestamp(
-                                        event.timestamp,
-                                        event.unsigned?.optLong("age_ts") ?: 0L,
-                                    ),
-                                )
-                                processReactionEvent(reactionEvent)
-                            }
-                        }
-                    }
-                }
+                // Reactions are cached for persistence and folded into messageReactions, but never
+                // added to the timeline. Shared with the secondary-VM ingest path so both agree.
+                reactionCoordinator.handleSyncReactionEvent(roomId, event)
             } else if (isPollEventType(pollEventType(event))) {
                 // Polls (MSC3381). A poll START is an ordinary timeline row and goes into the chain;
                 // RESPONSE and END events are satellites that only mutate the poll bubble's counts,
