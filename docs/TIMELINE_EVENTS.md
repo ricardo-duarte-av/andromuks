@@ -213,6 +213,45 @@ This searches `cache.events` first, then `cache.replyContextEvents`, so previews
 
 After processing a paginate response, the coordinator checks whether any reply targets are still absent and fetches them via `get_event`. The IDs already delivered as `related_events` are included in the "already known" set so they are not re-fetched.
 
+## Replies to Non-Message Events
+
+You can reply to anything with a Reply button, which includes the narrator rows
+(`SystemEventNarrator` renders its own single-option menu). Two rules keep those previews readable.
+
+### "Reply to unknown event" means *unresolved*, never *unrenderable*
+
+That string (`utils/ReplyFunctions.kt`) is emitted only when the target event object is `null`. A
+target that resolves but has an unhandled type goes through `formatEventForReplyPreview` and comes
+out as `Unknown event (<type>)`. When you see "unknown event", look at resolution, not at rendering.
+
+**Every `ReplyPreview` call site must resolve through `rememberReplyTargetEvent`**
+(`TimelineEventItem.kt`) and pass its `resolving` flag through as `isResolving`. That helper is the
+only path that runs all three tiers — on-screen list → `RoomTimelineCache` (timeline *and*
+reply-context buckets) → `get_event`. `EncryptedMessageContent` used to do a bare
+`timelineEvents.find { … }` instead, which meant that in an E2EE room — i.e. most rooms — a reply to
+a reaction or a membership event resolved to `null` essentially always, because neither is present
+in the rendered `timelineEvents` list.
+
+`MentionsScreen` is the deliberate exception: it gates the whole preview on a pre-fetched
+`replyToEvent != null`, so an unresolved target renders no preview rather than a wrong one.
+
+### Narration strings are subject-less
+
+`formatEventForReplyPreview` returns "Joined the room", not "Alice joined the room" — `ReplyPreview`
+already renders the sender's display name as its own header line, so a subject reads as a duplicate.
+Poll and reaction events are dispatched *before* the `when (event.type)` because E2EE wraps them as
+`m.room.encrypted` with the real type in `decryptedType`; anything added later with the same shape
+needs the same pre-dispatch.
+
+### Reaction depth is cache-only, one level
+
+A reply to an `m.reaction` renders `Reacted 👍 to "<target>"` when the annotated event is already in
+`RoomTimelineCache.findEventForReply` (a synchronous singleton lookup, safe from a non-composable
+function), and degrades to `Reacted with 👍` on a miss. Deliberately **no** `get_event` for the
+annotation target: that would put a fetch behind every such row for a cosmetic gain. The recursion
+back into `formatEventForReplyPreview` is bounded by `MAX_REPLY_PREVIEW_DEPTH` so a
+reaction-annotating-a-reaction cannot loop.
+
 ## `timelineRowid` Merge in Cache
 
 When an event already in `cache.events` with an unresolved rowid (`<= 0`) is seen again from a paginate response with a **positive** rowid, the cache updates the stored copy:

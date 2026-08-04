@@ -78,6 +78,7 @@ import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
+import net.vrkknn.andromuks.RoomTimelineCache
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.ui.theme.scaledSpring
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
@@ -85,8 +86,11 @@ import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.SingleEventRendererDialog
+import net.vrkknn.andromuks.utils.extractReactionEventFromTimeline
+import net.vrkknn.andromuks.utils.isPollResponseType
 import net.vrkknn.andromuks.utils.isPollStartType
 import net.vrkknn.andromuks.utils.pollEventType
+import net.vrkknn.andromuks.utils.pollPreviewText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 
 val LocalActiveMessageMenuEventId = compositionLocalOf<String?> { null }
@@ -350,16 +354,27 @@ fun Modifier.messageBubbleMenu(event: TimelineEvent, onReply: () -> Unit, onReac
         )
 }
 
+/** How far [formatEventForReplyPreview] will chase a relation chain (reaction → its target). */
+private const val MAX_REPLY_PREVIEW_DEPTH = 1
+
+/** Characters of a reacted-to event's description kept inside a "Reacted 👍 to …" preview. */
+private const val REACTION_TARGET_PREVIEW_CHARS = 40
+
 /**
  * Formats an event for display in a reply preview.
  * Handles all event types including messages, stickers, system events, etc.
- * 
+ *
+ * Strings here are deliberately **subject-less** ("Joined the room", not "Alice joined the room"):
+ * [ReplyPreview] renders the sender's display name as its own header line above this text, so a
+ * subject would read as a duplicate.
+ *
  * @param event The timeline event to format
  * @param appViewModel Optional AppViewModel for accessing user profiles
  * @param roomId Optional room ID for profile lookups
+ * @param depth Relation-chain recursion guard; see [MAX_REPLY_PREVIEW_DEPTH]
  * @return A string description of the event suitable for reply preview
  */
-fun formatEventForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.andromuks.AppViewModel? = null, roomId: String? = null): String {
+fun formatEventForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.andromuks.AppViewModel? = null, roomId: String? = null, depth: Int = 0): String {
     val eventType = event.type
     // CRITICAL FIX: For encrypted events, prioritize decrypted content over encrypted content
     // For encrypted messages, event.content contains encrypted data, not the actual message body
@@ -367,6 +382,21 @@ fun formatEventForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.an
         event.decrypted
     } else {
         event.content ?: event.decrypted
+    }
+
+    // Polls and reactions arrive E2EE-wrapped as `m.room.encrypted` with the real type in
+    // `decryptedType`, so they have to be dispatched before the `when (eventType)` below — otherwise
+    // they match the message branch and render as an empty body. Mirrors the pre-dispatch in
+    // MessageTypeContent.
+    pollEventType(event)?.let { pollType ->
+        return when {
+            isPollStartType(pollType) -> pollPreviewText(event) ?: "📊 Poll"
+            isPollResponseType(pollType) -> "Voted in a poll"
+            else -> "Ended a poll"
+        }
+    }
+    if (eventType == "m.reaction" || event.decryptedType == "m.reaction") {
+        return formatReactionForReplyPreview(event, appViewModel, roomId, depth)
     }
 
     return when (eventType) {
@@ -405,6 +435,9 @@ fun formatEventForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.an
                 "m.audio" -> "🎶 Sent an audio"
 
                 "m.file" -> "📁 Sent a file"
+
+                // MSC3488: the raw body is a "geo:" description, which reads as noise in a preview.
+                "m.location" -> "📍 Shared a location"
 
                 "m.sticker" -> {
                     // Try to get sticker body/name
@@ -527,15 +560,69 @@ fun formatEventForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.an
 
         "m.space.parent" -> "Updated space parent"
 
+        "m.room.create" -> "Created this room"
+
+        "m.room.encryption" -> "Enabled encryption"
+
+        "m.room.join_rules" -> "Changed who can join"
+
+        "m.room.history_visibility" -> "Changed history visibility"
+
+        "m.room.guest_access" -> "Changed guest access"
+
+        "m.room.canonical_alias" -> "Changed the main address"
+
+        "m.room.redaction" -> "Deleted a message"
+
+        // Element Call membership. An empty content object is the "I have left" marker; the call
+        // flavour lives in m.call.intent. Mirrors CallMemberEventNarrator.
+        "org.matrix.msc3401.call.member" -> {
+            val isJoining = content != null && content.length() > 0
+            val isVoice = content?.optString("m.call.intent", "video") == "m.voice"
+            when {
+                isJoining && isVoice -> "Joined a voice call"
+                isJoining -> "Joined a video call"
+                isVoice -> "Left the voice call"
+                else -> "Left the video call"
+            }
+        }
+
         else -> {
-            // Fallback for unknown event types
+            // Fallback for unknown event types. The debug log is the signal for which branch to add
+            // next, so keep it even though the string below is now readable on its own.
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("ReplyPreviewInput", "Unknown event type for reply preview: $eventType")
             }
-            val eventTypeStr = eventType ?: "unknown"
-            "Event: ${eventTypeStr.removePrefix("m.").replace(".", " ")}"
+            "Unknown event ($eventType)"
         }
     }
+}
+
+/**
+ * Describes an `m.reaction` for a reply preview: `Reacted 👍 to "Hello there"` when the annotated
+ * event is already in [RoomTimelineCache], `Reacted with 👍` when it is not.
+ *
+ * The target lookup is deliberately **cache-only**. Chasing it with a `get_event` would put a fetch
+ * behind every reply-to-a-reaction row for a purely cosmetic gain, so a miss degrades to the shallow
+ * form instead. [depth] stops a reaction-annotating-a-reaction from recursing.
+ */
+private fun formatReactionForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.andromuks.AppViewModel?, roomId: String?, depth: Int): String {
+    // Reactions are never encrypted in practice, and the rest of the codebase (ReactionCoordinator,
+    // the sync ingest) reads them from `content` only — match that.
+    val reaction = extractReactionEventFromTimeline(event) ?: return "Sent a reaction"
+    val shallow = "Reacted with ${reaction.emoji}"
+    if (depth >= MAX_REPLY_PREVIEW_DEPTH) return shallow
+
+    val lookupRoomId = roomId ?: event.roomId
+    val target = RoomTimelineCache.findEventForReply(lookupRoomId, reaction.relatesToEventId) ?: return shallow
+    val description = formatEventForReplyPreview(target, appViewModel, lookupRoomId, depth + 1)
+        .takeIf { it.isNotBlank() } ?: return shallow
+    val trimmed = if (description.length > REACTION_TARGET_PREVIEW_CHARS) {
+        description.take(REACTION_TARGET_PREVIEW_CHARS).trimEnd() + "…"
+    } else {
+        description
+    }
+    return "Reacted ${reaction.emoji} to \"$trimmed\""
 }
 
 /**

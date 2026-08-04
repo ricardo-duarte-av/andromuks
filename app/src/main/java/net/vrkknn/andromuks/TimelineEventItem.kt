@@ -2871,13 +2871,19 @@ private fun EncryptedMessageContent(
             return
         }
 
-        // Check if this is a reply message
+        // Check if this is a reply message. Must go through rememberReplyTargetEvent like the
+        // plaintext path: a bare timelineEvents.find only sees what is currently rendered, so in an
+        // encrypted room a reply to a reaction or a membership event — neither of which is in that
+        // list — resolved to null and rendered "Reply to unknown event" forever.
         val replyInfo = event.getReplyInfo()
-        val originalEvent = remember(replyInfo?.eventId, timelineEvents) {
-            replyInfo?.let { reply ->
-                timelineEvents.find { it.eventId == reply.eventId }
-            }
-        }
+        val replyTarget = rememberReplyTargetEvent(
+            replyInfo = replyInfo,
+            timelineEvents = timelineEvents,
+            roomId = event.roomId,
+            appViewModel = appViewModel,
+        )
+        val originalEvent = replyTarget.event
+        val replyResolving = replyTarget.resolving
 
         // CRITICAL: Check if message is redacted BEFORE checking media type
         // Redacted messages should show deletion message, not original content (including media)
@@ -3014,6 +3020,7 @@ private fun EncryptedMessageContent(
                     mediaMessage = mediaMessage,
                     replyInfo = replyInfo,
                     originalEvent = originalEvent,
+                    replyResolving = replyResolving,
                     userProfileCache = userProfileCache,
                     homeserverUrl = appViewModel?.homeserverUrl?.takeIf { it.isNotEmpty() } ?: homeserverUrl,
                     authToken = authToken,
@@ -3304,6 +3311,7 @@ private fun EncryptedMessageContent(
                                 modifier =
                                 Modifier.padding(bottom = 6.dp)
                                     .align(Alignment.Start),
+                                isResolving = replyResolving,
                                 onOriginalMessageClick = {
                                     onScrollToMessage(replyInfo.eventId)
                                 },
