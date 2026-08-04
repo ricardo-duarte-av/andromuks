@@ -137,6 +137,7 @@ import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
 import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
 import net.vrkknn.andromuks.utils.isBarePollCommand
+import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import kotlin.math.min
 
@@ -1106,6 +1107,17 @@ fun ThreadViewerScreen(
             var previousEvent: TimelineEvent? = null
 
             for (event in sortedEvents) {
+                // Reactions mutate their target event and must never become rows — the same skip
+                // RoomTimelineScreen and BubbleTimelineScreen apply. Without it a reaction that
+                // reaches sortedEvents (m.reaction is whitelisted above, and pre-fix caches can
+                // still hold E2EE-wrapped reactions typed m.room.encrypted) emits a TimelineItem
+                // that renders nothing but still spawns a date divider, breaks isConsecutive
+                // grouping for the message after it, and skews the sticky-date and scroll indices.
+                // A wrapped one is worse: it renders as an empty undecryptable bubble.
+                if (isReactionEvent(event)) {
+                    continue
+                }
+
                 val eventDate = formatDate(event.timestamp)
 
                 // Add date divider if this is a new date
