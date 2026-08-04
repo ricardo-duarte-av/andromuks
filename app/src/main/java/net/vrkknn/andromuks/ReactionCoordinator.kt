@@ -15,26 +15,34 @@ import org.json.JSONObject
  */
 internal class ReactionCoordinator(private val vm: AppViewModel) {
 
-    fun processReactionEvent(reactionEvent: ReactionEvent, isHistorical: Boolean = false) {
-        val reactionKey = "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
+    private companion object {
+        /** Ring size for the seen-reaction-event-ID guard. */
+        const val MAX_PROCESSED_REACTIONS = 100
+    }
 
-        if (!isHistorical && vm.processedReactions.contains(reactionKey)) {
+    fun processReactionEvent(reactionEvent: ReactionEvent, isHistorical: Boolean = false) {
+        // Idempotency is keyed on the reaction's own event ID: what gets delivered twice is the same
+        // event, so that is the true duplicate key. It used to be sender+emoji+target, which latched
+        // — the key was only cleared by a matching redaction, so if that redaction was ever missed
+        // the user's next identical reaction was dropped here forever. Fall back to the logical key
+        // only when no event ID is available.
+        val dedupKey = reactionEvent.eventId.takeIf { it.isNotBlank() }
+            ?: "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
+
+        if (!isHistorical && vm.processedReactions.contains(dedupKey)) {
             if (BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Skipping duplicate logical reaction: $reactionKey (eventId: ${reactionEvent.eventId})",
-                )
+                android.util.Log.d("Andromuks", "AppViewModel: Skipping already-processed reaction event: $dedupKey")
             }
             return
         }
 
         if (!isHistorical) {
-            vm.processedReactions.add(reactionKey)
-        }
-
-        if (!isHistorical && vm.processedReactions.size > 100) {
-            val toRemove = vm.processedReactions.take(vm.processedReactions.size - 100)
-            vm.processedReactions.removeAll(toRemove)
+            vm.processedReactions.add(dedupKey)
+            // mutableSetOf is a LinkedHashSet, so take() evicts oldest-first.
+            if (vm.processedReactions.size > MAX_PROCESSED_REACTIONS) {
+                val toRemove = vm.processedReactions.take(vm.processedReactions.size - MAX_PROCESSED_REACTIONS)
+                vm.processedReactions.removeAll(toRemove.toSet())
+            }
         }
 
         // Read-modify-write happens inside the cache lock, scoped to this one target event, so a
@@ -51,7 +59,7 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, isHistorical=$isHistorical, changed=$changed",
+                "AppViewModel: processReactionEvent - dedupKey: $dedupKey, target: ${reactionEvent.relatesToEventId}, isHistorical=$isHistorical, changed=$changed",
             )
         }
 
@@ -264,10 +272,8 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
             vm.redactedReactionEventIds.removeAll(toRemove.toSet())
         }
 
-        val reactionKey = "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
-
-        // Remove from dedup set so a future re-add (e.g. user reacts again) is not blocked.
-        vm.processedReactions.remove(reactionKey)
+        // No un-latching needed: processReactionEvent dedups on the reaction's own event ID, and a
+        // re-add after a redaction is a new event with a new ID.
 
         val changed = MessageReactionsCache.mutate(reactionEvent.relatesToEventId) { existingBucket ->
             removeReactionFromBucket(reactionEvent, existingBucket)

@@ -919,7 +919,8 @@ class AppViewModel : ViewModel() {
             _pollResults = value
         }
 
-    // Track processed reaction events to prevent duplicate processing
+    // Event IDs of reaction events already applied, so a re-delivered event is not double-counted.
+    // LinkedHashSet (mutableSetOf) so the size trims evict oldest-first.
     internal val processedReactions = mutableSetOf<String>()
 
     // Track redacted reaction event IDs so removeReaction is idempotent. A single logical
@@ -14754,7 +14755,7 @@ class AppViewModel : ViewModel() {
             // Clean up old processed reactions
             if (processedReactions.size > 200) {
                 val toRemove = processedReactions.take(processedReactions.size - 100)
-                processedReactions.removeAll(toRemove)
+                processedReactions.removeAll(toRemove.toSet())
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
