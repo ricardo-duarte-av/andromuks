@@ -46,6 +46,7 @@ import net.vrkknn.andromuks.utils.isPollStartType
 import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.pollEventType
 import net.vrkknn.andromuks.utils.reactionContent
+import net.vrkknn.andromuks.utils.serverNameFromRoomId
 import okhttp3.WebSocket
 import org.json.JSONArray
 import org.json.JSONObject
@@ -12482,14 +12483,15 @@ class AppViewModel : ViewModel() {
 
         val summaryRequestId = WebSocketService.allocateRequestId()
         roomSummaryRequests[summaryRequestId] = roomId
-        val via = roomId.substringAfter(":").substringBefore(".") // Extract server from room ID
+        // `via` is optional (omitempty). A v12 room ID carries no server part, so there is nothing
+        // to derive and we send none rather than a made-up one.
         sendWebSocketCommand(
             "get_room_summary",
             summaryRequestId,
-            mapOf(
-                "room_id_or_alias" to roomId,
-                "via" to listOf(via),
-            ),
+            buildMap {
+                put("room_id_or_alias", roomId)
+                serverNameFromRoomId(roomId)?.let { put("via", listOf(it)) }
+            },
         )
     }
 

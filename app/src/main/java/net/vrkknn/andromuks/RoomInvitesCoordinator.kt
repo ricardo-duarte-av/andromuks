@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.utils.serverNameFromRoomId
+
 /**
  * Room invites and join/leave orchestration for [AppViewModel].
  */
@@ -21,14 +23,15 @@ internal class RoomInvitesCoordinator(private val vm: AppViewModel) {
 
             val acceptRequestId = WebSocketService.allocateRequestId()
             joinRoomRequests[acceptRequestId] = roomId
-            val via = roomId.substringAfter(":").substringBefore(".")
+            // `via` is optional (omitempty). A v12 room ID carries no server part, so there is
+            // nothing to derive and we send none rather than a made-up one.
             sendWebSocketCommand(
                 "join_room",
                 acceptRequestId,
-                mapOf(
-                    "room_id_or_alias" to roomId,
-                    "via" to listOf(via),
-                ),
+                buildMap {
+                    put("room_id_or_alias", roomId)
+                    serverNameFromRoomId(roomId)?.let { put("via", listOf(it)) }
+                },
             )
 
             PendingInvitesCache.removeInvite(roomId)

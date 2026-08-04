@@ -40,3 +40,19 @@ internal fun isValidMatrixRoomId(roomId: String?): Boolean {
     }
     return true
 }
+
+/**
+ * The server name embedded in a room ID, or null when the ID does not carry one.
+ *
+ * Only legacy room IDs have a server part (`!opaque:example.org`); **room version 12 dropped it**,
+ * so a v12 ID is a bare opaque string (`!gomuks2fjNJgXSZ-lZPoQWB_2za-KW_l2Hs6roxWKk4`) and no server
+ * can be derived from it at all. Callers must treat null as "omit `via`", never as a reason to
+ * invent one — `via` is `omitempty` in both `JoinRoomParams` and `GetRoomSummaryParams`, so leaving
+ * it out is well-defined, while sending a bogus server is not.
+ *
+ * Everything after the first colon is returned, so a server with an explicit port
+ * (`!opaque:example.org:8448`) keeps it. Note this is a best-effort hint for `via`, not a
+ * spec-conformant parse: the server part of a room ID is only ever the server that *created* the
+ * room, which may no longer be resident in it.
+ */
+internal fun serverNameFromRoomId(roomId: String): String? = roomId.substringAfter(':', missingDelimiterValue = "").takeIf { it.isNotBlank() }
