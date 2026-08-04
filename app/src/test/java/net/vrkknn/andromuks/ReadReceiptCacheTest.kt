@@ -200,6 +200,24 @@ class ReadReceiptCacheTest {
     }
 
     @Test
+    fun `v12 room ids are handled like any other key`() {
+        // Room version 12 dropped the ":server" suffix, so a room id can be a bare opaque string
+        // with no colon. Nothing here may split or normalise a room id — it is an opaque map key.
+        val v12Room = "!gomuks2fjNJgXSZ-lZPoQWB_2za-KW_l2Hs6roxWKk4"
+        ReadReceiptCache.setForRoom(v12Room, mapOf("${'$'}e1" to listOf(receipt(alice, "${'$'}e1", roomId = v12Room))), mapOf(alice to "${'$'}e1"))
+        ReadReceiptCache.setForRoom(room, mapOf("${'$'}e9" to listOf(receipt(alice, "${'$'}e9"))), mapOf(alice to "${'$'}e9"))
+
+        assertEquals("${'$'}e1", ReadReceiptCache.getUserEventId(v12Room, alice))
+        assertEquals("${'$'}e9", ReadReceiptCache.getUserEventId(room, alice))
+        assertEquals(setOf(v12Room, room), ReadReceiptCache.getRoomIds())
+
+        ReadReceiptCache.clearRoom(v12Room)
+
+        assertNull(ReadReceiptCache.getUserEventId(v12Room, alice))
+        assertEquals("${'$'}e9", ReadReceiptCache.getUserEventId(room, alice))
+    }
+
+    @Test
     fun `clear empties every room`() {
         ReadReceiptCache.setForRoom(room, mapOf("${'$'}e1" to listOf(receipt(alice, "${'$'}e1"))), mapOf(alice to "${'$'}e1"))
         ReadReceiptCache.setForRoom(

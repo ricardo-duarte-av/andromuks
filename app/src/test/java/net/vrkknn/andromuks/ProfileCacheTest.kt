@@ -20,13 +20,20 @@ import org.junit.Test
  * for that user. Bounding this cache by evicting live entries would trade a little RAM for profile
  * request storms.
  *
- * Real Matrix IDs are used throughout because both the flattened key (`"$roomId:$userId"`) and the
- * room/user split have to survive identifiers that themselves contain colons.
+ * Both room-id shapes are exercised, because the flattened key is a raw `"$roomId:$userId"` join and
+ * the two shapes split differently:
+ *   legacy  `!abc:example.org`  — carries a `:server` suffix
+ *   v12     `!opaqueString`     — room version 12 dropped the server part entirely, no colon at all
+ * A user id always contains a colon regardless, so the key is inherently ambiguous to naive
+ * splitting; see the two `cleanupMatchingRoomProfiles` tests below.
  */
 class ProfileCacheTest {
 
     private val room = "!abc:example.org"
     private val otherRoom = "!xyz:example.org"
+    private val legacyRoom = "!legacy:example.org"
+    private val v12Room = "!gomuks2fjNJgXSZ-lZPoQWB_2za-KW_l2Hs6roxWKk4"
+    private val otherV12Room = "!gomuksQQ7bT4mE0-pXvR1cd_9La-ZZ_k8Nt3wsyLj2"
     private val alice = "@alice:example.org"
     private val bob = "@bob:example.org"
 
@@ -264,24 +271,72 @@ class ProfileCacheTest {
     }
 
     @Test
-    fun `cleanupMatchingRoomProfiles leaves a stale room-index entry — known wart`() {
-        // It derives the room id with key.substringBefore(":"), but the flattened key is
-        // "$roomId:$userId" and a Matrix room id always contains a colon, so for "!abc:example.org"
-        // it computes "!abc" and the index removal silently misses.
+    fun `cleanupMatchingRoomProfiles leaks a legacy room's index entry — known wart`() {
+        // It derives the room id with key.substringBefore(":") from the flattened key
+        // "$roomId:$userId". A legacy room id carries a server part, so "!abc:example.org" parses
+        // as "!abc" and the index removal silently misses. (v12 room ids have no server part and
+        // parse correctly — see the test below.)
         //
         // Currently benign: an over-inclusive index only makes orphan collection *less* aggressive,
         // which is the safe direction, and the flattened entry itself is removed correctly. Pinned
         // so the leak is visible rather than folklore. Note cleanupFlattenedProfiles builds its key
         // set by joining roomId and userId directly, precisely to avoid this splitting problem.
-        putLive(room, alice, profile("Alice"))
+        putLive(legacyRoom, alice, profile("Alice"))
 
         ProfileCache.cleanupMatchingRoomProfiles(alice, profile("Alice"))
 
-        assertFalse("the flattened entry is removed correctly", ProfileCache.hasFlattenedProfile(room, alice))
+        assertFalse("the flattened entry is removed correctly", ProfileCache.hasFlattenedProfile(legacyRoom, alice))
         assertTrue(
-            "index entry leaks because the room id is mis-parsed",
-            ProfileCache.getRoomUserIds(room)?.contains(alice) == true,
+            "index entry leaks because the legacy room id is mis-parsed",
+            ProfileCache.getRoomUserIds(legacyRoom)?.contains(alice) == true,
         )
+    }
+
+    @Test
+    fun `cleanupMatchingRoomProfiles cleans the index for a v12 room id`() {
+        // Room version 12 dropped the ":server" suffix, so a room id is now a bare opaque string
+        // with no colon at all. substringBefore(":") then returns it unchanged, which happens to be
+        // the correct room id — so this path works for v12 and misses for legacy.
+        putLive(v12Room, alice, profile("Alice"))
+
+        ProfileCache.cleanupMatchingRoomProfiles(alice, profile("Alice"))
+
+        assertFalse(ProfileCache.hasFlattenedProfile(v12Room, alice))
+        assertFalse(
+            "v12 ids parse correctly, so the index entry is removed",
+            ProfileCache.getRoomUserIds(v12Room)?.contains(alice) == true,
+        )
+    }
+
+    @Test
+    fun `v12 and legacy room ids coexist without key collisions`() {
+        // The flattened key is a raw "$roomId:$userId" join, so it must stay unambiguous across
+        // both id shapes — including a user id, which always carries its own colon.
+        putLive(v12Room, alice, profile("Alice in v12"))
+        putLive(legacyRoom, alice, profile("Alice in legacy"))
+
+        assertEquals("Alice in v12", ProfileCache.getFlattenedProfile(v12Room, alice)?.displayName)
+        assertEquals("Alice in legacy", ProfileCache.getFlattenedProfile(legacyRoom, alice)?.displayName)
+
+        ProfileCache.clearRoom(v12Room)
+
+        assertFalse(ProfileCache.hasFlattenedProfile(v12Room, alice))
+        assertTrue(ProfileCache.hasFlattenedProfile(legacyRoom, alice))
+    }
+
+    @Test
+    fun `orphan collection handles v12 room ids`() {
+        putLive(v12Room, alice, profile("Alice"))
+        putLive(v12Room, bob, profile("Bob"))
+        putOrphan(otherV12Room, alice, profile("Stale"))
+        putOrphan(otherV12Room, bob, profile("Stale"))
+
+        ProfileCache.cleanupFlattenedProfiles(maxSize = 2)
+
+        assertTrue(ProfileCache.hasFlattenedProfile(v12Room, alice))
+        assertTrue(ProfileCache.hasFlattenedProfile(v12Room, bob))
+        assertFalse(ProfileCache.hasFlattenedProfile(otherV12Room, alice))
+        assertFalse(ProfileCache.hasFlattenedProfile(otherV12Room, bob))
     }
 
     // ---------------------------------------------------------------- snapshots
