@@ -265,12 +265,15 @@ class AppViewModel : ViewModel() {
                                 roomListUpdateCounter++
                             }
 
-                            // 2. Refresh read receipts and reactions unconditionally.
-                            // Receipts and reactions arrive on their own channels (not in the
-                            // timeline events set), so a sync containing only receipts/reactions
-                            // legitimately has empty roomsWithEvents and we'd miss the update
-                            // if gated. Both have internal hasChanges short-circuits so the cost
-                            // when nothing changed is small.
+                            // 2. Refresh read receipts unconditionally. Receipts arrive on their own
+                            // channel (not in the timeline events set), so a sync containing only
+                            // receipts legitimately has empty roomsWithEvents and we'd miss the
+                            // update if gated. It has an internal hasChanges short-circuit so the
+                            // cost when nothing changed is small.
+                            //
+                            // Reactions need nothing here: the primary VM ingests them into
+                            // MessageReactionsCache (including for rooms only open in this VM) and
+                            // the cache's change listener bumps this VM's reactionUpdateCounter.
                             populateReadReceiptsFromCache()
 
                             // 3. Reload timeline ONLY if this VM's currentRoomId was in the
@@ -291,6 +294,22 @@ class AppViewModel : ViewModel() {
                                     }
                                     timelineUpdateCounter++
                                 }
+
+                                // Poll aggregates must be rebuilt HERE, not by the primary VM.
+                                // Unlike reactions — whose state is the MessageReactionsCache
+                                // singleton, so the primary VM can ingest on this VM's behalf and
+                                // the cache listener repaints us — the raw poll stores
+                                // (pollStartInfos / pollVoteEvents / pollEndEvents) are per-VM
+                                // AppViewModel fields. The primary VM also must not recompute for
+                                // us: computePollResults validates m.poll.end against
+                                // currentRoomState.powerLevels, which over there belongs to a
+                                // different room. Rebuild from the replicated RoomTimelineCache
+                                // poll bucket, which the primary VM does keep fresh for us.
+                                pollCoordinator.loadPollsForRoom(
+                                    currentRoomId,
+                                    timelineEvents,
+                                    forceReload = true,
+                                )
                             }
 
                             // 4. Profiles may have updated too. Gated on hadMemberChanges
