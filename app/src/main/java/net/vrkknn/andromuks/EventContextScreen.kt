@@ -472,7 +472,12 @@ fun EventContextScreen(roomId: String, eventId: String, navController: NavContro
 
                         // Reactions dialog
                         if (showReactionsDialog && reactionsEventId != null) {
-                            val reactions = reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
+                            // messageReactions is not Compose state; reactionUpdateCounter is the
+                            // repaint signal, so the dialog must key on it or it shows stale counts
+                            // when a reaction lands while it is open.
+                            val reactions = remember(reactionsEventId, appViewModel.reactionUpdateCounter) {
+                                reactionsEventId?.let { appViewModel.messageReactions[it] } ?: emptyList()
+                            }
                             net.vrkknn.andromuks.utils.ReactionDetailsDialog(
                                 reactions = reactions,
                                 homeserverUrl = homeserverUrl,

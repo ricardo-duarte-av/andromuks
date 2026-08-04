@@ -3,6 +3,7 @@ package net.vrkknn.andromuks
 import android.util.Log
 import net.vrkknn.andromuks.BuildConfig
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArraySet
 
 /**
  * MessageReactionsCache - Singleton cache for message reactions
@@ -19,6 +20,26 @@ object MessageReactionsCache {
     private val reactionsCache = ConcurrentHashMap<String, List<MessageReaction>>()
     private val cacheLock = Any()
 
+    // Reaction state is not Compose state, so every AppViewModel registers here and bumps its own
+    // reactionUpdateCounter when the cache changes. Without this, mutations made by callers that
+    // don't go through ReactionCoordinator — the room-eviction clears in RoomTimelineCache,
+    // TimelineCacheCoordinator and SyncRoomsCoordinator — left stale badges painted until some
+    // unrelated reaction happened to trigger a repaint.
+    private val changeListeners = CopyOnWriteArraySet<() -> Unit>()
+
+    fun addChangeListener(listener: () -> Unit) {
+        changeListeners.add(listener)
+    }
+
+    fun removeChangeListener(listener: () -> Unit) {
+        changeListeners.remove(listener)
+    }
+
+    /** Always called outside [cacheLock] so a listener can never invert the lock order. */
+    private fun notifyChanged() {
+        changeListeners.forEach { it() }
+    }
+
     /**
      * Update or add reactions for an event
      */
@@ -30,6 +51,7 @@ object MessageReactionsCache {
                 reactionsCache[eventId] = reactions
             }
         }
+        notifyChanged()
     }
 
     /**
@@ -43,16 +65,19 @@ object MessageReactionsCache {
      *
      * @return true when [transform] actually changed the bucket, i.e. the UI needs a repaint.
      */
-    fun mutate(eventId: String, transform: (List<MessageReaction>) -> List<MessageReaction>): Boolean = synchronized(cacheLock) {
-        val before = reactionsCache[eventId] ?: emptyList()
-        val after = transform(before)
-        if (after == before) return false
-        if (after.isEmpty()) {
-            reactionsCache.remove(eventId)
-        } else {
-            reactionsCache[eventId] = after
+    fun mutate(eventId: String, transform: (List<MessageReaction>) -> List<MessageReaction>): Boolean {
+        val changed = synchronized(cacheLock) {
+            val before = reactionsCache[eventId] ?: emptyList()
+            val after = transform(before)
+            if (after == before) {
+                false
+            } else {
+                if (after.isEmpty()) reactionsCache.remove(eventId) else reactionsCache[eventId] = after
+                true
+            }
         }
-        true
+        if (changed) notifyChanged()
+        return changed
     }
 
     /**
@@ -65,20 +90,20 @@ object MessageReactionsCache {
     fun merge(
         incoming: Map<String, List<MessageReaction>>,
         transform: (existing: List<MessageReaction>, incoming: List<MessageReaction>) -> List<MessageReaction>,
-    ): Boolean = synchronized(cacheLock) {
-        var changed = false
-        for ((eventId, incomingReactions) in incoming) {
-            val before = reactionsCache[eventId] ?: emptyList()
-            val after = transform(before, incomingReactions)
-            if (after == before) continue
-            if (after.isEmpty()) {
-                reactionsCache.remove(eventId)
-            } else {
-                reactionsCache[eventId] = after
+    ): Boolean {
+        val changed = synchronized(cacheLock) {
+            var any = false
+            for ((eventId, incomingReactions) in incoming) {
+                val before = reactionsCache[eventId] ?: emptyList()
+                val after = transform(before, incomingReactions)
+                if (after == before) continue
+                if (after.isEmpty()) reactionsCache.remove(eventId) else reactionsCache[eventId] = after
+                any = true
             }
-            changed = true
+            any
         }
-        changed
+        if (changed) notifyChanged()
+        return changed
     }
 
     /**
@@ -98,6 +123,7 @@ object MessageReactionsCache {
                 )
             }
         }
+        notifyChanged()
     }
 
     /**
@@ -129,6 +155,7 @@ object MessageReactionsCache {
             reactionsCache.clear()
             if (BuildConfig.DEBUG) Log.d(TAG, "MessageReactionsCache: Cleared all reactions")
         }
+        notifyChanged()
     }
 
     /**
@@ -151,19 +178,21 @@ object MessageReactionsCache {
      * Clear reactions for specific event IDs (used when evicting a room)
      */
     fun clearForEventIds(eventIds: Set<String>) {
-        synchronized(cacheLock) {
-            var removedCount = 0
+        val removedCount = synchronized(cacheLock) {
+            var removed = 0
             eventIds.forEach { eventId ->
                 if (reactionsCache.remove(eventId) != null) {
-                    removedCount++
+                    removed++
                 }
             }
             if (BuildConfig.DEBUG) {
                 Log.d(
                     TAG,
-                    "MessageReactionsCache: Cleared reactions for $removedCount events (out of ${eventIds.size} requested)",
+                    "MessageReactionsCache: Cleared reactions for $removed events (out of ${eventIds.size} requested)",
                 )
             }
+            removed
         }
+        if (removedCount > 0) notifyChanged()
     }
 }

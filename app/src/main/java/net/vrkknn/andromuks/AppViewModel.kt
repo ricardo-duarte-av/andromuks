@@ -272,7 +272,6 @@ class AppViewModel : ViewModel() {
                             // if gated. Both have internal hasChanges short-circuits so the cost
                             // when nothing changed is small.
                             populateReadReceiptsFromCache()
-                            populateMessageReactionsFromCache()
 
                             // 3. Reload timeline ONLY if this VM's currentRoomId was in the
                             // sync's payload. Only currentRoomId's events are bound to
@@ -889,19 +888,27 @@ class AppViewModel : ViewModel() {
     var typingUsers by mutableStateOf(listOf<String>())
         internal set
 
-    // Message reactions: eventId -> list of reactions
-    // Now using singleton MessageReactionsCache - synced for UI reactivity
-    private var _messageReactions by mutableStateOf(mapOf<String, List<MessageReaction>>())
+    // Bumps this VM's repaint signal whenever the shared reaction cache changes, from whichever
+    // thread made the change. Registered in init, removed in onCleared. Secondary VMs (bubble,
+    // shortcut) get their own registration, so a reaction ingested by the main VM repaints them too.
+    private val reactionCacheListener: () -> Unit = {
+        viewModelScope.launch(Dispatchers.Main) { reactionUpdateCounter++ }
+    }
+
+    // Message reactions: eventId -> list of reactions. Reads pass straight through to the singleton
+    // MessageReactionsCache; the setter is for resets and cold hydration only, since incremental
+    // changes go through MessageReactionsCache.mutate/merge (see ReactionCoordinator).
+    //
+    // This is NOT Compose state and reading it registers no snapshot read. [reactionUpdateCounter]
+    // is the sole repaint signal — every consumer must key on it (see ReactionBadges call sites in
+    // TimelineEventItem and the reaction-details dialogs). There used to be a mirrored
+    // `_messageReactions` mutableStateOf here that claimed to provide reactivity, but nothing ever
+    // read it; all it did was perform a snapshot write from inside a getter called during
+    // composition.
     var messageReactions: Map<String, List<MessageReaction>>
-        get() = MessageReactionsCache.getAllReactions().also {
-            // Sync state with cache for UI reactivity
-            if (_messageReactions != it) {
-                _messageReactions = it
-            }
-        }
+        get() = MessageReactionsCache.getAllReactions()
         internal set(value) {
             MessageReactionsCache.setAll(value)
-            _messageReactions = value
         }
 
     // Aggregated poll state (MSC3381): poll start eventId -> PollResults.
@@ -2354,12 +2361,6 @@ class AppViewModel : ViewModel() {
      * This ensures read receipts persist across AppViewModel instances
      */
     fun populateReadReceiptsFromCache() = readReceiptsTypingCoordinator.populateReadReceiptsFromCache()
-
-    /**
-     * Populate messageReactions from singleton cache
-     * This ensures reactions persist across AppViewModel instances
-     */
-    fun populateMessageReactionsFromCache() = reactionCoordinator.populateMessageReactionsFromCache()
 
     /**
      * Populate recentEmojis from singleton cache
@@ -5405,6 +5406,7 @@ class AppViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
+        MessageReactionsCache.removeChangeListener(reactionCacheListener)
         viewModelLifecycleCoordinator.onCleared()
     }
 
@@ -14652,8 +14654,9 @@ class AppViewModel : ViewModel() {
 
         // Populate all singleton caches on initialization
         // This ensures data is available even when AppViewModel is recreated
+        MessageReactionsCache.addChangeListener(reactionCacheListener)
+
         populateReadReceiptsFromCache()
-        populateMessageReactionsFromCache()
         populateRecentEmojisFromCache()
         populatePendingInvitesFromCache()
         populateRoomMemberCacheFromCache()

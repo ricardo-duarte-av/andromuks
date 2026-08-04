@@ -1,8 +1,5 @@
 package net.vrkknn.andromuks
 
-import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.extractReactionEventFromTimeline
 import net.vrkknn.andromuks.utils.isReactionEvent
@@ -62,10 +59,6 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
                 "AppViewModel: processReactionEvent - dedupKey: $dedupKey, target: ${reactionEvent.relatesToEventId}, isHistorical=$isHistorical, changed=$changed",
             )
         }
-
-        if (changed) {
-            notifyReactionsChanged()
-        }
     }
 
     /**
@@ -75,27 +68,6 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
     private fun alreadyAppliedHistorically(reactionEvent: ReactionEvent, existing: List<MessageReaction>): Boolean {
         val existingForEmoji = existing.find { it.emoji == reactionEvent.emoji } ?: return false
         return existingForEmoji.userReactions.any { it.userId == reactionEvent.sender }
-    }
-
-    /** Compose state writes must happen on Main to avoid snapshot conflicts. */
-    private fun notifyReactionsChanged() {
-        vm.viewModelScope.launch(Dispatchers.Main) {
-            vm.reactionUpdateCounter++
-        }
-    }
-
-    fun populateMessageReactionsFromCache() {
-        // messageReactions reads straight through to MessageReactionsCache, so nothing needs
-        // copying here — the UI just needs to be told the cache is now warm.
-        if (MessageReactionsCache.getEventCount() > 0) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: populateMessageReactionsFromCache - ${MessageReactionsCache.getEventCount()} events already in cache",
-                )
-            }
-            notifyReactionsChanged()
-        }
     }
 
     fun loadReactionsForRoom(roomId: String, cachedEvents: List<TimelineEvent>, forceReload: Boolean = false) {
@@ -213,14 +185,11 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
             mergeAggregatedBucket(existing, aggregated)
         }
 
-        if (changed) {
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events",
-                )
-            }
-            notifyReactionsChanged()
+        if (changed && BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events",
+            )
         }
     }
 
@@ -279,14 +248,11 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
             removeReactionFromBucket(reactionEvent, existingBucket)
         }
 
-        if (changed) {
-            notifyReactionsChanged()
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: removeReaction - removed ${reactionEvent.emoji} from ${reactionEvent.sender} on ${reactionEvent.relatesToEventId}",
-                )
-            }
+        if (changed && BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: removeReaction - removed ${reactionEvent.emoji} from ${reactionEvent.sender} on ${reactionEvent.relatesToEventId}",
+            )
         }
     }
 
