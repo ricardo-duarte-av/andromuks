@@ -55,11 +55,33 @@ class ReactionBucketTest {
     }
 
     @Test
-    fun `re-applying the same sender toggles them back off`() {
+    fun `re-applying the same sender is a no-op, never a removal`() {
+        // Matrix has no "un-react" event — removal is a redaction, handled by removeReaction. A
+        // second m.reaction for the same (sender, emoji, target) is always a re-delivery. This used
+        // to toggle the sender back off and silently ate the badge.
         val added = applyReactionToBucket(reaction(alice), emptyList())
-        val toggled = applyReactionToBucket(reaction(alice), added)
+        val again = applyReactionToBucket(reaction(alice), added)
 
-        assertTrue(toggled.isEmpty())
+        assertEquals(1, again.size)
+        assertEquals(1, again[0].count)
+        assertEquals(listOf(alice), again[0].users)
+    }
+
+    @Test
+    fun `a superseded send does not remove the reaction it duplicates`() {
+        // The reported bug. Your own send arrives first as a pending copy (gomuks delivers it with
+        // send_error/transaction_id set) and is later superseded by the confirmed event, which
+        // carries a DIFFERENT event id — so the event-id dedup guard does not catch it. Applying
+        // the second one as a toggle made your own reactions disappear.
+        val pending = reaction(alice).copy(eventId = "\u0024pending")
+        val confirmed = reaction(alice).copy(eventId = "\u0024confirmed")
+
+        val afterPending = applyReactionToBucket(pending, emptyList())
+        val afterConfirmed = applyReactionToBucket(confirmed, afterPending)
+
+        assertEquals(1, afterConfirmed.size)
+        assertEquals(1, afterConfirmed[0].count)
+        assertEquals(listOf(alice), afterConfirmed[0].users)
     }
 
     @Test
@@ -110,15 +132,16 @@ class ReactionBucketTest {
     }
 
     @Test
-    fun `toggling off a mixed bucket decrements rather than dropping unnamed reactors`() {
-        // count 5 from the backend, but only alice is named locally.
+    fun `a re-delivery against a mixed bucket leaves the backend count intact`() {
+        // count 5 from the backend, but only alice is named locally. A re-delivered reaction from
+        // alice must not decrement the four reactors the bucket knows about only as a number.
         val mixed = listOf(countOnly(count = 5).copy(users = listOf(alice), userReactions = listOf(UserReaction(alice, 1L))))
 
         val result = applyReactionToBucket(reaction(alice), mixed)
 
         assertEquals(1, result.size)
-        assertEquals(4, result[0].count)
-        assertTrue(result[0].users.isEmpty())
+        assertEquals(5, result[0].count)
+        assertEquals(listOf(alice), result[0].users)
     }
 
     @Test

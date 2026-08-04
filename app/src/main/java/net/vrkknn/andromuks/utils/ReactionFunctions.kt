@@ -444,20 +444,22 @@ fun applyReactionToBucket(reactionEvent: ReactionEvent, existing: List<MessageRe
     val existingUserIndex = updatedUserReactions.indexOfFirst { it.userId == reactionEvent.sender }
 
     if (existingUserIndex >= 0) {
-        // Toggle off: the sender already had this emoji on this message. Decrement rather than
-        // recount, so the other reactors a count-only bucket knows about but cannot name survive.
-        updatedUsers.remove(reactionEvent.sender)
-        updatedUserReactions.removeAt(existingUserIndex)
-        val newCount = (existingReaction.count - 1).coerceAtLeast(updatedUserReactions.size)
-        if (newCount <= 0) {
-            eventReactions.removeAt(existingReactionIndex)
-        } else {
-            eventReactions[existingReactionIndex] = existingReaction.copy(
-                count = newCount,
-                users = updatedUsers,
-                userReactions = updatedUserReactions,
-            )
-        }
+        // Already applied — no-op.
+        //
+        // This branch used to TOGGLE the sender back off, which quietly ate reactions. Matrix has no
+        // "un-react" event: removing a reaction is a redaction of the reaction event, handled by
+        // ReactionCoordinator.removeReaction. Tapping a badge in this app sends a *new* m.reaction
+        // and lets the backend redact, so a second m.reaction for the same (sender, emoji, target)
+        // is always a re-delivery, never a removal — applying it as one made the badge vanish.
+        //
+        // The event-id dedup guard catches re-delivery of the *same* event, but not a second event
+        // for the same logical reaction, which is exactly what your own sends produce: gomuks
+        // delivers a pending copy carrying send_error/transaction_id and later supersedes it with
+        // the confirmed event under a different id. Hence lost reactions being overwhelmingly your
+        // own. (The send_complete handler already skips own reactions with the comment "prevents the
+        // double processing that causes the toggle behavior" — the same bug, patched one path at a
+        // time rather than at the source.)
+        return existing
     } else {
         updatedUsers.add(reactionEvent.sender)
         updatedUserReactions.add(

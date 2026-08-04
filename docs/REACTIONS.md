@@ -33,6 +33,31 @@ In `AppViewModel.processSyncEventsArray`, when `isReactionEvent(event)`:
 
 It used to key on the logical `sender_emoji_target` triple, which **latched**: the key was only ever cleared by a matching redaction, so if that redaction was missed the user's next identical reaction was silently dropped at the guard forever. Symptom: the reaction sends fine and never renders. Missed redactions were made likely by the E2EE routing bug below, which kept the reaction out of `cache.reactionEvents` so `findEventForReply` could not resolve what the redaction pointed at.
 
+### An `m.reaction` never removes
+
+`applyReactionToBucket` is **idempotent**: a second `m.reaction` for the same
+`(sender, emoji, target)` is a no-op, not a toggle. Removal has exactly one source — a
+`m.room.redaction` of the reaction event, routed to `removeReaction`. Tapping a badge in this app
+sends a *new* `m.reaction` and lets the backend redact; there is no client-side un-react.
+
+It used to toggle, and that quietly ate reactions. The event-id dedup guard catches re-delivery of
+the *same* event, but not a second event for the same logical reaction — which is exactly what your
+own sends produce. gomuks delivers a pending copy first:
+
+```jsonc
+{"event_id": "$ufRXIO…", "sender": "@you:…", "type": "m.reaction",
+ "timeline_rowid": -1, "transaction_id": "hicli-mautrix-go_…", "send_error": "not sent",
+ "content": {"m.relates_to": {"rel_type": "m.annotation", "event_id": "$target", "key": "❤️"}}}
+```
+
+…and later supersedes it with the confirmed event under a different id. The badge appeared, then
+vanished. That is why lost reactions were overwhelmingly *your own*: other people's reactions reach
+you once, already confirmed. Note `send_error` here is top-level, while the app only reads it from
+`local_content`, so nothing marks this copy as provisional — the ingest must be idempotent instead.
+
+The `send_complete` handler's existing "skip our own reactions … prevents the double processing that
+causes the toggle behavior" guard was an earlier patch for this same bug on a different path.
+
 ### E2EE-wrapped reactions
 
 In an encrypted room a reaction can arrive as `m.room.encrypted` with the real type in `decrypted_type`, and with `m.relates_to` in the `decrypted` payload rather than in `content` (which holds ciphertext). **Every ingest, cache-routing and render-filter site must test `isReactionEvent(event)` and read `reactionContent(event)`**, never `event.type` / `event.content` directly — same rule polls follow via `pollEventType`, and redactions via their explicit `m.room.encrypted && decryptedType == "m.room.redaction"` arm.
