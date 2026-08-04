@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.extractReactionEventFromTimeline
+import net.vrkknn.andromuks.utils.isReactionEvent
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -315,7 +316,7 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
     }
 
     fun processReactionFromTimeline(event: TimelineEvent): Boolean {
-        if (event.type != "m.reaction") return false
+        if (!isReactionEvent(event)) return false
 
         val reaction = extractReactionEventFromTimeline(event) ?: return false
 
@@ -510,7 +511,7 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
                         "AppViewModel: Created reaction event: type=${event.type}, roomId=${event.roomId}, eventId=${event.eventId}",
                     )
                 }
-                if (event.type == "m.reaction") {
+                if (isReactionEvent(event)) {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
@@ -576,7 +577,7 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
                 val event = TimelineEvent.fromJson(eventJson)
                 timelineEvents.add(event)
 
-                if (event.type == "m.reaction" && event.roomId == roomId) {
+                if (isReactionEvent(event) && event.roomId == roomId) {
                     if (processReactionFromTimeline(event)) {
                         reactionsProcessed++
                     }

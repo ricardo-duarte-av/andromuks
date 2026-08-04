@@ -8,6 +8,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.utils.isReactionEvent
 import org.json.JSONObject
 
 /**
@@ -538,7 +539,7 @@ class SyncIngestor(private val context: Context) {
 
                     if (timelineEvent != null) {
                         // Track edit/redaction/reaction flags
-                        if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
+                        if (timelineEvent.type == "m.room.redaction" || isReactionEvent(timelineEvent)) {
                             hasEditRedactionReaction = true
                         }
                         if (timelineEvent.relationType == "m.replace") {
@@ -606,7 +607,7 @@ class SyncIngestor(private val context: Context) {
 
                         if (timelineEvent != null) {
                             // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
-                            if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
+                            if (timelineEvent.type == "m.room.redaction" || isReactionEvent(timelineEvent)) {
                                 hasEditRedactionReaction = true
                             }
                             if (timelineEvent.relationType == "m.replace") {
@@ -693,7 +694,7 @@ class SyncIngestor(private val context: Context) {
                         }
 
                         // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
-                        if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
+                        if (timelineEvent.type == "m.room.redaction" || isReactionEvent(timelineEvent)) {
                             hasEditRedactionReaction = true
                         }
                         if (timelineEvent.relationType == "m.replace") {

@@ -43,7 +43,9 @@ import net.vrkknn.andromuks.utils.applyIncomingWebSocketMessageForViewModel
 import net.vrkknn.andromuks.utils.extractReactionEventFromTimeline
 import net.vrkknn.andromuks.utils.isPollEventType
 import net.vrkknn.andromuks.utils.isPollStartType
+import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.pollEventType
+import net.vrkknn.andromuks.utils.reactionContent
 import okhttp3.WebSocket
 import org.json.JSONArray
 import org.json.JSONObject
@@ -9109,7 +9111,7 @@ class AppViewModel : ViewModel() {
             // This drastically reduces shortcut updates - only when user actively sends messages
             // Update shortcuts BEFORE room check so it works for any room, not just current room
             if ((event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") &&
-                event.sender == currentUserId && event.roomId.isNotEmpty()
+                !isReactionEvent(event) && event.sender == currentUserId && event.roomId.isNotEmpty()
             ) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
@@ -9180,9 +9182,9 @@ class AppViewModel : ViewModel() {
                 return
             }
 
-            if (event.type == "m.reaction") {
+            if (isReactionEvent(event)) {
                 // Process reaction events to update messageReactions instead of adding to timeline
-                val relatesTo = event.content?.optJSONObject("m.relates_to")
+                val relatesTo = reactionContent(event)?.optJSONObject("m.relates_to")
                 val emoji = relatesTo?.optString("key", "") ?: ""
                 val relatesToEventId = relatesTo?.optString("event_id", "") ?: ""
 
@@ -11654,7 +11656,7 @@ class AppViewModel : ViewModel() {
                     if (cachedRedacted != null) {
                         pollCoordinator.removeRedactedPollEvent(cachedRedacted)?.let { touchedPolls.add(it) }
                     }
-                    if (cachedRedacted != null && cachedRedacted.type == "m.reaction") {
+                    if (cachedRedacted != null && isReactionEvent(cachedRedacted)) {
                         val reactionEvent = extractReactionEventFromTimeline(cachedRedacted)
                         if (reactionEvent != null) {
                             removeReaction(reactionEvent)
@@ -11679,13 +11681,14 @@ class AppViewModel : ViewModel() {
                 }
 
                 // OPTIMIZED: UI update will be triggered by buildTimelineFromChain() at the end of processSyncEventsArray
-            } else if (event.type == "m.reaction") {
+            } else if (isReactionEvent(event)) {
                 // CRITICAL FIX: Add reaction events to cache so they can be restored when reopening room
                 // Reaction events are processed in-memory AND cached for persistence
                 RoomTimelineCache.mergePaginatedEvents(roomId, listOf(event))
 
-                // Process reaction events (don't add to timeline)
-                val content = event.content
+                // Process reaction events (don't add to timeline). In an encrypted room the
+                // m.relates_to lives in the decrypted payload, not in the (ciphertext) content.
+                val content = reactionContent(event)
                 if (content != null) {
                     val relatesTo = content.optJSONObject("m.relates_to")
                     if (relatesTo != null) {

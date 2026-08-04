@@ -49,6 +49,7 @@ import net.vrkknn.andromuks.ReactionEvent
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.MediaUtils
+import org.json.JSONObject
 
 /**
  * Displays a single reaction badge showing either an emoji or an image.
@@ -484,10 +485,28 @@ private fun normalizeReactionTimestamp(primary: Long, vararg fallbacks: Long): L
 }
 
 /**
- * Extract [ReactionEvent] from a timeline `m.reaction` event (shared by [net.vrkknn.andromuks.ReactionCoordinator]).
+ * True when [event] is a reaction, whether it arrived in the clear or E2EE-wrapped.
+ *
+ * In an encrypted room a reaction can arrive as `m.room.encrypted` with the real type in
+ * `decrypted_type`, exactly like polls ([net.vrkknn.andromuks.utils.pollEventType]) and redactions.
+ * Every ingest, cache-routing and render-filter site must use this rather than testing `event.type`
+ * directly, or the reaction falls through to the message branch, gets pushed into the event chain as
+ * a timeline row, and is cached as a message instead of a reaction — so it neither renders on its
+ * target nor survives a room reopen.
+ */
+fun isReactionEvent(event: TimelineEvent): Boolean = event.type == "m.reaction" || event.decryptedType == "m.reaction"
+
+/**
+ * The plaintext content of [event]: the decrypted payload when E2EE-wrapped, otherwise `content`
+ * (which for a wrapped event holds ciphertext, not `m.relates_to`).
+ */
+fun reactionContent(event: TimelineEvent): JSONObject? = event.decrypted ?: event.content
+
+/**
+ * Extract [ReactionEvent] from a timeline reaction event (shared by [net.vrkknn.andromuks.ReactionCoordinator]).
  */
 fun extractReactionEventFromTimeline(event: TimelineEvent): ReactionEvent? {
-    val content = event.content ?: return null
+    val content = reactionContent(event) ?: return null
     val relatesTo = content.optJSONObject("m.relates_to") ?: return null
 
     val relatesToEventId = relatesTo.optString("event_id")

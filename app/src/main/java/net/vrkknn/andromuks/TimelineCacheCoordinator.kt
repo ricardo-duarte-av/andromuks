@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.isPollSatelliteEvent
+import net.vrkknn.andromuks.utils.isReactionEvent
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -1868,7 +1869,7 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             }
                         } else {
                             // Process reaction events using helper function
-                            if (event.type == "m.reaction") {
+                            if (isReactionEvent(event)) {
                                 if (reactionCoordinator.processReactionFromTimeline(event)) {
                                     reactionProcessedCount++
                                 }

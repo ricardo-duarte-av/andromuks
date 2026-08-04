@@ -183,6 +183,7 @@ import net.vrkknn.andromuks.utils.VideoUploadUtils
 import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
 import net.vrkknn.andromuks.utils.isBarePollCommand
 import net.vrkknn.andromuks.utils.isPollSatelliteEvent
+import net.vrkknn.andromuks.utils.isReactionEvent
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -1455,7 +1456,7 @@ fun BubbleTimelineScreen(
                 { it.eventId },
             )
             val renderedIds = HashSet<String>(sortedEvents.size)
-            for (e in sortedEvents) if (e.type != "m.reaction") renderedIds.add(e.eventId)
+            for (e in sortedEvents) if (!isReactionEvent(e)) renderedIds.add(e.eventId)
             val absorbedByAnchor = HashMap<String, MutableList<String>>()
             run {
                 var anchor: String? = null
@@ -1470,7 +1471,7 @@ fun BubbleTimelineScreen(
 
             val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
             for (event in sortedEvents) {
-                if (event.type == "m.reaction") {
+                if (isReactionEvent(event)) {
                     // Reactions mutate their target event and should not render as standalone timeline items
                     continue
                 }

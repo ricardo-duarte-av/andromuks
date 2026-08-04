@@ -7,6 +7,7 @@ import androidx.compose.runtime.IntState
 import androidx.compose.runtime.mutableIntStateOf
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.isPollSatelliteEvent
+import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.pollRelatesToEventId
 import org.json.JSONArray
 
@@ -409,7 +410,7 @@ object RoomTimelineCache {
                         }
                     }
                 }
-            } else if (event.type == "m.reaction") {
+            } else if (isReactionEvent(event)) {
                 // Store reaction events separately (they're filtered from main events list but needed to restore reactions)
                 val existingReactionIndex = cache.reactionEvents.indexOfFirst { it.eventId == event.eventId }
                 if (existingReactionIndex < 0) {
@@ -1194,7 +1195,7 @@ object RoomTimelineCache {
                 return 0
             }
 
-            val reactionEventsCount = newEvents.count { it.type == "m.reaction" }
+            val reactionEventsCount = newEvents.count { isReactionEvent(it) }
             val minRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.minOrNull()
             val maxRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.maxOrNull()
             val minRowDisplay = minRowId?.toString() ?: "n/a"
@@ -1994,7 +1995,7 @@ object RoomTimelineCache {
                 //    rowid=-1 is the old state-only sentinel.
                 // 3. Everything else is cached and left to the render layer to show or hide.
                 val shouldCache = when {
-                    event.type == "m.reaction" -> true
+                    isReactionEvent(event) -> true
 
                     // handled separately in addEventsToCache
                     event.type == "com.beeper.message_send_status" -> true
