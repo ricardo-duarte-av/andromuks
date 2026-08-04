@@ -6030,6 +6030,8 @@ fun RoomTimelineScreen(
                                                         caption = caption.takeIf { it.isNotBlank() },
                                                         threadRootEventId = replyThreadRootEventId,
                                                         replyToEventId = replyToEventId,
+                                                        // A real reply, not a thread anchor.
+                                                        isThreadFallback = false,
                                                     )
                                                 } else {
                                                     Log.e(
@@ -6077,6 +6079,8 @@ fun RoomTimelineScreen(
                                                         caption = caption.takeIf { it.isNotBlank() },
                                                         threadRootEventId = replyThreadRootEventId,
                                                         replyToEventId = replyToEventId,
+                                                        // A real reply, not a thread anchor.
+                                                        isThreadFallback = false,
                                                     )
                                                 } else {
                                                     Log.e(
@@ -6123,6 +6127,8 @@ fun RoomTimelineScreen(
                                                         caption = caption.takeIf { it.isNotBlank() },
                                                         threadRootEventId = replyThreadRootEventId,
                                                         replyToEventId = replyToEventId,
+                                                        // A real reply, not a thread anchor.
+                                                        isThreadFallback = false,
                                                     )
                                                 } else {
                                                     Log.e(
@@ -6177,6 +6183,8 @@ fun RoomTimelineScreen(
                                                         thumbnailSize = uploadResult.thumbnailSize,
                                                         threadRootEventId = replyThreadRootEventId,
                                                         replyToEventId = replyToEventId,
+                                                        // A real reply, not a thread anchor.
+                                                        isThreadFallback = false,
                                                     )
                                                 } else {
                                                     Log.e(

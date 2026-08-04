@@ -83,23 +83,19 @@ internal class PollCoordinator(private val vm: AppViewModel) {
     /**
      * The `relates_to` for a poll created inside a thread, matching the shape gomuks/webmuks send.
      *
-     * Note this deliberately keeps `is_falling_back = true` *alongside* `m.in_reply_to`: per the
-     * threads spec that pairing means "this in_reply_to is a fallback for non-threaded clients, not
-     * a real reply", which is exactly the case for a poll posted into a thread. (The app's shared
-     * `buildMediaRelatesTo` instead sets `is_falling_back` only when there is no reply target — a
-     * discrepancy worth looking at separately, but not one to change from here.)
+     * `is_falling_back = true` sits *alongside* `m.in_reply_to` on purpose: per the threads spec that
+     * pairing means "this in_reply_to is a fallback for non-threaded clients, not a real reply",
+     * which is exactly the case for a poll posted into a thread. This path was already correct when
+     * the media path was not (GH #28); both now share [net.vrkknn.andromuks.utils.threadRelatesTo].
      */
-    private fun pollThreadRelatesTo(roomId: String, threadRootEventId: String, replyToEventId: String?): Map<String, Any> {
-        val replyTarget = replyToEventId
-            ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
-            ?: threadRootEventId
-        return mapOf(
-            "rel_type" to "m.thread",
-            "event_id" to threadRootEventId,
-            "is_falling_back" to true,
-            "m.in_reply_to" to mapOf("event_id" to replyTarget),
+    private fun pollThreadRelatesTo(roomId: String, threadRootEventId: String, replyToEventId: String?): Map<String, Any> =
+        // Always a fallback: creating a poll in a thread is never itself a reply to a message.
+        net.vrkknn.andromuks.utils.threadRelatesTo(
+            threadRootEventId = threadRootEventId,
+            replyToEventId = replyToEventId
+                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId,
+            isFallback = true,
         )
-    }
 
     /**
      * Routes any poll event into the raw stores. Returns true if it changed anything.

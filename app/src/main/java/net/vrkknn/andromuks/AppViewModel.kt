@@ -8233,6 +8233,7 @@ class AppViewModel : ViewModel() {
         description: String = "",
         threadRootEventId: String? = null,
         replyToEventId: String? = null,
+        isThreadFallback: Boolean = true,
     ) = messageSendCoordinator.sendLocationMessage(
         roomId,
         latitude,
@@ -8240,6 +8241,7 @@ class AppViewModel : ViewModel() {
         description,
         threadRootEventId,
         replyToEventId,
+        isThreadFallback,
     )
 
     fun sendReply(roomId: String, text: String, originalEvent: TimelineEvent, perMessageProfile: Map<String, Any>? = null) =

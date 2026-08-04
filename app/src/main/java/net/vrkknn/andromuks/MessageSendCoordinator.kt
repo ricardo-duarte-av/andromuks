@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.utils.threadRelatesTo
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -565,28 +566,22 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
     /**
      * Builds the `relates_to` map for a media/attachment send, or null when the message relates to
      * nothing. Three cases:
-     *  - Thread send (`threadRootEventId != null`): an `m.thread` relation, with an `m.in_reply_to`
-     *    target that is either the explicit [replyToEventId] or the thread's last message (falling
-     *    back flag set when neither resolves).
+     *  - Thread send (`threadRootEventId != null`): an `m.thread` relation whose `m.in_reply_to`
+     *    anchors at the explicit [replyToEventId], else the thread's last message, else the root.
+     *    [isThreadFallback] comes from the caller and says whether that anchor is a real reply — it
+     *    must NOT be re-derived from whether a target resolved (GH #28).
      *  - Plain reply (`threadRootEventId == null` but [replyToEventId] != null): a bare
      *    `m.in_reply_to`, matching the shape produced by [sendReplyInternal] for text replies. This
      *    is what lets us reply to a message *with* an image/video/audio/file.
      *  - Neither: null.
      */
-    private fun buildMediaRelatesTo(roomId: String, threadRootEventId: String?, replyToEventId: String?): Map<String, Any>? = when {
-        threadRootEventId != null -> {
-            val resolvedReplyTarget = replyToEventId
-                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
-            val relatesTo = mutableMapOf<String, Any>(
-                "rel_type" to "m.thread",
-                "event_id" to threadRootEventId,
-                "is_falling_back" to (resolvedReplyTarget == null),
-            )
-            if (resolvedReplyTarget != null) {
-                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
-            }
-            relatesTo
-        }
+    private fun buildMediaRelatesTo(roomId: String, threadRootEventId: String?, replyToEventId: String?, isThreadFallback: Boolean): Map<String, Any>? = when {
+        threadRootEventId != null -> threadRelatesTo(
+            threadRootEventId = threadRootEventId,
+            replyToEventId = replyToEventId
+                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId,
+            isFallback = isThreadFallback,
+        )
 
         replyToEventId != null -> mapOf(
             "m.in_reply_to" to mapOf("event_id" to replyToEventId),
@@ -670,11 +665,11 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             ),
             "url_previews" to emptyList<String>(),
         )
-        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId, isThreadFallback)?.let {
             commandData["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId, isThreadFallback)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
@@ -796,11 +791,11 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             "url_previews" to emptyList<Any>(),
         )
 
-        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId, isThreadFallback)?.let {
             dataMap["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId, isThreadFallback)
         vm.sendWebSocketCommand("send_message", messageRequestId, dataMap)
 
         vm.messageRequests[messageRequestId] = roomId
@@ -820,6 +815,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         description: String = "",
         threadRootEventId: String? = null,
         replyToEventId: String? = null,
+        isThreadFallback: Boolean = true,
     ) {
         notifyUserSentTo(roomId)
         val messageRequestId = vm.getAndIncrementRequestId()
@@ -850,11 +846,11 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             "url_previews" to emptyList<Any>(),
         )
 
-        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId, isThreadFallback)?.let {
             dataMap["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId, isThreadFallback)
         vm.sendWebSocketCommand("send_message", messageRequestId, dataMap)
         vm.messageRequests[messageRequestId] = roomId
         vm.pendingSendCount++
@@ -937,11 +933,11 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             ),
             "url_previews" to emptyList<String>(),
         )
-        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId, isThreadFallback)?.let {
             commandData["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId, isThreadFallback)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
@@ -1039,11 +1035,11 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             ),
             "url_previews" to emptyList<String>(),
         )
-        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId, isThreadFallback)?.let {
             commandData["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId, isThreadFallback)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
@@ -1107,11 +1103,11 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             ),
             "url_previews" to emptyList<String>(),
         )
-        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let {
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId, isThreadFallback)?.let {
             commandData["relates_to"] = it
         }
 
-        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId)
+        insertMediaEcho(roomId, messageRequestId, baseContent, threadRootEventId, replyToEventId, isThreadFallback)
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
@@ -1168,15 +1164,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
 
         val isFallingBack = fallbackReplyToEventId == null
 
-        val relatesTo = mutableMapOf<String, Any>(
-            "rel_type" to "m.thread",
-            "event_id" to threadRootEventId,
-            "is_falling_back" to isFallingBack,
-        )
-
-        if (resolvedReplyTarget != null) {
-            relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
-        }
+        val relatesTo = threadRelatesTo(threadRootEventId, resolvedReplyTarget, isFallingBack)
 
         val urlPreviewsList = mutableListOf<Any>()
         for (i in 0 until urlPreviews.length()) {
@@ -1235,12 +1223,19 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
      * `base_content` map sent to the backend (msgtype/body/url/info/...), so the bubble renders
      * identically to the confirmed event.
      */
-    private fun insertMediaEcho(roomId: String, requestId: Int, baseContent: Map<String, Any>, threadRootEventId: String?, replyToEventId: String? = null) {
+    private fun insertMediaEcho(
+        roomId: String,
+        requestId: Int,
+        baseContent: Map<String, Any>,
+        threadRootEventId: String?,
+        replyToEventId: String? = null,
+        isThreadFallback: Boolean = true,
+    ) {
         val content = JSONObject(baseContent)
         // Embed the same relates_to we send to the server so the optimistic bubble renders the
         // reply quote (and thread relation) immediately — getReplyInfo()/getThreadInfo() read it
         // from content, not from the TimelineEvent-level relationType/relatesTo fields below.
-        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId)?.let { relatesTo ->
+        buildMediaRelatesTo(roomId, threadRootEventId, replyToEventId, isThreadFallback)?.let { relatesTo ->
             content.put("m.relates_to", JSONObject(relatesTo))
         }
         vm.localEchoCoordinator.insert(
