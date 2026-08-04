@@ -120,10 +120,30 @@ buffered votes are picked up. No orphan-placeholder machinery is needed (contras
 | Redaction | The cache-lookup block in the same function — poll satellites are never in `timelineEvents`, so the redacted event is resolved via `RoomTimelineCache.findEventForReply`. |
 | Paginate | `TimelineCacheCoordinator.processEventsArray` — satellites are filtered out of `timelineList` into `paginatedPollEvents`, then **explicitly re-merged** via `mergePaginatedEvents`. |
 | Room open | `processCachedEvents` and `handleInitialTimelineBuild` call `loadPollsForRoom(..., forceReload = true)`. |
+| Secondary VM | The `RoomListSingletonReplicated` handler, right after `restoreFromLruCache` — see below. |
 | On demand | `requestPollDetails` → `get_related_events` with `relation_type = "m.reference"`. |
 
 > The explicit paginate re-merge is load-bearing, exactly as it is for reactions. Without it,
 > paginated votes are dropped and the counts vanish on the next room open.
+
+### Rooms open in a secondary VM rebuild their own polls
+
+`processSyncEventsArray` runs for `currentRoomId` only, so a poll shown in a chat bubble or
+`ShortcutActivity` sees no votes cast elsewhere until it is reopened. The primary VM cannot fix this
+on the bubble's behalf, and deliberately does not try:
+
+- the raw stores (`pollStartInfos`, `pollVoteEvents`, `pollEndEvents`) are **per-VM** `AppViewModel`
+  fields, not a singleton — unlike `MessageReactionsCache`, where the primary VM *does* ingest for
+  other open rooms;
+- `computePollResults` validates `m.poll.end` against `currentRoomState.powerLevels`, which in the
+  primary VM belongs to whichever room *it* has open. Recomputing another room's poll there could
+  wrongly accept or reject an end event.
+
+So the secondary VM rebuilds its own, via `loadPollsForRoom(currentRoomId, timelineEvents,
+forceReload = true)` immediately after its timeline restore. Only the recompute was ever missing:
+`addEventsToCache` already routes poll satellites into `RoomTimelineCache.pollEvents` on the sync
+path that keeps bubble rooms' caches fresh. See
+[docs/WEBSOCKET_LIFECYCLE.md](WEBSOCKET_LIFECYCLE.md#state-that-lives-outside-the-timeline-cache-needs-its-own-ingest).
 
 ### Why `m.reference` is *not* in `requiresFullRerender`
 

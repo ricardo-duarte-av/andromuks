@@ -144,7 +144,9 @@ Refreshing `RoomTimelineCache` is not enough for anything held in a *separate* s
 
 Reactions were the concrete casualty: badges in a bubble stayed frozen at whatever the last full room open produced. `checkAndUpdateCurrentRoomTimelineOptimized` now also calls `ReactionCoordinator.ingestReactionsFromSync(bubbleRoomId, events)` for each non-current open room. That is safe because reaction render state is keyed by *target event ID*, not by room, and `MessageReactionsCache`'s change listener repaints every registered VM. See [docs/REACTIONS.md](REACTIONS.md).
 
-Anything else added to that dispatch with a singleton store of its own (polls are the obvious next one) needs the same treatment, or it will silently be current-room-only.
+**Polls need the mirror-image fix, and the difference matters.** Reaction state is a singleton keyed by target event ID, so the primary VM can ingest on a secondary VM's behalf. Poll state is not: `pollStartInfos` / `pollVoteEvents` / `pollEndEvents` are per-VM `AppViewModel` fields, and `computePollResults` validates `m.poll.end` against `currentRoomState.powerLevels` — which in the primary VM belongs to a *different* room. So the primary VM must **not** recompute polls for anyone else. Instead the secondary VM rebuilds its own, in the `RoomListSingletonReplicated` handler right after `restoreFromLruCache`, via `pollCoordinator.loadPollsForRoom(currentRoomId, timelineEvents, forceReload = true)`. The raw response/end events it reads are already replicated: `addEventsToCache` routes poll satellites into `RoomTimelineCache.pollEvents` on the same sync path the bubble loop uses.
+
+The rule for anything added to that dispatch with state of its own: if the store is a **singleton**, ingest for other open rooms from the primary VM and repaint via a cache listener; if the store is **per-VM**, or deriving it needs per-room state the primary VM does not hold, rebuild it in the secondary VM after its cache restore. Getting neither is the silent failure mode — the room's cache stays fresh and the feature quietly freezes.
 
 ## `setWebSocket` Ordering Invariant
 
