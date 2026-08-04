@@ -405,11 +405,21 @@ fun ReactionBadges(
  * whole `eventId -> reactions` map, which made every live-sync ingest a read-modify-write across a
  * thread hop and silently dropped reactions that arrived in the same batch.
  *
+ * A bucket comes in one of two shapes and the transform must survive both:
+ * - **per-user** (built from individual `m.reaction` events): `count == userReactions.size`.
+ * - **count-only** (built by the aggregated repair from the backend's flattened `reactions` map):
+ *   `users`/`userReactions` empty, `count` authoritative.
+ *
+ * So `count` is never recomputed from `userReactions.size` — a live add on a count-only bucket used
+ * to reset a count of 5 back to 1, which is why tapping an existing badge appeared to do nothing.
+ *
  * @param reactionEvent The reaction event to apply
  * @param existing The target message's current reactions (empty when it has none yet)
+ * @param isHistorical True for replays (cache restore, pagination, related_events) whose effect the
+ *   backend's aggregated count already includes, so they must not inflate it
  * @return The target message's updated reactions
  */
-fun applyReactionToBucket(reactionEvent: ReactionEvent, existing: List<MessageReaction>): List<MessageReaction> {
+fun applyReactionToBucket(reactionEvent: ReactionEvent, existing: List<MessageReaction>, isHistorical: Boolean = false): List<MessageReaction> {
     val eventReactions = existing.toMutableList()
     val existingReactionIndex = eventReactions.indexOfFirst { it.emoji == reactionEvent.emoji }
 
@@ -433,14 +443,16 @@ fun applyReactionToBucket(reactionEvent: ReactionEvent, existing: List<MessageRe
     val existingUserIndex = updatedUserReactions.indexOfFirst { it.userId == reactionEvent.sender }
 
     if (existingUserIndex >= 0) {
-        // Toggle off: the sender already had this emoji on this message.
+        // Toggle off: the sender already had this emoji on this message. Decrement rather than
+        // recount, so the other reactors a count-only bucket knows about but cannot name survive.
         updatedUsers.remove(reactionEvent.sender)
         updatedUserReactions.removeAt(existingUserIndex)
-        if (updatedUserReactions.isEmpty()) {
+        val newCount = (existingReaction.count - 1).coerceAtLeast(updatedUserReactions.size)
+        if (newCount <= 0) {
             eventReactions.removeAt(existingReactionIndex)
         } else {
             eventReactions[existingReactionIndex] = existingReaction.copy(
-                count = updatedUserReactions.size,
+                count = newCount,
                 users = updatedUsers,
                 userReactions = updatedUserReactions,
             )
@@ -450,8 +462,11 @@ fun applyReactionToBucket(reactionEvent: ReactionEvent, existing: List<MessageRe
         updatedUserReactions.add(
             net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp),
         )
+        // Live reactions are genuinely new, so the count grows. Historical replays are already
+        // reflected in an aggregated count, so they may only fill in users, never inflate it.
+        val baseCount = if (isHistorical) existingReaction.count else existingReaction.count + 1
         eventReactions[existingReactionIndex] = existingReaction.copy(
-            count = updatedUserReactions.size,
+            count = maxOf(baseCount, updatedUserReactions.size),
             users = updatedUsers,
             userReactions = updatedUserReactions,
         )

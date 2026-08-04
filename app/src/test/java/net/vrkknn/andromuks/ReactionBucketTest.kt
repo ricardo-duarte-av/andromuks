@@ -70,6 +70,57 @@ class ReactionBucketTest {
         assertEquals(2, both.size)
     }
 
+    /** A bucket as the aggregated repair builds it: authoritative count, no named users. */
+    private fun countOnly(emoji: String = "👍", count: Int) = MessageReaction(emoji = emoji, count = count, users = emptyList())
+
+    @Test
+    fun `live add on a count-only bucket increments instead of resetting to one`() {
+        val result = applyReactionToBucket(reaction(alice), listOf(countOnly(count = 5)))
+
+        assertEquals(1, result.size)
+        assertEquals(6, result[0].count)
+        assertEquals(listOf(alice), result[0].users)
+    }
+
+    @Test
+    fun `live add on a count-only bucket of one does not stall the badge`() {
+        // The reported symptom: tapping an existing badge sent fine but the count never moved,
+        // because count was recomputed as userReactions.size == 1.
+        val result = applyReactionToBucket(reaction(alice), listOf(countOnly(count = 1)))
+
+        assertEquals(2, result[0].count)
+    }
+
+    @Test
+    fun `historical replay fills in users without inflating an aggregated count`() {
+        var bucket = listOf(countOnly(count = 2))
+        bucket = applyReactionToBucket(reaction(alice), bucket, isHistorical = true)
+        bucket = applyReactionToBucket(reaction(bob), bucket, isHistorical = true)
+
+        assertEquals(2, bucket[0].count)
+        assertEquals(setOf(alice, bob), bucket[0].users.toSet())
+    }
+
+    @Test
+    fun `historical replay still grows a purely per-user bucket`() {
+        val seeded = applyReactionToBucket(reaction(alice), emptyList(), isHistorical = true)
+        val grown = applyReactionToBucket(reaction(bob), seeded, isHistorical = true)
+
+        assertEquals(2, grown[0].count)
+    }
+
+    @Test
+    fun `toggling off a mixed bucket decrements rather than dropping unnamed reactors`() {
+        // count 5 from the backend, but only alice is named locally.
+        val mixed = listOf(countOnly(count = 5).copy(users = listOf(alice), userReactions = listOf(UserReaction(alice, 1L))))
+
+        val result = applyReactionToBucket(reaction(alice), mixed)
+
+        assertEquals(1, result.size)
+        assertEquals(4, result[0].count)
+        assertTrue(result[0].users.isEmpty())
+    }
+
     @Test
     fun `mutate reports whether the bucket actually changed`() {
         val target = "\$mutate-target"

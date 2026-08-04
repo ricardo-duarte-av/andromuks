@@ -43,7 +43,7 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
             if (isHistorical && alreadyAppliedHistorically(reactionEvent, existing)) {
                 existing
             } else {
-                net.vrkknn.andromuks.utils.applyReactionToBucket(reactionEvent, existing)
+                net.vrkknn.andromuks.utils.applyReactionToBucket(reactionEvent, existing, isHistorical)
             }
         }
 
