@@ -7,9 +7,10 @@ import org.json.JSONObject
 /**
  * Matrix polls (MSC3381) — wire parsing and vote aggregation.
  *
- * This file is deliberately free of Android and Compose dependencies so [computePollResults] can be
- * unit tested directly. JSON parsing lives in the `parsePoll*` functions; the aggregator operates on
- * the already-parsed data classes below (`org.json` is not on the unit-test classpath).
+ * This file is deliberately free of Android and Compose dependencies so it can be unit tested
+ * directly: `computePollResults` in `PollAggregationTest`, the `parsePoll*` wire parsing in
+ * `PollParsingTest`. (The parsers were untestable until a real `org.json` replaced the stub on the
+ * unit-test classpath — see the `testOptions` comment in `app/build.gradle.kts`.)
  *
  * Orchestration lives in [net.vrkknn.andromuks.PollCoordinator]; the UI lives in
  * [net.vrkknn.andromuks.utils.PollMessageContent]. This mirrors how reactions are split between
