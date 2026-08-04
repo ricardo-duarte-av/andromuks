@@ -40,6 +40,39 @@ jobs:
       - name: Build base flavor (debug APK + release compile)
         run: ./gradlew :app:assembleBaseDebug :app:compileBaseReleaseKotlin --stacktrace --no-daemon --build-cache
 
+  # JVM unit tests. Runs in parallel with base-build and lint; secret-free, no device needed.
+  # Scoped to base debug because unit tests are per-variant and the 4-flavor fan-out would run the
+  # same tests eight times. Mirrors the `test` job in build.yml.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      - name: Run unit tests
+        run: ./gradlew :app:testBaseDebugUnitTest --stacktrace --no-daemon --build-cache
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/**
+            app/build/test-results/**
+          if-no-files-found: ignore
+
   # Kotlin static analysis + formatting (detekt, incl. ktlint-wrapper + compose-rules) and Android
   # lint. Runs in parallel with base-build; also secret-free. Baselines (config/detekt/*baseline*,
   # app/lint-baseline.xml) absorb existing debt so only NEW findings fail the PR.

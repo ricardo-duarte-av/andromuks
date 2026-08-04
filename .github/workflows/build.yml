@@ -26,11 +26,12 @@ permissions:
 # Sequential pipeline (each phase gates the next via `needs:`) so an early failure short-circuits the
 # rest instead of wasting parallel cycles. Two paths, split on whether the ref is a `v*` tag:
 #
-#   push master  →  lint → base
-#   tag v*       →  lint → base → play → release → variants
-#                   verify-tag (runs alongside lint/base, gates the tag-only phases)
+#   push master  →  lint + test → base
+#   tag v*       →  lint + test → base → play → release → variants
+#                   verify-tag (runs alongside lint/test/base, gates the tag-only phases)
 #
 #   Phase 1  lint       — detekt + Android lint (hard gate; every push)
+#   Phase 1  test       — JVM unit tests (hard gate; runs in parallel with lint)
 #   Phase 1' verify-tag — tag-only: `vX.Y.Z` must match versionName in app/build.gradle.kts
 #   Phase 2  base       — build base flavor (debug + release APKs + release AAB), nightly deploy
 #   Phase 3  play       — tag-only: upload the base AAB to the Play Console internal track
@@ -74,6 +75,46 @@ jobs:
           if-no-files-found: ignore
 
   # ---------------------------------------------------------------------------------------------
+  # Phase 1 — JVM unit tests. Runs in parallel with lint and gates `base` alongside it.
+  #
+  # These used to exist but never ran here, so a red test could not fail the pipeline and the suite
+  # was only as green as the last person to run it locally. Secret-free, and fast (no device, no
+  # emulator — see GH issue #20 for the instrumentation side).
+  #
+  # Scoped to base debug for the same reason Android lint is: unit tests are per-variant, and the
+  # 4-flavor fan-out would run identical tests eight times.
+  # ---------------------------------------------------------------------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      - name: Run unit tests
+        run: ./gradlew :app:testBaseDebugUnitTest --stacktrace --no-daemon --build-cache
+
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            app/build/reports/tests/**
+            app/build/test-results/**
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------------------------------------
   # Phase 1' — Tag sanity check. `versionCode` is time-derived (app/build.gradle.kts) so it's always
   # unique and monotonic — Play can never reject a duplicate. But `versionName` is bumped by hand,
   # and now that a tag means "release", a `v1.0.102` tag shipping an APK that reports 1.0.103 would
@@ -102,7 +143,7 @@ jobs:
   # Runs on every push (not just tags) so the rolling nightly channels stay current per-commit.
   # ---------------------------------------------------------------------------------------------
   base:
-    needs: lint
+    needs: [ lint, test ]
     runs-on: ubuntu-latest
     # deploy-nightly pushes assets onto existing releases.
     permissions:

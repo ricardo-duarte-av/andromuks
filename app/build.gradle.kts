@@ -145,6 +145,24 @@ android {
         resValues = true
     }
 
+    // Local unit tests (`./gradlew test`, and the `test` task in CI's lint job).
+    //
+    // The android.jar these run against is a STUB: every method throws
+    // "Method ... not mocked" by default. That made anything touching android.util.Log
+    // untestable, which is why the only unit tests that existed were of pure functions
+    // deliberately extracted away from Android APIs.
+    //
+    // `isReturnDefaultValues` turns those throws into null/0/false. That is the right trade for
+    // Log — but it would be a TRAP for org.json, whose stub would then silently return null
+    // instead of failing loudly, so a parser test would "pass" while parsing nothing. The real
+    // org.json on the testImplementation classpath (see dependencies) shadows the stub and closes
+    // that hole. Keep the two together: neither is safe without the other.
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     // Android lint (complements detekt, which covers Kotlin style/Compose). The baseline records
     // the ~current backlog so CI fails only on NEW lint issues; it is created on the first run of
     // `:app:lintBaseDebug` (see bootstrap steps). SARIF is emitted for CI artifact upload.
@@ -261,6 +279,9 @@ dependencies {
     implementation("com.google.android.gms:play-services-location:21.3.0")
     
     testImplementation(libs.junit)
+    // MUST come before the android.jar stub on the unit-test classpath — see the testOptions
+    // comment above. This is what makes JSON parsers unit-testable.
+    testImplementation(libs.org.json)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -24,7 +24,7 @@ Andromuks is a Matrix protocol chat client for Android, built with Jetpack Compo
 ./gradlew assemble --stacktrace --no-daemon --parallel --build-cache
 # Single flavor: ./gradlew assembleBase   (or assembleA / assembleB / assembleC)
 
-# Unit tests
+# Unit tests (CI runs :app:testBaseDebugUnitTest)
 ./gradlew test
 
 # Instrumentation tests
@@ -39,7 +39,30 @@ Andromuks is a Matrix protocol chat client for Android, built with Jetpack Compo
 
 Build produces arm64-v8a only (ABI splits enabled). JVM heap is configured at 4GB (`-Xmx4096m`).
 
-**ALWAYS run `./gradlew detekt` and fix every issue before committing.** CI's first job is `lint` (detekt + Android lint) and it hard-fails the whole pipeline on any finding — detekt treats warnings as build-failing issues (e.g. the `ModifierReused` rule: the `modifier` parameter must be applied by exactly one — the root — layout in a composable; nested layouts use a fresh `Modifier`). A green local compile is not enough.
+**ALWAYS run `./gradlew detekt` and fix every issue before committing.** CI's first phase is `lint` (detekt + Android lint) and it hard-fails the whole pipeline on any finding — detekt treats warnings as build-failing issues (e.g. the `ModifierReused` rule: the `modifier` parameter must be applied by exactly one — the root — layout in a composable; nested layouts use a fresh `Modifier`). A green local compile is not enough.
+
+**Run `./gradlew test` too when you touch logic.** A `test` job runs in parallel with `lint` in both workflows and gates `base` alongside it. See [Testing](#testing) for what is and isn't unit-testable here.
+
+### Testing
+
+Unit tests live in `app/src/test/`; `./gradlew test` runs them, CI runs `:app:testBaseDebugUnitTest`
+(scoped to one flavor — tests are per-variant and the 4-flavor fan-out would run them eight times).
+
+Two build settings make this work, and they are **a pair — neither is safe alone** (see the
+`testOptions` comment in `app/build.gradle.kts`):
+
+- `testOptions.unitTests.isReturnDefaultValues = true` — the unit-test `android.jar` is a stub whose
+  methods throw, which made anything touching `android.util.Log` untestable. This returns
+  null/0/false instead.
+- `testImplementation(libs.org.json)` — a **real** org.json that shadows that stub. Without it,
+  `isReturnDefaultValues` would make `JSONObject` silently return null and a parser test would pass
+  while parsing nothing. `ReactionEventParsingTest` asserts on parsed *values* specifically so
+  dropping this dependency fails loudly.
+
+Prefer extracting pure functions and testing those directly — it is why `PollFunctions` splits
+parsing from `computePollResults`, and why the reaction bucket maths is a pure transform. Compose
+screens, coordinators and the WebSocket lifecycle have no test harness yet; instrumentation/emulator
+testing is tracked in GH issue #20.
 
 ### Product flavors (side-by-side installs)
 
