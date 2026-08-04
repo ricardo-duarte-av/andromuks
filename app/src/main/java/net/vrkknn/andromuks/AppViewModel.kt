@@ -44,7 +44,6 @@ import net.vrkknn.andromuks.utils.extractReactionEventFromTimeline
 import net.vrkknn.andromuks.utils.isPollEventType
 import net.vrkknn.andromuks.utils.isPollStartType
 import net.vrkknn.andromuks.utils.pollEventType
-import net.vrkknn.andromuks.utils.processReactionEvent
 import okhttp3.WebSocket
 import org.json.JSONArray
 import org.json.JSONObject

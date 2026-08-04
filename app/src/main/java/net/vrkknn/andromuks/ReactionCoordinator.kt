@@ -36,81 +36,56 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
             vm.processedReactions.removeAll(toRemove)
         }
 
-        val previousReactions = vm.messageReactions[reactionEvent.relatesToEventId] ?: emptyList()
-
-        if (isHistorical) {
-            val existingForEmoji = previousReactions.find { it.emoji == reactionEvent.emoji }
-            val alreadyHasUser =
-                existingForEmoji?.userReactions?.any { it.userId == reactionEvent.sender } == true
-            if (alreadyHasUser) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Skipping historical duplicate reaction (idempotent) for ${reactionEvent.sender} ${reactionEvent.emoji} on ${reactionEvent.relatesToEventId}",
-                    )
-                }
-                return
+        // Read-modify-write happens inside the cache lock, scoped to this one target event, so a
+        // batch of reactions in a single sync_complete cannot clobber each other (see
+        // MessageReactionsCache.mutate).
+        val changed = MessageReactionsCache.mutate(reactionEvent.relatesToEventId) { existing ->
+            if (isHistorical && alreadyAppliedHistorically(reactionEvent, existing)) {
+                existing
+            } else {
+                net.vrkknn.andromuks.utils.applyReactionToBucket(reactionEvent, existing)
             }
         }
 
-        val updatedReactionsMap = net.vrkknn.andromuks.utils.processReactionEvent(
-            reactionEvent,
-            vm.currentRoomId,
-            vm.messageReactions,
-        )
-        val updatedReactions = updatedReactionsMap[reactionEvent.relatesToEventId] ?: emptyList()
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, previous=${previousReactions.size}, updated=${updatedReactions.size}",
+                "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, isHistorical=$isHistorical, changed=$changed",
             )
         }
 
-        if (!isHistorical) {
-            val previousPairs = previousReactions.flatMap { reaction ->
-                reaction.users.map { userId -> reaction.emoji to userId }
-            }.toSet()
-            val updatedPairs = updatedReactions.flatMap { reaction ->
-                reaction.users.map { userId -> reaction.emoji to userId }
-            }.toSet()
-
-            val additionOccurred = updatedPairs.contains(reactionEvent.emoji to reactionEvent.sender) &&
-                !previousPairs.contains(reactionEvent.emoji to reactionEvent.sender)
-            val removalOccurred = previousPairs.contains(reactionEvent.emoji to reactionEvent.sender) &&
-                !updatedPairs.contains(reactionEvent.emoji to reactionEvent.sender)
-
-            if (BuildConfig.DEBUG && (additionOccurred || removalOccurred)) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Reaction change processed (in-memory only): addition=$additionOccurred, removal=$removalOccurred for event ${reactionEvent.relatesToEventId}",
-                )
-            }
+        if (changed) {
+            notifyReactionsChanged()
         }
+    }
 
-        // mutableStateOf writes must happen on Main to avoid Compose snapshot conflicts
+    /**
+     * Historical replays (cache restore, pagination, related_events) are re-run freely, so they need
+     * a value-based idempotency check rather than the [AppViewModel.processedReactions] guard.
+     */
+    private fun alreadyAppliedHistorically(reactionEvent: ReactionEvent, existing: List<MessageReaction>): Boolean {
+        val existingForEmoji = existing.find { it.emoji == reactionEvent.emoji } ?: return false
+        return existingForEmoji.userReactions.any { it.userId == reactionEvent.sender }
+    }
+
+    /** Compose state writes must happen on Main to avoid snapshot conflicts. */
+    private fun notifyReactionsChanged() {
         vm.viewModelScope.launch(Dispatchers.Main) {
-            vm.messageReactions = updatedReactionsMap
             vm.reactionUpdateCounter++
         }
     }
 
     fun populateMessageReactionsFromCache() {
-        try {
-            val cachedReactions = MessageReactionsCache.getAllReactions()
-            if (cachedReactions.isNotEmpty()) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: populateMessageReactionsFromCache - populated with ${cachedReactions.size} events from cache",
-                    )
-                }
-                vm.viewModelScope.launch(Dispatchers.Main) {
-                    vm.messageReactions = cachedReactions
-                    vm.reactionUpdateCounter++
-                }
+        // messageReactions reads straight through to MessageReactionsCache, so nothing needs
+        // copying here — the UI just needs to be told the cache is now warm.
+        if (MessageReactionsCache.getEventCount() > 0) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: populateMessageReactionsFromCache - ${MessageReactionsCache.getEventCount()} events already in cache",
+                )
             }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate messageReactions from cache", e)
+            notifyReactionsChanged()
         }
     }
 
@@ -225,35 +200,8 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
             return
         }
 
-        val updated = vm.messageReactions.toMutableMap()
-        var changed = false
-
-        for ((eventId, reactions) in aggregatedByEvent) {
-            val existing = updated[eventId]
-            if (existing == null || existing.isEmpty()) {
-                updated[eventId] = reactions
-                changed = true
-            } else {
-                val aggregatedMap = reactions.associate { it.emoji to it.count }
-                val mergedReactions = existing.map { existingReaction ->
-                    val aggregatedCount = aggregatedMap[existingReaction.emoji] ?: existingReaction.count
-                    if (aggregatedCount > existingReaction.count) {
-                        existingReaction.copy(count = aggregatedCount)
-                    } else {
-                        existingReaction
-                    }
-                }.toMutableList()
-
-                val existingEmojis = existing.map { it.emoji }.toSet()
-                reactions.forEach { aggregatedReaction ->
-                    if (aggregatedReaction.emoji !in existingEmojis) {
-                        mergedReactions.add(aggregatedReaction)
-                    }
-                }
-
-                updated[eventId] = mergedReactions
-                changed = true
-            }
+        val changed = MessageReactionsCache.merge(aggregatedByEvent) { existing, aggregated ->
+            mergeAggregatedBucket(existing, aggregated)
         }
 
         if (changed) {
@@ -263,11 +211,35 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
                     "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events",
                 )
             }
-            vm.viewModelScope.launch(Dispatchers.Main) {
-                vm.messageReactions = updated
-                vm.reactionUpdateCounter++
+            notifyReactionsChanged()
+        }
+    }
+
+    /**
+     * Reconciles a locally-built bucket against the backend's flattened `reactions` counts: take the
+     * larger count per emoji and union in any emoji we never saw an individual event for. This is
+     * the repair that makes closing and re-opening a room "fix" missing reactions.
+     */
+    private fun mergeAggregatedBucket(existing: List<MessageReaction>, aggregated: List<MessageReaction>): List<MessageReaction> {
+        if (existing.isEmpty()) return aggregated
+
+        val aggregatedMap = aggregated.associate { it.emoji to it.count }
+        val merged = existing.map { existingReaction ->
+            val aggregatedCount = aggregatedMap[existingReaction.emoji] ?: existingReaction.count
+            if (aggregatedCount > existingReaction.count) {
+                existingReaction.copy(count = aggregatedCount)
+            } else {
+                existingReaction
+            }
+        }.toMutableList()
+
+        val existingEmojis = existing.mapTo(mutableSetOf()) { it.emoji }
+        aggregated.forEach { aggregatedReaction ->
+            if (aggregatedReaction.emoji !in existingEmojis) {
+                merged.add(aggregatedReaction)
             }
         }
+        return merged
     }
 
     fun removeReaction(reactionEvent: ReactionEvent) {
@@ -296,11 +268,25 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
         // Remove from dedup set so a future re-add (e.g. user reacts again) is not blocked.
         vm.processedReactions.remove(reactionKey)
 
-        val currentReactions = vm.messageReactions.toMutableMap()
-        val eventReactions = currentReactions[reactionEvent.relatesToEventId]?.toMutableList() ?: return
+        val changed = MessageReactionsCache.mutate(reactionEvent.relatesToEventId) { existingBucket ->
+            removeReactionFromBucket(reactionEvent, existingBucket)
+        }
 
+        if (changed) {
+            notifyReactionsChanged()
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: removeReaction - removed ${reactionEvent.emoji} from ${reactionEvent.sender} on ${reactionEvent.relatesToEventId}",
+                )
+            }
+        }
+    }
+
+    private fun removeReactionFromBucket(reactionEvent: ReactionEvent, existingBucket: List<MessageReaction>): List<MessageReaction> {
+        val eventReactions = existingBucket.toMutableList()
         val existingIndex = eventReactions.indexOfFirst { it.emoji == reactionEvent.emoji }
-        if (existingIndex < 0) return
+        if (existingIndex < 0) return existingBucket
 
         val existing = eventReactions[existingIndex]
         val updatedUsers = existing.users.toMutableList()
@@ -325,19 +311,7 @@ internal class ReactionCoordinator(private val vm: AppViewModel) {
                 userReactions = updatedUserReactions,
             )
         }
-
-        currentReactions[reactionEvent.relatesToEventId] = eventReactions
-        vm.viewModelScope.launch(Dispatchers.Main) {
-            vm.messageReactions = currentReactions
-            vm.reactionUpdateCounter++
-        }
-
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: removeReaction - removed ${reactionEvent.emoji} from ${reactionEvent.sender} on ${reactionEvent.relatesToEventId}",
-            )
-        }
+        return eventReactions
     }
 
     fun processReactionFromTimeline(event: TimelineEvent): Boolean {

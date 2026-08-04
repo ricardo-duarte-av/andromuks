@@ -396,84 +396,68 @@ fun ReactionBadges(
 }
 
 /**
- * Processes a reaction event and returns the updated message reactions map.
- * 
- * This function handles adding, removing, or updating reactions for a specific message.
- * It manages the reaction state by either adding new reactions or updating existing ones
- * based on whether the user is already in the reaction list.
- * 
- * @param reactionEvent The reaction event to process
- * @param currentRoomId The ID of the current room (only processes reactions for current room)
- * @param messageReactions The current map of message reactions
- * @return Updated map of message reactions
+ * Applies a single reaction event to the reaction bucket of its target message.
+ *
+ * Pure transform: takes the target's current [MessageReaction] list and returns the new one, adding
+ * the sender to the matching emoji or toggling them back off if they were already there. It is
+ * deliberately scoped to one target so callers can apply it atomically under
+ * [net.vrkknn.andromuks.MessageReactionsCache.mutate] — an earlier version took and returned the
+ * whole `eventId -> reactions` map, which made every live-sync ingest a read-modify-write across a
+ * thread hop and silently dropped reactions that arrived in the same batch.
+ *
+ * @param reactionEvent The reaction event to apply
+ * @param existing The target message's current reactions (empty when it has none yet)
+ * @return The target message's updated reactions
  */
-fun processReactionEvent(
-    reactionEvent: ReactionEvent,
-    currentRoomId: String?,
-    messageReactions: Map<String, List<MessageReaction>>,
-): Map<String, List<MessageReaction>> {
-    // android.util.Log.d("Andromuks", "ReactionFunctions: processReactionEvent called - currentRoomId: $currentRoomId, relatesToEventId: ${reactionEvent.relatesToEventId}, emoji: ${reactionEvent.emoji}, sender: ${reactionEvent.sender}")
+fun applyReactionToBucket(reactionEvent: ReactionEvent, existing: List<MessageReaction>): List<MessageReaction> {
+    val eventReactions = existing.toMutableList()
+    val existingReactionIndex = eventReactions.indexOfFirst { it.emoji == reactionEvent.emoji }
 
-    // Only process reactions for the current room
-    if (currentRoomId != null) {
-        val currentReactions = messageReactions.toMutableMap()
-        val eventReactions = currentReactions[reactionEvent.relatesToEventId]?.toMutableList() ?: mutableListOf()
-
-        // Find existing reaction with same emoji
-        val existingReactionIndex = eventReactions.indexOfFirst { it.emoji == reactionEvent.emoji }
-
-        if (existingReactionIndex >= 0) {
-            // Update existing reaction
-            val existingReaction = eventReactions[existingReactionIndex]
-            val updatedUsers = existingReaction.users.toMutableList()
-            val updatedUserReactions = existingReaction.userReactions.toMutableList()
-
-            val existingUserIndex = updatedUserReactions.indexOfFirst { it.userId == reactionEvent.sender }
-
-            if (existingUserIndex >= 0) {
-                // Remove user from reaction
-                updatedUsers.remove(reactionEvent.sender)
-                updatedUserReactions.removeAt(existingUserIndex)
-                if (updatedUserReactions.isEmpty()) {
-                    eventReactions.removeAt(existingReactionIndex)
-                } else {
-                    eventReactions[existingReactionIndex] = existingReaction.copy(
-                        count = updatedUserReactions.size,
-                        users = updatedUsers,
-                        userReactions = updatedUserReactions,
-                    )
-                }
-            } else {
-                // Add user to reaction
-                updatedUsers.add(reactionEvent.sender)
-                updatedUserReactions.add(
+    if (existingReactionIndex < 0) {
+        eventReactions.add(
+            MessageReaction(
+                emoji = reactionEvent.emoji,
+                count = 1,
+                users = listOf(reactionEvent.sender),
+                userReactions = listOf(
                     net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp),
-                )
-                eventReactions[existingReactionIndex] = existingReaction.copy(
-                    count = updatedUserReactions.size,
-                    users = updatedUsers,
-                    userReactions = updatedUserReactions,
-                )
-            }
-        } else {
-            // Add new reaction
-            eventReactions.add(
-                MessageReaction(
-                    emoji = reactionEvent.emoji,
-                    count = 1,
-                    users = listOf(reactionEvent.sender),
-                    userReactions = listOf(net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp)),
                 ),
-            )
-        }
-
-        currentReactions[reactionEvent.relatesToEventId] = eventReactions
-        // android.util.Log.d("Andromuks", "ReactionFunctions: Updated reactions for event ${reactionEvent.relatesToEventId}, new count: ${eventReactions.size}")
-        return currentReactions
+            ),
+        )
+        return eventReactions
     }
 
-    // android.util.Log.d("Andromuks", "ReactionFunctions: Skipping reaction processing - currentRoomId is null")
-    return messageReactions
+    val existingReaction = eventReactions[existingReactionIndex]
+    val updatedUsers = existingReaction.users.toMutableList()
+    val updatedUserReactions = existingReaction.userReactions.toMutableList()
+    val existingUserIndex = updatedUserReactions.indexOfFirst { it.userId == reactionEvent.sender }
+
+    if (existingUserIndex >= 0) {
+        // Toggle off: the sender already had this emoji on this message.
+        updatedUsers.remove(reactionEvent.sender)
+        updatedUserReactions.removeAt(existingUserIndex)
+        if (updatedUserReactions.isEmpty()) {
+            eventReactions.removeAt(existingReactionIndex)
+        } else {
+            eventReactions[existingReactionIndex] = existingReaction.copy(
+                count = updatedUserReactions.size,
+                users = updatedUsers,
+                userReactions = updatedUserReactions,
+            )
+        }
+    } else {
+        updatedUsers.add(reactionEvent.sender)
+        updatedUserReactions.add(
+            net.vrkknn.andromuks.UserReaction(reactionEvent.sender, reactionEvent.timestamp),
+        )
+        eventReactions[existingReactionIndex] = existingReaction.copy(
+            count = updatedUserReactions.size,
+            users = updatedUsers,
+            userReactions = updatedUserReactions,
+        )
+    }
+
+    return eventReactions
 }
 
 private fun normalizeReactionTimestamp(primary: Long, vararg fallbacks: Long): Long {
