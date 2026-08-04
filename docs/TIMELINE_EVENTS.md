@@ -243,6 +243,15 @@ Poll and reaction events are dispatched *before* the `when (event.type)` because
 `m.room.encrypted` with the real type in `decryptedType`; anything added later with the same shape
 needs the same pre-dispatch.
 
+The same rule applies far beyond reply previews. Every site that asks "is this a reaction?" must go
+through `isReactionEvent(event)` (and read its content via `reactionContent(event)`, since a wrapped
+event's `content` is ciphertext) — the sync and `send_complete` dispatches, the redaction resolver,
+paginate, `RoomTimelineCache` routing, `SyncIngestor`, and the timeline render skips. A raw
+`event.type == "m.reaction"` check lets a wrapped reaction fall through to the message branch, where
+it is pushed into the event chain as a timeline row and cached as a message rather than a reaction.
+See [docs/REACTIONS.md](REACTIONS.md#e2ee-wrapped-reactions). Polls have the equivalent resolver in
+`pollEventType`; redactions carry an explicit `m.room.encrypted && decryptedType` arm.
+
 ### Reaction depth is cache-only, one level
 
 A reply to an `m.reaction` renders `Reacted 👍 to "<target>"` when the annotated event is already in
