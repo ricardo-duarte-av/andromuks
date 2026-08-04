@@ -39,6 +39,12 @@ In an encrypted room a reaction can arrive as `m.room.encrypted` with the real t
 
 Getting this wrong is quiet and compounding: the wrapped reaction misses the reaction branch, falls through to the message branch, is pushed into the event chain as a timeline row (the render skip misses it for the same reason), and is cached in `cache.events` instead of `cache.reactionEvents` — so it neither renders on its target nor survives a reopen, and later redactions of it cannot resolve.
 
+### Rooms open in a secondary VM
+
+`processSyncEventsArray` runs for `currentRoomId` only. For rooms open in a chat bubble or `ShortcutActivity`, `checkAndUpdateCurrentRoomTimelineOptimized` calls `ReactionCoordinator.ingestReactionsFromSync(roomId, events)`, which applies reactions and the reaction half of redaction handling for those rooms. Both paths funnel into the shared `handleSyncReactionEvent` so they cannot drift.
+
+Without it, refreshing `RoomTimelineCache` alone left bubble badges frozen: reaction state is a separate singleton keyed by target event ID, not part of the timeline cache. See [docs/WEBSOCKET_LIFECYCLE.md](WEBSOCKET_LIFECYCLE.md#state-that-lives-outside-the-timeline-cache-needs-its-own-ingest).
+
 ## Paginate Path (`m.reaction` in a paginate/timeline response)
 
 A paginate response carries reactions **twice**: as a flattened `reactions: {emoji: count}` map on the target message event, *and* as the individual `m.reaction` events (with their event IDs and `m.relates_to`) inside the `events` array. `TimelineCacheCoordinator.processEventsArray` handles the individual events:
@@ -47,6 +53,10 @@ A paginate response carries reactions **twice**: as a flattened `reactions: {emo
 2. The event is collected into `paginatedReactionEvents` and, after the loop, merged via `RoomTimelineCache.mergePaginatedEvents` into `cache.reactionEvents`
 
 **Step 2 is load-bearing and easy to miss:** reaction events are filtered out of `timelineList` (they must never render as timeline rows), and every *other* cache write in this path operates on `timelineList`. Without the explicit merge, paginated reaction events are processed into `messageReactions` but **never persisted to `RoomTimelineCache.reactionEvents`** — so a later live `m.room.redaction` for one of them can't be resolved by `findEventForReply` and the reaction can never be removed until the room is re-paginated. (The live sync path avoids this because it merges the full event set, including reactions, via `mergePaginatedEvents`.)
+
+### Reactions must never become timeline rows
+
+Every screen that builds `TimelineItem`s has to skip them: `RoomTimelineScreen`, `BubbleTimelineScreen` and `ThreadViewerScreen` (which whitelists `m.reaction` in `allowedEventTypes` and long lacked the skip). A reaction that slips through renders nothing — `TimelineEventItem` returns early — but still emits a date divider, becomes the `previousEvent` that breaks `isConsecutive` grouping for the next message, and shifts sticky-date and scroll indices. An E2EE-wrapped one renders as an empty undecryptable bubble instead. Use `isReactionEvent`, not `event.type`.
 
 ## Reaction Redaction Path (`m.room.redaction` via `sync_complete`)
 

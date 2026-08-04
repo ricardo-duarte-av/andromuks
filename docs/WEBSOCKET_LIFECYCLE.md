@@ -138,6 +138,14 @@ When `SyncEvent.RoomListSingletonReplicated` fires on a non-primary `AppViewMode
 
 Other rooms' singleton caches stay fresh on their own via `appendEventsToCachedRoom` in the sync ingestor — they just don't need to touch this VM's `timelineEvents` until the user navigates to them. Bubble VMs only ever host a single room, so the same single-room refresh is correct for them too without needing a role-specific guard.
 
+### State that lives outside the timeline cache needs its own ingest
+
+Refreshing `RoomTimelineCache` is not enough for anything held in a *separate* singleton. `processSyncEventsArray` — which is where the sync dispatch handles reactions, polls, redactions and the rest — runs for `currentRoomId` **only**, so a room open in a bubble was getting cache updates and nothing else.
+
+Reactions were the concrete casualty: badges in a bubble stayed frozen at whatever the last full room open produced. `checkAndUpdateCurrentRoomTimelineOptimized` now also calls `ReactionCoordinator.ingestReactionsFromSync(bubbleRoomId, events)` for each non-current open room. That is safe because reaction render state is keyed by *target event ID*, not by room, and `MessageReactionsCache`'s change listener repaints every registered VM. See [docs/REACTIONS.md](REACTIONS.md).
+
+Anything else added to that dispatch with a singleton store of its own (polls are the obvious next one) needs the same treatment, or it will silently be current-room-only.
+
 ## `setWebSocket` Ordering Invariant
 
 In `setWebSocket` (the OkHttp `onOpen` handler), `serviceInstance.webSocket` must be assigned **before** calling `updateConnectionState(ConnectionState.Ready)`.
