@@ -9,7 +9,6 @@ import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
-import coil3.svg.SvgDecoder
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.getUserAgent
 import okhttp3.Dispatcher
@@ -136,11 +135,6 @@ object ImageLoaderSingleton {
                 } else {
                     add(GifDecoder.Factory())
                 }
-                // Registered explicitly rather than left to Coil's ServiceLoader discovery, for
-                // the same reason the GIF decoders above are: R8 and the service-loader path have
-                // to agree for it to work, and a silently-missing decoder just renders nothing.
-                // Matrix media is very often SVG (profile banners, inline logos).
-                add(SvgDecoder.Factory())
             }
             .memoryCache {
                 // Coil 3: Builder() no longer takes a context; maxSizePercent does.
