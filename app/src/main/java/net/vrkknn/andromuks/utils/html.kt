@@ -1830,6 +1830,52 @@ private fun extractMatrixUserIdsFromNodes(nodes: List<HtmlNode>): Set<String> {
  */
 
 /**
+ * Renders Matrix HTML that did not arrive as a timeline event — profile biographies, for
+ * instance, which carry exactly the same markup a message body does (custom emoticons via
+ * `<img data-mx-emoticon src="mxc://…">`, formatting, links, spoilers).
+ *
+ * [HtmlMessageText] does all of that already but is keyed on a [TimelineEvent], so this wraps
+ * the html in a synthetic one. The event only supplies the redaction check, a logging id and,
+ * for the opportunistic profile fetch, a room id — none of which apply here, so the fetch is
+ * disabled by leaving `appViewModel` null rather than fetching against an empty room id.
+ */
+@Composable
+fun HtmlBodyText(
+    html: String,
+    homeserverUrl: String,
+    authToken: String,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified,
+    onMatrixUserClick: (String) -> Unit = {},
+    onRoomLinkClick: (RoomLink) -> Unit = {},
+    onInlineImageClick: (InlineImageData) -> Unit = {},
+) {
+    val syntheticEvent = remember(html) {
+        TimelineEvent(
+            rowid = 0L,
+            timelineRowid = 0L,
+            roomId = "",
+            eventId = "\$synthetic-html-body",
+            sender = "",
+            type = "m.room.message",
+            timestamp = 0L,
+            content = null,
+        )
+    }
+    HtmlMessageText(
+        event = syntheticEvent,
+        homeserverUrl = homeserverUrl,
+        authToken = authToken,
+        modifier = modifier,
+        color = color,
+        onMatrixUserClick = onMatrixUserClick,
+        onRoomLinkClick = onRoomLinkClick,
+        htmlContent = html,
+        onInlineImageClick = onInlineImageClick,
+    )
+}
+
+/**
  * Composable function to render HTML content from an event
  */
 @Composable

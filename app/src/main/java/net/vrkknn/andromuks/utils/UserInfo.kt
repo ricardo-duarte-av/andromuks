@@ -288,6 +288,9 @@ internal data class ProfileBio(val body: String, val isHtml: Boolean, val source
 /** Source key for the MSC4440 biography, which the backend delivers pre-rendered. */
 internal const val SPEC_BIO_SOURCE_KEY = "gay.fomx.biography"
 
+/** gomuks input-format prefix meaning "what follows is HTML, not markdown". */
+internal const val GOMUKS_HTML_INPUT_PREFIX = "/html "
+
 /**
  * Extract profile banner mxc URL from arbitrary profile fields
  * Supports: chat.commet.profile_banner
@@ -1863,15 +1866,17 @@ fun UserInfoScreen(
                             }
 
                             if (profileBio.isHtml) {
-                                // Render HTML bio using the HTML utilities
-                                val bioTextColor = MaterialTheme.colorScheme.onSecondaryContainer
-                                val bioAnnotatedString = remember(profileBio.body, bioTextColor) {
-                                    renderHtmlToAnnotatedString(profileBio.body, bioTextColor)
-                                }
-
-                                Text(
-                                    text = bioAnnotatedString,
-                                    style = MaterialTheme.typography.bodyMedium,
+                                // A bio carries the same markup a message body does — custom
+                                // emoticons especially — so it goes through the message HTML
+                                // renderer rather than the text-only AnnotatedString one.
+                                HtmlBodyText(
+                                    html = profileBio.body,
+                                    homeserverUrl = appViewModel.homeserverUrl,
+                                    authToken = appViewModel.authToken,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    onMatrixUserClick = { clickedUserId ->
+                                        navController.navigateToUserInfo(clickedUserId, roomId)
+                                    },
                                 )
                             } else {
                                 // Render plain text bio
@@ -2680,11 +2685,17 @@ fun UserInfoScreen(
                         }
                         val htmlBody = markdownToHtml(bio)
                         if (bioEditTarget == SPEC_BIO_SOURCE_KEY) {
-                            // gomuks' "_gomuks_bio" write alias takes the raw markdown and does
-                            // the MSC1767 conversion itself, so no payload is built here.
+                            // gomuks' "_gomuks_bio" write alias takes the raw input and does the
+                            // MSC1767 conversion itself, so no payload is built here.
                             appViewModel.setCustomProfileField("_gomuks_bio", bio)
+                            // Local preview only, replaced by the backend's rendering on the next
+                            // fetch. Honour gomuks' "/html " input prefix, which means the rest is
+                            // already HTML and must not go through the markdown converter.
+                            val previewHtml = bio.removePrefix(GOMUKS_HTML_INPUT_PREFIX)
+                                .takeIf { it != bio }
+                                ?: htmlBody
                             userProfileInfo = userProfileInfo?.copy(
-                                bio = ProfileBioContent(html = htmlBody, editSource = bio),
+                                bio = ProfileBioContent(html = previewHtml, editSource = bio),
                             )
                         } else {
                             val bioPayload = mapOf(
