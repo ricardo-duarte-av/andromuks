@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
@@ -45,6 +48,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -80,6 +84,7 @@ import net.vrkknn.andromuks.utils.extractRoomLink
 import ru.noties.jlatexmath.JLatexMathDrawable
 import java.io.File
 import java.net.URLDecoder
+import kotlin.math.roundToInt
 import android.graphics.Color as AndroidColor
 
 private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
@@ -89,6 +94,16 @@ private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
  * message does not change size depending on whether it arrived with a formatted_body.
  */
 private const val EMOJI_ONLY_FONT_SCALE = 2
+
+/**
+ * How much wider than tall an inline image may be drawn. Inline content is measured before the
+ * container width is known, so an unbounded ratio could hand `Text` a placeholder wider than the
+ * line and break its layout.
+ */
+private const val MAX_INLINE_IMAGE_ASPECT = 6
+
+/** Ceiling for a block image's rendered height, so a tall image can't take over the message. */
+private val MAX_BLOCK_IMAGE_HEIGHT = 280.dp
 
 // Styles for the plain-text (non-HTML) render path. Constant, so hoisted out of the composable:
 // they were being reallocated on every recomposition, and as top-level vals they can also be
@@ -481,6 +496,13 @@ data class InlineImageData(
     val src: String,
     val alt: String,
     val height: Int,
+    // Declared width, when the markup gives one. Together with [height] it is the only aspect
+    // ratio information available before the bytes arrive, and inline content has to be measured
+    // up front — without it every image is drawn square.
+    val width: Int? = null,
+    // `data-mx-emoticon` marks a custom emoji, which belongs on the text line at line height.
+    // An <img> without it is a real image and is pulled out as a block instead.
+    val isEmoticon: Boolean = false,
     val isHidden: Boolean = false,
     // MSC2191 maths: when non-null, this entry is a LaTeX equation rendered via JLaTeXMath
     // instead of a network image. `alt` holds the raw LaTeX (used as the text fallback).
@@ -1581,13 +1603,26 @@ private fun AnnotatedString.Builder.appendAnchor(
     }
 }
 
+/**
+ * True for a custom emoji. The attribute is a valueless marker, so presence is what counts.
+ */
+internal fun HtmlNode.Tag.isEmoticon(): Boolean = attributes.containsKey("data-mx-emoticon")
+
 private fun AnnotatedString.Builder.appendImage(tag: HtmlNode.Tag, inlineImages: MutableMap<String, InlineImageData>, hideContent: Boolean) {
     val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: ""
     val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
     val height = tag.attributes["height"]?.toIntOrNull() ?: 32
+    val width = tag.attributes["width"]?.toIntOrNull()
     if (src.isNotBlank()) {
         val id = "inline_img_${inlineImages.size}"
-        inlineImages[id] = InlineImageData(src, alt, height, isHidden = hideContent)
+        inlineImages[id] = InlineImageData(
+            src = src,
+            alt = alt,
+            height = height,
+            width = width,
+            isEmoticon = tag.isEmoticon(),
+            isHidden = hideContent,
+        )
         if (BuildConfig.DEBUG) {
             Log.d(
                 "Andromuks",
@@ -2000,14 +2035,36 @@ fun HtmlMessageText(
             .map { extractMathLatex(it) }
             .filter { it.isNotBlank() }
     }
+    // A top-level <img> that is not a custom emoticon is a real image, not a glyph on the text
+    // line: profile banners, inline logos and the like. Inline content has to be measured before
+    // the container width is known, so keeping these in the flow meant clamping them to the text
+    // line height — a 320x99 banner became a ~20dp square. Pull them out and render them as
+    // bounded block images, the same treatment tables and display maths already get. Images
+    // nested inside other markup stay inline (aspect-corrected above).
+    val blockImages = remember(nodes) {
+        nodes.filterIsInstance<HtmlNode.Tag>()
+            .filter { it.name == "img" && !it.isEmoticon() }
+            .mapNotNull { tag ->
+                val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: return@mapNotNull null
+                src.takeIf { it.isNotBlank() }?.let {
+                    InlineImageData(
+                        src = it,
+                        alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: "",
+                        height = tag.attributes["height"]?.toIntOrNull() ?: 0,
+                        width = tag.attributes["width"]?.toIntOrNull(),
+                    )
+                }
+            }
+    }
     val nonTableNodes = remember(nodes) {
-        if (tableNodes.isEmpty() && blockMathLatex.isEmpty()) {
+        if (tableNodes.isEmpty() && blockMathLatex.isEmpty() && blockImages.isEmpty()) {
             nodes
         } else {
             nodes.filter {
                 !(
                     it is HtmlNode.Tag && (
                         it.name == "table" ||
+                            (it.name == "img" && !it.isEmoticon()) ||
                             (it.name == "hicli-math" && !it.attributes["displaymode"].equals("inline", ignoreCase = true))
                         )
                     )
@@ -2288,9 +2345,21 @@ fun HtmlMessageText(
                 } else {
                     baseMaxHeight
                 }
+                // Honour the declared aspect ratio instead of forcing a square: wide emoticons
+                // (and any non-emoticon image left inline, i.e. nested inside other markup) were
+                // squashed into a line-height box. Height still governs, so a wide image can
+                // never be taller than the line.
+                val maxWidth = imageData.width
+                    ?.takeIf { it > 0 && imageData.height > 0 }
+                    ?.let { declaredWidth ->
+                        (maxHeight.toFloat() * declaredWidth / imageData.height)
+                            .roundToInt()
+                            .coerceIn(1, maxHeight * MAX_INLINE_IMAGE_ASPECT)
+                    }
+                    ?: maxHeight
                 map[id] = InlineTextContent(
                     Placeholder(
-                        width = maxHeight.sp,
+                        width = maxWidth.sp,
                         height = maxHeight.sp,
                         placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
                     ),
@@ -2299,6 +2368,7 @@ fun HtmlMessageText(
                         src = imageData.src,
                         alt = imageData.alt,
                         height = maxHeight,
+                        width = maxWidth,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isHidden = imageData.isHidden,
@@ -2379,8 +2449,9 @@ fun HtmlMessageText(
     // Block ("display") maths are rendered slightly larger than the body text.
     val blockMathTextSizePx = mathTextSizePx * 1.3f
 
-    if (tableNodes.isNotEmpty() || blockMathLatex.isNotEmpty()) {
-        // Message contains HTML tables and/or block maths: render text (if any) + tables + centered equations
+    if (tableNodes.isNotEmpty() || blockMathLatex.isNotEmpty() || blockImages.isNotEmpty()) {
+        // Message contains HTML tables, block maths and/or block images: render text (if any)
+        // plus each of those below it
         var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
         Column(modifier = modifier) {
             if (annotatedString.text.isNotBlank()) {
@@ -2610,6 +2681,17 @@ fun HtmlMessageText(
                     latex = latex,
                     colorArgb = mathColorArgb,
                     textSizePx = blockMathTextSizePx,
+                )
+            }
+            blockImages.forEachIndexed { idx, imageData ->
+                if (idx > 0 || tableDatas.isNotEmpty() || blockMathLatex.isNotEmpty() || annotatedString.text.isNotBlank()) {
+                    Spacer(Modifier.height(4.dp))
+                }
+                BlockImage(
+                    data = imageData,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    onClick = { handleInlineImageClick(imageData) },
                 )
             }
         }
@@ -2932,6 +3014,72 @@ private fun LatexDrawableImage(drawable: android.graphics.drawable.Drawable, mod
 }
 
 /**
+ * A non-emoticon `<img>` pulled out of the text flow, drawn at its declared aspect ratio.
+ *
+ * Sized from the markup's own width/height rather than the decoded bitmap: SVGs (common for
+ * banners and logos) have no meaningful intrinsic pixel size, and using the declared ratio also
+ * means the layout is right before the bytes arrive. It never upscales past the declared width,
+ * and is capped at [MAX_BLOCK_IMAGE_HEIGHT] so a tall image can't push the rest of the message
+ * off screen. Falls back to alt text when the src can't be resolved.
+ */
+@Composable
+private fun BlockImage(data: InlineImageData, homeserverUrl: String, authToken: String, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
+    val context = LocalContext.current
+    val imageLoader = remember { ImageLoaderSingleton.get(context) }
+
+    val imageUrl = remember(data.src, homeserverUrl) {
+        when {
+            data.src.startsWith("mxc://") -> MediaUtils.mxcToHttpUrl(data.src, homeserverUrl)
+
+            data.src.startsWith("_gomuks/media/") -> {
+                val baseUrl = homeserverUrl.trimEnd('/')
+                "$baseUrl/${data.src}"
+            }
+
+            else -> null
+        }
+    }
+
+    if (imageUrl == null) {
+        Text(text = data.alt, style = MaterialTheme.typography.bodyMedium)
+        return
+    }
+
+    val declaredWidth = data.width?.takeIf { it > 0 }
+    val declaredHeight = data.height.takeIf { it > 0 }
+    val aspect = if (declaredWidth != null && declaredHeight != null) {
+        declaredWidth.toFloat() / declaredHeight.toFloat()
+    } else {
+        null
+    }
+
+    AsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(imageUrl)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .build(),
+        imageLoader = imageLoader,
+        contentDescription = data.alt,
+        contentScale = ContentScale.Fit,
+        modifier = modifier
+            .fillMaxWidth()
+            .then(declaredWidth?.let { Modifier.widthIn(max = it.dp) } ?: Modifier)
+            .then(aspect?.let { Modifier.aspectRatio(it) } ?: Modifier)
+            .heightIn(max = MAX_BLOCK_IMAGE_HEIGHT)
+            .let { if (onClick != null) it.clickable { onClick() } else it },
+        onError = { errorState ->
+            CacheUtils.handleImageLoadError(
+                imageUrl = imageUrl,
+                throwable = errorState.result.throwable,
+                imageLoader = imageLoader,
+                context = "BlockImage",
+            )
+        },
+    )
+}
+
+/**
  * MSC2191 block ("display") maths: render the equation centered on its own line, with
  * horizontal scrolling so very wide formulae (e.g. the quadratic formula) aren't clipped.
  */
@@ -2978,7 +3126,16 @@ private fun BlockMath(latex: String, colorArgb: Int, textSizePx: Float, modifier
  * Composable for rendering inline images in HTML content
  */
 @Composable
-private fun InlineImage(src: String, alt: String, height: Int, homeserverUrl: String, authToken: String, isHidden: Boolean, onClick: (() -> Unit)? = null) {
+private fun InlineImage(
+    src: String,
+    alt: String,
+    height: Int,
+    homeserverUrl: String,
+    authToken: String,
+    isHidden: Boolean,
+    width: Int = height,
+    onClick: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -3056,7 +3213,7 @@ private fun InlineImage(src: String, alt: String, height: Int, homeserverUrl: St
         // Render a placeholder with the same size to avoid layout changes.
         Box(
             modifier = Modifier
-                .size(height.dp)
+                .size(width = width.dp, height = height.dp)
                 .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp)),
         )
     } else if (imageUrl != null) {
@@ -3076,7 +3233,7 @@ private fun InlineImage(src: String, alt: String, height: Int, homeserverUrl: St
             imageLoader = imageLoader,
             contentDescription = alt,
             modifier = Modifier
-                .size(height.dp)
+                .size(width = width.dp, height = height.dp)
                 .let { if (onClick != null) it.clickable { onClick() } else it },
             onError = { errorState ->
                 // CRITICAL FIX: Use existing error handling utility for consistent error handling
