@@ -11,6 +11,39 @@
 
 `RoomMemberCache` (`roomId → userId → MemberProfile`) is a parallel legacy store updated alongside `flattenedMemberCache` for backward compatibility. It is the source of truth for the mention list.
 
+## `get_profile` Wire Shape (`utils/ProfileResponse.kt`)
+
+The backend nests the Matrix profile object and adds a sibling `bio`:
+
+```json
+{
+  "profile": { "displayname": "Alice", "avatar_url": "mxc://…", "m.tz": "…", "gay.fomx.biography": {…} },
+  "bio": { "html": "<p>hello</p>", "edit_source": "hello" }
+}
+```
+
+`parseGetProfileResponse` is the **only** place that knows this shape; both parse sites
+(`MemberProfilesCoordinator.handleProfileResponse` and `AppViewModel.requestFullUserInfo`, the
+latter receiving an already-parsed `ParsedProfile` through `fullUserInfoCallbacks`) go through it.
+Notes:
+
+- It falls back to treating the response itself as the profile (`optJSONObject("profile") ?: data`)
+  so we keep working against a gomuks from before the wrapper landed. Everything custom
+  (`m.tz`, `io.fsky.nyx.pronouns`, `m.status`, `chat.commet.*`, …) still lives **inside** `profile`
+  — `mautrix.RespUserProfile` inlines its extras.
+- `displayName` / `avatarUrl` are `""`, never null, when absent — the sentinel described below.
+- `bio` is gomuks' server-side rendering of MSC4440's `gay.fomx.biography` (an MSC1767 `m.text`
+  array): `html` is sanitized and linkified backend-side, and `edit_source` (the markdown) is sent
+  **only for our own user** — which is what gates the edit affordance in `UserInfoScreen`.
+- `gay.fomx.biography` is excluded from `arbitraryFields`; leaving it in would render the raw
+  MSC1767 object as a second, unreadable copy of the bio.
+
+Writing the bio goes through `set_profile_field` with field `"_gomuks_bio"` and the **raw
+markdown string** — gomuks does the extensible-event conversion. Clearing must target the real
+field name `"gay.fomx.biography"` via `AppViewModel.clearCustomProfileField` (which omits
+`value`): gomuks checks for a nil value *before* rewriting the `_gomuks_bio` alias, so clearing
+through the alias would delete a literal `_gomuks_bio` field instead.
+
 ## Resolution Order (`getUserProfile`)
 
 1. `ProfileCache.flattenedMemberCache["roomId:userId"]` — room-specific override (highest priority)

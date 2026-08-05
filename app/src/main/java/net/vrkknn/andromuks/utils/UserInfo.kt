@@ -232,11 +232,11 @@ data class DeviceInfo(val deviceId: String, val name: String, val identityKey: S
  */
 data class UserPronouns(val language: String, val summary: String)
 
-private data class ProfileStatus(val text: String, val emoji: String, val sourceKey: String)
+internal data class ProfileStatus(val text: String, val emoji: String, val sourceKey: String)
 
-private data class ProfileCall(val callJoinedTs: Long?, val sourceKey: String)
+internal data class ProfileCall(val callJoinedTs: Long?, val sourceKey: String)
 
-private fun valueToJsonObject(value: Any?): JSONObject? = when (value) {
+internal fun valueToJsonObject(value: Any?): JSONObject? = when (value) {
     is JSONObject -> value
 
     is Map<*, *> -> {
@@ -252,7 +252,7 @@ private fun valueToJsonObject(value: Any?): JSONObject? = when (value) {
     else -> null
 }
 
-private fun extractProfileStatus(arbitraryFields: Map<String, Any>): ProfileStatus? {
+internal fun extractProfileStatus(arbitraryFields: Map<String, Any>): ProfileStatus? {
     val keys = listOf("m.status", "org.msc.4426.status", "org.msc4426.status")
     keys.forEach { key ->
         val obj = valueToJsonObject(arbitraryFields[key]) ?: return@forEach
@@ -265,7 +265,7 @@ private fun extractProfileStatus(arbitraryFields: Map<String, Any>): ProfileStat
     return null
 }
 
-private fun extractProfileCall(arbitraryFields: Map<String, Any>): ProfileCall? {
+internal fun extractProfileCall(arbitraryFields: Map<String, Any>): ProfileCall? {
     val keys = listOf("m.call", "org.msc.4426.call", "org.msc4426.call")
     keys.forEach { key ->
         val obj = valueToJsonObject(arbitraryFields[key]) ?: return@forEach
@@ -278,18 +278,21 @@ private fun extractProfileCall(arbitraryFields: Map<String, Any>): ProfileCall? 
 /**
  * Data class for profile banner
  */
-private data class ProfileBanner(val mxcUrl: String, val sourceKey: String)
+internal data class ProfileBanner(val mxcUrl: String, val sourceKey: String)
 
 /**
  * Data class for profile bio with optional HTML formatting
  */
-private data class ProfileBio(val body: String, val isHtml: Boolean, val sourceKey: String)
+internal data class ProfileBio(val body: String, val isHtml: Boolean, val sourceKey: String, val editSource: String? = null)
+
+/** Source key for the MSC4440 biography, which the backend delivers pre-rendered. */
+internal const val SPEC_BIO_SOURCE_KEY = "gay.fomx.biography"
 
 /**
  * Extract profile banner mxc URL from arbitrary profile fields
  * Supports: chat.commet.profile_banner
  */
-private fun extractProfileBanner(arbitraryFields: Map<String, Any>): ProfileBanner? {
+internal fun extractProfileBanner(arbitraryFields: Map<String, Any>): ProfileBanner? {
     val key = "chat.commet.profile_banner"
     val value = arbitraryFields[key]
     if (value is String && value.startsWith("mxc://")) {
@@ -299,12 +302,26 @@ private fun extractProfileBanner(arbitraryFields: Map<String, Any>): ProfileBann
 }
 
 /**
- * Extract all profile bios from arbitrary profile fields
- * Supports: chat.commet.profile_bio (with format detection) and moe.sable.app.bio (HTML)
- * Returns a list of all available bios (both can be displayed if both exist)
+ * Extract all profile bios to display.
+ *
+ * [specBio] is the MSC4440 biography, already rendered to HTML by the backend — it comes first
+ * when present. The remaining two are vendor fields we also understand:
+ * chat.commet.profile_bio (with format detection) and moe.sable.app.bio (HTML). gomuks does
+ * not aggregate these, so a user can genuinely have more than one and all are displayed.
  */
-private fun extractProfileBios(arbitraryFields: Map<String, Any>): List<ProfileBio> {
+internal fun extractProfileBios(arbitraryFields: Map<String, Any>, specBio: ProfileBioContent? = null): List<ProfileBio> {
     val bios = mutableListOf<ProfileBio>()
+
+    if (specBio != null) {
+        bios.add(
+            ProfileBio(
+                body = specBio.html,
+                isHtml = true,
+                sourceKey = SPEC_BIO_SOURCE_KEY,
+                editSource = specBio.editSource,
+            ),
+        )
+    }
 
     // Try chat.commet.profile_bio (it has format info)
     val commetBio = valueToJsonObject(arbitraryFields["chat.commet.profile_bio"])
@@ -431,6 +448,7 @@ data class UserProfileInfo(
     val roomDisplayName: String? = null, // Per-room display name
     val roomAvatarUrl: String? = null, // Per-room avatar URL
     val arbitraryFields: Map<String, Any> = emptyMap(), // All other profile fields not explicitly handled
+    val bio: ProfileBioContent? = null, // MSC4440 biography, rendered by the backend
 )
 
 /**
@@ -696,6 +714,8 @@ fun UserInfoScreen(
     var showBioEditDialog by remember { mutableStateOf(false) }
     var bioInput by remember { mutableStateOf("") }
     var bioEditError by remember { mutableStateOf<String?>(null) }
+    // Which bio the edit dialog writes back to: the MSC4440 biography or the commet vendor field.
+    var bioEditTarget by remember { mutableStateOf(SPEC_BIO_SOURCE_KEY) }
 
     // Current time state for user's timezone
     var currentTimeInUserTz by remember { mutableStateOf("") }
@@ -1786,15 +1806,19 @@ fun UserInfoScreen(
                     }
                 }
 
-                // Profile Bio section (chat.commet.profile_bio and/or moe.sable.app.bio)
-                val profileBios = extractProfileBios(userProfileInfo!!.arbitraryFields)
+                // Profile Bio section (MSC4440 biography, chat.commet.profile_bio and/or moe.sable.app.bio)
+                val profileBios = extractProfileBios(userProfileInfo!!.arbitraryFields, userProfileInfo!!.bio)
                 profileBios.forEach { profileBio ->
                     val bioLabel = when (profileBio.sourceKey) {
+                        SPEC_BIO_SOURCE_KEY -> "Bio"
                         "chat.commet.profile_bio" -> "About"
                         "moe.sable.app.bio" -> "Bio"
                         else -> "About"
                     }
-                    val isEditableBio = profileBio.sourceKey == "chat.commet.profile_bio"
+                    // The backend only sends edit_source for our own profile, so its presence
+                    // is what makes the standard bio editable.
+                    val isEditableBio = profileBio.sourceKey == "chat.commet.profile_bio" ||
+                        (profileBio.sourceKey == SPEC_BIO_SOURCE_KEY && profileBio.editSource != null)
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(
@@ -1819,8 +1843,11 @@ fun UserInfoScreen(
                                 if (isOwnProfile && isEditableBio) {
                                     IconButton(
                                         onClick = {
-                                            // Pre-populate with existing body (markdown source)
-                                            bioInput = profileBio.body
+                                            // Pre-populate with the markdown source: edit_source for
+                                            // the standard bio (body there is rendered HTML), the
+                                            // stored body for the commet one.
+                                            bioInput = profileBio.editSource ?: profileBio.body
+                                            bioEditTarget = profileBio.sourceKey
                                             bioEditError = null
                                             showBioEditDialog = true
                                         },
@@ -2271,8 +2298,10 @@ fun UserInfoScreen(
         val missingPronouns = existingPronouns.isNullOrEmpty()
         val missingTimezone = existingTimezone.isNullOrBlank()
         val missingBanner = existingBanner == null
+        val missingSpecBio = profile?.bio == null
         val missingBio = !hasCommetBio
-        val allSet = !missingStatus && !missingPronouns && !missingTimezone && !missingBanner && !missingBio
+        val allSet = !missingStatus && !missingPronouns && !missingTimezone && !missingBanner &&
+            !missingBio && !missingSpecBio
         AlertDialog(
             onDismissRequest = { showAddProfileInfoDialog = false },
             title = { Text("Add Profile Info") },
@@ -2333,17 +2362,32 @@ fun UserInfoScreen(
                             Text("Profile Banner")
                         }
                     }
-                    if (missingBio) {
+                    if (missingSpecBio) {
                         TextButton(
                             onClick = {
                                 bioInput = ""
+                                bioEditTarget = SPEC_BIO_SOURCE_KEY
                                 bioEditError = null
                                 showAddProfileInfoDialog = false
                                 showBioEditDialog = true
                             },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Profile Bio")
+                            Text("Bio (MSC4440)")
+                        }
+                    }
+                    if (missingBio) {
+                        TextButton(
+                            onClick = {
+                                bioInput = ""
+                                bioEditTarget = "chat.commet.profile_bio"
+                                bioEditError = null
+                                showAddProfileInfoDialog = false
+                                showBioEditDialog = true
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Profile Bio (chat.commet)")
                         }
                     }
                 }
@@ -2635,20 +2679,29 @@ fun UserInfoScreen(
                             return@TextButton
                         }
                         val htmlBody = markdownToHtml(bio)
-                        val bioPayload = mapOf(
-                            "body" to bio,
-                            "format" to "org.matrix.custom.html",
-                            "formatted_body" to htmlBody,
-                        )
-                        appViewModel.setCustomProfileField("chat.commet.profile_bio", bioPayload)
-                        val updatedFields = userProfileInfo?.arbitraryFields?.toMutableMap() ?: mutableMapOf()
-                        val bioJson = JSONObject().apply {
-                            put("body", bio)
-                            put("format", "org.matrix.custom.html")
-                            put("formatted_body", htmlBody)
+                        if (bioEditTarget == SPEC_BIO_SOURCE_KEY) {
+                            // gomuks' "_gomuks_bio" write alias takes the raw markdown and does
+                            // the MSC1767 conversion itself, so no payload is built here.
+                            appViewModel.setCustomProfileField("_gomuks_bio", bio)
+                            userProfileInfo = userProfileInfo?.copy(
+                                bio = ProfileBioContent(html = htmlBody, editSource = bio),
+                            )
+                        } else {
+                            val bioPayload = mapOf(
+                                "body" to bio,
+                                "format" to "org.matrix.custom.html",
+                                "formatted_body" to htmlBody,
+                            )
+                            appViewModel.setCustomProfileField("chat.commet.profile_bio", bioPayload)
+                            val updatedFields = userProfileInfo?.arbitraryFields?.toMutableMap() ?: mutableMapOf()
+                            val bioJson = JSONObject().apply {
+                                put("body", bio)
+                                put("format", "org.matrix.custom.html")
+                                put("formatted_body", htmlBody)
+                            }
+                            updatedFields["chat.commet.profile_bio"] = bioJson
+                            userProfileInfo = userProfileInfo?.copy(arbitraryFields = updatedFields)
                         }
-                        updatedFields["chat.commet.profile_bio"] = bioJson
-                        userProfileInfo = userProfileInfo?.copy(arbitraryFields = updatedFields)
                         bioEditError = null
                         showBioEditDialog = false
                     },
@@ -2657,8 +2710,26 @@ fun UserInfoScreen(
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showBioEditDialog = false }) {
-                    Text("Cancel")
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (bioEditTarget == SPEC_BIO_SOURCE_KEY && userProfileInfo?.bio != null) {
+                        TextButton(
+                            onClick = {
+                                // Delete the real field, not the "_gomuks_bio" write alias.
+                                appViewModel.clearCustomProfileField(SPEC_BIO_SOURCE_KEY)
+                                userProfileInfo = userProfileInfo?.copy(bio = null)
+                                bioEditError = null
+                                showBioEditDialog = false
+                            },
+                            colors = ButtonDefaults.textButtonColors(
+                                contentColor = MaterialTheme.colorScheme.error,
+                            ),
+                        ) {
+                            Text("Clear")
+                        }
+                    }
+                    TextButton(onClick = { showBioEditDialog = false }) {
+                        Text("Cancel")
+                    }
                 }
             },
         )
