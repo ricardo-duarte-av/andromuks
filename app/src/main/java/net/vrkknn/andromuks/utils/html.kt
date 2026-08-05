@@ -77,6 +77,10 @@ import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.extractRoomLink
+import org.jsoup.Jsoup
+import org.jsoup.nodes.Element
+import org.jsoup.nodes.Node
+import org.jsoup.nodes.TextNode
 import ru.noties.jlatexmath.JLatexMathDrawable
 import java.io.File
 import java.net.URLDecoder
@@ -243,234 +247,89 @@ object HtmlParser {
     }
 
     /**
-     * Find the actual tag end '>' while respecting quoted attribute values.
-     * This handles cases like: <blockquote data-md=">">
-     * where the '>' inside quotes should not be treated as the tag end.
+     * Parse sanitized HTML into a tree of [HtmlNode]s.
+     *
+     * jsoup does the tokenizing; this only adapts its DOM to [HtmlNode] and applies the
+     * Matrix-specific rules the renderer relies on (allowlist, `mx-reply` stripping, mxc-only
+     * images). The previous hand-rolled scanner failed the way regex HTML parsing always does —
+     * most visibly, its attribute regex required `name=value`, so a valueless attribute such as
+     * `<span data-mx-spoiler>` was dropped entirely and the spoiler rendered unmasked.
      */
-    private fun findTagEnd(html: String, startPos: Int): Int {
-        var pos = startPos + 1 // Skip the opening '<'
-        var inSingleQuote = false
-        var inDoubleQuote = false
-
-        while (pos < html.length) {
-            val char = html[pos]
-            when {
-                char == '"' && !inSingleQuote -> inDoubleQuote = !inDoubleQuote
-                char == '\'' && !inDoubleQuote -> inSingleQuote = !inSingleQuote
-                char == '>' && !inSingleQuote && !inDoubleQuote -> return pos
-            }
-            pos++
-        }
-        return -1 // No closing '>' found
+    fun parse(html: String): List<HtmlNode> = try {
+        Jsoup.parseBodyFragment(html).body().childNodes().flatMap { convert(it) }
+            .trimTrailingWhitespaceOfLastText()
+    } catch (e: Exception) {
+        Log.e("Andromuks", "HtmlParser: Failed to parse HTML", e)
+        emptyList()
     }
 
     /**
-     * Parse sanitized HTML string into a tree of HtmlNodes
+     * One jsoup node becomes zero, one, or several [HtmlNode]s — several when a disallowed tag is
+     * unwrapped in favour of its children, zero when it is dropped outright.
      */
-    fun parse(html: String, preserveWhitespace: Boolean = false): List<HtmlNode> {
-        val nodes = mutableListOf<HtmlNode>()
-        var currentPos = 0
-
-        while (currentPos < html.length) {
-            val nextTagStart = html.indexOf('<', currentPos)
-
-            if (nextTagStart == -1) {
-                // No more tags, add remaining text.
-                // Decode entities here (at the leaf), NOT on the whole markup before parsing —
-                // otherwise "&lt;tag&gt;" would decode to "<tag>" and be misparsed as a real tag.
-                val text = decodeHtmlEntities(html.substring(currentPos))
-                if (preserveWhitespace) {
-                    if (text.isNotEmpty()) {
-                        nodes.add(HtmlNode.Text(text))
-                    }
-                } else {
-                    // Only trim trailing whitespace, preserve leading spaces
-                    val trimmedText = text.trimEnd()
-                    if (trimmedText.isNotEmpty()) {
-                        nodes.add(HtmlNode.Text(trimmedText))
-                    }
-                }
-                break
-            }
-
-            // Add text before the tag
-            if (nextTagStart > currentPos) {
-                val text = decodeHtmlEntities(html.substring(currentPos, nextTagStart))
-                // Use isNotEmpty() instead of isNotBlank() to preserve spaces between tags
-                if (text.isNotEmpty()) {
-                    nodes.add(HtmlNode.Text(text))
-                }
-            }
-
-            // Find the end of the tag (respecting quoted attribute values)
-            val tagEnd = findTagEnd(html, nextTagStart)
-            if (tagEnd == -1) {
-                // No closing '>' found - this might be text that looks like a tag (e.g., "<--")
-                // Treat everything from the '<' onwards as text
-                val text = decodeHtmlEntities(html.substring(nextTagStart))
-                if (preserveWhitespace) {
-                    if (text.isNotEmpty()) {
-                        nodes.add(HtmlNode.Text(text))
-                    }
-                } else {
-                    val trimmedText = text.trimEnd()
-                    if (trimmedText.isNotEmpty()) {
-                        nodes.add(HtmlNode.Text(trimmedText))
-                    }
-                }
-                break
-            }
-
-            val tagContent = html.substring(nextTagStart + 1, tagEnd)
-
-            // Check if it's a closing tag
-            if (tagContent.startsWith("/")) {
-                // This is a closing tag, we'll handle it during recursive parsing
-                currentPos = tagEnd + 1
-                continue
-            }
-
-            // Check if it's a self-closing tag
-            val isSelfClosing = tagContent.endsWith("/")
-            val actualTagContent = if (isSelfClosing) tagContent.dropLast(1).trim() else tagContent
-
-            // Parse tag name and attributes
-            val parts = actualTagContent.split(Regex("\\s+"), limit = 2)
-            val tagName = parts[0].lowercase()
-            val attributesStr = if (parts.size > 1) parts[1] else ""
-
-            // Drop mx-reply blocks entirely (Matrix rich reply fallback)
-            if (tagName == "mx-reply") {
-                val closingTagPos = findMatchingClosingTag(html, tagEnd + 1, tagName)
-                if (closingTagPos != -1) {
-                    currentPos = closingTagPos + "</$tagName>".length
-                } else {
-                    currentPos = tagEnd + 1
-                }
-                continue
-            }
-
-            // Only process allowed tags
-            if (!ALLOWED_HTML_TAGS.contains(tagName)) {
-                Log.w("Andromuks", "HtmlParser: Skipping disallowed tag: $tagName")
-                currentPos = tagEnd + 1
-                continue
-            }
-
-            // Parse attributes
-            val attributes = parseAttributes(attributesStr)
-
-            // Handle self-closing tags (br, hr, img)
-            if (isSelfClosing || tagName in setOf("br", "hr", "img")) {
-                when (tagName) {
-                    "br" -> nodes.add(HtmlNode.LineBreak())
-
-                    "hr" -> nodes.add(HtmlNode.Tag("hr", emptyMap(), emptyList()))
-
-                    "img" -> {
-                        // Validate img src is MXC URL
-                        val src = attributes["src"] ?: ""
-                        if (src.startsWith("mxc://") || src.startsWith("_gomuks/media/")) {
-                            nodes.add(HtmlNode.Tag(tagName, attributes, emptyList()))
-                        } else if (src.startsWith("http://") || src.startsWith("https://")) {
-                            Log.w("Andromuks", "HtmlParser: Refusing to load image from HTTP(S) URL: $src")
-                            // Add alt text as fallback
-                            val alt = attributes["alt"] ?: attributes["title"] ?: "[Image]"
-                            nodes.add(HtmlNode.Text(alt))
-                        } else {
-                            nodes.add(HtmlNode.Tag(tagName, attributes, emptyList()))
-                        }
-                    }
-
-                    else -> nodes.add(HtmlNode.Tag(tagName, attributes, emptyList()))
-                }
-                currentPos = tagEnd + 1
-                continue
-            }
-
-            // Find matching closing tag
-            val closingTag = "</$tagName>"
-            val closingTagPos = findMatchingClosingTag(html, tagEnd + 1, tagName)
-
-            if (closingTagPos == -1) {
-                Log.w("Andromuks", "HtmlParser: No closing tag found for: $tagName")
-                currentPos = tagEnd + 1
-                continue
-            }
-
-            // Parse children recursively
-            val innerHtml = html.substring(tagEnd + 1, closingTagPos)
-            val childPreserveWhitespace = preserveWhitespace || tagName == "pre"
-            val children = parse(innerHtml, childPreserveWhitespace)
-
-            nodes.add(HtmlNode.Tag(tagName, attributes, children))
-            currentPos = closingTagPos + closingTag.length
+    private fun convert(node: Node): List<HtmlNode> {
+        if (node is TextNode) {
+            // wholeText, not text(): the latter normalises runs of whitespace, which would eat the
+            // spaces between inline tags and flatten <pre>. Entities are already decoded by jsoup,
+            // so decodeHtmlEntities must NOT be applied again here — "&amp;lt;" is meant to stay
+            // the literal text "&lt;".
+            val text = node.wholeText
+            return if (text.isEmpty()) emptyList() else listOf(HtmlNode.Text(text))
+        }
+        if (node !is Element) {
+            // Comments, doctypes, CDATA: nothing to render.
+            return emptyList()
         }
 
-        return nodes
+        val tagName = node.normalName()
+
+        // Matrix rich reply fallback: dropped whole, including its subtree.
+        if (tagName == "mx-reply") return emptyList()
+
+        if (!ALLOWED_HTML_TAGS.contains(tagName)) {
+            Log.w("Andromuks", "HtmlParser: Unwrapping disallowed tag: $tagName")
+            // Unwrap rather than drop, so the text inside an unknown wrapper still renders.
+            return node.childNodes().flatMap { convert(it) }
+        }
+
+        val attributes = node.attributes().associate { it.key.lowercase() to it.value }
+
+        return when (tagName) {
+            "br" -> listOf(HtmlNode.LineBreak())
+            "hr" -> listOf(HtmlNode.Tag("hr", emptyMap(), emptyList()))
+            "img" -> listOf(convertImage(attributes))
+            else -> listOf(HtmlNode.Tag(tagName, attributes, node.childNodes().flatMap { convert(it) }))
+        }
     }
 
     /**
-     * Find the matching closing tag, handling nested tags
+     * Images must come from Matrix media. A remote http(s) src would leak the reader's IP to a
+     * third-party host, so it is refused and replaced by its alt text.
      */
-    private fun findMatchingClosingTag(html: String, startPos: Int, tagName: String): Int {
-        var depth = 1
-        var currentPos = startPos
-        val openingTag = "<$tagName"
-        val closingTag = "</$tagName>"
-
-        while (currentPos < html.length && depth > 0) {
-            val nextOpening = html.indexOf(openingTag, currentPos)
-            val nextClosing = html.indexOf(closingTag, currentPos)
-
-            if (nextClosing == -1) {
-                return -1 // No closing tag found
-            }
-
-            // Check if there's a nested opening tag before the closing tag
-            if (nextOpening != -1 && nextOpening < nextClosing) {
-                // Make sure it's actually a tag start, not part of text
-                val afterTag = nextOpening + openingTag.length
-                if (afterTag < html.length && (html[afterTag] == '>' || html[afterTag].isWhitespace())) {
-                    depth++
-                    currentPos = afterTag
-                } else {
-                    currentPos = nextOpening + 1
-                }
-            } else {
-                depth--
-                if (depth == 0) {
-                    return nextClosing
-                }
-                currentPos = nextClosing + closingTag.length
-            }
+    private fun convertImage(attributes: Map<String, String>): HtmlNode {
+        val src = attributes["src"] ?: attributes["data-mxc"] ?: ""
+        return if (src.startsWith("http://") || src.startsWith("https://")) {
+            Log.w("Andromuks", "HtmlParser: Refusing to load image from HTTP(S) URL: $src")
+            HtmlNode.Text(attributes["alt"] ?: attributes["title"] ?: "[Image]")
+        } else {
+            HtmlNode.Tag("img", attributes, emptyList())
         }
-
-        return -1
     }
 
     /**
-     * Parse HTML attributes from a string
+     * Trailing whitespace on the very last text run is dropped, so markup that ends with a newline
+     * does not render an empty final line. Interior whitespace is left alone — it is meaningful
+     * between inline tags.
      */
-    private fun parseAttributes(attributesStr: String): Map<String, String> {
-        val attributes = mutableMapOf<String, String>()
-
-        // Improved regex to properly handle quoted values with spaces
-        // Matches: attribute="value with spaces" or attribute='value' or attribute=value
-        val regex = Regex("""(\w+(?:-\w+)*)=(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
-        regex.findAll(attributesStr).forEach { match ->
-            val name = match.groupValues[1]
-            // Get value from whichever capture group matched (double quote, single quote, or no quote)
-            val value = match.groupValues[2].ifEmpty {
-                match.groupValues[3].ifEmpty {
-                    match.groupValues[4]
-                }
-            }
-            attributes[name.lowercase()] = value
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlParser: Parsed attribute: $name=\"$value\"")
+    private fun List<HtmlNode>.trimTrailingWhitespaceOfLastText(): List<HtmlNode> {
+        val last = lastOrNull()
+        if (last !is HtmlNode.Text) return this
+        val trimmed = last.content.trimEnd()
+        return if (trimmed.isEmpty()) {
+            dropLast(1)
+        } else {
+            dropLast(1) + HtmlNode.Text(trimmed)
         }
-
-        return attributes
     }
 }
 

@@ -218,6 +218,9 @@ dependencies {
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.okhttp)
+    // HTML parsing for Matrix message markup. Pure JVM, so it also runs in unit tests — which is
+    // what makes HtmlParser testable at all (see HtmlParserTest).
+    implementation(libs.jsoup)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation(libs.androidx.compose.foundation.layout)
 
