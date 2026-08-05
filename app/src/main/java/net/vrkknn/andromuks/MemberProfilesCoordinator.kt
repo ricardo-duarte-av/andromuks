@@ -448,8 +448,11 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 basicProfileCallback?.invoke(null)
                 return
             }
-            val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
-            val display = obj.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+            // Wire shape lives in utils/ProfileResponse.kt — the response nests the profile
+            // under "profile" and carries a sibling "bio".
+            val parsed = net.vrkknn.andromuks.utils.parseGetProfileResponse(obj)
+            val avatar = parsed.avatarUrl
+            val display = parsed.displayName
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
@@ -504,7 +507,7 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                         "AppViewModel: Invoking full user info callback for profile (requestId: $requestId, userId: $userId)",
                     )
                 }
-                fullUserInfoCallback(obj)
+                fullUserInfoCallback(parsed)
             } else {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(

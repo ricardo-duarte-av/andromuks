@@ -12920,6 +12920,26 @@ class AppViewModel : ViewModel() {
     }
 
     /**
+     * Delete a custom profile field. Omitting "value" is what tells the backend to delete
+     * rather than set (gomuks treats a nil raw value as DeleteProfileField).
+     *
+     * Note for the biography: pass the real field name ("gay.fomx.biography"), not gomuks'
+     * "_gomuks_bio" write alias — the nil-value check runs before the alias is rewritten, so
+     * clearing through the alias would delete a literal "_gomuks_bio" field instead.
+     */
+    fun clearCustomProfileField(field: String) {
+        val requestId = WebSocketService.allocateRequestId()
+        sendWebSocketCommand(
+            "set_profile_field",
+            requestId,
+            mapOf(
+                "field" to field,
+            ),
+        )
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing custom profile field '$field'")
+    }
+
+    /**
      * Send WebSocket command to the backend (raw payload). Delegates to [WebSocketCommandSender].
      */
     internal fun sendRawWebSocketCommand(command: String, requestId: Int, data: Any?): WebSocketResult = webSocketCommands.sendRaw(command, requestId, data)
@@ -14162,6 +14182,7 @@ class AppViewModel : ViewModel() {
         var pronouns: List<net.vrkknn.andromuks.utils.UserPronouns>? = null
         var encryptionInfo: net.vrkknn.andromuks.utils.UserEncryptionInfo? = null
         var mutualRooms: List<String> = emptyList()
+        var bio: net.vrkknn.andromuks.utils.ProfileBioContent? = null
         var arbitraryFields: Map<String, Any> = emptyMap()
 
         var profileCompleted = false
@@ -14207,6 +14228,7 @@ class AppViewModel : ViewModel() {
                     roomDisplayName = null, // Per-room profile will be loaded separately if roomId is provided
                     roomAvatarUrl = null,
                     arbitraryFields = arbitraryFields,
+                    bio = bio,
                 )
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
@@ -14237,12 +14259,8 @@ class AppViewModel : ViewModel() {
             ),
         )
 
-        // Override the profile handler temporarily to capture the result
-        val originalProfileCallback = profileRequests[profileRequestId]
-        profileRequests[profileRequestId] = userId // Keep userId for routing
-
-        // We need to intercept the profile response, so we'll handle it in handleProfileResponse
-        // For now, let's use a different approach - store a callback for full user info requests
+        // The response is routed through handleProfileResponse (via profileRequests) and
+        // delivered to tempProfileCallback below through fullUserInfoCallbacks.
 
         // Request 2: Encryption Info
         encryptionTrace = PerformanceMonitoringCoordinator.startTrace("user_profile_fetch_encryption")
@@ -14293,72 +14311,21 @@ class AppViewModel : ViewModel() {
             }
         }
 
-        // Handle profile response separately
-        val tempProfileCallback: (JSONObject?) -> Unit = { profileData ->
+        // Handle profile response separately. Parsing happens once, in
+        // MemberProfilesCoordinator.handleProfileResponse; see utils/ProfileResponse.kt.
+        val tempProfileCallback: (net.vrkknn.andromuks.utils.ParsedProfile?) -> Unit = { profileData ->
             if (profileData != null) {
-                displayName = profileData.optString("displayname").takeIf { it.isNotBlank() && it != "null" }
-                avatarUrl = profileData.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" }
-                // Support both timezone field formats: prefer m.tz (standardized) over us.cloke.msc4175.tz (legacy)
-                timezone = profileData.optString("m.tz").takeIf { it.isNotBlank() }
-                    ?: profileData.optString("us.cloke.msc4175.tz").takeIf { it.isNotBlank() }
-
-                // Extract pronouns from io.fsky.nyx.pronouns array
-                val pronounsArray = profileData.optJSONArray("io.fsky.nyx.pronouns")
-                if (pronounsArray != null && pronounsArray.length() > 0) {
-                    val pronounsList = mutableListOf<net.vrkknn.andromuks.utils.UserPronouns>()
-                    for (i in 0 until pronounsArray.length()) {
-                        val pronounObj = pronounsArray.optJSONObject(i)
-                        if (pronounObj != null) {
-                            val language = pronounObj.optString("language", "en")
-                            val summary = pronounObj.optString("summary", "")
-                            if (summary.isNotBlank()) {
-                                pronounsList.add(
-                                    net.vrkknn.andromuks.utils.UserPronouns(
-                                        language = language,
-                                        summary = summary,
-                                    ),
-                                )
-                            }
-                        }
-                    }
-                    if (pronounsList.isNotEmpty()) {
-                        pronouns = pronounsList
-                    }
-                }
-
-                // Extract all arbitrary fields (everything except known fields)
-                val knownKeys = setOf(
-                    "displayname",
-                    "avatar_url",
-                    "us.cloke.msc4175.tz",
-                    "m.tz",
-                    "io.fsky.nyx.pronouns",
-                )
-                val arbitraryFieldsMap = mutableMapOf<String, Any>()
-                val keys = profileData.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    if (!knownKeys.contains(key)) {
-                        val value = profileData.get(key)
-                        // Convert JSON types to Kotlin types
-                        when (value) {
-                            is org.json.JSONArray -> arbitraryFieldsMap[key] = value
-                            is org.json.JSONObject -> arbitraryFieldsMap[key] = value
-                            is String -> arbitraryFieldsMap[key] = value
-                            is Number -> arbitraryFieldsMap[key] = value
-                            is Boolean -> arbitraryFieldsMap[key] = value
-                            else -> arbitraryFieldsMap[key] = value.toString()
-                        }
-                    }
-                }
-
-                // Store arbitrary fields in outer variable
-                arbitraryFields = arbitraryFieldsMap
+                displayName = profileData.displayName.takeIf { it.isNotBlank() }
+                avatarUrl = profileData.avatarUrl.takeIf { it.isNotBlank() }
+                timezone = profileData.timezone
+                profileData.pronouns?.let { pronouns = it }
+                bio = profileData.bio
+                arbitraryFields = profileData.arbitraryFields
 
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}, arbitraryFields: ${arbitraryFieldsMap.size}",
+                    "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}, bio: ${bio != null}, arbitraryFields: ${profileData.arbitraryFields.size}",
                 )
                 }
             } else {
@@ -14403,6 +14370,7 @@ class AppViewModel : ViewModel() {
                         roomDisplayName = null, // Per-room profile will be loaded separately if roomId is provided
                         roomAvatarUrl = null,
                         arbitraryFields = arbitraryFields,
+                        bio = bio,
                     )
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
@@ -14416,8 +14384,9 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    // Temporary storage for full user info profile callbacks
-    internal val fullUserInfoCallbacks = mutableMapOf<Int, (JSONObject?) -> Unit>()
+    // Temporary storage for full user info profile callbacks. The response is parsed once by
+    // MemberProfilesCoordinator.handleProfileResponse and handed over already decoded.
+    internal val fullUserInfoCallbacks = mutableMapOf<Int, (net.vrkknn.andromuks.utils.ParsedProfile?) -> Unit>()
 
     private fun handleMutualRoomsResponse(requestId: Int, data: Any) {
         val callback = mutualRoomsRequests.remove(requestId) ?: return
