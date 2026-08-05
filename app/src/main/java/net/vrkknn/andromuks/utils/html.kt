@@ -84,6 +84,12 @@ import android.graphics.Color as AndroidColor
 
 private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
 
+/**
+ * How much larger emoji-only messages render than body text. Shared by every render path so a
+ * message does not change size depending on whether it arrived with a formatted_body.
+ */
+private const val EMOJI_ONLY_FONT_SCALE = 2
+
 // Styles for the plain-text (non-HTML) render path. Constant, so hoisted out of the composable:
 // they were being reallocated on every recomposition, and as top-level vals they can also be
 // captured by the memoized render without becoming a `remember` key.
@@ -2229,10 +2235,10 @@ fun HtmlMessageText(
                     }
                     return@forEach
                 }
-                // Limit image height to text line height, but use 2x size for emoji-only messages
+                // Limit image height to text line height, but enlarge it for emoji-only messages
                 val baseMaxHeight = minOf(imageData.height, textLineHeight)
                 val maxHeight = if (isEmojiOnly) {
-                    baseMaxHeight * 2
+                    baseMaxHeight * EMOJI_ONLY_FONT_SCALE
                 } else {
                     baseMaxHeight
                 }
@@ -2527,7 +2533,7 @@ fun HtmlMessageText(
                     style = if (isEmojiOnly) {
                         MaterialTheme.typography.bodyMedium.copy(
                             color = color,
-                            fontSize = MaterialTheme.typography.bodyMedium.fontSize * 3,
+                            fontSize = MaterialTheme.typography.bodyMedium.fontSize * EMOJI_ONLY_FONT_SCALE,
                         )
                     } else {
                         MaterialTheme.typography.bodyMedium.copy(color = color)
@@ -2571,7 +2577,7 @@ fun HtmlMessageText(
         val body = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
         val baseStyle = MaterialTheme.typography.bodyMedium
         val textStyle = if (isEmojiOnly) {
-            baseStyle.copy(fontSize = baseStyle.fontSize * 2)
+            baseStyle.copy(fontSize = baseStyle.fontSize * EMOJI_ONLY_FONT_SCALE)
         } else {
             baseStyle
         }
@@ -2809,7 +2815,7 @@ fun HtmlMessageText(
             style = if (isEmojiOnly) {
                 MaterialTheme.typography.bodyMedium.copy(
                     color = color,
-                    fontSize = MaterialTheme.typography.bodyMedium.fontSize * 2,
+                    fontSize = MaterialTheme.typography.bodyMedium.fontSize * EMOJI_ONLY_FONT_SCALE,
                 )
             } else {
                 MaterialTheme.typography.bodyMedium.copy(color = color)

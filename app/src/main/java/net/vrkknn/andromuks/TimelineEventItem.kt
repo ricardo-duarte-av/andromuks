@@ -103,6 +103,7 @@ import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.BubbleColors
 import net.vrkknn.andromuks.utils.BubblePalette
 import net.vrkknn.andromuks.utils.EditHistoryDialog
+import net.vrkknn.andromuks.utils.EmojiClassifier
 import net.vrkknn.andromuks.utils.EmoteEventNarrator
 import net.vrkknn.andromuks.utils.GALLERY_MSGTYPES
 import net.vrkknn.andromuks.utils.GalleryMessage
@@ -212,30 +213,32 @@ private val hhmmFormatter = ThreadLocal.withInitial { SimpleDateFormat("HH:mm", 
 
 fun formatTimestamp(timestamp: Long): String = hhmmFormatter.get()!!.format(Date(timestamp))
 
-/**
- * Check if a message body contains only an emoji (real emoji or custom emoji).
- * Real emojis are Unicode emoji characters.
- * Custom emojis can be:
- * - Markdown format: ![:name:](mxc://...)
- * - Shortcode format: :name: (which gets rendered as <img> in HTML)
- * 
- * This function handles both plain text and HTML content by stripping HTML tags.
- */
+/** Maximum number of emoji a message may contain and still render sticker-sized. */
+private const val MAX_JUMBO_EMOJI = 3
+
+/** Must match the scale used by the HTML render paths in utils/html.kt. */
+private const val EMOJI_ONLY_FONT_SCALE = 2
+
 private val HtmlTagRegex = Regex("""<[^>]+>""")
 private val CustomEmojiMarkdownRegex = Regex("""^!\[:([^\]]+):\]\(mxc://[^)]+\)$""")
 private val CustomEmojiShortcodeRegex = Regex("""^:[\w+-]+:\s*$""")
 private val WhitespaceRegex = Regex("""\s+""")
-private val AsciiLetterOrDigitRegex = Regex("""[a-zA-Z0-9]""")
-private val CustomEmojiImgRegex = Regex("""^\s*<img[^>]*>\s*$""", RegexOption.IGNORE_CASE)
+private val CustomEmojiImgRegex = Regex("""^(?:\s*<img[^>]*>\s*){1,$MAX_JUMBO_EMOJI}$""", RegexOption.IGNORE_CASE)
+private val ImgTagRegex = Regex("""<img[^>]*>""", RegexOption.IGNORE_CASE)
 private val MxcUrlRegex = Regex("""src\s*=\s*["']mxc://[^"']+["']""", RegexOption.IGNORE_CASE)
 
 /**
- * Check if a message body contains only an emoji (real emoji or custom emoji).
- * Real emojis are Unicode emoji characters.
+ * Check if a message body consists of nothing but emoji (real emoji or custom emoji), and few
+ * enough of them ([MAX_JUMBO_EMOJI]) to be worth rendering sticker-sized.
+ *
+ * Real emoji are classified positively by [EmojiClassifier] — membership in the shipped emoji
+ * table, with a code-point range fallback. A negative rule (e.g. "contains no ASCII letters or
+ * digits") is not enough: it lets "?", "€" and "漢" through while rejecting keycaps like "1️⃣".
+ *
  * Custom emojis can be:
  * - Markdown format: ![:name:](mxc://...)
  * - Shortcode format: :name: (which gets rendered as <img> in HTML)
- * 
+ *
  * This function handles both plain text and HTML content by stripping HTML tags.
  */
 fun isEmojiOnlyMessage(body: String): Boolean {
@@ -260,33 +263,20 @@ fun isEmojiOnlyMessage(body: String): Boolean {
         return true
     }
 
-    // Check if the text contains only emoji characters
-    // Wrap in try-catch for preview environments that don't support Unicode property classes
-
     // Remove all whitespace and check if only emoji remains
     val withoutWhitespace = trimmed.replace(WhitespaceRegex, "")
     if (withoutWhitespace.isEmpty()) return false
 
-    // CRITICAL: Exclude ASCII letters and digits to prevent regular text from being treated as emoji
-    val containsAsciiLetterOrDigit = AsciiLetterOrDigitRegex.containsMatchIn(withoutWhitespace)
-    if (containsAsciiLetterOrDigit) return false
-
-    // Only match exactly ONE user-visible emoji (one grapheme cluster).
-    // Code-point count is unreliable: 👨‍👩‍👧‍👦 is 7 code points but still one emoji;
-    // conversely 😀😁 is 2 code points and should NOT be enlarged.
-    // BreakIterator.getCharacterInstance() walks grapheme cluster boundaries correctly.
-    val bi = java.text.BreakIterator.getCharacterInstance()
-    bi.setText(withoutWhitespace)
-    var clusterCount = 0
-    while (bi.next() != java.text.BreakIterator.DONE) {
-        clusterCount++
-        if (clusterCount > 1) return false
-    }
-    return clusterCount == 1
+    // Every user-visible character (grapheme cluster) must be an emoji, and there must be at most
+    // MAX_JUMBO_EMOJI of them. Counting code points would be wrong in both directions: 👨‍👩‍👧‍👦 is
+    // 7 code points but one emoji, while 😀😁 is 2 code points and two emoji.
+    val emojiCount = EmojiClassifier.countEmojiClusters(withoutWhitespace, MAX_JUMBO_EMOJI)
+    return emojiCount in 1..MAX_JUMBO_EMOJI
 }
 
 /**
- * Check if an HTML formatted body contains only a custom emoji image.
+ * Check if an HTML formatted body contains only custom emoji images (up to [MAX_JUMBO_EMOJI] of
+ * them, matching the limit applied to real emoji).
  * Custom emojis in HTML are rendered as: <img src="mxc://..." alt=":name:" ...>
  */
 fun isCustomEmojiOnlyHtml(formattedBody: String?): Boolean {
@@ -294,17 +284,11 @@ fun isCustomEmojiOnlyHtml(formattedBody: String?): Boolean {
 
     val trimmed = formattedBody.trim()
 
-    // Check if the HTML contains only an img tag with MXC URL (custom emoji)
-    // Pattern: <img ... src="mxc://..." ...> with optional whitespace
-    // The src attribute can appear anywhere in the tag
-    if (CustomEmojiImgRegex.matches(trimmed)) {
-        // Verify it has an MXC URL in the src attribute
-        if (MxcUrlRegex.containsMatchIn(trimmed)) {
-            return true
-        }
-    }
+    // The body must be nothing but img tags (plus whitespace), and every one of them must carry an
+    // MXC src — a single https image alongside custom emoji is not emoji-only content.
+    if (!CustomEmojiImgRegex.matches(trimmed)) return false
 
-    return false
+    return ImgTagRegex.findAll(trimmed).all { MxcUrlRegex.containsMatchIn(it.value) }
 }
 
 @Composable
@@ -409,7 +393,7 @@ fun AdaptiveMessageText(
         // Fallback to plain text for redacted messages or when HTML is not available
         val baseStyle = MaterialTheme.typography.bodyMedium
         val textStyle = if (isEmojiOnly) {
-            baseStyle.copy(fontSize = baseStyle.fontSize * 3)
+            baseStyle.copy(fontSize = baseStyle.fontSize * EMOJI_ONLY_FONT_SCALE)
         } else {
             baseStyle
         }
