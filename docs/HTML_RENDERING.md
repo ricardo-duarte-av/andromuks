@@ -15,6 +15,26 @@ Tapping opens `HtmlTableDialog` — a full-screen dialog with `HtmlTableContent`
 
 Parsing logic lives in `parseTableNode()` in `HtmlTableRenderer.kt`.
 
+## Inline Images (`<img>`)
+
+Every `<img>` becomes an `InlineTextContent` placeholder inside the `AnnotatedString`, so images
+flow with the text rather than sitting in their own block. By default the placeholder is a square
+clamped to the height of one line of text (`minOf(declared height, textLineHeight)`, doubled for
+emoji-only messages) — that is what makes custom emoticons sit on the baseline instead of towering
+over the sentence they are in.
+
+That default is wrong wherever the markup is being shown as a document rather than as a chat line.
+`HtmlMessageText`/`HtmlBodyText` therefore take an optional `inlineImageSizing:
+InlineImageSizing(maxHeightSp, maxWidthSp)`. When set, `inlineImageSizeSp` sizes each image from
+the `width`/`height` attributes the markup declared — preserving their aspect ratio — and shrinks
+it to fit inside both bounds. Markup that declares no size falls back to a square at the height
+cap, because a browser would use the intrinsic size and that isn't known until the bitmap loads,
+while a `Placeholder` has to be sized before it.
+
+The only caller today is `ExpandedBioDialog` (`utils/UserInfo.kt`), the floating window behind the
+profile screen's fixed-height bio card. It passes its own `BoxWithConstraints` width, so images are
+bounded by the actual window rather than by a guess at the screen size.
+
 ## Maths (MSC2191)
 
 gomuks delivers MSC2191 maths in `local_content.sanitized_html` as

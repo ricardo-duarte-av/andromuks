@@ -344,7 +344,42 @@ data class InlineImageData(
     // MSC2191 maths: when non-null, this entry is a LaTeX equation rendered via JLaTeXMath
     // instead of a network image. `alt` holds the raw LaTeX (used as the text fallback).
     val latex: String? = null,
+    // The size attributes exactly as the markup declared them, null when absent. `height` above
+    // substitutes a default so inline rendering always has a number; these keep the distinction
+    // for [inlineImageSizeSp], which needs to know whether an aspect ratio was actually given.
+    val declaredWidth: Int? = null,
+    val declaredHeight: Int? = null,
 )
+
+/**
+ * Opt-in sizing for inline `<img>` elements, used where the markup is being shown at full size
+ * rather than as a chat line — the expanded profile-bio viewer, for instance. Without it, images
+ * are clamped to the height of one line of text so they read as emoticons.
+ *
+ * Both bounds are in sp so they track the same font scaling the surrounding text does.
+ */
+data class InlineImageSizing(val maxHeightSp: Float, val maxWidthSp: Float)
+
+/**
+ * Size an inline image for [InlineImageSizing]: honour the declared width/height (and therefore
+ * the declared aspect ratio), then shrink to fit inside both bounds.
+ *
+ * Markup that declares no size would, in a browser, render at the image's intrinsic size — which
+ * isn't known until the bitmap loads and a [Placeholder] must be sized before that. Such images
+ * fall back to a square at the height cap; the image itself is scaled to fit inside it.
+ */
+internal fun inlineImageSizeSp(data: InlineImageData, sizing: InlineImageSizing): Pair<Float, Float> {
+    val declaredWidth = data.declaredWidth?.takeIf { it > 0 }?.toFloat()
+    val declaredHeight = data.declaredHeight?.takeIf { it > 0 }?.toFloat()
+    val aspect = if (declaredWidth != null && declaredHeight != null) declaredWidth / declaredHeight else 1f
+    var height = (declaredHeight ?: declaredWidth ?: sizing.maxHeightSp).coerceAtMost(sizing.maxHeightSp)
+    var width = height * aspect
+    if (width > sizing.maxWidthSp && width > 0f) {
+        height *= sizing.maxWidthSp / width
+        width = sizing.maxWidthSp
+    }
+    return width to height
+}
 
 data class InlineMatrixUserChip(val userId: String, val displayText: String, val avatarUrl: String? = null)
 
@@ -1443,10 +1478,19 @@ private fun AnnotatedString.Builder.appendAnchor(
 private fun AnnotatedString.Builder.appendImage(tag: HtmlNode.Tag, inlineImages: MutableMap<String, InlineImageData>, hideContent: Boolean) {
     val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: ""
     val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
-    val height = tag.attributes["height"]?.toIntOrNull() ?: 32
+    val declaredHeight = tag.attributes["height"]?.toIntOrNull()
+    val declaredWidth = tag.attributes["width"]?.toIntOrNull()
+    val height = declaredHeight ?: 32
     if (src.isNotBlank()) {
         val id = "inline_img_${inlineImages.size}"
-        inlineImages[id] = InlineImageData(src, alt, height, isHidden = hideContent)
+        inlineImages[id] = InlineImageData(
+            src,
+            alt,
+            height,
+            isHidden = hideContent,
+            declaredWidth = declaredWidth,
+            declaredHeight = declaredHeight,
+        )
         if (BuildConfig.DEBUG) {
             Log.d(
                 "Andromuks",
@@ -1708,6 +1752,7 @@ fun HtmlBodyText(
     onMatrixUserClick: (String) -> Unit = {},
     onRoomLinkClick: (RoomLink) -> Unit = {},
     onInlineImageClick: (InlineImageData) -> Unit = {},
+    inlineImageSizing: InlineImageSizing? = null,
 ) {
     val syntheticEvent = remember(html) {
         TimelineEvent(
@@ -1731,6 +1776,7 @@ fun HtmlBodyText(
         onRoomLinkClick = onRoomLinkClick,
         htmlContent = html,
         onInlineImageClick = onInlineImageClick,
+        inlineImageSizing = inlineImageSizing,
     )
 }
 
@@ -1752,6 +1798,9 @@ fun HtmlMessageText(
     onCodeBlockClick: (String) -> Unit = {}, // Callback for code block clicks
     onInlineImageClick: (InlineImageData) -> Unit = {
     }, // Callback for tapping an mxc-backed inline image (custom emoji / inline <img>)
+    // When set, inline <img> render at their declared size within these bounds instead of being
+    // clamped to one line of text. Only for full-size markup views (see [InlineImageSizing]).
+    inlineImageSizing: InlineImageSizing? = null,
 ) {
     // Don't render HTML for redacted messages
     // The parent composable should handle showing the deletion message
@@ -2099,7 +2148,7 @@ fun HtmlMessageText(
         }
     }
     val inlineContentMap =
-        remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, handleInlineImageClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken, mathColorArgb, mathTextSizePx) {
+        remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, handleInlineImageClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken, mathColorArgb, mathTextSizePx, inlineImageSizing) {
             val map = mutableMapOf<String, InlineTextContent>()
             inlineImagesSnapshot.forEach { (id, imageData) ->
                 // MSC2191 maths: render the LaTeX to a JLaTeXMath drawable instead of a network image.
@@ -2140,24 +2189,31 @@ fun HtmlMessageText(
                     }
                     return@forEach
                 }
-                // Limit image height to text line height, but enlarge it for emoji-only messages
-                val baseMaxHeight = minOf(imageData.height, textLineHeight)
-                val maxHeight = if (isEmojiOnly) {
-                    baseMaxHeight * EMOJI_ONLY_FONT_SCALE
+                // Limit image height to text line height, but enlarge it for emoji-only messages.
+                // A full-size view (expanded bio) overrides that with its own bounds instead.
+                val (imageWidth, imageHeight) = if (inlineImageSizing != null) {
+                    inlineImageSizeSp(imageData, inlineImageSizing)
                 } else {
-                    baseMaxHeight
+                    val baseMaxHeight = minOf(imageData.height, textLineHeight)
+                    val maxHeight = if (isEmojiOnly) {
+                        baseMaxHeight * EMOJI_ONLY_FONT_SCALE
+                    } else {
+                        baseMaxHeight
+                    }
+                    maxHeight.toFloat() to maxHeight.toFloat()
                 }
                 map[id] = InlineTextContent(
                     Placeholder(
-                        width = maxHeight.sp,
-                        height = maxHeight.sp,
+                        width = imageWidth.sp,
+                        height = imageHeight.sp,
                         placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
                     ),
                 ) {
                     InlineImage(
                         src = imageData.src,
                         alt = imageData.alt,
-                        height = maxHeight,
+                        width = imageWidth,
+                        height = imageHeight,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isHidden = imageData.isHidden,
@@ -2837,7 +2893,16 @@ private fun BlockMath(latex: String, colorArgb: Int, textSizePx: Float, modifier
  * Composable for rendering inline images in HTML content
  */
 @Composable
-private fun InlineImage(src: String, alt: String, height: Int, homeserverUrl: String, authToken: String, isHidden: Boolean, onClick: (() -> Unit)? = null) {
+private fun InlineImage(
+    src: String,
+    alt: String,
+    width: Float,
+    height: Float,
+    homeserverUrl: String,
+    authToken: String,
+    isHidden: Boolean,
+    onClick: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
@@ -2915,7 +2980,7 @@ private fun InlineImage(src: String, alt: String, height: Int, homeserverUrl: St
         // Render a placeholder with the same size to avoid layout changes.
         Box(
             modifier = Modifier
-                .size(height.dp)
+                .size(width.dp, height.dp)
                 .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp)),
         )
     } else if (imageUrl != null) {
@@ -2935,7 +3000,7 @@ private fun InlineImage(src: String, alt: String, height: Int, homeserverUrl: St
             imageLoader = imageLoader,
             contentDescription = alt,
             modifier = Modifier
-                .size(height.dp)
+                .size(width.dp, height.dp)
                 .let { if (onClick != null) it.clickable { onClick() } else it },
             onError = { errorState ->
                 // CRITICAL FIX: Use existing error handling utility for consistent error handling
@@ -2951,7 +3016,7 @@ private fun InlineImage(src: String, alt: String, height: Int, homeserverUrl: St
         )
     } else {
         // Fallback to alt text
-        Text(text = alt, fontSize = (height * 0.6).sp)
+        Text(text = alt, fontSize = (height * 0.6f).sp)
     }
 }
 

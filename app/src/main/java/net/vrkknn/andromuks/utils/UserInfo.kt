@@ -38,6 +38,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
@@ -49,7 +50,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.Path
@@ -58,11 +61,16 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import androidx.graphics.shapes.Morph
 import androidx.navigation.NavController
@@ -287,6 +295,24 @@ internal data class ProfileBio(val body: String, val isHtml: Boolean, val source
 
 /** Source key for the MSC4440 biography, which the backend delivers pre-rendered. */
 internal const val SPEC_BIO_SOURCE_KEY = "gay.fomx.biography"
+
+/** Section heading for a bio, which differs per vendor field. */
+internal fun bioLabelFor(sourceKey: String): String = when (sourceKey) {
+    SPEC_BIO_SOURCE_KEY -> "Bio"
+    "chat.commet.profile_bio" -> "About"
+    "moe.sable.app.bio" -> "Bio"
+    else -> "About"
+}
+
+/**
+ * How tall the bio card's body is allowed to get in the profile screen. A bio is arbitrary markup
+ * — it can carry images and run for pages — and it must not push the rest of the profile off
+ * screen, so the card is capped here and the full thing is a tap away in [ExpandedBioDialog].
+ */
+private val BIO_COLLAPSED_MAX_HEIGHT = 140.dp
+
+/** Height of the fade drawn over the bottom of a bio that was cut off by the cap above. */
+private val BIO_FADE_HEIGHT = 40.dp
 
 /** gomuks input-format prefix meaning "what follows is HTML, not markdown". */
 internal const val GOMUKS_HTML_INPUT_PREFIX = "/html "
@@ -719,6 +745,8 @@ fun UserInfoScreen(
     var bioEditError by remember { mutableStateOf<String?>(null) }
     // Which bio the edit dialog writes back to: the MSC4440 biography or the commet vendor field.
     var bioEditTarget by remember { mutableStateOf(SPEC_BIO_SOURCE_KEY) }
+    // Non-null while the full-size bio viewer is open; holds the bio being viewed.
+    var expandedBio by remember { mutableStateOf<ProfileBio?>(null) }
 
     // Current time state for user's timezone
     var currentTimeInUserTz by remember { mutableStateOf("") }
@@ -1812,12 +1840,7 @@ fun UserInfoScreen(
                 // Profile Bio section (MSC4440 biography, chat.commet.profile_bio and/or moe.sable.app.bio)
                 val profileBios = extractProfileBios(userProfileInfo!!.arbitraryFields, userProfileInfo!!.bio)
                 profileBios.forEach { profileBio ->
-                    val bioLabel = when (profileBio.sourceKey) {
-                        SPEC_BIO_SOURCE_KEY -> "Bio"
-                        "chat.commet.profile_bio" -> "About"
-                        "moe.sable.app.bio" -> "Bio"
-                        else -> "About"
-                    }
+                    val bioLabel = bioLabelFor(profileBio.sourceKey)
                     // The backend only sends edit_source for our own profile, so its presence
                     // is what makes the standard bio editable.
                     val isEditableBio = profileBio.sourceKey == "chat.commet.profile_bio" ||
@@ -1865,26 +1888,75 @@ fun UserInfoScreen(
                                 }
                             }
 
-                            if (profileBio.isHtml) {
-                                // A bio carries the same markup a message body does — custom
-                                // emoticons especially — so it goes through the message HTML
-                                // renderer rather than the text-only AnnotatedString one.
-                                HtmlBodyText(
-                                    html = profileBio.body,
-                                    homeserverUrl = appViewModel.homeserverUrl,
-                                    authToken = appViewModel.authToken,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    onMatrixUserClick = { clickedUserId ->
-                                        navController.navigateToUserInfo(clickedUserId, roomId)
-                                    },
-                                )
-                            } else {
-                                // Render plain text bio
-                                Text(
-                                    text = profileBio.body,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                )
+                            // The body is capped and clipped: tapping anywhere that isn't an
+                            // interactive span (a link, a pill, an image) opens the full bio in a
+                            // floating window. Those spans consume the tap themselves, so they
+                            // keep working here.
+                            val density = LocalDensity.current
+                            val collapsedHeightPx = with(density) { BIO_COLLAPSED_MAX_HEIGHT.roundToPx() }
+                            var bioIsClipped by remember(profileBio.body) { mutableStateOf(false) }
+                            val containerColor = MaterialTheme.colorScheme.secondaryContainer
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = BIO_COLLAPSED_MAX_HEIGHT)
+                                    .clipToBounds()
+                                    .clickable { expandedBio = profileBio },
+                            ) {
+                                Box(
+                                    // Measured unbounded so the full body's height is known even
+                                    // though the parent clips it — that is what tells us whether
+                                    // anything was actually cut off.
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .wrapContentHeight(align = Alignment.Top, unbounded = true)
+                                        .onSizeChanged { size ->
+                                            bioIsClipped = size.height > collapsedHeightPx
+                                        },
+                                ) {
+                                    if (profileBio.isHtml) {
+                                        // A bio carries the same markup a message body does —
+                                        // custom emoticons especially — so it goes through the
+                                        // message HTML renderer rather than the text-only
+                                        // AnnotatedString one.
+                                        HtmlBodyText(
+                                            html = profileBio.body,
+                                            homeserverUrl = appViewModel.homeserverUrl,
+                                            authToken = appViewModel.authToken,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            onMatrixUserClick = { clickedUserId ->
+                                                navController.navigateToUserInfo(clickedUserId, roomId)
+                                            },
+                                        )
+                                    } else {
+                                        // Render plain text bio
+                                        Text(
+                                            text = profileBio.body,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        )
+                                    }
+                                }
+                                if (bioIsClipped) {
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .fillMaxWidth()
+                                            .height(BIO_FADE_HEIGHT)
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    listOf(Color.Transparent, containerColor),
+                                                ),
+                                            ),
+                                        contentAlignment = Alignment.BottomCenter,
+                                    ) {
+                                        Text(
+                                            text = "Tap to read more",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -2636,6 +2708,20 @@ fun UserInfoScreen(
         )
     }
 
+    // Full-size bio viewer
+    expandedBio?.let { bio ->
+        ExpandedBioDialog(
+            profileBio = bio,
+            homeserverUrl = appViewModel.homeserverUrl,
+            authToken = appViewModel.authToken,
+            onMatrixUserClick = { clickedUserId ->
+                expandedBio = null
+                navController.navigateToUserInfo(clickedUserId, roomId)
+            },
+            onDismiss = { expandedBio = null },
+        )
+    }
+
     // Bio Edit Dialog
     if (showBioEditDialog) {
         AlertDialog(
@@ -2923,6 +3009,86 @@ fun UserInfoScreen(
                 showIgnoreDialog = false
             },
         )
+    }
+}
+
+/**
+ * The full bio, in a floating window over the profile.
+ *
+ * The card on the profile screen is deliberately short, which squeezes bios that carry images —
+ * inline `<img>` there are clamped to one line of text so emoticons sit on the baseline. Here the
+ * markup gets the room it expects: images render at their declared size, bounded by the dialog's
+ * own width and a share of the screen height, and the body scrolls.
+ */
+@Composable
+private fun ExpandedBioDialog(profileBio: ProfileBio, homeserverUrl: String, authToken: String, onMatrixUserClick: (String) -> Unit, onDismiss: () -> Unit) {
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    // A tall image would otherwise be able to fill the window on its own, leaving no sign that
+    // there is text around it.
+    val maxImageHeightSp = with(density) { (configuration.screenHeightDp * 0.5f).dp.toSp().value }
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .heightIn(max = (configuration.screenHeightDp * 0.85f).dp),
+            shape = RoundedCornerShape(16.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            tonalElevation = 6.dp,
+        ) {
+            Column(modifier = Modifier.padding(start = 20.dp, end = 8.dp, top = 12.dp, bottom = 16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = bioLabelFor(profileBio.sourceKey),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onDismiss) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Close bio",
+                        )
+                    }
+                }
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                        .padding(end = 12.dp),
+                ) {
+                    // maxWidth is the real content width here, so images are bounded by the
+                    // window rather than by a guess at the screen size.
+                    val sizing = InlineImageSizing(
+                        maxHeightSp = maxImageHeightSp,
+                        maxWidthSp = with(density) { maxWidth.toSp().value },
+                    )
+                    if (profileBio.isHtml) {
+                        HtmlBodyText(
+                            html = profileBio.body,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            onMatrixUserClick = onMatrixUserClick,
+                            inlineImageSizing = sizing,
+                        )
+                    } else {
+                        Text(
+                            text = profileBio.body,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -44,6 +44,20 @@ field name `"gay.fomx.biography"` via `AppViewModel.clearCustomProfileField` (wh
 `value`): gomuks checks for a nil value *before* rewriting the `_gomuks_bio` alias, so clearing
 through the alias would delete a literal `_gomuks_bio` field instead.
 
+### Rendering the Bio (fixed card + expanded window)
+
+A bio is arbitrary markup — it can carry images and run for pages — so the card in `UserInfoScreen`
+caps its body at `BIO_COLLAPSED_MAX_HEIGHT` and clips it, rather than letting a long bio push the
+rest of the profile off screen. The body is measured *unbounded* inside that cap (via
+`wrapContentHeight(unbounded = true)` + `onSizeChanged`) so the screen knows whether anything was
+actually cut off; only then does it draw the bottom fade and the "Tap to read more" hint.
+
+Tapping the card opens `ExpandedBioDialog`, a floating window with the whole bio scrolling and
+inline images at their declared size (see
+[HTML_RENDERING.md](HTML_RENDERING.md#inline-images-img)). Taps land on the card because
+`HtmlMessageText`'s gesture handler only consumes a tap that hits an interactive span — links,
+user/room pills, images keep working and open what they always did.
+
 ## Resolution Order (`getUserProfile`)
 
 1. `ProfileCache.flattenedMemberCache["roomId:userId"]` — room-specific override (highest priority)
