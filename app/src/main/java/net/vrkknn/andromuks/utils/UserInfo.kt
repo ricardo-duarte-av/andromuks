@@ -68,6 +68,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -1903,7 +1904,7 @@ fun UserInfoScreen(
                                     .clipToBounds()
                                     .clickable { expandedBio = profileBio },
                             ) {
-                                Box(
+                                BoxWithConstraints(
                                     // Measured unbounded so the full body's height is known even
                                     // though the parent clips it — that is what tells us whether
                                     // anything was actually cut off.
@@ -1914,28 +1915,19 @@ fun UserInfoScreen(
                                             bioIsClipped = size.height > collapsedHeightPx
                                         },
                                 ) {
-                                    if (profileBio.isHtml) {
-                                        // A bio carries the same markup a message body does —
-                                        // custom emoticons especially — so it goes through the
-                                        // message HTML renderer rather than the text-only
-                                        // AnnotatedString one.
-                                        HtmlBodyText(
-                                            html = profileBio.body,
-                                            homeserverUrl = appViewModel.homeserverUrl,
-                                            authToken = appViewModel.authToken,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                            onMatrixUserClick = { clickedUserId ->
-                                                navController.navigateToUserInfo(clickedUserId, roomId)
-                                            },
-                                        )
-                                    } else {
-                                        // Render plain text bio
-                                        Text(
-                                            text = profileBio.body,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                        )
-                                    }
+                                    ProfileBioBody(
+                                        profileBio = profileBio,
+                                        contentWidth = maxWidth,
+                                        // A preview: an image may fill the card but must not be
+                                        // able to demand more room than the card itself has.
+                                        maxImageHeight = BIO_COLLAPSED_MAX_HEIGHT,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                        homeserverUrl = appViewModel.homeserverUrl,
+                                        authToken = appViewModel.authToken,
+                                        onMatrixUserClick = { clickedUserId ->
+                                            navController.navigateToUserInfo(clickedUserId, roomId)
+                                        },
+                                    )
                                 }
                                 if (bioIsClipped) {
                                     Box(
@@ -3023,10 +3015,9 @@ fun UserInfoScreen(
 @Composable
 private fun ExpandedBioDialog(profileBio: ProfileBio, homeserverUrl: String, authToken: String, onMatrixUserClick: (String) -> Unit, onDismiss: () -> Unit) {
     val configuration = LocalConfiguration.current
-    val density = LocalDensity.current
     // A tall image would otherwise be able to fill the window on its own, leaving no sign that
     // there is text around it.
-    val maxImageHeightSp = with(density) { (configuration.screenHeightDp * 0.5f).dp.toSp().value }
+    val maxImageHeight = (configuration.screenHeightDp * 0.5f).dp
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -3066,52 +3057,80 @@ private fun ExpandedBioDialog(profileBio: ProfileBio, homeserverUrl: String, aut
                 ) {
                     // maxWidth is the real content width here, so images are bounded by the
                     // window rather than by a guess at the screen size.
-                    val contentWidth = maxWidth
-                    val sizing = InlineImageSizing(
-                        maxHeightSp = maxImageHeightSp,
-                        maxWidthSp = with(density) { contentWidth.toSp().value },
+                    ProfileBioBody(
+                        profileBio = profileBio,
+                        contentWidth = maxWidth,
+                        maxImageHeight = maxImageHeight,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onMatrixUserClick = onMatrixUserClick,
                     )
-                    if (profileBio.isHtml) {
-                        // Real images are laid out as blocks rather than as inline text content,
-                        // which cannot be taller than the line it sits on. Emoticons carry no
-                        // declared size and so stay in the markup runs, inline, where they belong.
-                        val segments = remember(profileBio.body) { splitTopLevelBlockImages(profileBio.body) }
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            segments.forEach { segment ->
-                                when (segment) {
-                                    is HtmlSegment.Markup -> HtmlBodyText(
-                                        html = segment.html,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        onMatrixUserClick = onMatrixUserClick,
-                                        inlineImageSizing = sizing,
-                                    )
+                }
+            }
+        }
+    }
+}
 
-                                    is HtmlSegment.BlockImage -> {
-                                        val (imageWidth, imageHeight) = blockImageSize(
-                                            image = segment,
-                                            maxWidth = contentWidth,
-                                            maxHeight = (configuration.screenHeightDp * 0.5f).dp,
-                                        )
-                                        BlockHtmlImage(
-                                            image = segment,
-                                            width = imageWidth,
-                                            height = imageHeight,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        Text(
-                            text = profileBio.body,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                    }
+/**
+ * A profile bio's body, rendered the same way in the card and in the expanded window — only the
+ * bounds and the text colour differ.
+ *
+ * Real images are laid out as blocks rather than as inline text content, which cannot be taller
+ * than the line it sits on (see
+ * [HTML_RENDERING.md](../../../../../../docs/HTML_RENDERING.md#why-a-real-image-cannot-be-inline-content)).
+ * Custom emoticons carry no declared size, so they stay inside the markup runs, inline, where they
+ * belong. [contentWidth] must be the caller's measured width: it is what images are fitted to.
+ */
+@Composable
+private fun ProfileBioBody(
+    profileBio: ProfileBio,
+    contentWidth: Dp,
+    maxImageHeight: Dp,
+    color: Color,
+    homeserverUrl: String,
+    authToken: String,
+    onMatrixUserClick: (String) -> Unit,
+) {
+    if (!profileBio.isHtml) {
+        Text(text = profileBio.body, style = MaterialTheme.typography.bodyMedium, color = color)
+        return
+    }
+    val density = LocalDensity.current
+    // Bounds for images left inline (nested ones, and anything a client stored with its own size
+    // attributes). Placeholders are measured in sp, so the caller's Dp bounds convert here.
+    val sizing = remember(contentWidth, maxImageHeight, density) {
+        InlineImageSizing(
+            maxHeightSp = with(density) { maxImageHeight.toSp().value },
+            maxWidthSp = with(density) { contentWidth.toSp().value },
+        )
+    }
+    val segments = remember(profileBio.body) { splitTopLevelBlockImages(profileBio.body) }
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        segments.forEach { segment ->
+            when (segment) {
+                is HtmlSegment.Markup -> HtmlBodyText(
+                    html = segment.html,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    color = color,
+                    onMatrixUserClick = onMatrixUserClick,
+                    inlineImageSizing = sizing,
+                )
+
+                is HtmlSegment.BlockImage -> {
+                    val (imageWidth, imageHeight) = blockImageSize(
+                        image = segment,
+                        maxWidth = contentWidth,
+                        maxHeight = maxImageHeight,
+                    )
+                    BlockHtmlImage(
+                        image = segment,
+                        width = imageWidth,
+                        height = imageHeight,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                    )
                 }
             }
         }
