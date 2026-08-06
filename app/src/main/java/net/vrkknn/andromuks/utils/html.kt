@@ -2245,11 +2245,21 @@ fun HtmlMessageText(
                 } else {
                     maxHeight.toFloat() to maxHeight.toFloat()
                 }
+                // TextCenter anchors the placeholder to the surrounding text's ascent/descent and
+                // leaves the line box alone, which is what keeps an emoticon sitting on the line
+                // instead of pushing it apart. A placeholder taller than the line then overflows
+                // it and the next line draws straight through the image — so anything bigger than
+                // one line aligns to the line box instead, which grows to fit it.
+                val verticalAlign = if (imageHeight > textLineHeight) {
+                    PlaceholderVerticalAlign.Center
+                } else {
+                    PlaceholderVerticalAlign.TextCenter
+                }
                 map[id] = InlineTextContent(
                     Placeholder(
                         width = imageWidth.sp,
                         height = imageHeight.sp,
-                        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter,
+                        placeholderVerticalAlign = verticalAlign,
                     ),
                 ) {
                     InlineImage(
