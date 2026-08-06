@@ -1695,14 +1695,20 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             // Same-room guard: if the target room is the one currentRoomId points at,
             // defer to RT's same-room handler so it can scroll-to-event without reloading.
             //
-            // Route-aware for SHARE: RT only picks a share payload up through its
-            // LaunchedEffect(pendingShareUpdateCounter), which requires it to actually be composed.
-            // currentRoomId can still point at this room from an earlier session while the user is
-            // sitting on the share picker — bailing then would strand them there with no navigation.
+            // Route-aware for EVERY source, not just SHARE. The handler we defer to is
+            // RoomTimelineScreen's LaunchedEffect(navTrigger) / LaunchedEffect(pendingShareUpdateCounter),
+            // which only exist while RT is actually composed — and currentRoomId outlives RT: its
+            // DisposableEffect deliberately skips clearCurrentRoomId() when leaving for a "keep warm"
+            // destination (user_info / room_info / event_context / thread_viewer). So a notification
+            // for the room the user was reading, tapped while they sit on that room's info screen,
+            // used to be deferred to a handler that no longer exists: nobody claimed the tap and the
+            // app foregrounded onto the info screen with the room never opened.
+            // claimDirectRoomNavigation still arbitrates when RT *is* composed, so proceeding here
+            // when it is not cannot double-navigate.
             if (request.roomId == appViewModel.currentRoomId) {
                 val onTimelineRoute =
                     navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true
-                if (request.source != RoomNavigationRequest.Source.SHARE || onTimelineRoute) {
+                if (onTimelineRoute) {
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             "Andromuks",
@@ -1711,6 +1717,11 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                     }
                     return@collectLatest
                 }
+                Androlog(
+                    "FCMOpen",
+                    "AppNavigation: same room ${request.roomId} but no room_timeline route " +
+                        "(route=${navController.currentBackStackEntry?.destination?.route}) — taking over instead of deferring",
+                )
             }
 
             val roomId = request.roomId
