@@ -1119,6 +1119,70 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
     }
 
     /**
+     * Feeds this sync's timeline events into the open room (and any bubble rooms), then re-runs the
+     * bridge receipt remap over what those events taught us.
+     *
+     * Must run on **every** sync_complete, including ones that carry no room-list delta — see the
+     * note at the early return in [processParsedSyncResult]. Reactions, poll votes, redactions and
+     * bridge status events all arrive in `meta`-less room objects that produce no [SyncUpdateResult]
+     * entry at all.
+     */
+    private fun ingestTimelineEventsFromSync(syncJson: JSONObject): Unit = with(vm) {
+        checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
+
+        // POST-SYNC BRIDGE RECEIPT REMAP: receipts are processed early in processParsedSyncResult
+        // (before timeline events), so any bridge status event + receipt arriving in the SAME
+        // sync_complete will have failed the earlier remapping check because
+        // bridgeStatusEventToMessageId was not yet populated. Now that the timeline events are
+        // processed, run the remap again to catch those same-batch cases.
+        if (bridgeStatusEventToMessageId.isNotEmpty()) {
+            synchronized(readReceiptsLock) {
+                var didRemap = false
+                // Only the rooms a remap actually landed in need pushing back to the cache.
+                val remappedRooms = mutableSetOf<String>()
+                bridgeStatusEventToMessageId.forEach { (statusEventId, originalMessageId) ->
+                    // Find which room holds this status event and remap within that room.
+                    readReceipts.forEach { (rId, eventsMap) ->
+                        val displaced = eventsMap.remove(statusEventId)
+                        if (!displaced.isNullOrEmpty()) {
+                            val roomIndex = readReceiptsIndex.getOrPut(rId) { mutableMapOf() }
+                            val target = eventsMap.getOrPut(originalMessageId) { mutableListOf() }
+                            displaced.forEach { r ->
+                                if (target.none { it.userId == r.userId }) {
+                                    target.add(r.copy(eventId = originalMessageId))
+                                    roomIndex[r.userId] = originalMessageId
+                                }
+                            }
+                            updateBridgeStatus(originalMessageId, "delivered")
+                            didRemap = true
+                            remappedRooms.add(rId)
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "BridgeReceipt: post-sync remap ${displaced.size} receipt(s) from $statusEventId → $originalMessageId in $rId (marked delivered)",
+                                )
+                            }
+                        }
+                    }
+                }
+                if (didRemap) {
+                    readReceiptsUpdateCounter++
+                    // Same narrowing as the receipt-ingest push above: this used to deep-copy every
+                    // cached room's receipt lists whenever any single remap occurred.
+                    for (rId in remappedRooms) {
+                        val eventsMap = readReceipts[rId] ?: continue
+                        ReadReceiptCache.setForRoom(
+                            rId,
+                            eventsMap.mapValues { it.value.toList() },
+                            readReceiptsIndex[rId] ?: emptyMap(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * @return true iff [populateMemberCacheFromSync] reported a member change
      *   (any join/leave/ban in the sync's member events). Used by the caller
      *   to skip the secondary-VM memberUpdateCounter bump on syncs that
@@ -1379,9 +1443,26 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
                         "Andromuks",
-                        "AppViewModel: processParsedSyncResult - no changes detected (rooms/account/member), skipping UI work (account_data already processed above)",
+                        "AppViewModel: processParsedSyncResult - no room-list changes (rooms/account/member), skipping room-list UI work",
                     )
                 }
+                // …but NOT the timeline ingest. "No room-list changes" says nothing about whether
+                // this sync carried timeline events for the open room, and a reaction is precisely
+                // the case where it doesn't: gomuks delivers m.reaction in a room object with no
+                // `meta` and no `account_data`, which SpaceRoomParser skips outright, so
+                // updatedRooms/newRooms/removedRoomIds are all empty. Returning here skipped
+                // checkAndUpdateCurrentRoomTimelineOptimized → updateTimelineFromSync →
+                // processSyncEventsArray, so the reaction never reached messageReactions at all.
+                //
+                // That is the "reactions sometimes don't render in the open room" bug, and it also
+                // explains its shape: it only escaped when the same batch happened to change
+                // something else — most often the reactor's m.room.member profile, which only
+                // differs the *first* time that user reacts in a session. Your own profile is
+                // always already cached, and the send_complete handler deliberately defers your own
+                // reactions to sync_complete, so your reactions lost this coin-flip every time.
+                // Re-opening or paginating the room "fixed" it because both replay the reaction
+                // from the DB / server rather than from this path.
+                ingestTimelineEventsFromSync(syncJson)
                 return memberStateChangedResult
             }
 
@@ -1933,59 +2014,7 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                 }
 
                 // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
-                checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
-
-                // POST-SYNC BRIDGE RECEIPT REMAP: receipts are processed early in this function
-                // (before timeline events), so any bridge status event + receipt arriving in the
-                // SAME sync_complete will have failed the earlier remapping check because
-                // bridgeStatusEventToMessageId was not yet populated. After timeline events are
-                // processed above, run the remap again to catch those same-batch cases.
-                if (bridgeStatusEventToMessageId.isNotEmpty()) {
-                    synchronized(readReceiptsLock) {
-                        var didRemap = false
-                        // Only the rooms a remap actually landed in need pushing back to the cache.
-                        val remappedRooms = mutableSetOf<String>()
-                        bridgeStatusEventToMessageId.forEach { (statusEventId, originalMessageId) ->
-                            // Find which room holds this status event and remap within that room.
-                            readReceipts.forEach { (rId, eventsMap) ->
-                                val displaced = eventsMap.remove(statusEventId)
-                                if (!displaced.isNullOrEmpty()) {
-                                    val roomIndex = readReceiptsIndex.getOrPut(rId) { mutableMapOf() }
-                                    val target = eventsMap.getOrPut(originalMessageId) { mutableListOf() }
-                                    displaced.forEach { r ->
-                                        if (target.none { it.userId == r.userId }) {
-                                            target.add(r.copy(eventId = originalMessageId))
-                                            roomIndex[r.userId] = originalMessageId
-                                        }
-                                    }
-                                    updateBridgeStatus(originalMessageId, "delivered")
-                                    didRemap = true
-                                    remappedRooms.add(rId)
-                                    if (BuildConfig.DEBUG) {
-                                        android.util.Log.d(
-                                            "Andromuks",
-                                            "BridgeReceipt: post-sync remap ${displaced.size} receipt(s) from $statusEventId → $originalMessageId in $rId (marked delivered)",
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        if (didRemap) {
-                            readReceiptsUpdateCounter++
-                            // Same narrowing as the receipt-ingest push above: this used to
-                            // deep-copy every cached room's receipt lists whenever any single
-                            // remap occurred.
-                            for (rId in remappedRooms) {
-                                val eventsMap = readReceipts[rId] ?: continue
-                                ReadReceiptCache.setForRoom(
-                                    rId,
-                                    eventsMap.mapValues { it.value.toList() },
-                                    readReceiptsIndex[rId] ?: emptyMap(),
-                                )
-                            }
-                        }
-                    }
-                }
+                ingestTimelineEventsFromSync(syncJson)
 
                 // Timeline is updated directly from sync_complete events via processSyncEventsArray()
                 // No DB persistence or refresh needed - all data is in-memory

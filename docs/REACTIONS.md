@@ -23,6 +23,35 @@ Nothing needs to bump the counter by hand. `MessageReactionsCache` notifies regi
 
 ## Live Sync Path (`m.reaction` via `sync_complete`)
 
+### The ingest must not be gated on a room-list delta
+
+`SyncRoomsCoordinator.processParsedSyncResult` has an early return for
+`!hasRoomChanges && !accountDataChanged && !memberStateChanged`. Timeline ingest —
+`checkAndUpdateCurrentRoomTimelineOptimized` → `updateTimelineFromSync` →
+`processSyncEventsArray` — used to sit *after* it, so that return skipped it entirely. Both calls
+now go through `ingestTimelineEventsFromSync`, which runs on **every** sync_complete.
+
+A reaction is exactly the payload that trips this. gomuks delivers `m.reaction` in a room object
+with a `timeline`/`events`/`receipts` and **no `meta` and no `account_data`**, and
+`SpaceRoomParser.parseSyncUpdate` `continue`s past meta-less room objects that carry no
+`account_data`, so `updatedRooms`/`newRooms`/`removedRoomIds` all come back empty →
+`hasRoomChanges == false`. The reaction never reached `messageReactions`.
+
+The escape hatch was the *other* flags, which is why the bug looked random: the backend ships the
+reactor's `m.room.member` alongside the reaction, so `populateMemberCacheFromSync` returns true and
+the sync gets through — but only the **first** time a given user reacts in a session, since after
+that the profile is unchanged. Your own profile is always already cached, and the `send_complete`
+handler deliberately defers your own reactions to `sync_complete`, so your own reactions failed
+every time. Reopening or paginating the room "fixed" it because both replay the reaction from the
+DB / server instead of from this path — the usual live-path signature described under
+[the aggregated repair](#the-aggregated-repair-and-why-reopening-a-room-fixes-reactions).
+
+Everything else that rides a `meta`-less room object was lost the same way: poll votes, reaction
+redactions, `com.beeper.message_send_status`. Plain messages were never affected — they carry
+`meta` (the room preview and sorting timestamp change), so `hasRoomChanges` was always true.
+
+### Per-event handling
+
 In `AppViewModel.processSyncEventsArray`, when `isReactionEvent(event)`:
 
 1. `RoomTimelineCache.mergePaginatedEvents(roomId, listOf(event))` — cached for persistence
