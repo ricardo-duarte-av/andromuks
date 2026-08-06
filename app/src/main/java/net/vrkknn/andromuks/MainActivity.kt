@@ -305,6 +305,8 @@ class MainActivity : FragmentActivity() {
                             var matrixUri = intent.data
                             val notificationEventId = intent.getStringExtra("event_id")
 
+                            applyRequestedRoomListSection(intent)
+
                             // Handle custom MIME type from contacts
                             val mimeType = intent.type
                             if (mimeType == MatrixContactsProvider.MIME_TYPE_MATRIX_USER && matrixUri != null) {
@@ -651,6 +653,26 @@ class MainActivity : FragmentActivity() {
                 )
             }
         }
+    }
+
+    /**
+     * Honour [EnhancedNotificationDisplay.EXTRA_OPEN_SECTION]: the notification group summary
+     * stands for several rooms at once, so instead of dropping the user on Home like a launcher tap
+     * it asks for the Unread pseudo-tab — the exact set of conversations it was announcing.
+     *
+     * No-op for every other intent, so a launcher tap still lands on Home.
+     */
+    private fun applyRequestedRoomListSection(intent: Intent) {
+        val requested = intent.getStringExtra(EnhancedNotificationDisplay.EXTRA_OPEN_SECTION) ?: return
+        if (!::appViewModel.isInitialized) return
+        val section = when (requested) {
+            EnhancedNotificationDisplay.SECTION_UNREAD -> RoomSectionType.UNREAD
+            else -> return
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "MainActivity: Notification summary tap — opening room list on $section")
+        }
+        appViewModel.changeSelectedSection(section)
     }
 
     private fun isShareIntent(intent: Intent?): Boolean {
@@ -1156,6 +1178,8 @@ class MainActivity : FragmentActivity() {
         if (::appViewModel.isInitialized) {
             appViewModel.returnToRoomListOnResume = false
         }
+
+        applyRequestedRoomListSection(intent)
 
         // Handle ACTION_REPLY from notification when MainActivity is already running
         if (intent.action == "net.vrkknn.andromuks.ACTION_REPLY") {

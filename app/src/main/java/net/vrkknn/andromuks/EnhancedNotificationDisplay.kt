@@ -67,6 +67,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         internal const val NOTIFICATION_GROUP_KEY = "matrix_messages"
         private val SUMMARY_NOTIF_ID = "matrix_summary".hashCode()
 
+        /**
+         * Intent extra asking `MainActivity` to land the room list on a specific pseudo-tab rather
+         * than Home. Only the group-summary intent sets it; absent, nothing changes.
+         */
+        internal const val EXTRA_OPEN_SECTION = "open_section"
+        internal const val SECTION_UNREAD = "unread"
+
         // Reply processing window to prevent race conditions when updating notifications
         private const val REPLY_PROCESSING_WINDOW_MS = 500L // 500ms window to let Android finish processing
 
@@ -146,11 +153,17 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 // and only notification — there is simply nothing to cancel, same as before.)
                 return
             }
-            // Tapping the collapsed summary header opens the app to RoomListScreen, just like
-            // the launcher icon. No room_id extra → MainActivity skips direct room navigation.
+            // Tapping the collapsed summary header opens the app to RoomListScreen. There is no
+            // room_id extra — a summary is only ever posted with 2+ children (see the childCount
+            // branches above), so it stands for several different rooms and there is no single
+            // right one to open. Instead of landing on Home like a launcher tap, ask for the Unread
+            // tab: that is exactly the set of conversations the summary is announcing, leaving each
+            // one a single tap away. EXTRA_OPEN_SECTION is honoured only for this intent, so a
+            // launcher tap still lands on Home.
             val summaryIntent = Intent(context, MainActivity::class.java).apply {
                 flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 putExtra("from_notification", true)
+                putExtra(EXTRA_OPEN_SECTION, SECTION_UNREAD)
             }
             val summaryPendingIntent = PendingIntent.getActivity(
                 context,
