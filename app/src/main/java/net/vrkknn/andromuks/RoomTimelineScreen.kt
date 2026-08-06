@@ -1852,10 +1852,15 @@ fun RoomTimelineScreen(
     // later sent/received event can't flip a "caught up on entry" room into showing the divider.
     val readMarkerDecision = remember(roomId) { ReadMarkerDecision() }
 
+    // reactionUpdateCounter is a key because the receipt-flattening walk below splices in cached
+    // reaction events: a new reaction changes neither sortedEvents nor fullyReadMarkerEventId, so
+    // without it the walk would never re-run and the reactor's receipt would sit unplaced until the
+    // next message arrived.
     val timelineItems by produceState<List<TimelineItem>>(
         initialValue = emptyList(),
         sortedEvents,
         fullyReadMarkerEventId,
+        appViewModel.reactionUpdateCounter,
     ) {
         value = withContext(Dispatchers.Default) {
             val items = mutableListOf<TimelineItem>()
@@ -1898,12 +1903,28 @@ fun RoomTimelineScreen(
             // sortedEvents (minus reactions, which are never standalone rows), so it is already
             // settings-aware across all four show/hide scopes — flipping "show membership events"
             // turns a narrator line into its own anchor and moves the avatar onto it automatically.
+            //
+            // Reactions have to be spliced back in for this walk. They are deliberately absent from
+            // timelineEvents (see docs/REACTIONS.md — they mutate their target, they are never rows),
+            // so walking timelineEvents alone never visited a reaction's event ID and its receipt was
+            // silently dropped. That is the single most common case of all: reacting is what most
+            // often advances your own read receipt, and gomuks puts the receipt on the m.reaction.
+            // Only reactions with a resolved timeline position can be placed; one still at rowid <= 0
+            // would sort ahead of the entire timeline and absorb onto the wrong anchor, so it keeps
+            // the old behaviour of not rendering until a later sync resolves it.
             val renderedIds = HashSet<String>(sortedEvents.size)
             for (e in sortedEvents) if (!isReactionEvent(e)) renderedIds.add(e.eventId)
             val absorbedByAnchor = HashMap<String, MutableList<String>>()
             run {
+                val positionedReactions = RoomTimelineCache.getCachedReactionEvents(roomId)
+                    .filter { it.timelineRowid > 0L }
+                val walkOrder = if (positionedReactions.isEmpty()) {
+                    timelineEvents.sortedWith(timelineOrder)
+                } else {
+                    (timelineEvents + positionedReactions).sortedWith(timelineOrder)
+                }
                 var anchor: String? = null
-                for (e in timelineEvents.sortedWith(timelineOrder)) {
+                for (e in walkOrder) {
                     if (e.eventId in renderedIds) {
                         anchor = e.eventId
                     } else {

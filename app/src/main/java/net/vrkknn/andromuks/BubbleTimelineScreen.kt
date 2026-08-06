@@ -1440,7 +1440,13 @@ fun BubbleTimelineScreen(
 
     // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags.
     // Use produceState to offload this heavy computation (iterating thousands of events) to a background thread.
-    val timelineItems by produceState<List<BubbleTimelineItem>>(initialValue = emptyList(), sortedEvents) {
+    // reactionUpdateCounter keys this because the receipt-flattening walk below splices in cached
+    // reaction events, and a new reaction changes neither sortedEvents nor anything else here.
+    val timelineItems by produceState<List<BubbleTimelineItem>>(
+        initialValue = emptyList(),
+        sortedEvents,
+        appViewModel.reactionUpdateCounter,
+    ) {
         value = withContext(Dispatchers.Default) {
             val items = mutableListOf<BubbleTimelineItem>()
             var lastDate: String? = null
@@ -1455,12 +1461,23 @@ fun BubbleTimelineScreen(
                 { it.timestamp },
                 { it.eventId },
             )
+            // Reactions are spliced back in: they are never in timelineEvents (see
+            // docs/REACTIONS.md), so walking it alone never visited a reaction's event ID and the
+            // reactor's receipt was dropped. Only reactions with a resolved timeline position can be
+            // placed — see the fuller note on the same walk in RoomTimelineScreen.
             val renderedIds = HashSet<String>(sortedEvents.size)
             for (e in sortedEvents) if (!isReactionEvent(e)) renderedIds.add(e.eventId)
             val absorbedByAnchor = HashMap<String, MutableList<String>>()
             run {
+                val positionedReactions = RoomTimelineCache.getCachedReactionEvents(roomId)
+                    .filter { it.timelineRowid > 0L }
+                val walkOrder = if (positionedReactions.isEmpty()) {
+                    timelineEvents.sortedWith(timelineOrder)
+                } else {
+                    (timelineEvents + positionedReactions).sortedWith(timelineOrder)
+                }
                 var anchor: String? = null
-                for (e in timelineEvents.sortedWith(timelineOrder)) {
+                for (e in walkOrder) {
                     if (e.eventId in renderedIds) {
                         anchor = e.eventId
                     } else {
