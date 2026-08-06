@@ -1506,6 +1506,14 @@ class MainActivity : FragmentActivity() {
     }
 }
 
+/**
+ * How long the notification-navigation collector waits for `RoomTimelineScreen`'s navTrigger effect
+ * to actually put the target timeline on screen before deciding the hand-off failed and doing the
+ * navigation itself. Long enough to cover a cache-hit open plus a frame or two of NavHost
+ * transition, short enough that a dropped tap doesn't read as "the app ignored me".
+ */
+private const val DEFERRED_NAV_HANDOFF_TIMEOUT_MS = 2_500L
+
 @OptIn(ExperimentalAnimationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit = {}) {
@@ -1680,6 +1688,18 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             // and produce a duplicate back-stack entry.
             // SHORTCUT/RESTORE do NOT bump the trigger, so RT cannot handle them — these
             // proceed even when room_timeline is the active route.
+            // True once a deferral to RoomTimelineScreen has demonstrably failed, which makes this
+            // collector the owner of the tap and suppresses the later defer-shaped guards.
+            var handoffFailed = false
+
+            // Is the timeline for [roomId] the destination actually on screen? The route is the
+            // *pattern* ("room_timeline/{roomId}"), so the room has to come from the arguments.
+            fun timelineShowing(roomId: String): Boolean {
+                val entry = navController.currentBackStackEntry ?: return false
+                if (entry.destination.route?.startsWith("room_timeline/") != true) return false
+                return entry.arguments?.getString("roomId") == roomId
+            }
+
             if (request.source == RoomNavigationRequest.Source.NOTIFICATION &&
                 navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true
             ) {
@@ -1689,7 +1709,30 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                         "AppNavigation: NOTIFICATION to ${request.roomId} while room_timeline active — deferring to RoomTimelineScreen navTrigger handler",
                     )
                 }
-                return@collectLatest
+                // SUPERVISED hand-off, not fire-and-forget. The deferral assumes RT's navTrigger
+                // effect will service the tap, but that effect can lose it: the timeline may be
+                // mid-dispose (its LaunchedEffect cancelled after it consumed the claim), or it may
+                // be a stale NavHost-restored entry whose baseline says the trigger pre-dates it.
+                // Both leave the user parked on another room with the notification consumed and
+                // nothing on screen changing. Watch for the open to actually land; if it does not,
+                // take over here.
+                //
+                // The landed-signal is the visible destination, NOT currentRoomId: RT's hot-swap
+                // sets currentRoomId inside navigateToRoomWithCache *before* it navigates, so
+                // currentRoomId would report success for exactly the cancellation this is meant to
+                // catch.
+                val handoffDeadline = System.currentTimeMillis() + DEFERRED_NAV_HANDOFF_TIMEOUT_MS
+                while (System.currentTimeMillis() < handoffDeadline && !timelineShowing(request.roomId)) {
+                    delay(100)
+                }
+                if (timelineShowing(request.roomId)) return@collectLatest
+                handoffFailed = true
+                Androlog(
+                    "FCMOpen",
+                    "AppNavigation: hand-off to RoomTimelineScreen TIMED OUT for room=${request.roomId} " +
+                        "(route=${navController.currentBackStackEntry?.destination?.route} " +
+                        "currentRoom=${appViewModel.currentRoomId}) — taking over",
+                )
             }
 
             // Same-room guard: if the target room is the one currentRoomId points at,
@@ -1705,7 +1748,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             // app foregrounded onto the info screen with the room never opened.
             // claimDirectRoomNavigation still arbitrates when RT *is* composed, so proceeding here
             // when it is not cannot double-navigate.
-            if (request.roomId == appViewModel.currentRoomId) {
+            if (request.roomId == appViewModel.currentRoomId && !handoffFailed) {
                 val onTimelineRoute =
                     navController.currentBackStackEntry?.destination?.route?.startsWith("room_timeline/") == true
                 if (onTimelineRoute) {
@@ -1785,7 +1828,12 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             // (a manual tap, or RoomTimelineScreen's navTrigger hot-swap). Re-navigating would
             // re-run popUpTo(graph.id) and re-compose the timeline — the "renders then vanishes"
             // symptom.
-            if (request.roomId == appViewModel.currentRoomId) {
+            //
+            // "Opened" means the timeline is on screen. currentRoomId alone is not evidence of that
+            // — a hot-swap cancelled between navigateToRoomWithCache and navigate() leaves it
+            // pointing at a room the user never got to, which is exactly the case handoffFailed
+            // marks, so that case must not bail here.
+            if (request.roomId == appViewModel.currentRoomId && (!handoffFailed || timelineShowing(roomId))) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         "Andromuks",

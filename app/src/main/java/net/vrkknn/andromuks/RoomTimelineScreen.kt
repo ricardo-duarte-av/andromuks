@@ -912,8 +912,15 @@ fun RoomTimelineScreen(
     //   1. Same room: consume the pending highlight event → scroll to it.
     //   2. Different room: pop back to room_list where the reactive handler takes over.
     val navTrigger = appViewModel.directRoomNavigationTrigger
+    // Trigger value observed when THIS screen first composed. The effect below re-runs on every
+    // composition whose key differs, so a timeline that mounts while a trigger is already pending
+    // would otherwise claim a tap that was never meant for it (the `navTrigger == 0` guard only
+    // covers the very first composition in a fresh process). Claiming is destructive, so that theft
+    // silently consumed someone else's notification. Only act on increments we actually witnessed.
+    val navTriggerBaseline = remember { appViewModel.directRoomNavigationTrigger }
     LaunchedEffect(navTrigger) {
         if (navTrigger == 0) return@LaunchedEffect // Skip initial composition
+        if (navTrigger <= navTriggerBaseline) return@LaunchedEffect // Pre-dates this screen
         // Atomically claim the pending navigation. A single notification tap arms both this
         // effect and the AppNavigation collector; whichever claims first navigates, the other
         // gets null here and bails — see NavigationCoordinator.claimDirectRoomNavigation.
@@ -956,41 +963,52 @@ fun RoomTimelineScreen(
                     )
                 }
                 val notificationTimestamp = claim?.timestamp
-                // Set currentRoomId to targetRoomId BEFORE suspending in flushSyncBatchForRoom.
-                // If flush suspends (up to 500ms), any concurrent LaunchedEffect watching
-                // currentRoomId will see the new room, not the old one, preventing stale room
-                // timeline events from being restored for the previous room.
-                appViewModel.navigateToRoomWithCache(targetRoomId, notificationTimestamp)
-                appViewModel.flushSyncBatchForRoom(targetRoomId)
+                // NAVIGATE FIRST. This used to await room-data readiness (up to 15 s) *before*
+                // calling navigate(), with the claim already consumed — so any disposal in that
+                // window (rotation, biometric gate, process-restore recomposition, a competing
+                // navigation) cancelled this LaunchedEffect and the tap vanished, leaving the user
+                // on the previous room with no way to recover it. Even without cancellation, a
+                // battery-saver cold dial held them on the wrong room for the full timeout.
+                // The target screen does not need the wait: RoomTimelineScreen paints its header
+                // from roomMap and shows "Room loading…" in the body until events land, which is the
+                // whole point of the unified open path. So the only thing between the claim and
+                // navigate() is now navigateToRoomWithCache, which sets currentRoomId synchronously
+                // before it suspends.
+                var navigated = false
+                try {
+                    appViewModel.navigateToRoomWithCache(targetRoomId, notificationTimestamp)
 
-                // RACE CONDITION FIX: Wait for room data to be ready before navigating
-                // so the new RoomTimelineScreen composes with data already available.
-                // 15s timeout because batterySaver-resume cold-starts the WebSocket; the
-                // dial + initial sync + per-room state load can legitimately exceed 5s.
-                val isReady = appViewModel.awaitRoomDataReadiness(
-                    timeoutMs = 15_000L,
-                    roomId = targetRoomId,
-                )
-                Androlog(
-                    "FCMOpen",
-                    "RoomTimelineScreen hot-swap OPEN room=$targetRoomId (from=$roomId) isReady=$isReady → room_timeline",
-                )
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Room $targetRoomId readiness=$isReady before navigating (hot-swap)",
+                    // Synthesize a [room_list, room_timeline] back stack so Back returns to the room
+                    // list (FCM can be tapped from anywhere; see navigateToRoomTimelineForExternalEntry).
+                    // Clear the prior graph, push room_list as the single base, then the new timeline.
+                    navController.navigate("room_list") {
+                        popUpTo(navController.graph.id) { inclusive = true }
+                        launchSingleTop = true
+                    }
+                    navController.navigate("room_timeline/$targetRoomId") {
+                        launchSingleTop = true
+                    }
+                    navigated = true
+                    Androlog(
+                        "FCMOpen",
+                        "RoomTimelineScreen hot-swap OPEN room=$targetRoomId (from=$roomId) → room_timeline",
                     )
-                }
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "Andromuks",
+                            "RoomTimelineScreen: Hot-swapped to $targetRoomId (loading continues on the target screen)",
+                        )
+                    }
 
-                // Synthesize a [room_list, room_timeline] back stack so Back returns to the room
-                // list (FCM can be tapped from anywhere; see navigateToRoomTimelineForExternalEntry).
-                // Clear the prior graph, push room_list as the single base, then the new timeline.
-                navController.navigate("room_list") {
-                    popUpTo(navController.graph.id) { inclusive = true }
-                    launchSingleTop = true
-                }
-                navController.navigate("room_timeline/$targetRoomId") {
-                    launchSingleTop = true
+                    // Batch flush is a convenience, not a precondition — it runs after the
+                    // navigation is committed so a cancellation here can no longer lose the tap.
+                    appViewModel.flushSyncBatchForRoom(targetRoomId)
+                } finally {
+                    // Cancelled (or threw) before navigate() landed: put the claim back so the
+                    // AppNavigation collector — or the next timeline to compose — can service it.
+                    if (!navigated) {
+                        appViewModel.restoreDirectRoomNavigation(targetRoomId, notificationTimestamp)
+                    }
                 }
             }
         }

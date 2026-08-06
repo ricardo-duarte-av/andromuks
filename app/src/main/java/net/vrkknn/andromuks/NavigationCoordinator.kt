@@ -149,6 +149,50 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    /**
+     * Put a claim back when the claimant did not end up navigating.
+     *
+     * [claimDirectRoomNavigation] is destructive and there is exactly one claimant per tap, so a
+     * claimant that is cancelled before it navigates drops the notification silently — the user is
+     * left on whatever screen was showing. That is precisely what happened in RoomTimelineScreen's
+     * cross-room hot-swap: it claimed, then suspended for up to 15 s in awaitRoomDataReadiness
+     * *before* calling navigate(), and any disposal in that window (rotation, biometric gate,
+     * process-restore recomposition, a competing navigation) cancelled the LaunchedEffect with the
+     * tap already consumed.
+     *
+     * Re-arming restores both the pending target and the trigger, and re-sends on the request
+     * channel, so the surviving consumer (the AppNavigation collector, or the next RT to compose)
+     * gets a fresh chance. It never clobbers a *newer* pending navigation — a tap that arrived while
+     * we were working is strictly more current than the one we failed to service.
+     */
+    fun restoreDirectRoomNavigation(roomId: String, timestamp: Long?) {
+        with(vm) {
+            synchronized(directNavClaimLock) {
+                if (directRoomNavigation != null) {
+                    Androlog(
+                        "FCMOpen",
+                        "restoreDirectRoomNavigation: SKIPPED for $roomId — newer pending target $directRoomNavigation wins",
+                    )
+                    return
+                }
+                directRoomNavigation = roomId
+                directRoomNavigationTimestamp = timestamp
+            }
+            directRoomNavigationTrigger++
+            Androlog(
+                "FCMOpen",
+                "restoreDirectRoomNavigation: re-armed room=$roomId (claimant exited without navigating)",
+            )
+            _roomNavigationRequests.trySend(
+                RoomNavigationRequest(
+                    roomId = roomId,
+                    timestamp = timestamp,
+                    source = RoomNavigationRequest.Source.NOTIFICATION,
+                ),
+            )
+        }
+    }
+
     fun getDirectRoomNavigationTimestamp(): Long? = vm.directRoomNavigationTimestamp
 
     fun getPendingRoomNavigation(): String? {
