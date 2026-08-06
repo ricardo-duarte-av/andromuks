@@ -11499,12 +11499,19 @@ class AppViewModel : ViewModel() {
                         val avatarUrl = meta.optString("avatar").takeIf { it.isNotBlank() }
 
                         if (name != null || canonicalAlias != null || topic != null || avatarUrl != null) {
+                            // Merge, don't replace. A field missing from `meta` means "unchanged",
+                            // never "cleared" — and `meta` itself is omitted entirely when nothing
+                            // about the room changed. Building a fresh RoomState from this delta
+                            // alone wiped whichever of name/alias/topic/avatar this particular sync
+                            // didn't happen to carry (the other four fields were already preserved
+                            // this way).
+                            val previous = currentRoomState?.takeIf { it.roomId == roomId }
                             val roomState = RoomState(
                                 roomId = roomId,
-                                name = name,
-                                canonicalAlias = canonicalAlias,
-                                topic = topic,
-                                avatarUrl = avatarUrl,
+                                name = name ?: previous?.name,
+                                canonicalAlias = canonicalAlias ?: previous?.canonicalAlias,
+                                topic = topic ?: previous?.topic,
+                                avatarUrl = avatarUrl ?: previous?.avatarUrl,
                                 isEncrypted = currentRoomState?.isEncrypted ?: false, // Preserve existing encryption state
                                 powerLevels = currentRoomState?.powerLevels, // Preserve existing power levels
                                 pinnedEventIds = currentRoomState?.pinnedEventIds ?: emptyList(), // Preserve existing pinned events

@@ -493,7 +493,7 @@ object SpaceRoomParser {
                 )
             }
             // Only parse basic space info, don't populate edges yet
-            val spaces = parseSpacesBasic(data)
+            val spaces = parseSpacesBasic(data, appViewModel)
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
@@ -882,9 +882,16 @@ object SpaceRoomParser {
     }
 
     /**
-     * Parses basic space info from sync data (without edges)
+     * Parses basic space info from sync data (without edges).
+     *
+     * `meta` is omitted from a room object whenever the room's metadata did not change in this
+     * delta, so a space listed in `top_level_spaces` frequently arrives with no `meta` at all — and
+     * the result of this parse is handed straight to `updateAllSpaces`, which *replaces* the whole
+     * list. Reading name/avatar from `meta` alone therefore renamed every unchanged space to its
+     * raw `!id:server` and dropped its avatar. Fall back to what we already know, the same way
+     * [updateExistingSpacesWithEdges] falls back to `joinedRoom` for child rooms.
      */
-    private fun parseSpacesBasic(data: JSONObject): List<net.vrkknn.andromuks.SpaceItem> {
+    private fun parseSpacesBasic(data: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): List<net.vrkknn.andromuks.SpaceItem> {
         val spaces = mutableListOf<net.vrkknn.andromuks.SpaceItem>()
 
         try {
@@ -902,14 +909,23 @@ object SpaceRoomParser {
                         val spaceDetails = roomsJson?.optJSONObject(spaceId)
                         val meta = spaceDetails?.optJSONObject("meta")
 
-                        val name = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: spaceId
+                        // meta absent = "unchanged", not "empty". Keep the space we already have.
+                        val known = appViewModel?.allSpaces?.find { it.id == spaceId }
+                        val name = meta?.optString("name")?.takeIf { it.isNotBlank() }
+                            ?: known?.name?.takeIf { it != spaceId }
+                            ?: appViewModel?.getRoomById(spaceId)?.name
+                            ?: spaceId
                         val avatar = meta?.optString("avatar")?.takeIf { it.isNotBlank() }
+                            ?: known?.avatarUrl
+                            ?: appViewModel?.getRoomById(spaceId)?.avatarUrl
 
                         val spaceItem = net.vrkknn.andromuks.SpaceItem(
                             id = spaceId,
                             name = name,
                             avatarUrl = avatar,
-                            rooms = emptyList(), // No rooms yet - will be populated later
+                            // Edges are applied later by updateExistingSpacesWithEdges; preserve any
+                            // children we already resolved so a meta-less sync doesn't blank the space.
+                            rooms = known?.rooms ?: emptyList(),
                         )
                         spaces.add(spaceItem)
                         // Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId) - basic info only")
