@@ -1497,7 +1497,11 @@ private fun AnnotatedString.Builder.appendImage(tag: HtmlNode.Tag, inlineImages:
         if (BuildConfig.DEBUG) {
             Log.d(
                 "Andromuks",
-                "HtmlParser: Added inline image id=$id, src=$src, alt=$alt, height=$height",
+                // The declared values are logged raw, null included: `height` below substitutes a
+                // default, so it cannot tell an absent attribute from a declared height="32" —
+                // which is exactly the distinction every sizing bug here has turned on.
+                "HtmlParser: Added inline image id=$id, src=$src, alt=$alt, height=$height, " +
+                    "declared=${declaredWidth}x$declaredHeight",
             )
         }
         appendInlineContent(id, "\u200B")
@@ -2205,6 +2209,13 @@ fun HtmlMessageText(
                     inlineImageSizeSp(imageData, inlineImageSizing, fallbackHeightSp = maxHeight.toFloat())
                 } else {
                     maxHeight.toFloat() to maxHeight.toFloat()
+                }
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "Andromuks",
+                        "HtmlMessageText: inline image $id declared=${imageData.declaredWidth}x${imageData.declaredHeight} " +
+                            "sizing=$inlineImageSizing lineHeight=$textLineHeight -> placeholder=${imageWidth}x$imageHeight",
+                    )
                 }
                 map[id] = InlineTextContent(
                     Placeholder(
