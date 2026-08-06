@@ -84,6 +84,7 @@ import org.jsoup.nodes.TextNode
 import ru.noties.jlatexmath.JLatexMathDrawable
 import java.io.File
 import java.net.URLDecoder
+import kotlin.math.roundToInt
 import android.graphics.Color as AndroidColor
 
 private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
@@ -1478,17 +1479,45 @@ private fun AnnotatedString.Builder.appendAnchor(
     }
 }
 
+/**
+ * Pull `width`/`height` out of an inline style, in px.
+ *
+ * gomuks' sanitizer does not preserve an `<img>`'s size attributes — it rewrites the tag and
+ * expresses the size as CSS instead:
+ *
+ * ```
+ * class="hicli-inline-img hicli-sized-inline-img" style="width: 320.00px; height: 99.00px;"
+ * ```
+ *
+ * (A custom emoji gets `hicli-custom-emoji` and no style at all, which is why an absent size is
+ * also the signal that an image belongs on the text line.) Reading only the attributes meant every
+ * image in a server-rendered profile bio arrived sizeless and was drawn as a line-height square.
+ *
+ * Non-px units are ignored: they need a layout context to resolve, and gomuks only ever emits px.
+ */
+internal fun parseCssImageSizePx(style: String?): Pair<Int?, Int?> {
+    if (style.isNullOrBlank()) return null to null
+    var width: Int? = null
+    var height: Int? = null
+    cssPxSizeRegex.findAll(style).forEach { match ->
+        val value = match.groupValues[2].toFloatOrNull()?.roundToInt()?.takeIf { it > 0 } ?: return@forEach
+        when (match.groupValues[1].lowercase()) {
+            "width" -> width = value
+            "height" -> height = value
+        }
+    }
+    return width to height
+}
+
+private val cssPxSizeRegex = Regex("""(?:^|;)\s*(width|height)\s*:\s*(\d*\.?\d+)\s*px""", RegexOption.IGNORE_CASE)
+
 private fun AnnotatedString.Builder.appendImage(tag: HtmlNode.Tag, inlineImages: MutableMap<String, InlineImageData>, hideContent: Boolean) {
     val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: ""
     val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
-    val declaredHeight = tag.attributes["height"]?.toIntOrNull()
-    val declaredWidth = tag.attributes["width"]?.toIntOrNull()
-    if (BuildConfig.DEBUG) {
-        // The full attribute map, because the sanitizer rewrites these tags: it turns mxc:// into
-        // _gomuks/media/… and drops width/height, and whether `data-mx-emoticon` survives decides
-        // whether an image can be told apart from a custom emoji at all.
-        Log.d("Andromuks", "HtmlParser: img attributes=${tag.attributes}")
-    }
+    // Attributes first (a client's own formatted_body keeps them), then the sanitizer's CSS.
+    val (styleWidth, styleHeight) = parseCssImageSizePx(tag.attributes["style"])
+    val declaredHeight = tag.attributes["height"]?.toIntOrNull() ?: styleHeight
+    val declaredWidth = tag.attributes["width"]?.toIntOrNull() ?: styleWidth
     val height = declaredHeight ?: 32
     if (src.isNotBlank()) {
         val id = "inline_img_${inlineImages.size}"
@@ -2215,13 +2244,6 @@ fun HtmlMessageText(
                     inlineImageSizeSp(imageData, inlineImageSizing, fallbackHeightSp = maxHeight.toFloat())
                 } else {
                     maxHeight.toFloat() to maxHeight.toFloat()
-                }
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "HtmlMessageText: inline image $id declared=${imageData.declaredWidth}x${imageData.declaredHeight} " +
-                            "sizing=$inlineImageSizing lineHeight=$textLineHeight -> placeholder=${imageWidth}x$imageHeight",
-                    )
                 }
                 map[id] = InlineTextContent(
                     Placeholder(

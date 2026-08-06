@@ -3070,13 +3070,6 @@ private fun ExpandedBioDialog(profileBio: ProfileBio, homeserverUrl: String, aut
                         maxHeightSp = maxImageHeightSp,
                         maxWidthSp = with(density) { maxWidth.toSp().value },
                     )
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            "Andromuks",
-                            "ExpandedBioDialog: maxWidth=$maxWidth screenHeightDp=${configuration.screenHeightDp} " +
-                                "density=${density.density} fontScale=${density.fontScale} sizing=$sizing",
-                        )
-                    }
                     if (profileBio.isHtml) {
                         HtmlBodyText(
                             html = profileBio.body,

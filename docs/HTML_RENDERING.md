@@ -23,6 +23,26 @@ clamped to the height of one line of text (`minOf(declared height, textLineHeigh
 emoji-only messages) — that is what makes custom emoticons sit on the baseline instead of towering
 over the sentence they are in.
 
+### Where the declared size actually lives
+
+**Do not assume the `width`/`height` attributes are there.** gomuks' sanitizer rewrites every
+`<img>` it renders server-side, and the size comes back as CSS. From a real profile bio:
+
+```
+img (picture): class="hicli-inline-img hicli-sized-inline-img"
+               style="width: 320.00px; height: 99.00px;"
+               src="_gomuks/media/server/mediaId?encrypted=false"
+img (emoji):   class="hicli-inline-img hicli-custom-emoji"     ← no style at all
+```
+
+`mxc://` has become `_gomuks/media/…` and `data-mx-emoticon` has become a class. `appendImage`
+therefore reads the attributes *and* falls back to `parseCssImageSizePx` on the `style`. Markup a
+client stored itself (`chat.commet.profile_bio`, message `formatted_body`) is not sanitized and
+still carries real attributes, so both paths are live.
+
+A useful consequence: a picture has a size and a custom emoji doesn't, so "no declared size" is
+also the signal that an image belongs on the text line. Nothing needs to look for the emoji marker.
+
 That default is wrong wherever the markup is being shown as a document rather than as a chat line.
 `HtmlMessageText`/`HtmlBodyText` therefore take an optional `inlineImageSizing:
 InlineImageSizing(maxHeightSp, maxWidthSp)`. When set, `inlineImageSizeSp` sizes each image from
