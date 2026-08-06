@@ -362,17 +362,20 @@ data class InlineImageSizing(val maxHeightSp: Float, val maxWidthSp: Float)
 
 /**
  * Size an inline image for [InlineImageSizing]: honour the declared width/height (and therefore
- * the declared aspect ratio), then shrink to fit inside both bounds.
+ * the declared aspect ratio), then shrink to fit inside both bounds. A declared size is never
+ * enlarged — `height="32"` stays 32, the way the markup asked for.
  *
- * Markup that declares no size would, in a browser, render at the image's intrinsic size — which
- * isn't known until the bitmap loads and a [Placeholder] must be sized before that. Such images
- * fall back to a square at the height cap; the image itself is scaled to fit inside it.
+ * Markup that declares no size would, in a browser, render at the image's intrinsic size, which
+ * isn't known until the bitmap loads while a [Placeholder] must be sized before that. Those fall
+ * back to [fallbackHeightSp] — the ordinary inline size, one line of text — rather than to the cap:
+ * gomuks' server-rendered profile bios drop the `height` attribute from some images, and sizing
+ * those from the cap blew every emoticon in the bio up to the full width of the window.
  */
-internal fun inlineImageSizeSp(data: InlineImageData, sizing: InlineImageSizing): Pair<Float, Float> {
+internal fun inlineImageSizeSp(data: InlineImageData, sizing: InlineImageSizing, fallbackHeightSp: Float): Pair<Float, Float> {
     val declaredWidth = data.declaredWidth?.takeIf { it > 0 }?.toFloat()
     val declaredHeight = data.declaredHeight?.takeIf { it > 0 }?.toFloat()
     val aspect = if (declaredWidth != null && declaredHeight != null) declaredWidth / declaredHeight else 1f
-    var height = (declaredHeight ?: declaredWidth ?: sizing.maxHeightSp).coerceAtMost(sizing.maxHeightSp)
+    var height = (declaredHeight ?: declaredWidth ?: fallbackHeightSp).coerceAtMost(sizing.maxHeightSp)
     var width = height * aspect
     if (width > sizing.maxWidthSp && width > 0f) {
         height *= sizing.maxWidthSp / width
@@ -2190,16 +2193,17 @@ fun HtmlMessageText(
                     return@forEach
                 }
                 // Limit image height to text line height, but enlarge it for emoji-only messages.
-                // A full-size view (expanded bio) overrides that with its own bounds instead.
-                val (imageWidth, imageHeight) = if (inlineImageSizing != null) {
-                    inlineImageSizeSp(imageData, inlineImageSizing)
+                val baseMaxHeight = minOf(imageData.height, textLineHeight)
+                val maxHeight = if (isEmojiOnly) {
+                    baseMaxHeight * EMOJI_ONLY_FONT_SCALE
                 } else {
-                    val baseMaxHeight = minOf(imageData.height, textLineHeight)
-                    val maxHeight = if (isEmojiOnly) {
-                        baseMaxHeight * EMOJI_ONLY_FONT_SCALE
-                    } else {
-                        baseMaxHeight
-                    }
+                    baseMaxHeight
+                }
+                // A full-size view (the expanded bio) lets images that declared a size use it
+                // instead; anything that declared none keeps the inline size computed above.
+                val (imageWidth, imageHeight) = if (inlineImageSizing != null) {
+                    inlineImageSizeSp(imageData, inlineImageSizing, fallbackHeightSp = maxHeight.toFloat())
+                } else {
                     maxHeight.toFloat() to maxHeight.toFloat()
                 }
                 map[id] = InlineTextContent(

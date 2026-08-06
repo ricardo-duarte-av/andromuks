@@ -26,54 +26,61 @@ class InlineImageSizingTest {
 
     private val sizing = InlineImageSizing(maxHeightSp = 300f, maxWidthSp = 200f)
 
+    /** Stands in for the caller's inline size — one line of text. */
+    private val lineHeight = 20f
+
+    private fun size(data: InlineImageData) = inlineImageSizeSp(data, sizing, fallbackHeightSp = lineHeight)
+
     @Test
     fun `declared size within bounds is used as-is`() {
-        val (width, height) = inlineImageSizeSp(image(width = 160, height = 80), sizing)
+        val (width, height) = size(image(width = 160, height = 80))
         assertEquals(160f, width, 0.01f)
         assertEquals(80f, height, 0.01f)
     }
 
     @Test
     fun `too-tall image is capped by height and keeps its aspect ratio`() {
-        val (width, height) = inlineImageSizeSp(image(width = 200, height = 600), sizing)
+        val (width, height) = size(image(width = 200, height = 600))
         assertEquals(300f, height, 0.01f)
         assertEquals(100f, width, 0.01f)
     }
 
     @Test
     fun `too-wide image is capped by width and keeps its aspect ratio`() {
-        val (width, height) = inlineImageSizeSp(image(width = 800, height = 400), sizing)
+        val (width, height) = size(image(width = 800, height = 400))
         assertEquals(200f, width, 0.01f)
         assertEquals(100f, height, 0.01f)
     }
 
     @Test
     fun `both bounds exceeded still fits inside both`() {
-        val (width, height) = inlineImageSizeSp(image(width = 4000, height = 8000), sizing)
+        val (width, height) = size(image(width = 4000, height = 8000))
         assertEquals(150f, width, 0.01f)
         assertEquals(300f, height, 0.01f)
     }
 
     @Test
-    fun `undeclared size falls back to a square at the height cap`() {
-        // Intrinsic size isn't known before the bitmap loads and the placeholder must be sized
-        // first, so the image is fitted into a square instead.
-        val (width, height) = inlineImageSizeSp(image(width = null, height = null), sizing)
-        assertEquals(200f, width, 0.01f)
-        assertEquals(200f, height, 0.01f)
+    fun `a small declared size is never enlarged`() {
+        // The regression this pins: a bio full of height="32" emoticons must stay a bio full of
+        // 32-high emoticons, not a column of full-width images.
+        val (width, height) = size(image(width = null, height = 32))
+        assertEquals(32f, width, 0.01f)
+        assertEquals(32f, height, 0.01f)
     }
 
     @Test
-    fun `height alone gives a square of that height`() {
-        val (width, height) = inlineImageSizeSp(image(width = null, height = 64), sizing)
-        assertEquals(64f, width, 0.01f)
-        assertEquals(64f, height, 0.01f)
+    fun `undeclared size keeps the ordinary inline size`() {
+        // Intrinsic size isn't known before the bitmap loads and the placeholder must be sized
+        // first — sizing these from the cap is what blew gomuks-rendered bios apart.
+        val (width, height) = size(image(width = null, height = null))
+        assertEquals(lineHeight, width, 0.01f)
+        assertEquals(lineHeight, height, 0.01f)
     }
 
     @Test
     fun `non-positive declared values are ignored`() {
-        val (width, height) = inlineImageSizeSp(image(width = 0, height = 0), sizing)
-        assertEquals(200f, width, 0.01f)
-        assertEquals(200f, height, 0.01f)
+        val (width, height) = size(image(width = 0, height = 0))
+        assertEquals(lineHeight, width, 0.01f)
+        assertEquals(lineHeight, height, 0.01f)
     }
 }

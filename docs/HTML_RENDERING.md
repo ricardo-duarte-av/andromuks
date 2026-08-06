@@ -27,9 +27,13 @@ That default is wrong wherever the markup is being shown as a document rather th
 `HtmlMessageText`/`HtmlBodyText` therefore take an optional `inlineImageSizing:
 InlineImageSizing(maxHeightSp, maxWidthSp)`. When set, `inlineImageSizeSp` sizes each image from
 the `width`/`height` attributes the markup declared — preserving their aspect ratio — and shrinks
-it to fit inside both bounds. Markup that declares no size falls back to a square at the height
-cap, because a browser would use the intrinsic size and that isn't known until the bitmap loads,
-while a `Placeholder` has to be sized before it.
+it to fit inside both bounds. It only ever **shrinks**: a declared `height="32"` stays 32.
+
+Markup that declares no size falls back to the ordinary inline size (one line of text), *not* to
+the cap. A browser would use the image's intrinsic size, which isn't known until the bitmap loads
+while a `Placeholder` must be sized before that — and sizing those from the cap is what broke the
+first version of this: gomuks' server-rendered bios drop `height` from some images, so every
+emoticon in a bio came out as a full-width square.
 
 The only caller today is `ExpandedBioDialog` (`utils/UserInfo.kt`), the floating window behind the
 profile screen's fixed-height bio card. It passes its own `BoxWithConstraints` width, so images are
