@@ -1483,6 +1483,12 @@ private fun AnnotatedString.Builder.appendImage(tag: HtmlNode.Tag, inlineImages:
     val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
     val declaredHeight = tag.attributes["height"]?.toIntOrNull()
     val declaredWidth = tag.attributes["width"]?.toIntOrNull()
+    if (BuildConfig.DEBUG) {
+        // The full attribute map, because the sanitizer rewrites these tags: it turns mxc:// into
+        // _gomuks/media/… and drops width/height, and whether `data-mx-emoticon` survives decides
+        // whether an image can be told apart from a custom emoji at all.
+        Log.d("Andromuks", "HtmlParser: img attributes=${tag.attributes}")
+    }
     val height = declaredHeight ?: 32
     if (src.isNotBlank()) {
         val id = "inline_img_${inlineImages.size}"
