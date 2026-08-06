@@ -3066,19 +3066,45 @@ private fun ExpandedBioDialog(profileBio: ProfileBio, homeserverUrl: String, aut
                 ) {
                     // maxWidth is the real content width here, so images are bounded by the
                     // window rather than by a guess at the screen size.
+                    val contentWidth = maxWidth
                     val sizing = InlineImageSizing(
                         maxHeightSp = maxImageHeightSp,
-                        maxWidthSp = with(density) { maxWidth.toSp().value },
+                        maxWidthSp = with(density) { contentWidth.toSp().value },
                     )
                     if (profileBio.isHtml) {
-                        HtmlBodyText(
-                            html = profileBio.body,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            onMatrixUserClick = onMatrixUserClick,
-                            inlineImageSizing = sizing,
-                        )
+                        // Real images are laid out as blocks rather than as inline text content,
+                        // which cannot be taller than the line it sits on. Emoticons carry no
+                        // declared size and so stay in the markup runs, inline, where they belong.
+                        val segments = remember(profileBio.body) { splitTopLevelBlockImages(profileBio.body) }
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            segments.forEach { segment ->
+                                when (segment) {
+                                    is HtmlSegment.Markup -> HtmlBodyText(
+                                        html = segment.html,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        onMatrixUserClick = onMatrixUserClick,
+                                        inlineImageSizing = sizing,
+                                    )
+
+                                    is HtmlSegment.BlockImage -> {
+                                        val (imageWidth, imageHeight) = blockImageSize(
+                                            image = segment,
+                                            maxWidth = contentWidth,
+                                            maxHeight = (configuration.screenHeightDp * 0.5f).dp,
+                                        )
+                                        BlockHtmlImage(
+                                            image = segment,
+                                            width = imageWidth,
+                                            height = imageHeight,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         Text(
                             text = profileBio.body,

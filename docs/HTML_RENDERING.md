@@ -43,6 +43,27 @@ still carries real attributes, so both paths are live.
 A useful consequence: a picture has a size and a custom emoji doesn't, so "no declared size" is
 also the signal that an image belongs on the text line. Nothing needs to look for the emoji marker.
 
+### Why a real image cannot be inline content
+
+Inline content is a `Placeholder` inside a `Text`, and the line it lands on takes its height from
+the text style's `lineHeight`. A 99dp-tall placeholder on a 17dp line therefore hangs outside the
+line box, and the following text is laid out — and drawn — straight through the image. No
+`PlaceholderVerticalAlign` avoids this; `TextCenter` and `Center` were both tried against a real
+bio. Inline content is also measured before the container width is known, so it cannot be fitted
+to the available space.
+
+`splitTopLevelBlockImages` therefore splits a document-style body into `HtmlSegment.Markup` runs
+and `HtmlSegment.BlockImage` entries, **in document order**, so a banner above the text renders
+above the text. Only *top-level* images with a declared size qualify: an emoji has no size and
+stays inline, and an image nested inside a paragraph or link keeps its place in the flow. The
+caller sizes each block with `blockImageSize` (pure, Dp throughout, never upscales) and renders it
+with `BlockHtmlImage`. `ExpandedBioDialog` is the only caller today.
+
+An earlier attempt (`982e014d`, reverted in `a30654d2`) did the same split but keyed on
+`data-mx-emoticon` and appended the images after the text. Both are wrong for sanitized markup: the
+attribute is gone, so custom emoji were ejected from the text and re-rendered as banners at the
+bottom of the bio.
+
 That default is wrong wherever the markup is being shown as a document rather than as a chat line.
 `HtmlMessageText`/`HtmlBodyText` therefore take an optional `inlineImageSizing:
 InlineImageSizing(maxHeightSp, maxWidthSp)`. When set, `inlineImageSizeSp` sizes each image from

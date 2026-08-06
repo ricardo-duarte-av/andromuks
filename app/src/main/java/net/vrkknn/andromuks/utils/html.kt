@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
@@ -60,6 +61,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
@@ -1511,6 +1513,83 @@ internal fun parseCssImageSizePx(style: String?): Pair<Int?, Int?> {
 
 private val cssPxSizeRegex = Regex("""(?:^|;)\s*(width|height)\s*:\s*(\d*\.?\d+)\s*px""", RegexOption.IGNORE_CASE)
 
+/**
+ * One piece of a document-style HTML body: either markup to run through the normal renderer, or a
+ * real image to lay out on its own. See [splitTopLevelBlockImages].
+ */
+sealed interface HtmlSegment {
+    data class Markup(val html: String) : HtmlSegment
+
+    data class BlockImage(val src: String, val alt: String, val width: Int, val height: Int) : HtmlSegment
+}
+
+/**
+ * Split a body into runs of markup and the top-level images that should be laid out as blocks.
+ *
+ * A picture cannot be rendered as inline text content. Inline content is a [Placeholder] inside a
+ * `Text`, and the line it lands on takes its height from the text style's `lineHeight` — so a
+ * 99dp-tall placeholder overflows a 17dp line and the following text is laid out, and drawn,
+ * straight through it. No choice of `PlaceholderVerticalAlign` fixes that; both `TextCenter` and
+ * `Center` were tried against a real bio.
+ *
+ * Which images qualify: a **declared size** is the test. gomuks emits one for a real image
+ * (`style="width: 320.00px; height: 99.00px"`) and none at all for a custom emoji, so the two are
+ * distinguishable without any marker attribute — which matters, because the `data-mx-emoticon` an
+ * earlier attempt keyed on does not survive sanitization. An emoji stays in the text where it
+ * belongs. Only top-level images are pulled out; one nested inside a paragraph or a link keeps its
+ * place in the flow.
+ *
+ * Order is preserved: the segments come back in document order, so a banner above the text renders
+ * above the text.
+ */
+internal fun splitTopLevelBlockImages(html: String): List<HtmlSegment> {
+    val body = runCatching { Jsoup.parseBodyFragment(html).body() }.getOrNull() ?: return listOf(HtmlSegment.Markup(html))
+    val segments = mutableListOf<HtmlSegment>()
+    val markup = StringBuilder()
+
+    fun flushMarkup() {
+        val pending = markup.toString()
+        // A <br> that only separated an extracted image from what follows would render as a blank
+        // first line, so leading breaks are dropped from each run.
+        val trimmed = pending.trim().removeLeadingLineBreaks()
+        if (trimmed.isNotBlank()) segments.add(HtmlSegment.Markup(trimmed))
+        markup.setLength(0)
+    }
+
+    body.childNodes().forEach { node ->
+        val blockImage = (node as? Element)?.takeIf { it.tagName().lowercase() == "img" }?.toBlockImage()
+        if (blockImage != null) {
+            flushMarkup()
+            segments.add(blockImage)
+        } else {
+            markup.append(node.outerHtml())
+        }
+    }
+    flushMarkup()
+    return segments
+}
+
+private fun Element.toBlockImage(): HtmlSegment.BlockImage? {
+    val src = (attr("src").takeIf { it.isNotBlank() } ?: attr("data-mxc")).takeIf { it.isNotBlank() } ?: return null
+    // An http(s) src would leak the reader's IP to a third-party host, the same rule the parser
+    // applies. Such an image is left in the markup run, where it becomes its alt text.
+    if (src.startsWith("http://") || src.startsWith("https://")) return null
+    val (styleWidth, styleHeight) = parseCssImageSizePx(attr("style"))
+    val width = attr("width").toIntOrNull() ?: styleWidth ?: return null
+    val height = attr("height").toIntOrNull() ?: styleHeight ?: return null
+    if (width <= 0 || height <= 0) return null
+    return HtmlSegment.BlockImage(
+        src = src,
+        alt = attr("alt").takeIf { it.isNotBlank() } ?: attr("title"),
+        width = width,
+        height = height,
+    )
+}
+
+private val leadingLineBreakRegex = Regex("""^(?:\s*<br\s*/?>)+""", RegexOption.IGNORE_CASE)
+
+private fun String.removeLeadingLineBreaks(): String = replace(leadingLineBreakRegex, "").trimStart()
+
 private fun AnnotatedString.Builder.appendImage(tag: HtmlNode.Tag, inlineImages: MutableMap<String, InlineImageData>, hideContent: Boolean) {
     val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: ""
     val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
@@ -2870,6 +2949,89 @@ private fun inlineImageToMediaMessage(data: InlineImageData): Pair<MediaMessage,
         msgType = "m.image",
     )
     return media to encrypted
+}
+
+/**
+ * Fit a block image's declared size inside the space available, preserving its aspect ratio and
+ * never upscaling past what the markup asked for.
+ *
+ * Kept in Dp throughout: the caller measures its own container, so there is no reason to convert
+ * through sp the way inline placeholders must.
+ */
+internal fun blockImageSize(image: HtmlSegment.BlockImage, maxWidth: Dp, maxHeight: Dp): Pair<Dp, Dp> {
+    val aspect = image.width.toFloat() / image.height.toFloat()
+    var width = minOf(image.width.dp, maxWidth)
+    var height = width / aspect
+    if (height > maxHeight) {
+        height = maxHeight
+        width = height * aspect
+    }
+    return width to height
+}
+
+/**
+ * A real image from HTML, laid out on its own instead of as inline text content.
+ *
+ * [width] and [height] are the final drawn size — the caller knows its own container width, which
+ * inline content never does, and that is the whole reason this exists (see
+ * [splitTopLevelBlockImages]). Tapping opens the same fullscreen viewer an inline image does.
+ */
+@Composable
+internal fun BlockHtmlImage(image: HtmlSegment.BlockImage, width: Dp, height: Dp, homeserverUrl: String, authToken: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val imageLoader = remember { ImageLoaderSingleton.get(context) }
+    var viewerRequest by remember { mutableStateOf<InlineImageData?>(null) }
+
+    val imageUrl = remember(image.src, homeserverUrl) {
+        when {
+            image.src.startsWith("mxc://") -> MediaUtils.mxcToHttpUrl(image.src, homeserverUrl)
+            image.src.startsWith("_gomuks/media/") -> "${homeserverUrl.trimEnd('/')}/${image.src}"
+            else -> null
+        }
+    }
+
+    if (imageUrl == null) {
+        Log.w("Andromuks", "BlockHtmlImage: unresolvable src=${image.src}, falling back to alt text")
+        Text(text = image.alt, style = MaterialTheme.typography.bodyMedium)
+        return
+    }
+
+    AsyncImage(
+        model = ImageRequest.Builder(context)
+            .data(imageUrl)
+            .memoryCachePolicy(CachePolicy.ENABLED)
+            .diskCachePolicy(CachePolicy.ENABLED)
+            .build(),
+        imageLoader = imageLoader,
+        contentDescription = image.alt,
+        contentScale = ContentScale.Fit,
+        modifier = modifier
+            .size(width = width, height = height)
+            .clickable { viewerRequest = InlineImageData(src = image.src, alt = image.alt, height = image.height) },
+        onError = { errorState ->
+            CacheUtils.handleImageLoadError(
+                imageUrl = imageUrl,
+                throwable = errorState.result.throwable,
+                imageLoader = imageLoader,
+                context = "BlockHtmlImage",
+            )
+        },
+    )
+
+    viewerRequest?.let { data ->
+        val media = remember(data) { inlineImageToMediaMessage(data) }
+        if (media != null) {
+            ImageViewerDialog(
+                mediaMessage = media.first,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isEncrypted = media.second,
+                onDismiss = { viewerRequest = null },
+            )
+        } else {
+            LaunchedEffect(data) { viewerRequest = null }
+        }
+    }
 }
 
 /**
