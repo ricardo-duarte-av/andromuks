@@ -2670,6 +2670,18 @@ fun RoomTimelineScreen(
                 val total = snap.total
                 val itemsAbove = total - 1 - snap.lastVisible
 
+                if (total == 0 && BuildConfig.DEBUG) {
+                    // Nothing rendered: the room is either mid-dig or genuinely all-filtered. This
+                    // is the state that used to stall silently, so make every evaluation of it
+                    // visible — including the ones where the burst never arms.
+                    Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen[$roomId]: Refill eval on empty timeline - refilling=$isRefillingBuffer, " +
+                            "stalled=$refillStalled, settled=${snap.initialLoadSettled}, paginating=${snap.isPaginating}, " +
+                            "timelineLoading=${snap.isTimelineLoading}, hasMore=${snap.hasMore}, rounds=$refillRoundCount",
+                    )
+                }
+
                 // A round finished (isPaginating fell back to false): did it yield anything the
                 // user can actually see? If not, widen the next round so a months-long stretch of
                 // hidden membership events is crossed in a few round-trips instead of twenty.
@@ -2718,7 +2730,7 @@ fun RoomTimelineScreen(
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${snap.hasMore}, stalled=$refillStalled)",
+                                "RoomTimelineScreen[$roomId]: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${snap.hasMore}, stalled=$refillStalled)",
                             )
                         }
                     }
@@ -2767,14 +2779,14 @@ fun RoomTimelineScreen(
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, limit=$roundLimit, barren=$barrenRoundStreak, highestVisible=$highestVisible)",
+                                "RoomTimelineScreen[$roomId]: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, limit=$roundLimit, barren=$barrenRoundStreak, highestVisible=$highestVisible)",
                             )
                         }
                     } else {
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total, limit=$roundLimit, barren=$barrenRoundStreak) — skipping scroll restoration",
+                                "RoomTimelineScreen[$roomId]: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total, limit=$roundLimit, barren=$barrenRoundStreak) — skipping scroll restoration",
                             )
                         }
                     }
@@ -2785,7 +2797,7 @@ fun RoomTimelineScreen(
                     // this state, so if it ever sticks there, this line names the closed gate.
                     Log.d(
                         "Andromuks",
-                        "RoomTimelineScreen: Refill armed but blocked - settled=${snap.initialLoadSettled}, " +
+                        "RoomTimelineScreen[$roomId]: Refill armed but blocked - settled=${snap.initialLoadSettled}, " +
                             "restoring=${snap.pendingScrollRestoration}, paginating=${snap.isPaginating}, " +
                             "timelineLoading=${snap.isTimelineLoading}, hasMore=${snap.hasMore}, " +
                             "roomMatch=${roomId == appViewModel.currentRoomId}, total=$total",
@@ -3205,7 +3217,7 @@ fun RoomTimelineScreen(
             if (BuildConfig.DEBUG) {
                 Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Initial batch for $roomId has no renderable items - completing load, auto-paginate will continue in background",
+                    "RoomTimelineScreen[$roomId]: Initial batch has no renderable items - completing load, auto-paginate will continue in background",
                 )
             }
         }
