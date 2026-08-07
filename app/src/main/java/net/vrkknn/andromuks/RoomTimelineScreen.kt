@@ -96,6 +96,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -289,6 +290,36 @@ private const val READ_MARKER_FLARE_PEAK = 1.4f
  * otherwise re-emit this snapshotFlow, stalling the chain.
  */
 private data class PaginateSnapshot(val total: Int, val lastVisible: Int, val isPaginating: Boolean, val pendingScrollRestoration: Boolean)
+
+/**
+ * Shown in place of an empty timeline once the initial load has completed but nothing renderable
+ * came back — the archived-group-room case, where the whole loaded window is hidden membership
+ * events. Distinguishes "still digging" (background refill running) from "we stopped, here's how
+ * to keep going", so the user is never left staring at a blank list with no explanation.
+ */
+@Composable
+private fun TimelineEmptyState(isSearching: Boolean, canLoadMore: Boolean, onLoadMore: () -> Unit, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        if (isSearching) {
+            ExpressiveLoadingIndicator(modifier = Modifier.size(64.dp))
+            Spacer(modifier = Modifier.height(16.dp))
+        }
+        Text(
+            text = if (isSearching) "Looking for older messages…" else "No messages to show",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (!isSearching && canLoadMore) {
+            TextButton(onClick = onLoadMore) {
+                Text(text = "Load older messages")
+            }
+        }
+    }
+}
 
 private val dateFormatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
 
@@ -3972,13 +4003,32 @@ fun RoomTimelineScreen(
                             )
                         }
 
-                        // Pagination indicator: visible while older messages are being fetched/merged
+                        // Pagination indicator: visible while older messages are being fetched/merged.
+                        // isRefillingBuffer is OR'd in so a multi-round background refill shows one
+                        // continuous bar instead of blinking off between rounds.
                         AnimatedVisibility(
-                            visible = appViewModel.isPaginating,
+                            visible = appViewModel.isPaginating || isRefillingBuffer,
                             enter = scaledColumnEnter(),
                             exit = scaledColumnExit(),
                         ) {
                             LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        }
+
+                        // A refill burst stopped at the safety cap with history still to come —
+                        // typically a long stretch of hidden membership events. Offer a manual
+                        // continue rather than dead-ending. Rendered here, not as a list item, so
+                        // the LazyColumn's indices (which scroll restoration depends on) are
+                        // untouched.
+                        if (refillStalled && timelineItems.isNotEmpty()) {
+                            TextButton(
+                                onClick = {
+                                    refillStalled = false
+                                    appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 500)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(text = "Load older messages")
+                            }
                         }
                         // 2. Timeline (compressible, scrollable content)
                         Box(
@@ -4054,6 +4104,21 @@ fun RoomTimelineScreen(
                                 }
                                 // clipToBounds ensures the date pill slides from behind the header rather than over it
                                 Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
+                                    // Nothing renderable in the loaded window: say so rather than
+                                    // showing a blank list. The LazyColumn stays composed beneath
+                                    // this (it renders nothing anyway) so the auto-paginate effect
+                                    // keeps observing listState.
+                                    if (timelineItems.isEmpty()) {
+                                        TimelineEmptyState(
+                                            isSearching = isRefillingBuffer || appViewModel.isPaginating,
+                                            canLoadMore = appViewModel.hasMoreMessages,
+                                            onLoadMore = {
+                                                refillStalled = false
+                                                appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 500)
+                                            },
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
                                     // PERF: Memoize reversed list — .reversed() allocates a new list on every recomposition.
                                     // Only recompute when timelineItems itself changes.
                                     val reversedTimelineItems = remember(timelineItems) { timelineItems.reversed() }

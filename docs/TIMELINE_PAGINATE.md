@@ -169,22 +169,48 @@ would repaint the loader gate as an *empty room* instead of a spinner. Backward-
 `paginateRequests` are **not** reissued — that was a scroll gesture whose intent is gone, and replaying
 it would fight scroll-anchor restoration.
 
-## Auto-Pagination (Scroll-Triggered)
+## Auto-Pagination (Buffer Refill)
 
-`RoomTimelineScreen` and `BubbleTimelineScreen` each contain a `LaunchedEffect(listState, roomId)` with a `snapshotFlow` that monitors how many rendered events are above the viewport. With `reverseLayout=true`, "above" means items with index > last visible index.
+`RoomTimelineScreen` and `BubbleTimelineScreen` each contain a `LaunchedEffect(listState, roomId)` with a `snapshotFlow` that monitors how many rendered events sit above the viewport. With `reverseLayout=true`, "above" means items with index > last visible index. The count comes from `listState.layoutInfo.totalItemsCount`, i.e. it is **post-filter** — hidden and membership events do not count toward it and are not fetched toward it.
 
-**Trigger condition** (all must be true):
-- Fewer than **60 rendered events** above the viewport
-- `hasLoadedInitialBatch && hasInitialSnapCompleted` — not during initial room load
-- `!pendingScrollRestoration` — not mid-pagination anchor restore
-- `!appViewModel.isPaginating` — no request already in flight
-- `appViewModel.hasMoreMessages` — server has not signalled end of history
+**Burst model** (three constants, declared next to the effect):
 
-When triggered, it captures the same scroll anchor as pull-to-refresh (`highestVisibleIndexBeforePagination`, `anchorScrollOffsetForRestore`, `expectedTimelineSizeBeforePagination`) and calls `requestPaginationWithSmallestRowId(roomId, limit = 100)`. The existing scroll-restoration path handles re-anchoring after events arrive.
+| Constant | Value | Meaning |
+|---|---|---|
+| `REFILL_TRIGGER` | 10 | Arm a burst when the buffer falls to this many items above the viewport |
+| `REFILL_TARGET` | 50 | Keep fetching until at least this many items sit above the viewport |
+| `MAX_REFILL_ROUNDS` | 20 | Safety cap on rounds per burst |
 
-**Loop behaviour for heavily-filtered rooms:** After each paginate settles, `timelineItems` changes and `snapshotFlow` re-evaluates. If the received batch produces few rendered events (many are reactions, call state, redactions, etc.) and the threshold is still not met, it fires again automatically — until the threshold is met or `hasMoreMessages` becomes false.
+**Arming.** Primarily falling-edge (`prevItemsAbove > REFILL_TRIGGER && itemsAbove <= REFILL_TRIGGER`) — edge detection, not a level check, so a burst that hit the cap cannot instantly re-arm while still below the trigger. Two additional entries exist because neither can ever produce a falling edge:
 
-`INITIAL_ROOM_PAGINATE_LIMIT` is **100** (not 50) so the initial room load provides enough rendered events that auto-pagination does not fire immediately on open.
+- `total == 0` — nothing rendered at all. This is the heavily-filtered room that needs digging most.
+- `lastVisible >= total - 1` — the user is parked at the top of what is loaded, so scrolling up resumes fetching after a capped burst.
+
+All three are suppressed while `refillStalled` (see below).
+
+**Per-round request** (all must hold): `hasLoadedInitialBatch && hasInitialSnapCompleted`, `!pendingScrollRestoration`, `!isPaginating`, `!isTimelineLoading`, `hasMoreMessages`, and `roomId == currentRoomId` (guards stale composition during the navigation crossfade). It captures the same scroll anchor as pull-to-refresh and calls `requestPaginationWithSmallestRowId(roomId, limit = roundLimit)`.
+
+**Escalating page size.** `roundLimit` starts at 100 and widens to 250 then 500 as `barrenRoundStreak` grows. A round is "barren" when it comes back without increasing the rendered-item count — the signature of a long stretch of hidden membership events. Any round that yields rows resets the streak. This crosses a months-long membership desert in a handful of round-trips instead of twenty.
+
+**Stall + manual escape.** When a burst ends with `hasMoreMessages` still true and the buffer still below target, `refillStalled` is set. It suppresses auto re-arming (otherwise the cap buys nothing: each round's `isPaginating` false-edge would re-arm the burst and a barren room would loop forever) and drives a "Load older messages" affordance under the room header. The stall clears when the buffer recovers above `REFILL_TRIGGER` or when the user taps that affordance.
+
+`INITIAL_ROOM_PAGINATE_LIMIT` is **100** (not 50) so a normal room load provides enough rendered events that auto-pagination does not fire immediately on open.
+
+### Postmortem: the zero-renderable deadlock
+
+Group rooms hide membership events by default (`resolveShowMembershipEvents`). An archived, read-only room whose recent history is nothing but join/leave events therefore produced a 100-event window that filtered down to **zero** renderable items, and the app hung on a permanent "Room loading…".
+
+Two independent guards conspired:
+
+1. Every assignment of `hasInitialSnapCompleted` sat behind `timelineItems.isNotEmpty()`, and the loader gate was `timelineItems.isEmpty() && (isLoading || !hasInitialSnapCompleted)`. With no items the flag never flipped, so the loader never released.
+2. The refill effect required `hasInitialSnapCompleted` **and** `timelineItems.isNotEmpty()`, so it could not paginate out of the barren window either.
+
+The fixes, which must not be undone:
+
+- The initial-scroll effect has an explicit empty-completion branch: once `readinessCheckComplete && !isLoading` with zero items, it sets `hasInitialSnapCompleted`/`hasLoadedInitialBatch` and skips the scroll.
+- The loader gate ANDs `!hasInitialSnapCompleted` with `isLoading` instead of ORing it, so the loader releases once the first batch lands regardless of item count.
+- **The refill effect must never regain a `timelineItems.isNotEmpty()` guard.** `total == 0` with `hasMoreMessages == true` is precisely the case it exists to paginate through; `roomId == currentRoomId` covers the navigation-crossfade concern that guard was standing in for.
+- An empty timeline renders a `TimelineEmptyState` ("Looking for older messages…" while refilling, otherwise "No messages to show" plus a load-older button) rather than a blank list, and the header progress bar is driven by `isPaginating || isRefillingBuffer` so background rounds are visible.
 
 ## Response Processing Thread
 
