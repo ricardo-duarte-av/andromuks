@@ -2218,6 +2218,17 @@ fun RoomTimelineScreen(
     var refillRoundCount by remember(roomId) { mutableIntStateOf(0) }
     var prevItemsAbove by remember(roomId) { mutableIntStateOf(Int.MAX_VALUE) }
 
+    // Barren-round tracking for the escalating page size. A round that returns events but yields
+    // no new *renderable* rows (a stretch of hidden membership events) bumps the streak, which
+    // widens the next round's limit; any round that yields rows resets it. totalBeforeRound holds
+    // the rendered-item count captured when a round was issued, and is consumed when that round's
+    // isPaginating flips back to false.
+    var barrenRoundStreak by remember(roomId) { mutableIntStateOf(0) }
+    var totalBeforeRound by remember(roomId) { mutableStateOf<Int?>(null) }
+    // Set when a refill burst stops with history still available (safety cap hit), so the UI can
+    // offer a manual "load older messages" escape instead of silently dead-ending.
+    var refillStalled by remember(roomId) { mutableStateOf(false) }
+
     // Pull-to-refresh state
     var isRefreshingPull by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullRefreshState(
@@ -2606,23 +2617,57 @@ fun RoomTimelineScreen(
                 val total = snap.total
                 val itemsAbove = total - 1 - snap.lastVisible
 
-                // Falling-edge entry: arm a refill burst only when the buffer crosses down
-                // through REFILL_TRIGGER. Edge-detection (vs. a level check) stops a burst that
-                // hit MAX_REFILL_ROUNDS from instantly re-arming while still below the trigger —
-                // the buffer must first recover above the trigger and then fall again.
-                if (!isRefillingBuffer && prevItemsAbove > REFILL_TRIGGER && itemsAbove <= REFILL_TRIGGER) {
+                // A round finished (isPaginating fell back to false): did it yield anything the
+                // user can actually see? If not, widen the next round so a months-long stretch of
+                // hidden membership events is crossed in a few round-trips instead of twenty.
+                if (!snap.isPaginating) {
+                    totalBeforeRound?.let { before ->
+                        if (total > before) barrenRoundStreak = 0 else barrenRoundStreak++
+                        totalBeforeRound = null
+                    }
+                }
+
+                // Falling-edge entry: arm a refill burst when the buffer crosses down through
+                // REFILL_TRIGGER. Edge-detection (vs. a level check) stops a burst that hit
+                // MAX_REFILL_ROUNDS from instantly re-arming while still below the trigger — the
+                // buffer must first recover above the trigger and then fall again.
+                //
+                // Two additional entries, both cases the falling edge alone can never produce:
+                //  - total == 0: nothing rendered at all, so itemsAbove never "falls" through the
+                //    trigger. This is the heavily-filtered room that needs digging the most.
+                //  - the user is parked at the very top of what we have: after a capped burst the
+                //    buffer stays below the trigger forever, so scrolling up must be able to
+                //    resume fetching.
+                //
+                // All three entries are suppressed while refillStalled: a burst that hit the
+                // safety cap must NOT re-arm itself off the next isPaginating edge, or the cap
+                // buys nothing and a barren room loops forever. The stall clears when the buffer
+                // genuinely recovers above the trigger, or when the user taps "load older".
+                if (itemsAbove > REFILL_TRIGGER) refillStalled = false
+                val atTopOfLoaded = total > 0 && snap.lastVisible >= total - 1
+                val armedByEdge = prevItemsAbove > REFILL_TRIGGER && itemsAbove <= REFILL_TRIGGER
+                val armedByEmpty = total == 0
+                if (!isRefillingBuffer && !refillStalled && appViewModel.hasMoreMessages &&
+                    (armedByEdge || armedByEmpty || atTopOfLoaded)
+                ) {
                     isRefillingBuffer = true
                     refillRoundCount = 0
+                    refillStalled = false
                 }
                 // Exit conditions: target reached, history exhausted, or safety cap hit.
                 if (itemsAbove >= REFILL_TARGET || !appViewModel.hasMoreMessages ||
                     refillRoundCount >= MAX_REFILL_ROUNDS
                 ) {
-                    if (isRefillingBuffer && BuildConfig.DEBUG) {
-                        Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages})",
-                        )
+                    if (isRefillingBuffer) {
+                        // Stopping with history still to come means the safety cap fired: leave a
+                        // manual escape hatch rather than a silent dead end.
+                        refillStalled = appViewModel.hasMoreMessages && itemsAbove < REFILL_TARGET
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "Andromuks",
+                                "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages}, stalled=$refillStalled)",
+                            )
+                        }
                     }
                     isRefillingBuffer = false
                 }
@@ -2634,8 +2679,11 @@ fun RoomTimelineScreen(
                     !pendingScrollRestoration &&
                     !snap.isPaginating &&
                     !appViewModel.isTimelineLoading &&
-                    timelineItems.isNotEmpty() &&
                     appViewModel.hasMoreMessages &&
+                    // NOTE: deliberately no timelineItems.isNotEmpty() guard. total == 0 with
+                    // hasMoreMessages == true is exactly the case that needs paginating through
+                    // (a window that filtered down to nothing renderable); gating on non-empty
+                    // items here is what used to deadlock such rooms on a permanent loader.
                     // Guard against stale composition during navigation crossfade: the previous
                     // room's screen is briefly still composed and its timelineItems may transiently
                     // hit 0 as items are swept for the new room. Without this check, it fires an
@@ -2648,6 +2696,14 @@ fun RoomTimelineScreen(
                     // indices — the bottom position is unaffected and no restoration is needed.
                     // Setting pendingScrollRestoration when at the bottom causes an animated
                     // scroll back to the anchor (a visible upward nudge of ~one screenful).
+                    // Escalating page size: 100 for a productive scan, widening once consecutive
+                    // rounds come back with nothing renderable in them.
+                    val roundLimit = when {
+                        barrenRoundStreak >= 2 -> 500
+                        barrenRoundStreak >= 1 -> 250
+                        else -> 100
+                    }
+                    totalBeforeRound = total
                     val atBottom = listState.firstVisibleItemIndex == 0
                     if (!atBottom && total > 0) {
                         val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
@@ -2659,19 +2715,19 @@ fun RoomTimelineScreen(
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, highestVisible=$highestVisible)",
+                                "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, limit=$roundLimit, barren=$barrenRoundStreak, highestVisible=$highestVisible)",
                             )
                         }
                     } else {
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total) — skipping scroll restoration",
+                                "RoomTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total, limit=$roundLimit, barren=$barrenRoundStreak) — skipping scroll restoration",
                             )
                         }
                     }
                     refillRoundCount++
-                    appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
+                    appViewModel.requestPaginationWithSmallestRowId(roomId, limit = roundLimit)
                 }
             }
     }

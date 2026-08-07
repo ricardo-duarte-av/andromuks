@@ -1709,6 +1709,14 @@ fun BubbleTimelineScreen(
     var refillRoundCount by remember(roomId) { mutableIntStateOf(0) }
     var prevItemsAbove by remember(roomId) { mutableIntStateOf(Int.MAX_VALUE) }
 
+    // Barren-round tracking for the escalating page size, mirroring RoomTimelineScreen: a round
+    // that returns events but no new renderable rows (hidden membership events) widens the next
+    // round's limit. refillStalled records a burst that stopped at the safety cap with history
+    // still available, and suppresses self-re-arming until the buffer genuinely recovers.
+    var barrenRoundStreak by remember(roomId) { mutableIntStateOf(0) }
+    var totalBeforeRound by remember(roomId) { mutableStateOf<Int?>(null) }
+    var refillStalled by remember(roomId) { mutableStateOf(false) }
+
     // Pull-to-refresh state
     var isRefreshingPull by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullRefreshState(
@@ -2002,11 +2010,28 @@ fun BubbleTimelineScreen(
                 val total = snap.total
                 val itemsAbove = total - 1 - snap.lastVisible
 
-                // Falling-edge entry: arm a refill burst only when the buffer crosses down
-                // through REFILL_TRIGGER. Edge-detection (vs. a level check) stops a burst that
-                // hit MAX_REFILL_ROUNDS from instantly re-arming while still below the trigger —
-                // the buffer must first recover above the trigger and then fall again.
-                if (!isRefillingBuffer && prevItemsAbove > REFILL_TRIGGER && itemsAbove <= REFILL_TRIGGER) {
+                // A round finished: did it yield anything renderable? If not, widen the next one.
+                if (!snap.isPaginating) {
+                    totalBeforeRound?.let { before ->
+                        if (total > before) barrenRoundStreak = 0 else barrenRoundStreak++
+                        totalBeforeRound = null
+                    }
+                }
+
+                // Falling-edge entry: arm a refill burst when the buffer crosses down through
+                // REFILL_TRIGGER. Edge-detection (vs. a level check) stops a burst that hit
+                // MAX_REFILL_ROUNDS from instantly re-arming while still below the trigger — the
+                // buffer must first recover above the trigger and then fall again. total == 0 and
+                // "parked at the top of what we have" are armed explicitly: neither can ever
+                // produce a falling edge, and the first is exactly the heavily-filtered room that
+                // needs digging. Both are suppressed while refillStalled so a capped burst can't
+                // re-arm off its own isPaginating edge and loop forever.
+                if (itemsAbove > REFILL_TRIGGER) refillStalled = false
+                val atTopOfLoaded = total > 0 && snap.lastVisible >= total - 1
+                val armedByEdge = prevItemsAbove > REFILL_TRIGGER && itemsAbove <= REFILL_TRIGGER
+                if (!isRefillingBuffer && !refillStalled && appViewModel.hasMoreMessages &&
+                    (armedByEdge || total == 0 || atTopOfLoaded)
+                ) {
                     isRefillingBuffer = true
                     refillRoundCount = 0
                 }
@@ -2014,11 +2039,14 @@ fun BubbleTimelineScreen(
                 if (itemsAbove >= REFILL_TARGET || !appViewModel.hasMoreMessages ||
                     refillRoundCount >= MAX_REFILL_ROUNDS
                 ) {
-                    if (isRefillingBuffer && BuildConfig.DEBUG) {
-                        Log.d(
-                            "Andromuks",
-                            "BubbleTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages})",
-                        )
+                    if (isRefillingBuffer) {
+                        refillStalled = appViewModel.hasMoreMessages && itemsAbove < REFILL_TARGET
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                "Andromuks",
+                                "BubbleTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages}, stalled=$refillStalled)",
+                            )
+                        }
                     }
                     isRefillingBuffer = false
                 }
@@ -2031,6 +2059,12 @@ fun BubbleTimelineScreen(
                     !snap.isPaginating &&
                     appViewModel.hasMoreMessages
                 ) {
+                    val roundLimit = when {
+                        barrenRoundStreak >= 2 -> 500
+                        barrenRoundStreak >= 1 -> 250
+                        else -> 100
+                    }
+                    totalBeforeRound = total
                     val atBottom = listState.firstVisibleItemIndex == 0
                     if (!atBottom && total > 0) {
                         val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
@@ -2049,12 +2083,12 @@ fun BubbleTimelineScreen(
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "BubbleTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total) — skipping scroll restoration",
+                                "BubbleTimelineScreen: Auto-paginate round ${refillRoundCount + 1} at bottom or empty ($itemsAbove above viewport, total=$total, limit=$roundLimit, barren=$barrenRoundStreak) — skipping scroll restoration",
                             )
                         }
                     }
                     refillRoundCount++
-                    appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
+                    appViewModel.requestPaginationWithSmallestRowId(roomId, limit = roundLimit)
                 }
             }
     }
