@@ -2414,7 +2414,7 @@ fun BubbleTimelineScreen(
         }
     }
 
-    LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll) {
+    LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll, isLoading) {
         if (pendingInitialScroll && readinessCheckComplete && timelineItems.isNotEmpty() &&
             timelineItems.size != lastInitialScrollSize
         ) {
@@ -2423,9 +2423,18 @@ fun BubbleTimelineScreen(
                 listState.scrollToItem(0)
                 isAttachedToBottom = true
                 hasInitialSnapCompleted = true
+                hasLoadedInitialBatch = true
                 pendingInitialScroll = false
                 lastInitialScrollSize = timelineItems.size
             }
+        } else if (pendingInitialScroll && readinessCheckComplete && timelineItems.isEmpty() && !isLoading) {
+            // Loaded, but nothing renderable (archived group room whose window is all hidden
+            // membership events). Nothing to scroll to, but the load is done — mark it so the
+            // auto-paginate effect, which requires these flags, can dig past the barren window.
+            hasInitialSnapCompleted = true
+            hasLoadedInitialBatch = true
+            pendingInitialScroll = false
+            lastInitialScrollSize = 0
         }
     }
 

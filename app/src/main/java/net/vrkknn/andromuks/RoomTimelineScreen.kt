@@ -3050,7 +3050,7 @@ fun RoomTimelineScreen(
     // NOTE: markRoomAsRead is handled by navigateToRoomWithCache, so we don't need to call it here
     // This prevents duplicate mark_read calls and race conditions
 
-    LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll) {
+    LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll, isLoading) {
         if (pendingInitialScroll && readinessCheckComplete && timelineItems.isNotEmpty() &&
             timelineItems.size != lastInitialScrollSize
         ) {
@@ -3063,8 +3063,27 @@ fun RoomTimelineScreen(
                     isAttachedToBottom = true
                 }
                 hasInitialSnapCompleted = true
+                hasLoadedInitialBatch = true
                 pendingInitialScroll = false
                 lastInitialScrollSize = timelineItems.size
+            }
+        } else if (pendingInitialScroll && readinessCheckComplete && timelineItems.isEmpty() && !isLoading) {
+            // The first batch landed but filtered down to nothing renderable — typically an
+            // archived group room whose recent history is all join/leave and membership events
+            // are hidden (the default for group rooms). There is nothing to scroll to, but the
+            // load *is* complete: mark it so, otherwise the loader gate below never releases and
+            // the auto-paginate effect (which requires hasInitialSnapCompleted) can never dig
+            // past the barren window. That combination used to deadlock into a permanent
+            // "Room loading...". See docs/TIMELINE_PAGINATE.md.
+            hasInitialSnapCompleted = true
+            hasLoadedInitialBatch = true
+            pendingInitialScroll = false
+            lastInitialScrollSize = 0
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Initial batch for $roomId has no renderable items - completing load, auto-paginate will continue in background",
+                )
             }
         }
     }
@@ -3928,8 +3947,14 @@ fun RoomTimelineScreen(
                             // background paginate merges newer ones, and isTimelineLoading is briefly true
                             // during that async rebuild. Room *switches* clear timelineEvents synchronously,
                             // so timelineItems.isEmpty() still gates the loader correctly there.
+                            //
+                            // hasInitialSnapCompleted is ANDed with isLoading rather than ORed
+                            // into the condition: once the first batch has landed the loader must
+                            // release even with zero renderable items, so the empty state (and the
+                            // background refill it advertises) can take over instead of spinning
+                            // forever on a room whose whole window is hidden membership events.
                             val shouldShowLoading = !readinessCheckComplete ||
-                                (timelineItems.isEmpty() && (isLoading || !hasInitialSnapCompleted))
+                                (timelineItems.isEmpty() && isLoading && !hasInitialSnapCompleted)
 
                             if (shouldShowLoading) {
                                 Box(
