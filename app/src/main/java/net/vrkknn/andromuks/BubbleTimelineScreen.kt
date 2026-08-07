@@ -219,9 +219,20 @@ sealed class BubbleTimelineItem {
  * included so the refill chain re-checks the instant a round's scroll restoration completes:
  * restoration clears that flag in a separate effect, and a bare boolean read there would not
  * otherwise re-emit this snapshotFlow, stalling the chain. Mirror of
- * PaginateSnapshot in RoomTimelineScreen.kt.
+ * PaginateSnapshot in RoomTimelineScreen.kt — including the rule that every gate the effect
+ * consults lives in here rather than being read directly inside collect{}: an unobserved read
+ * stalls the chain for good on a timeline with zero renderable items, since nothing else in the
+ * snapshot ever changes again to restart it.
  */
-private data class BubblePaginateSnapshot(val total: Int, val lastVisible: Int, val isPaginating: Boolean, val pendingScrollRestoration: Boolean)
+private data class BubblePaginateSnapshot(
+    val total: Int,
+    val lastVisible: Int,
+    val isPaginating: Boolean,
+    val pendingScrollRestoration: Boolean,
+    val initialLoadSettled: Boolean,
+    val isTimelineLoading: Boolean,
+    val hasMore: Boolean,
+)
 
 /** PERFORMANCE: Helper function to process timeline events in background */
 suspend fun bubbleProcessTimelineEvents(
@@ -1998,10 +2009,13 @@ fun BubbleTimelineScreen(
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.maxOfOrNull { it.index } ?: 0
             BubblePaginateSnapshot(
-                info.totalItemsCount,
-                lastVisible,
-                appViewModel.isPaginating,
-                pendingScrollRestoration,
+                total = info.totalItemsCount,
+                lastVisible = lastVisible,
+                isPaginating = appViewModel.isPaginating,
+                pendingScrollRestoration = pendingScrollRestoration,
+                initialLoadSettled = hasLoadedInitialBatch && hasInitialSnapCompleted,
+                isTimelineLoading = appViewModel.isTimelineLoading,
+                hasMore = appViewModel.hasMoreMessages,
             )
         }
             .distinctUntilChanged()
@@ -2029,22 +2043,22 @@ fun BubbleTimelineScreen(
                 if (itemsAbove > REFILL_TRIGGER) refillStalled = false
                 val atTopOfLoaded = total > 0 && snap.lastVisible >= total - 1
                 val armedByEdge = prevItemsAbove > REFILL_TRIGGER && itemsAbove <= REFILL_TRIGGER
-                if (!isRefillingBuffer && !refillStalled && appViewModel.hasMoreMessages &&
+                if (!isRefillingBuffer && !refillStalled && snap.hasMore &&
                     (armedByEdge || total == 0 || atTopOfLoaded)
                 ) {
                     isRefillingBuffer = true
                     refillRoundCount = 0
                 }
                 // Exit conditions: target reached, history exhausted, or safety cap hit.
-                if (itemsAbove >= REFILL_TARGET || !appViewModel.hasMoreMessages ||
+                if (itemsAbove >= REFILL_TARGET || !snap.hasMore ||
                     refillRoundCount >= MAX_REFILL_ROUNDS
                 ) {
                     if (isRefillingBuffer) {
-                        refillStalled = appViewModel.hasMoreMessages && itemsAbove < REFILL_TARGET
+                        refillStalled = snap.hasMore && itemsAbove < REFILL_TARGET
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "BubbleTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages}, stalled=$refillStalled)",
+                                "BubbleTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${snap.hasMore}, stalled=$refillStalled)",
                             )
                         }
                     }
@@ -2053,11 +2067,11 @@ fun BubbleTimelineScreen(
                 prevItemsAbove = itemsAbove
 
                 if (isRefillingBuffer &&
-                    hasLoadedInitialBatch &&
-                    hasInitialSnapCompleted &&
-                    !pendingScrollRestoration &&
+                    snap.initialLoadSettled &&
+                    !snap.pendingScrollRestoration &&
                     !snap.isPaginating &&
-                    appViewModel.hasMoreMessages
+                    !snap.isTimelineLoading &&
+                    snap.hasMore
                 ) {
                     val roundLimit = when {
                         barrenRoundStreak >= 2 -> 500
@@ -2461,7 +2475,10 @@ fun BubbleTimelineScreen(
                 pendingInitialScroll = false
                 lastInitialScrollSize = timelineItems.size
             }
-        } else if (pendingInitialScroll && readinessCheckComplete && timelineItems.isEmpty() && !isLoading) {
+        } else if (readinessCheckComplete && !isLoading && timelineItems.isEmpty() && !hasInitialSnapCompleted) {
+            // Not gated on pendingInitialScroll — see the matching branch in RoomTimelineScreen:
+            // a warm re-open leaves that flag false, so these would otherwise never settle for a
+            // room whose whole window is hidden membership events.
             // Loaded, but nothing renderable (archived group room whose window is all hidden
             // membership events). Nothing to scroll to, but the load is done — mark it so the
             // auto-paginate effect, which requires these flags, can dig past the barren window.

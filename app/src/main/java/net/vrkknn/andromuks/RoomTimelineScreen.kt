@@ -288,8 +288,22 @@ private const val READ_MARKER_FLARE_PEAK = 1.4f
  * included so the refill chain re-checks the instant a round's scroll restoration completes:
  * restoration clears that flag in a separate effect, and a bare boolean read there would not
  * otherwise re-emit this snapshotFlow, stalling the chain.
+ *
+ * Every gate the effect consults must live in here, not be read directly inside collect{}. A
+ * direct read is not observed by snapshotFlow, so if the gate is closed when an emission arrives
+ * the chain simply stops — and on a timeline with zero renderable items nothing else in the
+ * snapshot ever changes again to restart it. That is precisely the heavily-filtered room this
+ * loop exists to serve, so initialLoadSettled / isTimelineLoading / hasMore are carried here.
  */
-private data class PaginateSnapshot(val total: Int, val lastVisible: Int, val isPaginating: Boolean, val pendingScrollRestoration: Boolean)
+private data class PaginateSnapshot(
+    val total: Int,
+    val lastVisible: Int,
+    val isPaginating: Boolean,
+    val pendingScrollRestoration: Boolean,
+    val initialLoadSettled: Boolean,
+    val isTimelineLoading: Boolean,
+    val hasMore: Boolean,
+)
 
 /**
  * Shown in place of an empty timeline once the initial load has completed but nothing renderable
@@ -2640,7 +2654,15 @@ fun RoomTimelineScreen(
         snapshotFlow {
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.maxOfOrNull { it.index } ?: 0
-            PaginateSnapshot(info.totalItemsCount, lastVisible, appViewModel.isPaginating, pendingScrollRestoration)
+            PaginateSnapshot(
+                total = info.totalItemsCount,
+                lastVisible = lastVisible,
+                isPaginating = appViewModel.isPaginating,
+                pendingScrollRestoration = pendingScrollRestoration,
+                initialLoadSettled = hasLoadedInitialBatch && hasInitialSnapCompleted,
+                isTimelineLoading = appViewModel.isTimelineLoading,
+                hasMore = appViewModel.hasMoreMessages,
+            )
         }
             .distinctUntilChanged()
             .debounce(50L)
@@ -2678,7 +2700,7 @@ fun RoomTimelineScreen(
                 val atTopOfLoaded = total > 0 && snap.lastVisible >= total - 1
                 val armedByEdge = prevItemsAbove > REFILL_TRIGGER && itemsAbove <= REFILL_TRIGGER
                 val armedByEmpty = total == 0
-                if (!isRefillingBuffer && !refillStalled && appViewModel.hasMoreMessages &&
+                if (!isRefillingBuffer && !refillStalled && snap.hasMore &&
                     (armedByEdge || armedByEmpty || atTopOfLoaded)
                 ) {
                     isRefillingBuffer = true
@@ -2686,17 +2708,17 @@ fun RoomTimelineScreen(
                     refillStalled = false
                 }
                 // Exit conditions: target reached, history exhausted, or safety cap hit.
-                if (itemsAbove >= REFILL_TARGET || !appViewModel.hasMoreMessages ||
+                if (itemsAbove >= REFILL_TARGET || !snap.hasMore ||
                     refillRoundCount >= MAX_REFILL_ROUNDS
                 ) {
                     if (isRefillingBuffer) {
                         // Stopping with history still to come means the safety cap fired: leave a
                         // manual escape hatch rather than a silent dead end.
-                        refillStalled = appViewModel.hasMoreMessages && itemsAbove < REFILL_TARGET
+                        refillStalled = snap.hasMore && itemsAbove < REFILL_TARGET
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${appViewModel.hasMoreMessages}, stalled=$refillStalled)",
+                                "RoomTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${snap.hasMore}, stalled=$refillStalled)",
                             )
                         }
                     }
@@ -2705,12 +2727,11 @@ fun RoomTimelineScreen(
                 prevItemsAbove = itemsAbove
 
                 if (isRefillingBuffer &&
-                    hasLoadedInitialBatch &&
-                    hasInitialSnapCompleted &&
-                    !pendingScrollRestoration &&
+                    snap.initialLoadSettled &&
+                    !snap.pendingScrollRestoration &&
                     !snap.isPaginating &&
-                    !appViewModel.isTimelineLoading &&
-                    appViewModel.hasMoreMessages &&
+                    !snap.isTimelineLoading &&
+                    snap.hasMore &&
                     // NOTE: deliberately no timelineItems.isNotEmpty() guard. total == 0 with
                     // hasMoreMessages == true is exactly the case that needs paginating through
                     // (a window that filtered down to nothing renderable); gating on non-empty
@@ -2759,6 +2780,16 @@ fun RoomTimelineScreen(
                     }
                     refillRoundCount++
                     appViewModel.requestPaginationWithSmallestRowId(roomId, limit = roundLimit)
+                } else if (isRefillingBuffer && BuildConfig.DEBUG) {
+                    // Armed but not firing. The UI is showing "Looking for older messages…" in
+                    // this state, so if it ever sticks there, this line names the closed gate.
+                    Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Refill armed but blocked - settled=${snap.initialLoadSettled}, " +
+                            "restoring=${snap.pendingScrollRestoration}, paginating=${snap.isPaginating}, " +
+                            "timelineLoading=${snap.isTimelineLoading}, hasMore=${snap.hasMore}, " +
+                            "roomMatch=${roomId == appViewModel.currentRoomId}, total=$total",
+                    )
                 }
             }
     }
@@ -3154,7 +3185,12 @@ fun RoomTimelineScreen(
                 pendingInitialScroll = false
                 lastInitialScrollSize = timelineItems.size
             }
-        } else if (pendingInitialScroll && readinessCheckComplete && timelineItems.isEmpty() && !isLoading) {
+        } else if (readinessCheckComplete && !isLoading && timelineItems.isEmpty() && !hasInitialSnapCompleted) {
+            // Deliberately NOT gated on pendingInitialScroll: a warm re-open sets
+            // readinessCheckComplete directly and leaves pendingInitialScroll false, and
+            // isWarmTimelineReturn is decided from the *unfiltered* timelineEvents — so an
+            // archived room full of hidden membership events takes the warm path with nothing
+            // renderable and would otherwise never settle these flags.
             // The first batch landed but filtered down to nothing renderable — typically an
             // archived group room whose recent history is all join/leave and membership events
             // are hidden (the default for group rooms). There is nothing to scroll to, but the
