@@ -180,6 +180,14 @@ it would fight scroll-anchor restoration.
 | `REFILL_TRIGGER` | 10 | Arm a burst when the buffer falls to this many items above the viewport |
 | `REFILL_TARGET` | 50 | Keep fetching until at least this many items sit above the viewport |
 | `MAX_REFILL_ROUNDS` | 20 | Safety cap on rounds per burst |
+| `initialFillTarget` | 15 | Target for a burst armed from an *empty* timeline (see below) |
+| `lowYieldRound` | 5 | A round adding fewer renderable items than this counts as unproductive |
+
+**Two targets.** A burst armed from `total == 0` is filling the screen, not building a scroll
+buffer, and stops at `initialFillTarget`. Chasing the full `REFILL_TARGET` there costs roughly ten
+extra round-trips on a sparse room and holds the progress bar up long after the messages are
+readable. Once the user scrolls up and the buffer falls through `REFILL_TRIGGER`, the falling edge
+arms an ordinary `REFILL_TARGET` burst.
 
 **Arming.** Primarily falling-edge (`prevItemsAbove > REFILL_TRIGGER && itemsAbove <= REFILL_TRIGGER`) — edge detection, not a level check, so a burst that hit the cap cannot instantly re-arm while still below the trigger. Two additional entries exist because neither can ever produce a falling edge:
 
@@ -190,7 +198,7 @@ All three are suppressed while `refillStalled` (see below).
 
 **Per-round request** (all must hold): `hasLoadedInitialBatch && hasInitialSnapCompleted`, `!pendingScrollRestoration`, `!isPaginating`, `!isTimelineLoading`, `hasMoreMessages`, and `roomId == currentRoomId` (guards stale composition during the navigation crossfade). It captures the same scroll anchor as pull-to-refresh and calls `requestPaginationWithSmallestRowId(roomId, limit = roundLimit)`.
 
-**Escalating page size.** `roundLimit` starts at 100 and widens to 250 then 500 as `barrenRoundStreak` grows. A round is "barren" when it comes back without increasing the rendered-item count — the signature of a long stretch of hidden membership events. Any round that yields rows resets the streak. This crosses a months-long membership desert in a handful of round-trips instead of twenty.
+**Escalating page size.** `roundLimit` starts at 100 and widens to 250 then 500 as `barrenRoundStreak` grows. A round is "barren" when it adds fewer than `lowYieldRound` renderable items — the signature of a long stretch of hidden membership events. Zero-yield alone is too strict: a barren stretch dribbling out two or three messages per 100 events would never escalate. Any round that yields rows resets the streak. This crosses a months-long membership desert in a handful of round-trips instead of twenty.
 
 **Stall + manual escape.** When a burst ends with `hasMoreMessages` still true and the buffer still below target, `refillStalled` is set. It suppresses auto re-arming (otherwise the cap buys nothing: each round's `isPaginating` false-edge would re-arm the burst and a barren room would loop forever) and drives a "Load older messages" affordance under the room header. The stall clears when the buffer recovers above `REFILL_TRIGGER` or when the user taps that affordance.
 

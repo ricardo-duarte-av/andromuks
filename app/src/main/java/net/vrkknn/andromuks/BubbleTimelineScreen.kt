@@ -1724,6 +1724,10 @@ fun BubbleTimelineScreen(
     // that returns events but no new renderable rows (hidden membership events) widens the next
     // round's limit. refillStalled records a burst that stopped at the safety cap with history
     // still available, and suppresses self-re-arming until the buffer genuinely recovers.
+    // True when the current burst was armed from an empty timeline, i.e. it is doing the initial
+    // fill rather than topping up a buffer the user is scrolling through. Such a burst stops at
+    // initialFillTarget instead of REFILL_TARGET.
+    var armedFromEmpty by remember(roomId) { mutableStateOf(false) }
     var barrenRoundStreak by remember(roomId) { mutableIntStateOf(0) }
     var totalBeforeRound by remember(roomId) { mutableStateOf<Int?>(null) }
     var refillStalled by remember(roomId) { mutableStateOf(false) }
@@ -2004,6 +2008,15 @@ fun BubbleTimelineScreen(
     val REFILL_TRIGGER = 60 // start refilling when this few items remain above the viewport
     val REFILL_TARGET = 180 // keep fetching until at least this many sit above the viewport
     val MAX_REFILL_ROUNDS = 20 // safety valve against a backend that keeps advancing with no real yield
+    // A burst armed from an empty timeline is filling the screen, not building a scroll buffer.
+    // Chasing REFILL_TARGET there costs ~10 extra round-trips on a sparse room and holds the
+    // progress bar up long after the user can read the messages. Stop at roughly one screen of
+    // content; if the user then scrolls up, the falling edge arms a normal REFILL_TARGET burst.
+    val initialFillTarget = 15
+    // A round that yields fewer than this many renderable items counts as unproductive and widens
+    // the next round. Zero-yield alone is too strict: a barren stretch that dribbles out two or
+    // three messages per 100 events would never escalate.
+    val lowYieldRound = 5
     LaunchedEffect(listState, roomId) {
         snapshotFlow {
             val info = listState.layoutInfo
@@ -2027,7 +2040,7 @@ fun BubbleTimelineScreen(
                 // A round finished: did it yield anything renderable? If not, widen the next one.
                 if (!snap.isPaginating) {
                     totalBeforeRound?.let { before ->
-                        if (total > before) barrenRoundStreak = 0 else barrenRoundStreak++
+                        if (total - before >= lowYieldRound) barrenRoundStreak = 0 else barrenRoundStreak++
                         totalBeforeRound = null
                     }
                 }
@@ -2048,17 +2061,19 @@ fun BubbleTimelineScreen(
                 ) {
                     isRefillingBuffer = true
                     refillRoundCount = 0
+                    armedFromEmpty = total == 0
                 }
                 // Exit conditions: target reached, history exhausted, or safety cap hit.
-                if (itemsAbove >= REFILL_TARGET || !snap.hasMore ||
+                val activeTarget = if (armedFromEmpty) initialFillTarget else REFILL_TARGET
+                if (itemsAbove >= activeTarget || !snap.hasMore ||
                     refillRoundCount >= MAX_REFILL_ROUNDS
                 ) {
                     if (isRefillingBuffer) {
-                        refillStalled = snap.hasMore && itemsAbove < REFILL_TARGET
+                        refillStalled = snap.hasMore && itemsAbove < activeTarget
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "BubbleTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, hasMore=${snap.hasMore}, stalled=$refillStalled)",
+                                "BubbleTimelineScreen: Refill burst ended ($itemsAbove above viewport, rounds=$refillRoundCount, target=$activeTarget, hasMore=${snap.hasMore}, stalled=$refillStalled)",
                             )
                         }
                     }
@@ -2090,7 +2105,7 @@ fun BubbleTimelineScreen(
                         if (BuildConfig.DEBUG) {
                             Log.d(
                                 "Andromuks",
-                                "BubbleTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$REFILL_TARGET, highestVisible=$highestVisible)",
+                                "BubbleTimelineScreen: Auto-paginate round ${refillRoundCount + 1} ($itemsAbove above viewport, target=$activeTarget, highestVisible=$highestVisible)",
                             )
                         }
                     } else {
