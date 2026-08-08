@@ -9609,39 +9609,7 @@ class AppViewModel : ViewModel() {
                 "m.room.power_levels" -> {
                     // OPTIMIZED: Only parse if not already set (each event is definitive)
                     if (powerLevels == null) {
-                        val usersObj = content.optJSONObject("users")
-                        val usersMap = if (usersObj != null) {
-                            mutableMapOf<String, Int>().apply {
-                                usersObj.keys().forEach { userId ->
-                                    put(userId, usersObj.optInt(userId, 0))
-                                }
-                            }
-                        } else {
-                            mutableMapOf()
-                        }
-
-                        val eventsObj = content.optJSONObject("events")
-                        val eventsMap = if (eventsObj != null) {
-                            mutableMapOf<String, Int>().apply {
-                                eventsObj.keys().forEach { ev ->
-                                    put(ev, eventsObj.optInt(ev, 0))
-                                }
-                            }
-                        } else {
-                            mutableMapOf()
-                        }
-
-                        powerLevels = PowerLevelsInfo(
-                            users = usersMap,
-                            usersDefault = content.optInt("users_default", 0),
-                            redact = content.optInt("redact", 50),
-                            kick = content.optInt("kick", 50),
-                            ban = content.optInt("ban", 50),
-                            invite = content.optInt("invite", 50),
-                            events = eventsMap,
-                            eventsDefault = content.optInt("events_default", 0),
-                            stateDefault = content.optInt("state_default", 50),
-                        )
+                        powerLevels = net.vrkknn.andromuks.utils.parsePowerLevels(content)
                     }
                 }
 

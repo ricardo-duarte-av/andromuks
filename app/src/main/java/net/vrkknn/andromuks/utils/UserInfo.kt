@@ -159,44 +159,6 @@ private fun getDefaultContactAccount(context: Context): Pair<String?, String?> {
 }
 
 /**
- * Helper function to parse power levels from JSON content
- */
-private fun parsePowerLevelsFromContent(content: JSONObject): net.vrkknn.andromuks.PowerLevelsInfo {
-    val usersObj = content.optJSONObject("users")
-    val usersMap = if (usersObj != null) {
-        mutableMapOf<String, Int>().apply {
-            usersObj.keys()?.forEach { userId ->
-                put(userId, usersObj.optInt(userId, 0))
-            }
-        }
-    } else {
-        emptyMap()
-    }
-
-    val eventsObj = content.optJSONObject("events")
-    val eventsMap = if (eventsObj != null) {
-        mutableMapOf<String, Int>().apply {
-            eventsObj.keys()?.forEach { ev ->
-                put(ev, eventsObj.optInt(ev, 0))
-            }
-        }
-    } else {
-        emptyMap()
-    }
-
-    return net.vrkknn.andromuks.PowerLevelsInfo(
-        users = usersMap,
-        usersDefault = content.optInt("users_default", 0),
-        redact = content.optInt("redact", 50),
-        kick = content.optInt("kick", 50),
-        ban = content.optInt("ban", 50),
-        invite = content.optInt("invite", 50),
-        events = eventsMap,
-        eventsDefault = content.optInt("events_default", 0),
-    )
-}
-
-/**
  * Helper function to navigate to user info screen with optional roomId and eventId
  */
 fun NavController.navigateToUserInfo(userId: String, roomId: String? = null, eventId: String? = null) {
@@ -853,7 +815,7 @@ fun UserInfoScreen(
                         if (event?.optString("type") == "m.room.power_levels") {
                             val content = event.optJSONObject("content")
                             if (content != null) {
-                                roomPowerLevels = parsePowerLevelsFromContent(content)
+                                roomPowerLevels = parsePowerLevels(content)
                                 break
                             }
                         }

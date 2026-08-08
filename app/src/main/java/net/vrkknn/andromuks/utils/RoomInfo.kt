@@ -76,20 +76,10 @@ data class RoomStateInfo(
  */
 data class RoomMember(val userId: String, val displayName: String?, val avatarUrl: String?, val membership: String)
 
-/**
- * Data class for power levels information
- */
-data class PowerLevelsInfo(
-    val users: Map<String, Int>,
-    val usersDefault: Int,
-    val events: Map<String, Int>,
-    val eventsDefault: Int,
-    val stateDefault: Int,
-    val ban: Int,
-    val kick: Int,
-    val redact: Int,
-    val invite: Int,
-)
+// There were two data classes called PowerLevelsInfo — this one and net.vrkknn.andromuks's — with
+// the same fields in a different order and different defaults, populated by different parsers.
+// Aliased onto the surviving one so this file's references keep working.
+private typealias PowerLevelsInfo = net.vrkknn.andromuks.PowerLevelsInfo
 
 // ServerAclInfo now lives in RoomItem.kt alongside RoomState, which absorbed this screen's
 // state model. Aliased here so the existing references in this file keep working while the rest
@@ -1796,61 +1786,11 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
                 }
 
                 "m.room.power_levels" -> {
-                    val usersObj = content?.optJSONObject("users")
-                    val usersMap = mutableMapOf<String, Int>()
-                    if (usersObj != null) {
-                        val keys = usersObj.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            usersMap[key] = usersObj.optInt(key, 0)
-                        }
-                    }
-
-                    val eventsObj = content?.optJSONObject("events")
-                    val eventsMap = mutableMapOf<String, Int>()
-                    if (eventsObj != null) {
-                        val keys = eventsObj.keys()
-                        while (keys.hasNext()) {
-                            val key = keys.next()
-                            eventsMap[key] = eventsObj.optInt(key, 0)
-                        }
-                    }
-
-                    powerLevels = PowerLevelsInfo(
-                        users = usersMap,
-                        usersDefault = content?.optInt("users_default", 0) ?: 0,
-                        events = eventsMap,
-                        eventsDefault = content?.optInt("events_default", 0) ?: 0,
-                        stateDefault = content?.optInt("state_default", 50) ?: 50,
-                        ban = content?.optInt("ban", 50) ?: 50,
-                        kick = content?.optInt("kick", 50) ?: 50,
-                        redact = content?.optInt("redact", 50) ?: 50,
-                        invite = content?.optInt("invite", 50) ?: 50,
-                    )
+                    powerLevels = parsePowerLevels(content)
                 }
 
                 "m.room.server_acl" -> {
-                    val allowArray = content?.optJSONArray("allow")
-                    val allow = mutableListOf<String>()
-                    if (allowArray != null) {
-                        for (j in 0 until allowArray.length()) {
-                            allow.add(allowArray.optString(j))
-                        }
-                    }
-
-                    val denyArray = content?.optJSONArray("deny")
-                    val deny = mutableListOf<String>()
-                    if (denyArray != null) {
-                        for (j in 0 until denyArray.length()) {
-                            deny.add(denyArray.optString(j))
-                        }
-                    }
-
-                    serverAcl = ServerAclInfo(
-                        allow = allow,
-                        deny = deny,
-                        allowIpLiterals = content?.optBoolean("allow_ip_literals", false) ?: false,
-                    )
+                    serverAcl = parseServerAcl(content)
                 }
 
                 "m.space.parent" -> {

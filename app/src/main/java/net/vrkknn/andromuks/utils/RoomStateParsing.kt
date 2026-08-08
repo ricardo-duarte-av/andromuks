@@ -35,6 +35,42 @@ fun parseStringList(content: JSONObject?, key: String): List<String> {
     return out
 }
 
+/** All `key: Int` entries of a nested JSON object field, or an empty map when absent. */
+private fun parseIntMap(content: JSONObject?, key: String): Map<String, Int> {
+    val obj = content?.optJSONObject(key) ?: return emptyMap()
+    val out = mutableMapOf<String, Int>()
+    val keys = obj.keys()
+    while (keys.hasNext()) {
+        val k = keys.next()
+        out[k] = obj.optInt(k, 0)
+    }
+    return out
+}
+
+/**
+ * Power levels from an `m.room.power_levels` content object.
+ *
+ * There were three of these, and they disagreed. The copy in UserInfo omitted `state_default`
+ * entirely, so it silently fell back to the class default of 50 — meaning any permission derived
+ * through that path (canPin among them) was computed against 50 rather than the room's actual state
+ * default. Defaults here are the spec's: `users_default` and `events_default` are 0, everything else
+ * is 50.
+ */
+fun parsePowerLevels(content: JSONObject?): net.vrkknn.andromuks.PowerLevelsInfo? {
+    if (content == null) return null
+    return net.vrkknn.andromuks.PowerLevelsInfo(
+        users = parseIntMap(content, "users"),
+        usersDefault = content.optInt("users_default", 0),
+        redact = content.optInt("redact", 50),
+        kick = content.optInt("kick", 50),
+        ban = content.optInt("ban", 50),
+        invite = content.optInt("invite", 50),
+        events = parseIntMap(content, "events"),
+        eventsDefault = content.optInt("events_default", 0),
+        stateDefault = content.optInt("state_default", 50),
+    )
+}
+
 /** Server ACL from an `m.room.server_acl` content object. */
 fun parseServerAcl(content: JSONObject?): net.vrkknn.andromuks.ServerAclInfo? {
     if (content == null) return null
