@@ -811,6 +811,12 @@ class FCMService : FirebaseMessagingService() {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val notificationManagerCompat = NotificationManagerCompat.from(this)
 
+            // Every id we cancel in this batch, refreshed into the group summary ONCE after the
+            // loop. cancel() is asynchronous across the binder, so refreshing per room made each
+            // iteration count the rooms cancelled by the previous ones — the last refresh then saw
+            // ~N-1 children and re-posted a summary with nothing left under it.
+            val cancelledIds = mutableSetOf<Int>()
+
             // Dismiss notifications for each room
             for (i in 0 until dismissArray.length()) {
                 val dismissItem = dismissArray.getJSONObject(i)
@@ -859,7 +865,7 @@ class FCMService : FirebaseMessagingService() {
                             EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                             notificationManagerCompat.cancel(notifID)
                         }
-                        EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
+                        cancelledIds += notifID
                         Androlog(
                             "Notifications",
                             "Room $roomId: dismiss recorded (no active notification — cancel-anyway / in-flight guard)",
@@ -885,7 +891,7 @@ class FCMService : FirebaseMessagingService() {
                         EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                         notificationManagerCompat.cancel(notifID)
                     }
-                    EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
+                    cancelledIds += notifID
                     Androlog(
                         "Notifications",
                         "Room $roomId: dismiss recorded (pending notification cancelled before post)",
@@ -967,7 +973,7 @@ class FCMService : FirebaseMessagingService() {
                         EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
                         notificationManagerCompat.cancel(notifID)
                     }
-                    EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledId = notifID)
+                    cancelledIds += notifID
                     Androlog("Notifications", "Room $roomId: notification dismissed (active, no bubble)")
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully dismissed notification for room: $roomId")
                 }
@@ -975,6 +981,10 @@ class FCMService : FirebaseMessagingService() {
                 // NOTE: Do NOT remove room shortcut when dismissing notifications
                 // The shortcut should remain so the chat bubble stays open
                 // Only the notification should be dismissed, not the conversation shortcut
+            }
+
+            if (cancelledIds.isNotEmpty()) {
+                EnhancedNotificationDisplay.refreshGroupSummary(this, justCancelledIds = cancelledIds)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling dismiss notification", e)

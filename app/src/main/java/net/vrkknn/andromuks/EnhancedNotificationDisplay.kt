@@ -110,20 +110,31 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
          * Wear still picks up new messages.
          *
          * activeNotifications has a propagation delay, so callers pass [justPostedChild] right
-         * after posting a child (count is then at least 1) and [justCancelledId] right after a
-         * cancel (that id is excluded from the count). Safe to call from any thread.
+         * after posting a child (count is then at least 1) and [justCancelledIds] right after a
+         * cancel (those ids are excluded from the count). Safe to call from any thread.
+         *
+         * [justCancelledIds] is a **set**, not a single id, because a dismiss payload can cancel
+         * several rooms in one loop. cancel() is asynchronous across the binder, so on iteration N
+         * the rooms cancelled on iterations 1..N-1 are typically still listed in
+         * activeNotifications. Excluding only the current id counted those stale siblings and made
+         * the final refresh see ~N-1 children, re-posting a summary with no children left under it.
+         * Batch callers should accumulate their ids and call this **once** after the loop.
          */
         // POST_NOTIFICATIONS is requested via the app's permission flow; posting without it is a
         // silent no-op on API 33+ (no crash). Lint can't see the request, so suppress the FP.
         @SuppressLint("MissingPermission")
-        fun refreshGroupSummary(context: Context, justPostedChild: Boolean = false, justCancelledId: Int? = null) {
+        fun refreshGroupSummary(
+            context: Context,
+            justPostedChild: Boolean = false,
+            justCancelledIds: Set<Int> = emptySet(),
+        ) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
             val systemNm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val nmc = NotificationManagerCompat.from(context)
             var childCount = try {
                 systemNm.activeNotifications.count {
                     it.id != SUMMARY_NOTIF_ID &&
-                        it.id != justCancelledId &&
+                        it.id !in justCancelledIds &&
                         it.notification.group == NOTIFICATION_GROUP_KEY
                 }
             } catch (e: Exception) {
@@ -186,6 +197,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .build()
             nmc.notify(SUMMARY_NOTIF_ID, summary)
         }
+
+        /** Single-id convenience for the common "one room just cancelled" caller. */
+        fun refreshGroupSummary(context: Context, justCancelledId: Int) =
+            refreshGroupSummary(context, justPostedChild = false, justCancelledIds = setOf(justCancelledId))
 
         /**
          * Called by NotificationImageWorker after a successful Phase 2 image update.
@@ -1249,6 +1264,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                             "Suppressing post for ${notificationData.roomId} — dismissed after message received",
                         )
                     }
+                    // We just cancelled a child without posting one. If that was the last child the
+                    // group summary is now orphaned, so it has to be reconciled here too — this
+                    // return used to skip the refresh entirely.
+                    refreshGroupSummary(context, justCancelledId = notifID)
                     return // skip notify AND the onRoomActivity / Direct Share bump below
                 }
                 notificationManager.notify(notifID, notification)
