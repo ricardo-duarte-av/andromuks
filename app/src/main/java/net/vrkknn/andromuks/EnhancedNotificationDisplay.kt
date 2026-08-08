@@ -8,12 +8,6 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
-import android.graphics.Rect
-import android.graphics.RectF
 import android.os.Build
 import android.util.Log
 import android.util.TypedValue
@@ -31,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.AvatarBitmapUtils
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ExecBudget
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -1732,47 +1727,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
 
     /**
      * Create a bitmap-based fallback avatar with user initial
-     * Uses same color/character logic as AvatarUtils for consistency
+     * Uses same color/character logic as AvatarUtils for consistency. Shared with the home-screen
+     * room widget — see [AvatarBitmapUtils.createFallbackAvatarBitmap].
      */
-    private fun createFallbackAvatarBitmap(displayName: String?, userId: String, size: Int): android.graphics.Bitmap {
-        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bitmap)
-
-        // Get color and character using AvatarUtils
-        val color = AvatarUtils.getUserColor(userId)
-        val character = AvatarUtils.getFallbackCharacter(displayName, userId)
-
-        // Draw background
-        val bgPaint = android.graphics.Paint().apply {
-            this.color = color
-            style = android.graphics.Paint.Style.FILL
-            isAntiAlias = true
-        }
-        canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), bgPaint)
-
-        // Draw text (character/initial)
-        if (character.isNotEmpty()) {
-            val textPaint = android.graphics.Paint().apply {
-                this.color = android.graphics.Color.WHITE
-                textSize = size * 0.5f // 50% of size
-                typeface = android.graphics.Typeface.create(
-                    android.graphics.Typeface.DEFAULT,
-                    android.graphics.Typeface.BOLD,
-                )
-                textAlign = android.graphics.Paint.Align.CENTER
-                isAntiAlias = true
-            }
-
-            // Center text vertically (accounting for font metrics)
-            val textBounds = android.graphics.Rect()
-            textPaint.getTextBounds(character, 0, character.length, textBounds)
-            val y = size / 2f + textBounds.height() / 2f
-
-            canvas.drawText(character, size / 2f, y, textPaint)
-        }
-
-        return bitmap
-    }
+    private fun createFallbackAvatarBitmap(displayName: String?, userId: String, size: Int): android.graphics.Bitmap =
+        AvatarBitmapUtils.createFallbackAvatarBitmap(displayName, userId, size)
 
     private fun createDefaultAdaptiveIcon(): IconCompat = try {
         // Create a simple default icon using a bitmap instead of resource
@@ -1817,41 +1776,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     }
 
     /**
-     * Convert a bitmap to a circular shape
+     * Convert a bitmap to a circular shape. Shared with the home-screen room widget — see
+     * [AvatarBitmapUtils.createCircularBitmap].
      */
-    private fun createCircularBitmap(bitmap: Bitmap): Bitmap {
-        // Convert hardware bitmap to software bitmap if needed. Bitmap.Config.HARDWARE only exists on
-        // API 26+; the SDK_INT guard short-circuits so the constant is never referenced on 24/25
-        // (where it would throw NoSuchFieldError), and no bitmap can be HARDWARE there anyway.
-        val isHardwareBitmap = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
-            bitmap.config == Bitmap.Config.HARDWARE
-        val softwareBitmap = if (isHardwareBitmap) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "Converting hardware bitmap to software bitmap")
-            bitmap.copy(Bitmap.Config.ARGB_8888, false)
-        } else {
-            bitmap
-        }
-
-        val size = Math.min(softwareBitmap.width, softwareBitmap.height)
-        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(output)
-        val paint = Paint()
-        val rect = Rect(0, 0, size, size)
-        val rectF = RectF(rect)
-        val radius = size / 2f
-        paint.isAntiAlias = true
-        canvas.drawARGB(0, 0, 0, 0)
-        canvas.drawCircle(radius, radius, radius, paint)
-        paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
-        canvas.drawBitmap(softwareBitmap, null, rect, paint)
-
-        // Clean up the software bitmap if we created a copy
-        if (softwareBitmap != bitmap) {
-            softwareBitmap.recycle()
-        }
-
-        return output
-    }
+    private fun createCircularBitmap(bitmap: Bitmap): Bitmap = AvatarBitmapUtils.createCircularBitmap(bitmap)
 
     /**
      * Load person icon (async version - not used in current implementation)
@@ -1882,37 +1810,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     /**
      * Decode a bitmap file scaled down to [maxIconPx]. Avoids handing oversized bitmaps
      * to Notification builders, which otherwise scale them on the main thread (logged
-     * by StrictMode as "Downscaling oversized Icon Bitmap").
+     * by StrictMode as "Downscaling oversized Icon Bitmap"). Shared with the home-screen room
+     * widget — see [AvatarBitmapUtils.decodeScaledBitmap].
      */
-    private fun decodeScaledBitmap(file: java.io.File, maxPx: Int = maxIconPx): Bitmap? {
-        return try {
-            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
-            val w = bounds.outWidth
-            val h = bounds.outHeight
-            if (w <= 0 || h <= 0) return null
-            var sample = 1
-            while ((w / sample) > maxPx * 2 || (h / sample) > maxPx * 2) sample *= 2
-            val opts = android.graphics.BitmapFactory.Options().apply {
-                inSampleSize = sample
-                inPreferredConfig = Bitmap.Config.ARGB_8888
-            }
-            val raw = android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts) ?: return null
-            if (raw.width > maxPx || raw.height > maxPx) {
-                val scale = maxPx.toFloat() / maxOf(raw.width, raw.height)
-                val tw = (raw.width * scale).toInt().coerceAtLeast(1)
-                val th = (raw.height * scale).toInt().coerceAtLeast(1)
-                val scaled = Bitmap.createScaledBitmap(raw, tw, th, true)
-                if (scaled !== raw) raw.recycle()
-                scaled
-            } else {
-                raw
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "decodeScaledBitmap failed: ${file.absolutePath}", e)
-            null
-        }
-    }
+    private fun decodeScaledBitmap(file: java.io.File, maxPx: Int = maxIconPx): Bitmap? = AvatarBitmapUtils.decodeScaledBitmap(file, maxPx)
 
     /**
      * Write a circular bubble-icon bitmap to a FileProvider-served cache file and
