@@ -899,9 +899,19 @@ class AppViewModel : ViewModel() {
     // Store space edges data for later processing
     internal var storedSpaceEdges: JSONObject? = null
 
-    // Room state data
-    var currentRoomState by mutableStateOf<RoomState?>(null)
-        private set
+    // Room state data.
+    //
+    // A DERIVED VIEW of RoomStateStore, not storage. It used to be a single-room slot that was
+    // assigned by five different code paths and nulled on every room switch, so every field on it
+    // was one navigation away from being lost — which is what produced open padlocks on encrypted
+    // rooms, permission checks failing open, and a header with no topic after a switch.
+    //
+    // As a lookup there is nothing left to destroy: switching rooms changes which key is read.
+    // Both reads are snapshot state (currentRoomId, and the store's parsed map), so this stays
+    // fully reactive and recomposes only the readers of the room that actually changed.
+    val currentRoomState: RoomState?
+        get() = currentRoomId.takeIf { it.isNotEmpty() }
+            ?.let { net.vrkknn.andromuks.utils.RoomStateStore.getParsed(it) }
 
     // Typing indicators per room (roomId -> list of typing user IDs)
     internal val typingUsersMap = mutableMapOf<String, List<String>>()
@@ -5476,13 +5486,10 @@ class AppViewModel : ViewModel() {
             }
         }
 
-        // Clear stale room state when switching to a different room.
-        // Without this, the header shows the previous room's name/avatar until the new room's
-        // state arrives asynchronously — because the DisposableEffect guard in RoomTimelineScreen
-        // ("if currentRoomId == roomId") prevents clearCurrentRoomId() from running when the
-        // user navigates directly from room A to room B (currentRoomId is already room B by then).
+        // Room state needs no clearing on a switch any more: currentRoomState is a lookup keyed on
+        // currentRoomId, which has already moved, so the previous room's state is simply
+        // unreachable rather than stale. Timeline events still do — they are real storage.
         if (roomId.isNotEmpty() && previousRoomId != roomId) {
-            currentRoomState = null
             // Also clear stale timeline events immediately. Without this, the new room's screen
             // briefly renders the previous room's events because timelineEvents still belongs to
             // the old room at the moment Compose first composes the new RoomTimelineScreen.
@@ -5601,9 +5608,7 @@ class AppViewModel : ViewModel() {
         if (previousRoomId.isNotEmpty()) {
             RoomTimelineCache.removeOpenedRoom(previousRoomId)
         }
-        // CRITICAL: Clear currentRoomState to prevent stale avatar showing during shared element transitions
-        // Without this, opening room B after room A briefly shows room A's avatar in the header
-        currentRoomState = null
+        // No currentRoomState to clear: it reads through currentRoomId, which is cleared below.
         updateCurrentRoomIdInPrefs("")
     }
 
@@ -7235,12 +7240,6 @@ class AppViewModel : ViewModel() {
                     name = eventName ?: cachedState.name,
                     avatarUrl = eventAvatarUrl ?: cachedState.avatarUrl,
                 ),
-            )
-        }
-        if (currentRoomId == roomId && currentRoomState != null) {
-            currentRoomState = currentRoomState?.copy(
-                name = eventName ?: currentRoomState?.name,
-                avatarUrl = eventAvatarUrl ?: currentRoomState?.avatarUrl,
             )
         }
 
@@ -9923,19 +9922,12 @@ class AppViewModel : ViewModel() {
 
         // Room state is in-memory only; no local persistence.
 
-        // ✓ FIX: Only update currentRoomState if this is the currently open room
-        // This prevents the room header from flashing through all rooms during shortcut loading
+        // The state itself was published to the store above, for every room. All that is left here
+        // is the "the visible room's state changed" nudge for observers of the counter — hence the
+        // currentRoomId guard, which used to be what stopped the header flashing through every room
+        // during shortcut loading. The store makes that structural: a write for another room simply
+        // isn't reachable through currentRoomState.
         if (roomId == currentRoomId) {
-            // Straight overwrite. This used to merge each null field from the previous value,
-            // on the belief that a response could arrive carrying only a subset of the room's
-            // state — but get_room_state always returns the COMPLETE state (its only options
-            // concern the member list and refetch). So a null field is the room genuinely not
-            // having that state event, and preserving the old value made the cache keep asserting
-            // a name or topic the room had removed.
-            //
-            // The header flicker the merge was written for came from the single-room slot being
-            // nulled on every room switch, which the store fixes properly.
-            currentRoomState = roomState
             roomStateUpdateCounter++
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
@@ -11579,10 +11571,6 @@ class AppViewModel : ViewModel() {
                             // state EVENT, so it never reaches the raw tier or disk — those stay
                             // the exclusive record of what get_room_state returned.
                             net.vrkknn.andromuks.utils.RoomStateStore.putParsed(roomId, roomState)
-                            // ✓ Safety check: Only update if this is the currently open room
-                            if (roomId == currentRoomId) {
-                                currentRoomState = roomState
-                            }
                         }
                     }
 
