@@ -32,6 +32,7 @@ import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.NotificationEnrichment
 import net.vrkknn.andromuks.utils.htmlToNotificationText
+import net.vrkknn.andromuks.widget.RoomWidgetUpdater
 import java.util.Collections
 import java.util.concurrent.ConcurrentHashMap
 
@@ -1316,6 +1317,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 // previous notification, reverting the tile to the prior message (the "one behind"
                 // bug, confirmed by the post-notify pushDynamicShortcut in logcat). See onRoomActivity.
                 conversationsApi?.onRoomActivity(roomItem, pushShortcut = false)
+
+                // Home-screen room widget (docs/WIDGET.md). Deliberately alongside onRoomActivity:
+                // this is the point where a notification has definitely been posted, so the same
+                // signal that updates the People tile updates our own widget. Returns immediately
+                // if no widget is bound to this room; when one is, it appends the message from the
+                // push payload with no network at all, then queues an authoritative refresh.
+                RoomWidgetUpdater.onRoomNotification(context, notificationData)
             } // End synchronized block
 
             // Phase 2: enqueue ONE worker (outside the synchronized block) to finish the

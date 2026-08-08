@@ -26,6 +26,11 @@ class BootStartReceiver : BroadcastReceiver() {
             // Use WorkManager to restart service (higher priority than BroadcastReceiver)
             ServiceStartWorker.enqueue(context, "Boot completed")
 
+            // Home-screen room widgets survive a reboot but their snapshots are as old as the
+            // shutdown, and nothing else would refresh them until a notification arrives. No-op
+            // when no widget is configured. See docs/WIDGET.md.
+            net.vrkknn.andromuks.widget.RoomWidgetUpdater.refreshAll(context)
+
             WebSocketService.logActivity("Device Boot - Service Restart Scheduled", null)
         }
     }

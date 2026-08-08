@@ -782,6 +782,16 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
             )
         }
 
+        // Home-screen room widget (docs/WIDGET.md): Phase 2 is where a message's real sender name,
+        // avatar and per-message profile are finally known, so re-run the widget refresh. The
+        // Phase-1 hook in EnhancedNotificationDisplay already painted an optimistic row from the
+        // raw push; this reconciles it with what actually got posted.
+        net.vrkknn.andromuks.widget.RoomWidgetUpdater.requestRefresh(
+            applicationContext,
+            roomId,
+            reason = "notification-phase2",
+        )
+
         if (BuildConfig.DEBUG) {
             Log.d(
                 TAG,

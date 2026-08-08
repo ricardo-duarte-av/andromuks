@@ -269,6 +269,12 @@ class SyncIngestor(private val context: Context) {
             // CRITICAL: This is called once at the start, so rooms must be marked as actively cached
             // BEFORE ingestSyncComplete is called (e.g., in navigateToRoomWithCache before forceFlushBatch)
             val cachedRoomIds = cacheUpdateListener?.getCachedRoomIds() ?: emptySet()
+
+            // Rooms with a home-screen widget (docs/WIDGET.md). Resolved ONCE per sync, exactly like
+            // cachedRoomIds above, and answered from a @Volatile in-memory set — processRoom runs
+            // per room per sync_complete, so this must never touch disk. Empty when no widget is
+            // installed, which makes every widget branch below a Set.contains on an empty set.
+            val widgetRoomIds = net.vrkknn.andromuks.widget.RoomWidgetStore.boundRoomIds(context)
             if (BuildConfig.DEBUG && cachedRoomIds.isNotEmpty()) {
                 Log.d(
                     TAG,
@@ -355,7 +361,8 @@ class SyncIngestor(private val context: Context) {
                                 // Process ALL rooms that have events. Even if a room is NOT in cachedRoomIds,
                                 // we process it to ensure the cache starts and stays fresh (no message loss).
                                 val wasCached = cachedRoomIds.contains(roomId)
-                                val hadEvents = processRoom(roomId, roomObj, isAppVisible, wasCached)
+                                val hasWidget = widgetRoomIds.contains(roomId)
+                                val hadEvents = processRoom(roomId, roomObj, isAppVisible, wasCached, hasWidget)
                                 Pair(roomId, hadEvents)
                             }
                         }
@@ -412,6 +419,11 @@ class SyncIngestor(private val context: Context) {
      * @param roomObj The room JSON object from sync
      * @param existingState Pre-loaded existing room state (null if new room)
      * @param isAppVisible Whether app is visible (affects summary processing optimization)
+     * @param isRoomCached Room is in the timeline LRU — its events feed [cacheUpdateListener].
+     * @param isWidgetRoom Room has a home-screen widget — its events feed
+     *   [net.vrkknn.andromuks.widget.RoomWidgetUpdater]. Independent of [isRoomCached]: a widget is
+     *   usually on a room the user has NOT opened this session, which is precisely the case the
+     *   old cached-only gate dropped on the floor.
      * @return true if events were persisted for this room, false otherwise
      */
     private suspend fun processRoom(
@@ -419,9 +431,20 @@ class SyncIngestor(private val context: Context) {
         roomObj: JSONObject,
         isAppVisible: Boolean = true,
         isRoomCached: Boolean = false, // Pass cached status to avoid double-checking
+        isWidgetRoom: Boolean = false,
     ): Boolean {
         val existingTimelineRowCache = mutableMapOf<String, Long?>()
         var hasPersistedEvents = false
+
+        // Parse this room's events if EITHER consumer needs them. Before widgets existed this was
+        // just isRoomCached, and everything else had its `events` array walked and discarded — which
+        // meant a widget on a room the user hadn't opened this session never saw a single message.
+        //
+        // NOTE the asymmetry that follows: widening the *parse* gate must not widen the *persist*
+        // semantics. hasPersistedEvents stays keyed on isRoomCached alone, so roomsWithEvents, the
+        // IngestResult and the cacheUpdateListener contract are unchanged — a widget-only room must
+        // never start looking like a cached room to AppViewModel.
+        val shouldParseEvents = isRoomCached || isWidgetRoom
 
         // CRITICAL FIX: Check reset flag - if true, clear existing timeline cache before processing events
         // According to Webmucks docs: "If true, the frontend should discard the existing timeline cache for this room"
@@ -438,6 +461,13 @@ class SyncIngestor(private val context: Context) {
             net.vrkknn.andromuks.RoomTimelineCache.clearRoomCache(roomId)
             // Also clear processed timeline state
             net.vrkknn.andromuks.RoomTimelineCache.clearProcessedTimelineState(roomId)
+        }
+        if (reset && isWidgetRoom) {
+            // A widget's snapshot is its whole timeline, so a reset invalidates it for the same
+            // reason it invalidates the cache above. Handled here rather than only in the events
+            // sink below because a reset can arrive with no events at all, and dropping it then
+            // would leave the widget showing a window the server has just disowned.
+            net.vrkknn.andromuks.widget.RoomWidgetUpdater.invalidate(context, roomId, reason = "sync-reset")
         }
 
         // LRU CACHE: Track events for cache notification
@@ -573,7 +603,7 @@ class SyncIngestor(private val context: Context) {
         if (timeline != null) {
             // Use passed cached status (already checked in ingestSyncComplete)
             // This avoids double-checking and ensures consistency
-            if (isRoomCached) {
+            if (shouldParseEvents) {
                 // Check if timeline array contains event objects (old format) or just mappings (new format)
                 val hasEventObjects = timeline.length() > 0 && timeline.optJSONObject(0)?.has("event") == true
 
@@ -618,7 +648,7 @@ class SyncIngestor(private val context: Context) {
                         }
                     }
 
-                    if (eventsForCacheUpdate.isNotEmpty()) {
+                    if (eventsForCacheUpdate.isNotEmpty() && isRoomCached) {
                         hasPersistedEvents = true
                     }
                 }
@@ -631,11 +661,11 @@ class SyncIngestor(private val context: Context) {
         if (eventsArray != null) {
             // Use passed cached status (already checked in ingestSyncComplete)
             // This avoids double-checking and ensures consistency
-            if (isRoomCached) {
+            if (shouldParseEvents) {
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         TAG,
-                        "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for cached room $roomId",
+                        "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for room $roomId (cached=$isRoomCached, widget=$isWidgetRoom)",
                     )
                 }
                 for (i in 0 until eventsArray.length()) {
@@ -704,14 +734,8 @@ class SyncIngestor(private val context: Context) {
                     }
                 }
 
-                if (eventsForCacheUpdate.isNotEmpty()) {
+                if (eventsForCacheUpdate.isNotEmpty() && isRoomCached) {
                     hasPersistedEvents = true
-                }
-            } else {
-                // Room not in cache - still collect reactions but discard events
-                for (i in 0 until eventsArray.length()) {
-                    val eventJson = eventsArray.optJSONObject(i) ?: continue
-                    // No longer collecting reactions for persistence - they're in cache only
                 }
             }
         }
@@ -728,6 +752,23 @@ class SyncIngestor(private val context: Context) {
         // 4. Room summaries are no longer persisted to DB - they're built in-memory from sync_complete
         // via SpaceRoomParser.parseSyncUpdate() which creates RoomItem objects with all needed data.
         // This eliminates DB I/O during sync and simplifies the architecture.
+
+        // HOME-SCREEN WIDGET: hand the parsed events to the widget before the cache listener below.
+        // Fires independently of hasPersistedEvents — that flag means "the timeline LRU took these",
+        // which is exactly the condition a widget-only room fails.
+        //
+        // requiresFullRefresh covers the changes the widget cannot resolve on its own: edits,
+        // redactions and reactions mutate messages already on screen (they need the edit-chain
+        // machinery in EditVersionCoordinator), and reset=true invalidates the window entirely.
+        // Rather than guess, the widget marks its snapshot stale and refetches over /exec.
+        if (isWidgetRoom && eventsForCacheUpdate.isNotEmpty()) {
+            net.vrkknn.andromuks.widget.RoomWidgetUpdater.onSyncEvents(
+                context = context,
+                roomId = roomId,
+                events = eventsForCacheUpdate.toList(),
+                requiresFullRefresh = hasEditRedactionReaction || reset,
+            )
+        }
 
         // LRU CACHE: Notify listener if this room is cached and has new events
         if (hasPersistedEvents && eventsForCacheUpdate.isNotEmpty()) {
