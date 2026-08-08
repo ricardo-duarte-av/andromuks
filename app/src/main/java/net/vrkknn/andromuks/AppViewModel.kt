@@ -9560,6 +9560,15 @@ class AppViewModel : ViewModel() {
         var powerLevels: PowerLevelsInfo? = null
         val pinnedEventIds = mutableListOf<String>()
         var bridgeInfo: BridgeInfo? = null
+        // Absorbed from the room-info screen's separate parser — see RoomState's doc.
+        var altAliases: List<String> = emptyList()
+        var creator: String? = null
+        var roomVersion: String? = null
+        var historyVisibility: String? = null
+        var joinRule: String? = null
+        var serverAcl: ServerAclInfo? = null
+        var parentSpace: String? = null
+        var urlPreviewsDisabled: Boolean? = null
 
         // OPTIMIZED: Process events in single pass with early exits
         for (i in 0 until events.length()) {
@@ -9575,6 +9584,7 @@ class AppViewModel : ViewModel() {
 
                 "m.room.canonical_alias" -> {
                     canonicalAlias = content.optString("alias").takeIf { it.isNotBlank() }
+                    altAliases = net.vrkknn.andromuks.utils.parseStringList(content, "alt_aliases")
                 }
 
                 "m.room.topic" -> {
@@ -9647,6 +9657,31 @@ class AppViewModel : ViewModel() {
                     }
                 }
 
+                "m.room.create" -> {
+                    creator = event.optString("sender").takeIf { it.isNotBlank() }
+                    roomVersion = content.optString("room_version").takeIf { it.isNotBlank() }
+                }
+
+                "m.room.history_visibility" -> {
+                    historyVisibility = content.optString("history_visibility").takeIf { it.isNotBlank() }
+                }
+
+                "m.room.join_rules" -> {
+                    joinRule = content.optString("join_rule").takeIf { it.isNotBlank() }
+                }
+
+                "m.room.server_acl" -> {
+                    serverAcl = net.vrkknn.andromuks.utils.parseServerAcl(content)
+                }
+
+                "m.space.parent" -> {
+                    parentSpace = event.optString("state_key").takeIf { it.isNotBlank() }
+                }
+
+                "org.matrix.room.preview_urls" -> {
+                    urlPreviewsDisabled = content.optBoolean("disable", false)
+                }
+
                 "m.bridge", "uk.half-shot.bridge" -> {
                     val parsedBridge = parseBridgeInfoEvent(event)
                     if (parsedBridge != null) {
@@ -9712,6 +9747,14 @@ class AppViewModel : ViewModel() {
             powerLevels = powerLevels,
             pinnedEventIds = pinnedEventIds,
             bridgeInfo = bridgeInfo,
+            altAliases = altAliases,
+            creator = creator,
+            roomVersion = roomVersion,
+            historyVisibility = historyVisibility,
+            joinRule = joinRule,
+            serverAcl = serverAcl,
+            parentSpace = parentSpace,
+            urlPreviewsDisabled = urlPreviewsDisabled,
         )
 
         // Persist raw m.room.name / m.room.avatar values from this state snapshot so cold-start

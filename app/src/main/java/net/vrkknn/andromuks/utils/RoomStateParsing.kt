@@ -24,3 +24,23 @@ fun parseRoomTopic(content: JSONObject?): String? {
     if (text.length() == 0) return null
     return text.optJSONObject(0)?.optString("body")?.takeIf { it.isNotBlank() }
 }
+
+/** Non-blank strings from a JSON array field, or an empty list when absent. */
+fun parseStringList(content: JSONObject?, key: String): List<String> {
+    val array = content?.optJSONArray(key) ?: return emptyList()
+    val out = ArrayList<String>(array.length())
+    for (i in 0 until array.length()) {
+        array.optString(i).takeIf { it.isNotBlank() }?.let { out.add(it) }
+    }
+    return out
+}
+
+/** Server ACL from an `m.room.server_acl` content object. */
+fun parseServerAcl(content: JSONObject?): net.vrkknn.andromuks.ServerAclInfo? {
+    if (content == null) return null
+    return net.vrkknn.andromuks.ServerAclInfo(
+        allow = parseStringList(content, "allow"),
+        deny = parseStringList(content, "deny"),
+        allowIpLiterals = content.optBoolean("allow_ip_literals", false),
+    )
+}
