@@ -197,6 +197,7 @@ import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.RoomPermissions
+import net.vrkknn.andromuks.utils.RoomStateStore
 import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
@@ -865,7 +866,7 @@ fun RoomTimelineScreen(
         RoomPermissions.canSendMessage(
             powerLevels = currentRoomState?.powerLevels,
             userId = myUserId,
-            isEncrypted = currentRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId),
+            isEncrypted = currentRoomState?.isEncrypted ?: RoomStateStore.getParsed(roomId)?.isEncrypted,
         )
     }
 
@@ -4793,7 +4794,7 @@ fun RoomTimelineScreen(
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
                                                 isRoomEncrypted = currentRoomState?.isEncrypted
-                                                    ?: RoomTimelineCache.getRoomEncryption(roomId) ?: false,
+                                                    ?: RoomStateStore.getParsed(roomId)?.isEncrypted ?: false,
                                             )
                                         }
 
@@ -6674,7 +6675,7 @@ fun RoomHeader(
                 // per-room timeline cache, which outlives the room switches that null out
                 // currentRoomState — without it, returning to a warm E2EE room paints an open
                 // padlock until a fresh get_room_state lands.
-                val isRoomEncrypted = roomState?.isEncrypted ?: roomId?.let { RoomTimelineCache.getRoomEncryption(it) }
+                val isRoomEncrypted = roomState?.isEncrypted ?: roomId?.let { RoomStateStore.getParsed(it)?.isEncrypted }
                 val iconSize = with(LocalDensity.current) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

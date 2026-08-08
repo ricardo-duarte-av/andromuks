@@ -54,6 +54,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.utils.RoomStateStore
 
 /** Sealed class for search result items (events and date dividers). */
 sealed class SearchResultItem {
@@ -95,10 +96,10 @@ fun SearchResultsScreen(navController: NavController, modifier: Modifier = Modif
             false
         } else {
             // currentRoomState only ever describes the room currently open, so guard on roomId and
-            // fall back to the per-room timeline cache, which holds the last authoritative
+            // fall back to the per-room state store, which holds the last authoritative
             // get_room_state answer for any room regardless of which one is on screen.
             val openRoomState = appViewModel.currentRoomState?.takeIf { it.roomId == roomId }
-            openRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId) ?: false
+            openRoomState?.isEncrypted ?: RoomStateStore.getParsed(roomId)?.isEncrypted ?: false
         }
     }
 

@@ -30,6 +30,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.webkit.WebViewAssetLoader
+import net.vrkknn.andromuks.utils.RoomStateStore
 import org.json.JSONObject
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
@@ -75,13 +76,10 @@ fun CallOverlay(appViewModel: AppViewModel) {
     val isLoading = remember { mutableStateOf(true) }
     val loadError = remember { mutableStateOf<String?>(null) }
 
-    // Element Call needs per-participant E2EE enabled for encrypted rooms. This used to read
-    // appViewModel.getRoomState(roomId), whose backing roomStatesCache is never written — so it was
-    // unconditionally null and every call, in every room, was built with perParticipantE2EE=false.
-    // RoomTimelineCache is the populated per-room store; it is snapshot-backed, so if the answer is
-    // still unknown at first composition the LaunchedEffect below fetches it and the resulting
-    // hostUrl change reloads the WebView with E2EE on.
-    val isEncrypted = RoomTimelineCache.getRoomEncryption(roomId) ?: false
+    // Element Call needs per-participant E2EE enabled for encrypted rooms. RoomStateStore is
+    // snapshot-backed, so if the answer is still unknown at first composition the LaunchedEffect
+    // below fetches it and the resulting hostUrl change reloads the WebView with E2EE on.
+    val isEncrypted = RoomStateStore.getParsed(roomId)?.isEncrypted ?: false
     val effectiveDeviceId = appViewModel.deviceId.ifBlank { appViewModel.getDeviceID().orEmpty() }
     val configuredCallBaseUrl = appViewModel.elementCallBaseUrl.trim()
     val wellKnownCallBaseUrl = appViewModel.wellKnownElementCallBaseUrl.trim()
@@ -151,10 +149,8 @@ fun CallOverlay(appViewModel: AppViewModel) {
     }
 
     LaunchedEffect(roomId) {
-        // Same bug as above: the old getRoomState() guard was always null, so this always fired and
-        // the response it fetched went nowhere. Ask only when the encryption status is genuinely
-        // unknown — and now the answer actually lands somewhere this composable reads.
-        if (RoomTimelineCache.getRoomEncryption(roomId) == null) {
+        // Ask only when the encryption status is genuinely unknown.
+        if (RoomStateStore.getParsed(roomId)?.isEncrypted == null) {
             appViewModel.requestRoomState(roomId)
         }
     }

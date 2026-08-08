@@ -9712,14 +9712,6 @@ class AppViewModel : ViewModel() {
         // by the `bridgeInfo = roomState.bridgeInfo ?: previous.bridgeInfo` merge in the
         // currentRoomState update below.
 
-        // Record the encryption status per-room, keyed to the timeline cache's lifetime.
-        // currentRoomState below is a single-room slot that is nulled on every room switch, so it
-        // cannot be the only home for this: returning to a room with a warm timeline cache would
-        // otherwise have no encryption status and paint an open padlock on an E2EE room. Same
-        // reasoning as the bridge note above — the response is complete, so `false` is a real
-        // answer and worth caching, not just `true`.
-        RoomTimelineCache.setRoomEncryption(roomId, isEncrypted)
-
         // Create room state object
         val roomState = RoomState(
             roomId = roomId,
@@ -11535,7 +11527,7 @@ class AppViewModel : ViewModel() {
                                 // delta arriving before the get_room_state response would otherwise
                                 // write a hard `false`/empty here — indistinguishable from a real
                                 // answer. The timeline cache is the durable fallback for encryption.
-                                isEncrypted = previous?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId),
+                                isEncrypted = previous?.isEncrypted ?: net.vrkknn.andromuks.utils.RoomStateStore.getParsed(roomId)?.isEncrypted,
                                 powerLevels = previous?.powerLevels,
                                 pinnedEventIds = previous?.pinnedEventIds ?: emptyList(),
                                 bridgeInfo = previous?.bridgeInfo,

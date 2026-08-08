@@ -132,6 +132,7 @@ import net.vrkknn.andromuks.utils.PerMessageProfileDefaultChip
 import net.vrkknn.andromuks.utils.PerMessageProfileEntry
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.RoomPermissions
+import net.vrkknn.andromuks.utils.RoomStateStore
 import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
@@ -617,7 +618,7 @@ fun ThreadViewerScreen(
         RoomPermissions.canSendMessage(
             powerLevels = appViewModel.currentRoomState?.powerLevels,
             userId = myUserId,
-            isEncrypted = appViewModel.currentRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId),
+            isEncrypted = appViewModel.currentRoomState?.isEncrypted ?: RoomStateStore.getParsed(roomId)?.isEncrypted,
         )
     }
     val isInputEnabled = canSendMessage
@@ -1278,7 +1279,7 @@ fun ThreadViewerScreen(
                                     )
                                     // Encryption indicator + thread root preview
                                     val isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted
-                                        ?: RoomTimelineCache.getRoomEncryption(roomId) ?: false
+                                        ?: RoomStateStore.getParsed(roomId)?.isEncrypted ?: false
                                     val iconSize = with(
                                         LocalDensity.current,
                                     ) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
@@ -1724,7 +1725,7 @@ fun ThreadViewerScreen(
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
                                                 isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted
-                                                    ?: RoomTimelineCache.getRoomEncryption(roomId) ?: false,
+                                                    ?: RoomStateStore.getParsed(roomId)?.isEncrypted ?: false,
                                             )
                                         }
 

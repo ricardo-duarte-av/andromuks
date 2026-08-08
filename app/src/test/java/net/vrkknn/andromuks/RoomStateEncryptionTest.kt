@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.utils.RoomStateStore
 import org.json.JSONArray
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -10,23 +11,21 @@ import org.junit.Before
 import org.junit.Test
 
 /**
- * Tests for where a room's E2EE flag is *stored*, which is what the "sometimes an open padlock on an
- * encrypted room" bug was really about.
+ * Tests for how a room's E2EE flag is represented and parsed — the "sometimes an open padlock on an
+ * encrypted room" bug.
  *
- * The flag used to live only in `AppViewModel.currentRoomState` — a single-room slot that is nulled
- * on every room switch — while everything else about a room lives in [RoomTimelineCache] and
- * survives the switch. Returning to a room with a warm timeline cache therefore had no encryption
- * status at all, and because `RoomState.isEncrypted` was a non-nullable `Boolean = false`, "we never
- * fetched this" was indistinguishable from "confirmed unencrypted" and rendered as a red open
- * padlock.
+ * That bug had two halves. The first was storage: the flag lived only in
+ * `AppViewModel.currentRoomState`, a single-room slot nulled on every room switch, so returning to a
+ * room had no encryption status at all. That half is now [RoomStateStore]'s problem and is covered by
+ * `RoomStateStoreTest`.
  *
- * Two properties are pinned here:
- *  - the flag's lifetime is the timeline cache's lifetime (it survives what the cache survives, and
- *    is dropped by every path that drops the cache);
- *  - "unknown" is representable, i.e. [RoomState.isEncrypted] is null until something says otherwise.
+ * The second half is what this file still pins: `RoomState.isEncrypted` was a non-nullable
+ * `Boolean = false`, so "never fetched" was indistinguishable from "confirmed unencrypted" and
+ * rendered as a red open padlock. Unknown must stay representable, and only a confirmed `false` may
+ * render as unencrypted.
  *
- * `false` is stored as an answer, not as an absence: get_room_state always returns the complete room
- * state, so a response with no m.room.encryption event genuinely means the room is unencrypted.
+ * `false` is an answer, not an absence: get_room_state returns the complete room state, so a response
+ * carrying no m.room.encryption event genuinely means the room is unencrypted.
  */
 class RoomStateEncryptionTest {
 
@@ -34,21 +33,27 @@ class RoomStateEncryptionTest {
     private val otherRoom = "!def:example.org"
 
     @Before
-    fun setUp() = reset()
+    fun setUp() = RoomStateStore.clearMemory()
 
     @After
-    fun tearDown() = reset()
+    fun tearDown() = RoomStateStore.clearMemory()
 
-    private fun reset() {
-        RoomTimelineCache.getOpenedRooms().forEach { RoomTimelineCache.removeOpenedRoom(it) }
-        RoomTimelineCache.clearAllCaches()
-    }
+    private fun stateEvents(vararg json: String) = JSONArray("[${json.joinToString(",")}]")
+
+    private fun stateWithEncryption(roomId: String, isEncrypted: Boolean?) = RoomState(
+        roomId = roomId,
+        name = null,
+        canonicalAlias = null,
+        topic = null,
+        avatarUrl = null,
+        isEncrypted = isEncrypted,
+    )
 
     // ------------------------------------------------------------------ tri-state
 
     @Test
     fun `a never-fetched room reports null, not false`() {
-        assertNull(RoomTimelineCache.getRoomEncryption(room))
+        assertNull(RoomStateStore.getParsed(room)?.isEncrypted)
     }
 
     @Test
@@ -62,94 +67,21 @@ class RoomStateEncryptionTest {
 
     @Test
     fun `an encrypted and an unencrypted answer are both recorded and distinguishable`() {
-        RoomTimelineCache.setRoomEncryption(room, true)
-        RoomTimelineCache.setRoomEncryption(otherRoom, false)
+        RoomStateStore.ingestFullState(room, stateEvents(), stateWithEncryption(room, true))
+        RoomStateStore.ingestFullState(otherRoom, stateEvents(), stateWithEncryption(otherRoom, false))
 
-        assertEquals(true, RoomTimelineCache.getRoomEncryption(room))
-        assertEquals(false, RoomTimelineCache.getRoomEncryption(otherRoom))
+        assertEquals(true, RoomStateStore.getParsed(room)?.isEncrypted)
+        assertEquals(false, RoomStateStore.getParsed(otherRoom)?.isEncrypted)
     }
 
     @Test
     fun `rooms do not read each others encryption state`() {
-        RoomTimelineCache.setRoomEncryption(room, true)
+        RoomStateStore.ingestFullState(room, stateEvents(), stateWithEncryption(room, true))
 
-        assertNull(RoomTimelineCache.getRoomEncryption(otherRoom))
-    }
-
-    // ------------------------------------------------------------------ lifetime
-
-    @Test
-    fun `the flag outlives a room switch`() {
-        RoomTimelineCache.setRoomEncryption(room, true)
-
-        // A room switch nulls AppViewModel.currentRoomState but touches nothing here; the timeline
-        // cache is precisely the thing that is meant to survive it.
-        assertEquals(true, RoomTimelineCache.getRoomEncryption(room))
-    }
-
-    @Test
-    fun `clearRoomCache drops the flag along with the cache`() {
-        RoomTimelineCache.setRoomEncryption(room, true)
-        RoomTimelineCache.setRoomEncryption(otherRoom, true)
-
-        RoomTimelineCache.clearRoomCache(room)
-
-        assertNull(RoomTimelineCache.getRoomEncryption(room))
-        assertEquals(true, RoomTimelineCache.getRoomEncryption(otherRoom))
-    }
-
-    @Test
-    fun `clearAllCaches drops every flag`() {
-        RoomTimelineCache.setRoomEncryption(room, true)
-        RoomTimelineCache.setRoomEncryption(otherRoom, false)
-
-        RoomTimelineCache.clearAllCaches()
-
-        assertNull(RoomTimelineCache.getRoomEncryption(room))
-        assertNull(RoomTimelineCache.getRoomEncryption(otherRoom))
-    }
-
-    @Test
-    fun `clearAll preserves the flag for opened rooms and drops it for the rest`() {
-        RoomTimelineCache.setRoomEncryption(room, true)
-        RoomTimelineCache.setRoomEncryption(otherRoom, true)
-        RoomTimelineCache.addOpenedRoom(room)
-
-        RoomTimelineCache.clearAll(preserveOpened = true)
-
-        // The opened room keeps its cache, so it must keep its encryption status too — otherwise a
-        // reconnect would blank the padlock on the room the user is currently looking at.
-        assertEquals(true, RoomTimelineCache.getRoomEncryption(room))
-        assertNull(RoomTimelineCache.getRoomEncryption(otherRoom))
-    }
-
-    @Test
-    fun `clearAll without preservation drops the flag for the open room too`() {
-        RoomTimelineCache.setRoomEncryption(room, true)
-        RoomTimelineCache.addOpenedRoom(room)
-
-        // preserveOpened=false is the clear_state=true path: the backend says its state is rotten
-        // and is authoritative, so nothing may be kept.
-        RoomTimelineCache.clearAll(preserveOpened = false)
-
-        assertNull(RoomTimelineCache.getRoomEncryption(room))
-    }
-
-    @Test
-    fun `a flag with no timeline events yet is still cleared by room-scoped clears`() {
-        // The flag can be recorded before any pagination lands, so it has no roomEventsCache entry
-        // to be cleaned up alongside. Clearing must key off the room id, not the cache entry.
-        RoomTimelineCache.setRoomEncryption(room, true)
-        assertNull(RoomTimelineCache.getCachedEvents(room))
-
-        RoomTimelineCache.clearAll(preserveOpened = true)
-
-        assertNull(RoomTimelineCache.getRoomEncryption(room))
+        assertNull(RoomStateStore.getParsed(otherRoom)?.isEncrypted)
     }
 
     // ------------------------------------------------------------------ parse semantics
-
-    private fun stateEvents(vararg json: String) = JSONArray("[${json.joinToString(",")}]")
 
     @Test
     fun `m_room_encryption with an algorithm means encrypted`() {
