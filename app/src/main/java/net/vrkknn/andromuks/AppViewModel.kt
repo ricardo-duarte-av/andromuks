@@ -1217,10 +1217,6 @@ class AppViewModel : ViewModel() {
     internal var directMessageUserMap: Map<String, Set<String>> = emptyMap()
         internal set
 
-    // Room state storage for future use
-    private var roomStatesCache by mutableStateOf(mapOf<String, JSONArray>())
-        private set
-
     /**
      * Check if a room is a direct message using m.direct account data
      * This is a secondary method to detect DMs more reliably
@@ -9557,11 +9553,6 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * Get stored room state for a specific room
-     */
-    fun getRoomState(roomId: String): JSONArray? = roomStatesCache[roomId]
-
-    /**
      * Parse a room's COMPLETE state and publish it to [net.vrkknn.andromuks.utils.RoomStateStore].
      *
      * **[events] must be a whole-room state array — never a subset.** The store replaces the room's
@@ -9969,54 +9960,25 @@ class AppViewModel : ViewModel() {
             }
         }
 
-        // Fallback: try to parse from room state cache
-        val roomStateEvents = roomStatesCache[roomId]
-        if (roomStateEvents == null) {
+        // Fallback: the per-room state store, which already holds the PARSED bridge info — this
+        // used to re-scan a raw events array out of roomStatesCache, which was never written, so
+        // the fallback could only ever return null.
+        val displayName = net.vrkknn.andromuks.utils.RoomStateStore.getParsed(roomId)?.bridgeInfo?.displayName
+        if (displayName == null) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: getBridgeDisplayNameFromRoomState - No cached state for room $roomId",
+                    "AppViewModel: getBridgeDisplayNameFromRoomState - No bridge display name for room $roomId",
                 )
             }
             return null
         }
 
-        // Find bridge event in room state
-        for (i in 0 until roomStateEvents.length()) {
-            val event = roomStateEvents.optJSONObject(i) ?: continue
-            val eventType = event.optString("type")
-
-            if (eventType == "m.bridge" || eventType == "uk.half-shot.bridge") {
-                val bridgeInfo = parseBridgeInfoEvent(event)
-                val displayName = bridgeInfo?.displayName
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: getBridgeDisplayNameFromRoomState - Found bridge for room $roomId: displayName=$displayName, protocol=${bridgeInfo?.protocol?.id}, protocolDisplayName=${bridgeInfo?.protocol?.displayName}",
-                    )
-                }
-
-                // Cache the display name for future use
-                val contextForCache = appContext
-                if (displayName != null && contextForCache != null) {
-                    net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeDisplayName(
-                        contextForCache,
-                        roomId,
-                        displayName,
-                    )
-                }
-
-                return displayName
-            }
+        // Cache it so the SharedPreferences lookup above answers next time.
+        appContext?.let { ctx ->
+            net.vrkknn.andromuks.utils.BridgeInfoCache.saveBridgeDisplayName(ctx, roomId, displayName)
         }
-
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: getBridgeDisplayNameFromRoomState - No bridge event found in cached state for room $roomId (${roomStateEvents.length()} events)",
-        )
-        }
-        return null
+        return displayName
     }
 
     private fun parseBridgeInfoEvent(event: JSONObject): BridgeInfo? {
