@@ -11522,10 +11522,15 @@ class AppViewModel : ViewModel() {
                                 canonicalAlias = canonicalAlias ?: previous?.canonicalAlias,
                                 topic = topic ?: previous?.topic,
                                 avatarUrl = avatarUrl ?: previous?.avatarUrl,
-                                isEncrypted = currentRoomState?.isEncrypted ?: false, // Preserve existing encryption state
-                                powerLevels = currentRoomState?.powerLevels, // Preserve existing power levels
-                                pinnedEventIds = currentRoomState?.pinnedEventIds ?: emptyList(), // Preserve existing pinned events
-                                bridgeInfo = currentRoomState?.bridgeInfo,
+                                // These four must go through the room-guarded `previous` above, not
+                                // raw currentRoomState: after a room switch nulls that slot, a meta
+                                // delta arriving before the get_room_state response would otherwise
+                                // write a hard `false`/empty here — indistinguishable from a real
+                                // answer. The timeline cache is the durable fallback for encryption.
+                                isEncrypted = previous?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId),
+                                powerLevels = previous?.powerLevels,
+                                pinnedEventIds = previous?.pinnedEventIds ?: emptyList(),
+                                bridgeInfo = previous?.bridgeInfo,
                             )
                             // ✓ Safety check: Only update if this is the currently open room
                             if (roomId == currentRoomId) {
