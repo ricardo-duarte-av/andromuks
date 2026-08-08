@@ -6876,6 +6876,8 @@ class AppViewModel : ViewModel() {
             // resurrect the old account's rooms straight back onto disk.
             RoomListCache.clear()
             net.vrkknn.andromuks.utils.RoomMetadataStore.clearAll()
+            net.vrkknn.andromuks.utils.RoomStateStore.clearMemory()
+            net.vrkknn.andromuks.utils.RoomStateStore.deleteAll()
 
             // Clear in-memory state
             currentRunId = ""

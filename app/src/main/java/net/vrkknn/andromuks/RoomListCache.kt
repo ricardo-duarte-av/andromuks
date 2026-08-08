@@ -112,6 +112,10 @@ object RoomListCache {
         // a room left while the app is open reappears (briefly) in the cached list on next launch
         // until the clear_state diff-prune catches it.
         RoomMetadataStore.remove(roomId)
+        // Same reasoning for the room's cached state: without this its state rows outlive the room
+        // itself and hydrate back on the next cold start, for a room the account is no longer in.
+        net.vrkknn.andromuks.utils.RoomStateStore.forgetRoom(roomId)
+        net.vrkknn.andromuks.utils.RoomStateStore.deleteRoom(roomId)
     }
 
     /**
