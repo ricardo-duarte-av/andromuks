@@ -298,7 +298,9 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                 }
             }
 
-            parseRoomStateFromEvents(roomId, events)
+            // Safe to treat as complete: this handler is fed by get_room_state with
+            // include_members=true, not by a targeted get_specific_room_state.
+            parseCompleteRoomStateFromEvents(roomId, events)
         }
     }
 

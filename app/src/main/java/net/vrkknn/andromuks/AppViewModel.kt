@@ -9528,13 +9528,13 @@ class AppViewModel : ViewModel() {
         when (data) {
             is JSONArray -> {
                 // Server returns events array directly
-                parseRoomStateFromEvents(roomId, data)
+                parseCompleteRoomStateFromEvents(roomId, data)
             }
 
             is JSONObject -> {
                 val events = data.optJSONArray("events")
                 if (events != null) {
-                    parseRoomStateFromEvents(roomId, events)
+                    parseCompleteRoomStateFromEvents(roomId, events)
                 } else {
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
@@ -9562,10 +9562,21 @@ class AppViewModel : ViewModel() {
     fun getRoomState(roomId: String): JSONArray? = roomStatesCache[roomId]
 
     /**
-     * Parse room state from state events.
+     * Parse a room's COMPLETE state and publish it to [net.vrkknn.andromuks.utils.RoomStateStore].
+     *
+     * **[events] must be a whole-room state array — never a subset.** The store replaces the room's
+     * stored state with what this produces, so a state event missing from [events] is taken to mean
+     * the room no longer has it. Feeding a `get_specific_room_state` response in here would
+     * therefore delete every state event that response didn't happen to ask about.
+     *
+     * That is safe for both current callers, which are the two shapes of `get_room_state`
+     * (`include_members` false and true); it always returns the complete state, its only options
+     * concerning the member list and refetch. Targeted responses go to
+     * [RoomStateStore.ingestPartialState] instead, which merges.
+     *
      * OPTIMIZED: Single pass with minimal JSON access; early exits in branches.
      */
-    internal fun parseRoomStateFromEvents(roomId: String, events: JSONArray) {
+    internal fun parseCompleteRoomStateFromEvents(roomId: String, events: JSONArray) {
         var name: String? = null
         var canonicalAlias: String? = null
         var topic: String? = null

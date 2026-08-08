@@ -118,7 +118,17 @@ object RoomStateStore {
 
     /**
      * Record a targeted `get_specific_room_state` answer. Merges rather than replaces — the
-     * response speaks only for the keys it was asked about.
+     * response speaks only for the keys it was asked about, and says nothing about the rest of the
+     * room's state. Passing one of these to [ingestFullState] would delete everything it did not
+     * mention.
+     *
+     * **Only the raw tier is updated.** The parsed [RoomState] is not recomputed, because doing so
+     * from a subset would mean merging fields — and a merge cannot distinguish "this response
+     * didn't cover that field" from "the room removed it". Harmless today: every
+     * `get_specific_room_state` this app sends asks for `m.room.member` keys, which are never
+     * cached at all. If one is ever widened to request, say, `m.room.power_levels`, this must grow
+     * an explicit per-field merge into the parsed tier — the raw tier alone would have the fresh
+     * value while [getParsed] kept serving the older one.
      */
     fun ingestPartialState(roomId: String, events: org.json.JSONArray) {
         val flattened = flatten(events)
