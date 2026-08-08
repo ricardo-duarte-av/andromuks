@@ -31,7 +31,7 @@ object RoomMetadataStore {
     private const val TAG = "RoomMetadataStore"
 
     private const val DB_NAME = "room_metadata.db"
-    private const val DB_VERSION = 5
+    private const val DB_VERSION = 6
 
     private const val TABLE = "room_metadata"
     private const val COL_ROOM_ID = "room_id"
@@ -72,6 +72,46 @@ object RoomMetadataStore {
     // network/channel icon (0). Lets the Bridges tab pick a stable pseudo-space icon when rooms in
     // one protocol group carry different avatars. See RoomItem.bridgeAvatarIsProtocolLevel.
     private const val COL_BRIDGE_AVATAR_IS_PROTOCOL = "bridge_avatar_is_protocol"
+
+    // v6: the per-room state table backing RoomStateStore. Deliberately a second table in THIS
+    // database rather than a database of its own — the WAL + single-writer story that makes the
+    // fire-and-forget write path safe depends on there being exactly one SQLite file.
+    //
+    // Row shape is (room_id, type, state_key) → raw content JSON, i.e. Matrix's own state shape,
+    // so arbitrary event types persist without a schema migration each time. That matters: real
+    // rooms carry keys this app has never heard of (com.beeper.room_features,
+    // io.element.functional_members), and the point of the table is to stop discarding them.
+    //
+    // m.room.member is excluded at the write boundary, not here: a 10k-member room would be 10k
+    // rows, get_room_state is called with include_members=false on the bulk path so the data would
+    // usually be absent anyway, and a partial member list stored as if complete is a trap.
+    // Membership stays in RoomMemberCache/ProfileCache. See RoomStateStore.
+    internal const val STATE_TABLE = "room_state"
+    internal const val COL_STATE_ROOM_ID = "room_id"
+    internal const val COL_STATE_TYPE = "type"
+    internal const val COL_STATE_KEY = "state_key"
+    internal const val COL_STATE_CONTENT = "content"
+    internal const val COL_STATE_SENDER = "sender"
+    internal const val COL_STATE_EVENT_ID = "event_id"
+    internal const val COL_STATE_TIMESTAMP = "timestamp"
+    internal const val COL_STATE_UPDATED_AT = "updated_at"
+
+    private const val CREATE_STATE_TABLE = """
+        CREATE TABLE IF NOT EXISTS $STATE_TABLE (
+            $COL_STATE_ROOM_ID TEXT NOT NULL,
+            $COL_STATE_TYPE TEXT NOT NULL,
+            $COL_STATE_KEY TEXT NOT NULL,
+            $COL_STATE_CONTENT TEXT NOT NULL,
+            $COL_STATE_SENDER TEXT,
+            $COL_STATE_EVENT_ID TEXT,
+            $COL_STATE_TIMESTAMP INTEGER,
+            $COL_STATE_UPDATED_AT INTEGER NOT NULL,
+            PRIMARY KEY ($COL_STATE_ROOM_ID, $COL_STATE_TYPE, $COL_STATE_KEY)
+        )
+    """
+
+    private const val CREATE_STATE_INDEX =
+        "CREATE INDEX IF NOT EXISTS idx_room_state_room ON $STATE_TABLE($COL_STATE_ROOM_ID)"
 
     data class Row(
         val roomId: String,
@@ -523,6 +563,8 @@ object RoomMetadataStore {
                 )
                 """.trimIndent(),
             )
+            db.execSQL(CREATE_STATE_TABLE.trimIndent())
+            db.execSQL(CREATE_STATE_INDEX)
         }
 
         override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -576,6 +618,13 @@ object RoomMetadataStore {
                     """.trimIndent(),
                 )
             }
+            // v5 → v6: add the per-room state table. Purely additive — no existing row is touched,
+            // and the table starts empty on upgraded installs. It refills itself from the
+            // get_room_state responses the app already issues, so there is nothing to backfill.
+            if (oldVersion < 6) {
+                db.execSQL(CREATE_STATE_TABLE.trimIndent())
+                db.execSQL(CREATE_STATE_INDEX)
+            }
         }
 
         /**
@@ -594,6 +643,7 @@ object RoomMetadataStore {
         override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
             Log.w(TAG, "Downgrade $oldVersion → $newVersion; recreating (contents are rebuildable from sync)")
             db.execSQL("DROP TABLE IF EXISTS $TABLE")
+            db.execSQL("DROP TABLE IF EXISTS $STATE_TABLE")
             onCreate(db)
         }
     }
