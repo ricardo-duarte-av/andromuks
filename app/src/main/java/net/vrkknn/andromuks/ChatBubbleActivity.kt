@@ -180,7 +180,7 @@ class ChatBubbleActivity : ComponentActivity() {
                                 ?: extractRoomIdFromMatrixUri(intent.data)
                             if (roomId != null) {
                                 BubbleTracker.onBubbleInvisible(roomId)
-                                BubbleTracker.onBubbleClosed(roomId)
+                                BubbleTracker.onBubbleClosed(roomId, this@ChatBubbleActivity)
                                 if (BuildConfig.DEBUG) {
                                     Log.d(
                                         "Andromuks",
@@ -416,7 +416,7 @@ class ChatBubbleActivity : ComponentActivity() {
             // But Activity-level tracking should be the final authority
             if (BubbleTracker.isBubbleOpen(roomId)) {
                 BubbleTracker.onBubbleInvisible(roomId)
-                BubbleTracker.onBubbleClosed(roomId)
+                BubbleTracker.onBubbleClosed(roomId, this@ChatBubbleActivity)
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         "Andromuks",

@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import android.content.Context
 import android.util.Log
 import java.util.concurrent.ConcurrentHashMap
 
@@ -82,9 +83,50 @@ object NotificationDismissTracker {
         dismissedAt.entries.removeIf { it.value < cutoff }
     }
 
+    /**
+     * Rooms whose dismiss arrived while it could not be applied — a bubble was open for the room
+     * (cancelling would destroy the bubble) or the reply-protection window was still running.
+     *
+     * Both cases used to `continue` past the dismiss entirely, dropping it forever: the backend
+     * never re-sends, and nothing re-evaluated when the blocking condition cleared. Since
+     * [PushDismiss] carries only a room id there is nothing to replay from, so the deferral is
+     * simply the room id — [drainDeferred] re-runs the normal dismissal for it later.
+     */
+    private val deferred = ConcurrentHashMap.newKeySet<String>()
+
+    /** Remember that [roomId]'s dismiss could not be applied yet. */
+    fun deferDismiss(roomId: String) {
+        deferred.add(roomId)
+        if (BuildConfig.DEBUG) Log.d(TAG, "Deferred dismiss for room: $roomId")
+    }
+
+    /**
+     * Apply every deferred dismiss whose blocker has cleared. Rooms that are still blocked (a
+     * bubble came back) stay deferred for the next drain.
+     *
+     * Called when a bubble closes and after the reply-protection window elapses.
+     */
+    fun drainDeferred(context: Context) {
+        if (deferred.isEmpty()) return
+        val cancelled = mutableSetOf<Int>()
+        for (roomId in deferred.toList()) {
+            if (BubbleTracker.isBubbleOpen(roomId)) continue
+            deferred.remove(roomId)
+            cancelled += EnhancedNotificationDisplay.dismissRoomNotification(
+                context,
+                roomId,
+                reason = "deferred dismiss drained",
+            )
+        }
+        if (cancelled.isNotEmpty()) {
+            EnhancedNotificationDisplay.refreshGroupSummary(context, justCancelledIds = cancelled)
+        }
+    }
+
     /** Clear all state (testing / app reset). */
     fun clear() {
         dismissedAt.clear()
         locks.clear()
+        deferred.clear()
     }
 }

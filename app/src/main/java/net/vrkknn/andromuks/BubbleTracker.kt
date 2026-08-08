@@ -37,12 +37,16 @@ object BubbleTracker {
      * Called when a bubble is closed for a room.
      * Should be called from ChatBubbleActivity.onDestroy() or when the bubble screen is destroyed.
      */
-    fun onBubbleClosed(roomId: String) {
+    fun onBubbleClosed(roomId: String, context: android.content.Context? = null) {
         synchronized(openBubbles) {
             openBubbles.remove(roomId)
             visibleBubbles.remove(roomId) // Also remove from visible when closed
             if (BuildConfig.DEBUG) Log.d(TAG, "Bubble closed for room: $roomId (total open: ${openBubbles.size})")
         }
+        // A dismiss that arrived while the bubble was open was deferred rather than applied
+        // (cancelling would have destroyed the bubble). The bubble is gone now, so apply it —
+        // otherwise the notification stays up forever, since the backend never re-sends.
+        context?.let { NotificationDismissTracker.drainDeferred(it.applicationContext) }
     }
 
     /**

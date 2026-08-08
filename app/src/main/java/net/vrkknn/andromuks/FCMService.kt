@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -801,6 +802,21 @@ class FCMService : FirebaseMessagingService() {
     }
 
     /**
+     * Re-check the deferred dismisses once the reply-protection window has elapsed.
+     *
+     * Unlike the bubble case there is no event to hang the drain off — the window simply expires —
+     * so this waits it out. Uses [serviceScope], which is cancelled in onDestroy; if the service
+     * dies first the deferral is lost along with the rest of the in-memory tracker state, which is
+     * no worse than the drop this replaces.
+     */
+    private fun scheduleDeferredDismissDrain() {
+        serviceScope.launch {
+            delay(REPLY_DISMISS_PROTECTION_MS + 500L)
+            NotificationDismissTracker.drainDeferred(applicationContext)
+        }
+    }
+
+    /**
      * Handle dismiss notification payload
      */
     private fun handleDismissNotification(jsonObject: JSONObject) {
@@ -849,6 +865,8 @@ class FCMService : FirebaseMessagingService() {
                                 "No notification found for room: $roomId but bubble is open - not cancelling",
                             )
                         }
+                        NotificationDismissTracker.deferDismiss(roomId)
+                        Androlog("Notifications", "Room $roomId: dismiss deferred (bubble open)")
                     } else {
                         if (BuildConfig.DEBUG) {
                             Log.d(
@@ -906,6 +924,13 @@ class FCMService : FirebaseMessagingService() {
                             "Room $roomId - NOT dismissing - within reply protection window (own reply triggered mark-read)",
                         )
                     }
+                    // Defer rather than drop. If this really was the echo of our own reply the
+                    // drain finds nothing to cancel and it costs nothing; if it was a genuine
+                    // remote dismiss that happened to land inside the window, dropping it here
+                    // left the notification up forever (the backend never re-sends).
+                    NotificationDismissTracker.deferDismiss(roomId)
+                    Androlog("Notifications", "Room $roomId: dismiss deferred (reply-protection window)")
+                    scheduleDeferredDismissDrain()
                     continue
                 }
 
@@ -938,7 +963,10 @@ class FCMService : FirebaseMessagingService() {
                 }
 
                 if (isBubbleOpen) {
-                    // Bubble is actually open - don't dismiss to preserve bubble
+                    // Bubble is actually open - don't dismiss to preserve bubble. Defer it so the
+                    // dismiss is applied when the bubble closes instead of being lost.
+                    NotificationDismissTracker.deferDismiss(roomId)
+                    Androlog("Notifications", "Room $roomId: dismiss deferred (bubble open)")
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             TAG,
