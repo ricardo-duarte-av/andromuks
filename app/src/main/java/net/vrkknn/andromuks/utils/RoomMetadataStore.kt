@@ -577,5 +577,24 @@ object RoomMetadataStore {
                 )
             }
         }
+
+        /**
+         * Drop and recreate rather than throw.
+         *
+         * The default [SQLiteOpenHelper] behaviour on a downgrade is to raise
+         * SQLiteDowngradeFailedException, which for this database means the app cannot open its
+         * store at all — every read degrades to empty and the room list paints blank on cold start.
+         * That happens to anyone who runs a branch that bumped [DB_VERSION] and then switches back,
+         * which is a routine thing to do while developing.
+         *
+         * Everything here is a paint-time optimisation reconstructible from the next sync, so
+         * discarding it is cheap and always safe. Never store anything in this database for which
+         * that stops being true.
+         */
+        override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+            Log.w(TAG, "Downgrade $oldVersion → $newVersion; recreating (contents are rebuildable from sync)")
+            db.execSQL("DROP TABLE IF EXISTS $TABLE")
+            onCreate(db)
+        }
     }
 }
