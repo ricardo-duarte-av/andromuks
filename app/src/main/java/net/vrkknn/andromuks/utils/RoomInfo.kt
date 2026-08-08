@@ -91,10 +91,10 @@ data class PowerLevelsInfo(
     val invite: Int,
 )
 
-/**
- * Data class for server ACL information
- */
-data class ServerAclInfo(val allow: List<String>, val deny: List<String>, val allowIpLiterals: Boolean)
+// ServerAclInfo now lives in RoomItem.kt alongside RoomState, which absorbed this screen's
+// state model. Aliased here so the existing references in this file keep working while the rest
+// of RoomStateInfo is migrated.
+private typealias ServerAclInfo = net.vrkknn.andromuks.ServerAclInfo
 
 /**
  * Room Info Screen - displays detailed information about a room

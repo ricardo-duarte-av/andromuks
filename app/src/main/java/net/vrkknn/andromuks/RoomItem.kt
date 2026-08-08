@@ -105,6 +105,18 @@ data class SyncUpdateResult(
     val authoritativeTagRoomIds: Set<String> = emptySet(),
 )
 
+/**
+ * A room's parsed state.
+ *
+ * This is the single model for state derived from `get_room_state`. It previously covered only what
+ * the room header needed, while `RoomInfoScreen` parsed the same RPC a second time into its own
+ * `RoomStateInfo` with a *different, overlapping* field set — neither was a superset of the other,
+ * and the second one was never cached. The fields below the encryption flag are the ones absorbed
+ * from that model.
+ *
+ * Null consistently means "not observed", never a negative fact: renderers must not turn a null
+ * into "this room has no topic" or "this room is unencrypted".
+ */
 @Immutable
 data class RoomState(
     val roomId: String,
@@ -119,7 +131,23 @@ data class RoomState(
     val powerLevels: PowerLevelsInfo? = null,
     val pinnedEventIds: List<String> = emptyList(),
     val bridgeInfo: BridgeInfo? = null,
+    /** `alt_aliases` from m.room.canonical_alias. Dropped entirely by the old header parser. */
+    val altAliases: List<String> = emptyList(),
+    /** Sender of m.room.create. */
+    val creator: String? = null,
+    val roomVersion: String? = null,
+    val historyVisibility: String? = null,
+    val joinRule: String? = null,
+    val serverAcl: ServerAclInfo? = null,
+    /** state_key of m.space.parent — the space this room declares as its parent. */
+    val parentSpace: String? = null,
+    /** `disable` from org.matrix.room.preview_urls; null when the room says nothing. */
+    val urlPreviewsDisabled: Boolean? = null,
 )
+
+/** Server ACL (m.room.server_acl) — which servers may participate in the room. */
+@Immutable
+data class ServerAclInfo(val allow: List<String>, val deny: List<String>, val allowIpLiterals: Boolean)
 
 /** Power levels information for a room */
 @Immutable
