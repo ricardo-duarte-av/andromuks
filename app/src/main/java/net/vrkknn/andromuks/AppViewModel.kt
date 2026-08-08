@@ -129,6 +129,14 @@ internal class SearchPageResult(val events: List<TimelineEvent>, val nextBatch: 
 
 internal class GalleryPageResult(val events: List<TimelineEvent>, val hasMore: Boolean, val minTimelineRowId: Long)
 
+/**
+ * Result of a `get_room_state` issued with `include_members=true`: the room's parsed state (also
+ * published to [net.vrkknn.andromuks.utils.RoomStateStore]) plus the member list, which is handed
+ * back rather than cached. An error message is non-null only on failure, in which case both others
+ * are empty.
+ */
+typealias RoomStateWithMembersCallback = (RoomState?, List<net.vrkknn.andromuks.utils.RoomMember>, String?) -> Unit
+
 class AppViewModel : ViewModel() {
     // Track if app was opened from external app (like Contacts) - affects back navigation behavior
     private var _openedFromExternalApp by mutableStateOf(false)
@@ -5919,13 +5927,13 @@ class AppViewModel : ViewModel() {
     // ever exposing the stale tail). Distinct from hydrateExpectedEventIds so the FCM-hydrate branch
     // is not taken.
     internal val freshnessProbeAnchors = java.util.concurrent.ConcurrentHashMap<Int, String>()
+
+    // requestId -> (roomId, callback). The roomId is carried so the response can be published to
+    // RoomStateStore under the right key rather than parsed into a screen-local model.
     private val roomStateWithMembersRequests = mutableMapOf<
         Int,
-        (
-            net.vrkknn.andromuks.utils.RoomStateInfo?,
-            String?,
-        ) -> Unit,
-        >() // requestId -> callback
+        Pair<String, RoomStateWithMembersCallback>,
+        >()
 
     // Gallery paginate: requestId -> callback(events, hasMore, minTimelineRowId)
     internal val galleryPaginateRequests = mutableMapOf<Int, (List<TimelineEvent>, Boolean, Long) -> Unit>()
@@ -6483,7 +6491,7 @@ class AppViewModel : ViewModel() {
             basicProfileCallbacks.remove(id)?.invoke(null)
         }
         roomStateWithMembersRequests.keys.filter { it > 0 }.toList().forEach { id ->
-            roomStateWithMembersRequests.remove(id)?.invoke(null, "Connection lost")
+            roomStateWithMembersRequests.remove(id)?.second?.invoke(null, emptyList(), "Connection lost")
         }
         fullMemberListRequests.keys.filter { it > 0 }.toList().forEach { id ->
             fullMemberListRequests.remove(id)?.let { pendingFullMemberListRequests.remove(it) }
@@ -7740,7 +7748,7 @@ class AppViewModel : ViewModel() {
      * Requests complete room state including member list
      * Used by the Room Info screen to display detailed room information
      */
-    fun requestRoomStateWithMembers(roomId: String, callback: (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit) {
+    fun requestRoomStateWithMembers(roomId: String, callback: RoomStateWithMembersCallback) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
@@ -7754,7 +7762,7 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: WebSocket not connected - calling back with error, health monitor will handle reconnection",
             )
-            callback(null, "WebSocket not connected")
+            callback(null, emptyList(), "WebSocket not connected")
             return
         }
 
@@ -7767,7 +7775,7 @@ class AppViewModel : ViewModel() {
         }
 
         // Store the callback to handle the response
-        roomStateWithMembersRequests[stateRequestId] = callback
+        roomStateWithMembersRequests[stateRequestId] = roomId to callback
 
         // IMPORTANT: Request room state with include_members: true to get the full member list
         // This ensures RoomInfo screen displays the actual member list from the server
@@ -10343,34 +10351,37 @@ class AppViewModel : ViewModel() {
     }
 
     private fun handleRoomStateWithMembersResponse(requestId: Int, data: Any) {
-        val callback = roomStateWithMembersRequests.remove(requestId) ?: return
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Handling room state with members response for requestId: $requestId",
-            )
-        }
+        val (roomId, callback) = roomStateWithMembersRequests.remove(requestId) ?: return
 
         try {
-            // Parse the room state data using the utility function
-            // This response includes members because include_members: true was sent
-            val roomStateInfo = net.vrkknn.andromuks.utils.parseRoomStateResponse(data)
-
-            if (roomStateInfo != null) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Successfully parsed room state with ${roomStateInfo.members.size} members (include_members=true response)",
-                    )
-                }
-                callback(roomStateInfo, null)
-            } else {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to parse room state response")
-                callback(null, "Failed to parse room state")
+            // include_members=true, so this is still a COMPLETE state response — the same parser the
+            // ordinary get_room_state path uses, publishing to RoomStateStore under this roomId.
+            // The room-info screen used to run a second, independent parser over this same payload.
+            val events = when (data) {
+                is JSONArray -> data
+                is JSONObject -> data.optJSONArray("events")
+                else -> null
             }
+            if (events == null) {
+                android.util.Log.e("Andromuks", "AppViewModel: Room state with members response had no events array")
+                callback(null, emptyList(), "Failed to parse room state")
+                return
+            }
+
+            parseCompleteRoomStateFromEvents(roomId, events)
+            // Members are returned alongside rather than stored: they are never cached, and a list
+            // from include_members=false would be absent rather than empty.
+            val members = net.vrkknn.andromuks.utils.parseRoomMembers(events)
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Parsed room state for $roomId with ${members.size} members",
+                )
+            }
+            callback(net.vrkknn.andromuks.utils.RoomStateStore.getParsed(roomId), members, null)
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error handling room state with members response", e)
-            callback(null, "Error: ${e.message}")
+            callback(null, emptyList(), "Error: ${e.message}")
         }
     }
 

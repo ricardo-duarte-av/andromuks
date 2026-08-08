@@ -479,17 +479,17 @@ fun RoomJoinerScreen(
                                     "Room summary has no member count, requesting get_room_state with members for invite",
                                 )
                             }
-                            appViewModel.requestRoomStateWithMembers(inviteId) { roomStateInfo, stateError ->
-                                if (roomStateInfo != null && roomStateInfo.members.isNotEmpty()) {
+                            appViewModel.requestRoomStateWithMembers(inviteId) { _, members, stateError ->
+                                if (members.isNotEmpty()) {
                                     // Update summary with actual member count
                                     val updatedSummary = summary.copy(
-                                        numJoinedMembers = roomStateInfo.members.size,
+                                        numJoinedMembers = members.size,
                                     )
                                     roomSummary = updatedSummary
                                     if (BuildConfig.DEBUG) {
                                         Log.d(
                                             "RoomJoiner",
-                                            "Updated room summary with member count: ${roomStateInfo.members.size}",
+                                            "Updated room summary with member count: ${members.size}",
                                         )
                                     }
                                 } else {

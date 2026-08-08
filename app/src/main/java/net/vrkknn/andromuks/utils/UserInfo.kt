@@ -101,8 +101,6 @@ import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.TimeZone
 
-private fun usernameFromMatrixId(userId: String): String = userId.removePrefix("@").substringBefore(":")
-
 /**
  * Get the default contact account for creating new contacts
  * 

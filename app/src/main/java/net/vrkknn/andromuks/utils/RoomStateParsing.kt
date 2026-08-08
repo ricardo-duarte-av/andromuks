@@ -71,6 +71,32 @@ fun parsePowerLevels(content: JSONObject?): net.vrkknn.andromuks.PowerLevelsInfo
     )
 }
 
+/**
+ * The room's members from a `get_room_state` response that asked for them.
+ *
+ * Deliberately **not** part of [net.vrkknn.andromuks.RoomState]: members are never cached, so this
+ * is a transient returned alongside the parse for the one screen that shows them.
+ *
+ * Includes every membership — joined, invited, left and banned — because the room-info screen lists
+ * invited and departed users too. Sorted joined-first, then invited, then alphabetically, which is
+ * the order that screen renders.
+ */
+fun parseRoomMembers(events: org.json.JSONArray): List<RoomMember> {
+    val byUser = LinkedHashMap<String, RoomMember>()
+    for (i in 0 until events.length()) {
+        // Last writer wins: a response can carry more than one member event per user.
+        val member = toRoomMember(events.optJSONObject(i)) ?: continue
+        byUser[member.userId] = member
+    }
+    return byUser.values.sortedWith(
+        compareBy(
+            { it.membership != "join" },
+            { it.membership != "invite" },
+            { it.displayName?.lowercase() ?: it.userId.lowercase() },
+        ),
+    )
+}
+
 /** Server ACL from an `m.room.server_acl` content object. */
 fun parseServerAcl(content: JSONObject?): net.vrkknn.andromuks.ServerAclInfo? {
     if (content == null) return null
@@ -78,5 +104,19 @@ fun parseServerAcl(content: JSONObject?): net.vrkknn.andromuks.ServerAclInfo? {
         allow = parseStringList(content, "allow"),
         deny = parseStringList(content, "deny"),
         allowIpLiterals = content.optBoolean("allow_ip_literals", false),
+    )
+}
+
+/** One member from an `m.room.member` state event, or null if it is neither. */
+private fun toRoomMember(event: JSONObject?): RoomMember? {
+    if (event == null || event.optString("type") != "m.room.member") return null
+    val userId = event.optString("state_key").takeIf { it.isNotBlank() } ?: return null
+    val content = event.optJSONObject("content")
+    return RoomMember(
+        userId = userId,
+        displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+            ?: usernameFromMatrixId(userId),
+        avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() },
+        membership = content?.optString("membership")?.takeIf { it.isNotBlank() } ?: "leave",
     )
 }

@@ -45,31 +45,10 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.navigateToUserInfo
-import org.json.JSONObject
 
-private fun usernameFromMatrixId(userId: String): String = userId.removePrefix("@").substringBefore(":")
-
-/**
- * Data class to hold complete room state information
- */
-data class RoomStateInfo(
-    val roomId: String,
-    val name: String?,
-    val topic: String?,
-    val avatarUrl: String?,
-    val canonicalAlias: String?,
-    val altAliases: List<String>,
-    val pinnedEventIds: List<String>,
-    val creator: String?,
-    val roomVersion: String?,
-    val historyVisibility: String?,
-    val joinRule: String?,
-    val members: List<RoomMember>,
-    val powerLevels: PowerLevelsInfo?,
-    val serverAcl: ServerAclInfo?,
-    val parentSpace: String?,
-    val urlPreviewsDisabled: Boolean?,
-)
+// internal, not private: parseRoomMembers in RoomStateParsing.kt shares it rather than adding a
+// fourth copy of this one-liner (RoomListScreen and UserInfo still carry their own).
+internal fun usernameFromMatrixId(userId: String): String = userId.removePrefix("@").substringBefore(":")
 
 /**
  * Data class for a room member
@@ -81,9 +60,8 @@ data class RoomMember(val userId: String, val displayName: String?, val avatarUr
 // Aliased onto the surviving one so this file's references keep working.
 private typealias PowerLevelsInfo = net.vrkknn.andromuks.PowerLevelsInfo
 
-// ServerAclInfo now lives in RoomItem.kt alongside RoomState, which absorbed this screen's
-// state model. Aliased here so the existing references in this file keep working while the rest
-// of RoomStateInfo is migrated.
+// ServerAclInfo lives in RoomItem.kt alongside RoomState, which absorbed this screen's state model.
+// Aliased so this file's references stay short.
 private typealias ServerAclInfo = net.vrkknn.andromuks.ServerAclInfo
 
 /**
@@ -101,7 +79,9 @@ fun RoomInfoScreen(
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     // State to hold the room info
-    var roomStateInfo by remember { mutableStateOf<RoomStateInfo?>(null) }
+    var roomState by remember { mutableStateOf<net.vrkknn.andromuks.RoomState?>(null) }
+    // Members are not cached anywhere — they come back with the response and live only here.
+    var roomMembers by remember { mutableStateOf<List<RoomMember>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var pinnedEvents by remember { mutableStateOf<List<PinnedEventItem>>(emptyList()) }
@@ -124,13 +104,14 @@ fun RoomInfoScreen(
     // Request room state when the screen is created
     LaunchedEffect(roomId) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomInfoScreen: Requesting room state for $roomId")
-        appViewModel.requestRoomStateWithMembers(roomId) { stateInfo, error ->
+        appViewModel.requestRoomStateWithMembers(roomId) { state, members, error ->
             isLoading = false
             if (error != null) {
                 errorMessage = error
                 android.util.Log.e("Andromuks", "RoomInfoScreen: Error loading room state: $error")
             } else {
-                roomStateInfo = stateInfo
+                roomState = state
+                roomMembers = members
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomInfoScreen: Loaded room state successfully")
             }
         }
@@ -198,31 +179,31 @@ fun RoomInfoScreen(
                     color = MaterialTheme.colorScheme.error,
                 )
             }
-        } else if (roomStateInfo != null) {
+        } else if (roomState != null) {
             // Heroes fallback for nameless / avatarless rooms (typically DMs). Mirrors the
             // displayRoomName / displayAvatarUrl logic in RoomTimelineScreen so the room header's
             // avatar and the RoomInfo avatar stay in sync — without this, opening RoomInfo for a
             // DM hands AvatarImage a null mxcUrl, which now renders the native Text fallback.
             // See docs/ROOM_DISPLAY.md for the rule.
-            val needsHeroesFallback = roomStateInfo!!.name.isNullOrBlank() &&
-                roomStateInfo!!.canonicalAlias.isNullOrBlank()
+            val needsHeroesFallback = roomState!!.name.isNullOrBlank() &&
+                roomState!!.canonicalAlias.isNullOrBlank()
             val heroMember: RoomMember? = if (needsHeroesFallback) {
                 val myUserId = appViewModel.currentUserId
                 val serviceMembers = appViewModel.functionalMembersCache[roomId] ?: emptySet()
-                roomStateInfo!!.members
+                roomMembers
                     .asSequence()
                     .filter { it.membership == "join" }
                     .filter { it.userId != myUserId && it.userId !in serviceMembers }
                     .firstOrNull()
-                    ?: roomStateInfo!!.members
+                    ?: roomMembers
                         .asSequence()
                         .filter { it.userId != myUserId && it.userId !in serviceMembers }
                         .firstOrNull()
             } else {
                 null
             }
-            val effectiveAvatarUrl = roomStateInfo!!.avatarUrl ?: heroMember?.avatarUrl
-            val effectiveName = roomStateInfo!!.name
+            val effectiveAvatarUrl = roomState!!.avatarUrl ?: heroMember?.avatarUrl
+            val effectiveName = roomState!!.name
                 ?: heroMember?.displayName
                 ?: heroMember?.userId?.let { usernameFromMatrixId(it) }
 
@@ -238,7 +219,7 @@ fun RoomInfoScreen(
             ) {
                 // Room ID
                 Text(
-                    text = roomStateInfo!!.roomId,
+                    text = roomState!!.roomId,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -257,7 +238,7 @@ fun RoomInfoScreen(
                     }
 
                     // Canonical Alias directly below room name
-                    roomStateInfo!!.canonicalAlias?.let { alias ->
+                    roomState!!.canonicalAlias?.let { alias ->
                         Text(
                             text = alias,
                             style = MaterialTheme.typography.bodyMedium,
@@ -391,7 +372,7 @@ fun RoomInfoScreen(
 
                 // Room Topic: cap height + nested scroll so button row stays reachable without
                 // scrolling through pages of topic text (get_room_state can return huge m.room.topic)
-                roomStateInfo!!.topic?.let { topic ->
+                roomState!!.topic?.let { topic ->
                     val topicScrollState = rememberScrollState()
                     Column(
                         modifier = Modifier.fillMaxWidth(),
@@ -419,7 +400,7 @@ fun RoomInfoScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     // Power Levels Button
-                    if (roomStateInfo!!.powerLevels != null) {
+                    if (roomState!!.powerLevels != null) {
                         Button(
                             onClick = { showPowerLevelsDialog = true },
                             modifier = Modifier
@@ -436,7 +417,7 @@ fun RoomInfoScreen(
                     // Server ACL Button
                     Button(
                         onClick = { showServerAclDialog = true },
-                        enabled = roomStateInfo!!.serverAcl != null,
+                        enabled = roomState!!.serverAcl != null,
                         modifier = Modifier
                             .weight(1f)
                             .height(56.dp),
@@ -450,7 +431,7 @@ fun RoomInfoScreen(
                     // Pinned Events Button
                     Button(
                         onClick = {
-                            val pinnedIds = roomStateInfo!!.pinnedEventIds
+                            val pinnedIds = roomState!!.pinnedEventIds
                             if (pinnedIds.isNotEmpty()) {
                                 pinnedEvents = emptyList()
                                 isPinnedLoading = true
@@ -472,7 +453,7 @@ fun RoomInfoScreen(
                                 showPinnedDialog = true
                             }
                         },
-                        enabled = roomStateInfo!!.pinnedEventIds.isNotEmpty(),
+                        enabled = roomState!!.pinnedEventIds.isNotEmpty(),
                         modifier = Modifier
                             .weight(1f)
                             .height(56.dp),
@@ -630,7 +611,7 @@ fun RoomInfoScreen(
     }
 
     // Leave Room Confirmation Dialog
-    if (showLeaveRoomDialog && roomStateInfo != null) {
+    if (showLeaveRoomDialog && roomState != null) {
         AlertDialog(
             onDismissRequest = { showLeaveRoomDialog = false },
             title = {
@@ -642,7 +623,7 @@ fun RoomInfoScreen(
                 ) {
                     Text("Are you sure you want to leave")
                     Text(
-                        text = roomStateInfo!!.name ?: roomStateInfo!!.canonicalAlias ?: "Unknown Room",
+                        text = roomState!!.name ?: roomState!!.canonicalAlias ?: "Unknown Room",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                     )
@@ -687,17 +668,17 @@ fun RoomInfoScreen(
     }
 
     // Power Levels Dialog
-    if (showPowerLevelsDialog && roomStateInfo?.powerLevels != null) {
+    if (showPowerLevelsDialog && roomState?.powerLevels != null) {
         PowerLevelsDialog(
-            powerLevels = roomStateInfo!!.powerLevels!!,
+            powerLevels = roomState!!.powerLevels!!,
             onDismiss = { showPowerLevelsDialog = false },
         )
     }
 
     // Server ACL Dialog
-    if (showServerAclDialog && roomStateInfo?.serverAcl != null) {
+    if (showServerAclDialog && roomState?.serverAcl != null) {
         ServerAclDialog(
-            serverAcl = roomStateInfo!!.serverAcl!!,
+            serverAcl = roomState!!.serverAcl!!,
             onDismiss = { showServerAclDialog = false },
         )
     }
@@ -762,15 +743,15 @@ fun RoomInfoScreen(
                         "RoomInfoScreen: Refreshing room state after unpin",
                     )
                 }
-                appViewModel.requestRoomStateWithMembers(roomId) { stateInfo, error ->
+                appViewModel.requestRoomStateWithMembers(roomId) { state, members, error ->
                     if (error != null) {
                         android.util.Log.e("Andromuks", "RoomInfoScreen: Error refreshing room state: $error")
                         pinnedError = error
                         isPinnedLoading = false
                     } else {
-                        // Update roomStateInfo with fresh data
-                        roomStateInfo = stateInfo
-                        val pinnedIds = stateInfo?.pinnedEventIds ?: emptyList()
+                        roomState = state
+                        roomMembers = members
+                        val pinnedIds = state?.pinnedEventIds ?: emptyList()
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d(
                                 "Andromuks",
@@ -827,17 +808,17 @@ fun RoomInfoScreen(
     if (showPushRulesDialog) {
         RoomPushRulesDialog(
             roomId = roomId,
-            roomName = roomStateInfo?.name ?: roomStateInfo?.canonicalAlias ?: roomId,
+            roomName = roomState?.name ?: roomState?.canonicalAlias ?: roomId,
             appViewModel = appViewModel,
             onDismiss = { showPushRulesDialog = false },
         )
     }
 
     // Members Dialog
-    if (showMembersDialog && roomStateInfo != null) {
+    if (showMembersDialog && roomState != null) {
         MembersDialog(
-            members = roomStateInfo!!.members,
-            powerLevels = roomStateInfo!!.powerLevels,
+            members = roomMembers,
+            powerLevels = roomState!!.powerLevels,
             memberMap = memberMap,
             memberSearchQuery = memberDialogSearchQuery,
             onSearchQueryChange = { memberDialogSearchQuery = it },
@@ -1627,223 +1608,4 @@ fun ServerAclDialog(serverAcl: ServerAclInfo, onDismiss: () -> Unit) {
             }
         },
     )
-}
-
-/**
- * Extract topic text from MSC-style content: m.topic.m.text[0].body
- */
-private fun extractTopicFromMTopicContent(content: JSONObject?): String? {
-    if (content == null) return null
-    val mTopic = content.optJSONObject("m.topic") ?: return null
-    val mText = mTopic.optJSONArray("m.text") ?: return null
-    if (mText.length() == 0) return null
-    val first = mText.optJSONObject(0) ?: return null
-    return first.optString("body").takeIf { it.isNotBlank() }
-}
-
-/**
- * Parse room state response from the server
- */
-fun parseRoomStateResponse(data: Any): RoomStateInfo? {
-    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "parseRoomStateResponse: Parsing room state response")
-
-    try {
-        val eventsArray = when (data) {
-            is org.json.JSONArray -> {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "parseRoomStateResponse: Received JSONArray with ${data.length()} events",
-                    )
-                }
-                data
-            }
-
-            is List<*> -> {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "parseRoomStateResponse: Received List with ${data.size} events, converting to JSONArray",
-                    )
-                }
-                // Convert list to JSONArray
-                val jsonArray = org.json.JSONArray()
-                data.forEach { jsonArray.put(it) }
-                jsonArray
-            }
-
-            else -> {
-                android.util.Log.e("Andromuks", "parseRoomStateResponse: Unexpected data type: ${data.javaClass}")
-                return null
-            }
-        }
-
-        var roomId = ""
-        var name: String? = null
-        var topic: String? = null
-        var avatarUrl: String? = null
-        var canonicalAlias: String? = null
-        val altAliases = mutableListOf<String>()
-        val pinnedEventIds = mutableListOf<String>()
-        var creator: String? = null
-        var roomVersion: String? = null
-        var historyVisibility: String? = null
-        var joinRule: String? = null
-        val members = mutableListOf<RoomMember>()
-        var powerLevels: PowerLevelsInfo? = null
-        var serverAcl: ServerAclInfo? = null
-        var parentSpace: String? = null
-        var urlPreviewsDisabled: Boolean? = null
-
-        // Use a map to deduplicate members by userId (keep latest state for each user)
-        val membersMap = mutableMapOf<String, RoomMember>()
-        var totalMemberEvents = 0
-        var joinedMemberEvents = 0
-
-        for (i in 0 until eventsArray.length()) {
-            val event = eventsArray.optJSONObject(i) ?: continue
-
-            // Extract room ID from first event
-            if (roomId.isEmpty()) {
-                roomId = event.optString("room_id", "")
-            }
-
-            val type = event.optString("type", "")
-            val content = event.optJSONObject("content")
-
-            when (type) {
-                "m.room.name" -> {
-                    name = content?.optString("name")
-                }
-
-                "m.room.topic" -> {
-                    topic = parseRoomTopic(content)
-                }
-
-                "m.room.avatar" -> {
-                    avatarUrl = content?.optString("url")
-                }
-
-                "m.room.canonical_alias" -> {
-                    canonicalAlias = content?.optString("alias")
-                    val altAliasesArray = content?.optJSONArray("alt_aliases")
-                    if (altAliasesArray != null) {
-                        for (j in 0 until altAliasesArray.length()) {
-                            altAliases.add(altAliasesArray.optString(j))
-                        }
-                    }
-                }
-
-                "m.room.pinned_events" -> {
-                    pinnedEventIds.clear()
-                    val pinnedArray = content?.optJSONArray("pinned")
-                    if (pinnedArray != null) {
-                        for (j in 0 until pinnedArray.length()) {
-                            val eventId = pinnedArray.optString(j)
-                            if (!eventId.isNullOrBlank()) {
-                                pinnedEventIds.add(eventId)
-                            }
-                        }
-                    }
-                }
-
-                "m.room.create" -> {
-                    creator = event.optString("sender")
-                    roomVersion = content?.optString("room_version")
-                }
-
-                "m.room.history_visibility" -> {
-                    historyVisibility = content?.optString("history_visibility")
-                }
-
-                "m.room.join_rules" -> {
-                    joinRule = content?.optString("join_rule")
-                }
-
-                "m.room.member" -> {
-                    totalMemberEvents++
-                    val userId = event.optString("state_key", "")
-                    if (userId.isNotEmpty()) {
-                        val displayName = content?.optString("displayname")
-                        val memberAvatarUrl = content?.optString("avatar_url")
-                        val membership = content?.optString("membership", "leave") ?: "leave"
-
-                        // Include ALL members (joined, invited, left, banned) to show complete room state
-                        // Use map to deduplicate by userId (keep latest state for each user)
-                        if (membership == "join") {
-                            joinedMemberEvents++
-                        }
-
-                        // Store all members regardless of membership status
-                        // This allows RoomInfo screen to show invited users, etc.
-                        membersMap[userId] = RoomMember(
-                            userId = userId,
-                            displayName = displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(userId),
-                            avatarUrl = memberAvatarUrl?.takeIf { it.isNotBlank() },
-                            membership = membership,
-                        )
-                    }
-                }
-
-                "m.room.power_levels" -> {
-                    powerLevels = parsePowerLevels(content)
-                }
-
-                "m.room.server_acl" -> {
-                    serverAcl = parseServerAcl(content)
-                }
-
-                "m.space.parent" -> {
-                    parentSpace = event.optString("state_key")
-                }
-
-                "org.matrix.room.preview_urls" -> {
-                    urlPreviewsDisabled = content?.optBoolean("disable", false)
-                }
-            }
-        }
-
-        // Convert map to list and sort members alphabetically by display name
-        // Sort by membership status first (joined first, then invited, then others), then by name
-        members.addAll(membersMap.values)
-        members.sortWith(
-            compareBy<RoomMember>(
-                { it.membership != "join" }, // Joined members first
-                { it.membership != "invite" }, // Then invited
-                { it.displayName?.lowercase() ?: it.userId.lowercase() }, // Then alphabetically
-            ),
-        )
-
-        val invitedCount = members.count { it.membership == "invite" }
-        val leftCount = members.count { it.membership == "leave" }
-        val bannedCount = members.count { it.membership == "ban" }
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "Andromuks",
-                "parseRoomStateResponse: Parsed ${members.size} total members from $totalMemberEvents member events: $joinedMemberEvents joined, $invitedCount invited, $leftCount left, $bannedCount banned",
-            )
-        }
-
-        return RoomStateInfo(
-            roomId = roomId,
-            name = name,
-            topic = topic,
-            avatarUrl = avatarUrl,
-            canonicalAlias = canonicalAlias,
-            altAliases = altAliases,
-            pinnedEventIds = pinnedEventIds,
-            creator = creator,
-            roomVersion = roomVersion,
-            historyVisibility = historyVisibility,
-            joinRule = joinRule,
-            members = members,
-            powerLevels = powerLevels,
-            serverAcl = serverAcl,
-            parentSpace = parentSpace,
-            urlPreviewsDisabled = urlPreviewsDisabled,
-        )
-    } catch (e: Exception) {
-        android.util.Log.e("Andromuks", "parseRoomStateResponse: Error parsing room state", e)
-        return null
-    }
 }
