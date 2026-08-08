@@ -123,11 +123,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         // POST_NOTIFICATIONS is requested via the app's permission flow; posting without it is a
         // silent no-op on API 33+ (no crash). Lint can't see the request, so suppress the FP.
         @SuppressLint("MissingPermission")
-        fun refreshGroupSummary(
-            context: Context,
-            justPostedChild: Boolean = false,
-            justCancelledIds: Set<Int> = emptySet(),
-        ) {
+        fun refreshGroupSummary(context: Context, justPostedChild: Boolean = false, justCancelledIds: Set<Int> = emptySet()) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return
             val systemNm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val nmc = NotificationManagerCompat.from(context)
