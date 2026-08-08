@@ -9757,6 +9757,15 @@ class AppViewModel : ViewModel() {
             urlPreviewsDisabled = urlPreviewsDisabled,
         )
 
+        // Publish to the per-room store: parsed state into RAM for every reader, raw state events
+        // into the LRU tier and onto disk. This is what survives a room switch — currentRoomState
+        // below is a single-room slot, and everything that needed another room's state (or this
+        // room's, after a switch) previously had nothing to read.
+        //
+        // Replaces rather than merges, which is only correct because get_room_state returns the
+        // room's COMPLETE state: an event missing from `events` has genuinely been removed.
+        net.vrkknn.andromuks.utils.RoomStateStore.ingestFullState(roomId, events, roomState)
+
         // Persist raw m.room.name / m.room.avatar values from this state snapshot so cold-start
         // UIs (bubbles, shortcuts, notification taps) can render the room before sync_complete.
         // Uses null/"" semantics from RoomMetadataStore — null args here mean "don't touch".
