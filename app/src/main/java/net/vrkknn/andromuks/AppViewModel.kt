@@ -9728,8 +9728,14 @@ class AppViewModel : ViewModel() {
         // Persist raw m.room.name / m.room.avatar values from this state snapshot so cold-start
         // UIs (bubbles, shortcuts, notification taps) can render the room before sync_complete.
         // Uses null/"" semantics from RoomMetadataStore — null args here mean "don't touch".
-        if (name != null || avatarUrl != null) {
-            net.vrkknn.andromuks.utils.RoomMetadataStore.upsertNameAvatar(roomId, name, avatarUrl)
+        //
+        // The roomId guard matches RoomListCache.metaUpdateFor, the other writer of this column:
+        // a name equal to the room id is the parser's "couldn't resolve one" fallback, and
+        // persisting it makes the cold-start paint show a raw !abc:example.org. The two writers
+        // disagreeing on that rule meant which one ran last decided what cold start displayed.
+        val persistableName = name?.takeIf { it != roomId }
+        if (persistableName != null || avatarUrl != null) {
+            net.vrkknn.andromuks.utils.RoomMetadataStore.upsertNameAvatar(roomId, persistableName, avatarUrl)
         }
 
         // Extract bridge protocol avatar URL for room list badge display. Uses the full
