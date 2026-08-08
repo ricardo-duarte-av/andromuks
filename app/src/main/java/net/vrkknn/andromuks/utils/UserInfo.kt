@@ -836,39 +836,18 @@ fun UserInfoScreen(
         }
     }
 
-    // Calculate power levels for current user and target user
-    val myPowerLevel = remember(roomPowerLevels, myUserId) {
-        if (roomPowerLevels != null && myUserId.isNotBlank()) {
-            roomPowerLevels!!.users[myUserId] ?: roomPowerLevels!!.usersDefault
-        } else {
-            0
-        }
+    // Moderation actions. Kick and ban additionally require outranking the target; redact does not
+    // — it is a flat check against the room's redact level.
+    val canKick = remember(roomPowerLevels, myUserId, userId) {
+        RoomPermissions.canKick(roomPowerLevels, myUserId, userId)
     }
 
-    val targetUserPowerLevel = remember(roomPowerLevels, userId) {
-        if (roomPowerLevels != null) {
-            roomPowerLevels!!.users[userId] ?: roomPowerLevels!!.usersDefault
-        } else {
-            0
-        }
+    val canBan = remember(roomPowerLevels, myUserId, userId) {
+        RoomPermissions.canBan(roomPowerLevels, myUserId, userId)
     }
 
-    // Check if moderation actions are allowed
-    val canKick = remember(roomPowerLevels, myPowerLevel, targetUserPowerLevel) {
-        roomPowerLevels != null &&
-            myPowerLevel >= roomPowerLevels!!.kick &&
-            myPowerLevel > targetUserPowerLevel
-    }
-
-    val canBan = remember(roomPowerLevels, myPowerLevel, targetUserPowerLevel) {
-        roomPowerLevels != null &&
-            myPowerLevel >= roomPowerLevels!!.ban &&
-            myPowerLevel > targetUserPowerLevel
-    }
-
-    // redact PL is minimum PL to redact others' messages; no need to be above target's PL.
-    val canRedact = remember(roomPowerLevels, myPowerLevel) {
-        roomPowerLevels != null && myPowerLevel >= roomPowerLevels!!.redact
+    val canRedact = remember(roomPowerLevels, myUserId) {
+        RoomPermissions.canRedactAsModerator(roomPowerLevels, myUserId)
     }
 
     // CRITICAL FIX: Always request fresh profile data from backend (never use cache)
