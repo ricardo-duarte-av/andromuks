@@ -196,6 +196,7 @@ import net.vrkknn.andromuks.utils.PerMessageProfileEntry
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
+import net.vrkknn.andromuks.utils.RoomPermissions
 import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
@@ -861,20 +862,11 @@ fun RoomTimelineScreen(
 
     // Permission to send messages based on power levels
     val canSendMessage = remember(currentRoomState, myUserId) {
-        val pl = currentRoomState?.powerLevels ?: return@remember true
-        val me = myUserId
-        if (me.isNullOrBlank()) return@remember true
-        val myPl = pl.users[me] ?: pl.usersDefault
-        // In E2EE rooms the client sends m.room.encrypted, so the homeserver enforces power
-        // levels against that event type — not m.room.message (which never reaches the server).
-        val messageEventType =
-            if ((currentRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId)) == true) {
-                "m.room.encrypted"
-            } else {
-                "m.room.message"
-            }
-        val required = pl.events[messageEventType] ?: pl.eventsDefault
-        myPl >= required
+        RoomPermissions.canSendMessage(
+            powerLevels = currentRoomState?.powerLevels,
+            userId = myUserId,
+            isEncrypted = currentRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId),
+        )
     }
 
     // Track batch processing state (Catching up)

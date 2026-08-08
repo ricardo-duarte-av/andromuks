@@ -131,6 +131,7 @@ import net.vrkknn.andromuks.utils.PerMessageProfileChip
 import net.vrkknn.andromuks.utils.PerMessageProfileDefaultChip
 import net.vrkknn.andromuks.utils.PerMessageProfileEntry
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
+import net.vrkknn.andromuks.utils.RoomPermissions
 import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
@@ -613,19 +614,11 @@ fun ThreadViewerScreen(
     // Messages typed while the WebSocket is down are buffered and sent on reconnect,
     // so we only gate the input on send permission.
     val canSendMessage = remember(appViewModel.currentRoomState, myUserId) {
-        val pl = appViewModel.currentRoomState?.powerLevels ?: return@remember true
-        if (myUserId.isBlank()) return@remember true
-        val myPl = pl.users[myUserId] ?: pl.usersDefault
-        // In E2EE rooms the client sends m.room.encrypted, so the homeserver enforces power
-        // levels against that event type — not m.room.message (which never reaches the server).
-        val messageEventType =
-            if ((appViewModel.currentRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId)) == true) {
-                "m.room.encrypted"
-            } else {
-                "m.room.message"
-            }
-        val required = pl.events[messageEventType] ?: pl.eventsDefault
-        myPl >= required
+        RoomPermissions.canSendMessage(
+            powerLevels = appViewModel.currentRoomState?.powerLevels,
+            userId = myUserId,
+            isEncrypted = appViewModel.currentRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId),
+        )
     }
     val isInputEnabled = canSendMessage
 
