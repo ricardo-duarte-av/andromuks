@@ -151,11 +151,32 @@ object RoomMetadataStore {
                 val db = helper!!.writableDatabase
                 db.enableWriteAheadLogging()
                 hydrateMirrorFromDisk(db)
+                RoomStateStore.hydrateFromDisk(db)
             } catch (t: Throwable) {
                 Log.w(TAG, "initialize failed", t)
             }
         }
     }
+
+    /**
+     * The shared database handle, for the sibling stores that live in this file's tables.
+     *
+     * Null until [initialize] has run — callers must treat that as "not ready, skip the write"
+     * exactly as the metadata write path does, never as an error.
+     */
+    internal fun writableDbOrNull(): SQLiteDatabase? = try {
+        helper?.writableDatabase
+    } catch (t: Throwable) {
+        Log.w(TAG, "writableDatabase failed", t)
+        null
+    }
+
+    /**
+     * The shared IO scope. Sibling stores reuse this rather than creating their own: it is
+     * process-lifetime and deliberately never cancelled, so a write in flight cannot be killed by
+     * navigation or ViewModel teardown.
+     */
+    internal val sharedIoScope: CoroutineScope get() = ioScope
 
     private fun hydrateMirrorFromDisk(db: SQLiteDatabase) {
         db.query(
