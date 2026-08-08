@@ -253,87 +253,39 @@ class FCMService : FirebaseMessagingService() {
                     val jsonObject = JSONObject(decryptedPayload)
                     if (BuildConfig.DEBUG) Log.d(TAG, "Decrypted JSON keys: ${jsonObject.keys().asSequence().toList()}")
 
-                    // Handle different payload types
-                    when {
-                        jsonObject.has("messages") -> {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Processing message notification payload")
-                            handleMessageNotification(jsonObject)
-                        }
+                    // gomuks' PushNotification struct carries BOTH arrays, each `omitempty`:
+                    //
+                    //   Dismiss     []PushDismiss     `json:"dismiss,omitempty"`
+                    //   RawMessages []json.RawMessage `json:"messages,omitempty"`
+                    //
+                    // so a single push can announce new messages for one room AND dismiss another.
+                    // This used to be a `when` that checked "messages" first, which meant every
+                    // dismiss batched alongside a message was silently discarded — with no tombstone
+                    // and no retry, so those notifications piled up forever. A dismiss-only payload
+                    // has no "messages" key at all (omitempty), which is why the bug only showed up
+                    // when reading rooms elsewhere while other rooms were still active.
+                    val dismissCount = jsonObject.optJSONArray("dismiss")?.length()
+                    val messageCount = jsonObject.optJSONArray("messages")?.length()
+                    Androlog(
+                        "Notifications",
+                        "Push payload received: dismiss=${dismissCount ?: "-"} messages=${messageCount ?: "-"}",
+                    )
 
-                        jsonObject.has("dismiss") -> {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Processing dismiss notification payload")
-                            handleDismissNotification(jsonObject)
-                        }
-
-                        else -> {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Unknown payload type, trying legacy parsing")
-                            // Try legacy parsing for backward compatibility
-                            val jsonDataMap = mutableMapOf<String, String>()
-                            jsonObject.keys().forEach { key ->
-                                jsonDataMap[key] = jsonObject.getString(key)
-                            }
-
-                            val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
-                            if (notificationData != null) {
-                                // Check if room is marked as low priority - skip notifications for low priority rooms
-                                val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                                val lowPriorityRooms = sharedPrefs.getStringSet(
-                                    "low_priority_rooms",
-                                    emptySet(),
-                                ) ?: emptySet()
-
-                                if (lowPriorityRooms.contains(notificationData.roomId)) {
-                                    if (BuildConfig.DEBUG) {
-                                        Log.d(
-                                            TAG,
-                                            "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})",
-                                        )
-                                    }
-                                } else if (shouldSuppressNotification(notificationData.roomId)) {
-                                    if (BuildConfig.DEBUG) {
-                                        Log.d(
-                                            TAG,
-                                            "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground",
-                                        )
-                                    }
-                                } else {
-                                    // RACE CONDITION FIX: Mark notification as pending before showing
-                                    synchronized(pendingNotificationsLock) {
-                                        pendingNotifications.add(notificationData.roomId)
-                                    }
-
-                                    try {
-                                        val wasCancelled = synchronized(pendingNotificationsLock) {
-                                            !pendingNotifications.contains(notificationData.roomId)
-                                        }
-                                        if (!wasCancelled) {
-                                            withContext(NonCancellable) {
-                                                ensureNotificationDisplay()?.showEnhancedNotification(notificationData)
-                                                synchronized(pendingNotificationsLock) {
-                                                    pendingNotifications.remove(notificationData.roomId)
-                                                }
-                                                hydrateTimelineCacheFromNotification(
-                                                    notificationData.roomId,
-                                                    notificationData.eventId,
-                                                )
-                                            }
-                                        } else {
-                                            if (BuildConfig.DEBUG) {
-                                                Log.d(
-                                                    TAG,
-                                                    "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping",
-                                                )
-                                            }
-                                        }
-                                    } catch (e: Exception) {
-                                        Log.e(TAG, "Error showing enhanced notification (legacy path)", e)
-                                        synchronized(pendingNotificationsLock) {
-                                            pendingNotifications.remove(notificationData.roomId)
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                    // Dismisses run FIRST. handleMessageNotification stamps each message with its
+                    // own messageReceivedAt (see the tombstone high-water mark in
+                    // NotificationDismissTracker); recording the dismisses before those stamps are
+                    // taken makes a room present in both arrays resolve deterministically instead
+                    // of depending on which loop happened to run first.
+                    if (dismissCount != null) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Processing dismiss notification payload")
+                        handleDismissNotification(jsonObject)
+                    }
+                    if (messageCount != null) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Processing message notification payload")
+                        handleMessageNotification(jsonObject)
+                    }
+                    if (dismissCount == null && messageCount == null) {
+                        handleLegacyNotification(jsonObject)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error parsing decrypted payload", e)
@@ -465,6 +417,79 @@ class FCMService : FirebaseMessagingService() {
         }
 
         return shouldSuppress
+    }
+
+    /**
+     * Handle a payload carrying neither a `messages` nor a `dismiss` array, by parsing it as a
+     * flat key/value notification. Kept for backward compatibility with older backends; extracted
+     * from the payload router so that router stays readable.
+     */
+    private suspend fun handleLegacyNotification(jsonObject: JSONObject) {
+        if (BuildConfig.DEBUG) Log.d(TAG, "Unknown payload type, trying legacy parsing")
+        val jsonDataMap = mutableMapOf<String, String>()
+        jsonObject.keys().forEach { key ->
+            jsonDataMap[key] = jsonObject.getString(key)
+        }
+
+        val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap) ?: return
+
+        // Check if room is marked as low priority - skip notifications for low priority rooms
+        val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+        val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
+
+        if (lowPriorityRooms.contains(notificationData.roomId)) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    TAG,
+                    "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})",
+                )
+            }
+            return
+        }
+        if (shouldSuppressNotification(notificationData.roomId)) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    TAG,
+                    "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground",
+                )
+            }
+            return
+        }
+
+        // RACE CONDITION FIX: Mark notification as pending before showing
+        synchronized(pendingNotificationsLock) {
+            pendingNotifications.add(notificationData.roomId)
+        }
+
+        try {
+            val wasCancelled = synchronized(pendingNotificationsLock) {
+                !pendingNotifications.contains(notificationData.roomId)
+            }
+            if (!wasCancelled) {
+                withContext(NonCancellable) {
+                    ensureNotificationDisplay()?.showEnhancedNotification(notificationData)
+                    synchronized(pendingNotificationsLock) {
+                        pendingNotifications.remove(notificationData.roomId)
+                    }
+                    hydrateTimelineCacheFromNotification(
+                        notificationData.roomId,
+                        notificationData.eventId,
+                    )
+                }
+            } else {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping",
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error showing enhanced notification (legacy path)", e)
+            synchronized(pendingNotificationsLock) {
+                pendingNotifications.remove(notificationData.roomId)
+            }
+        }
     }
 
     /**
