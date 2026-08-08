@@ -153,6 +153,7 @@ object RoomTimelineCache {
 
                 // Clear timeline cache for this room
                 roomsInitialized.remove(roomId)
+                roomEncryption.remove(roomId)
                 roomCache.events.clear()
                 roomCache.eventIds.clear()
                 // Stop feeding sync events into a room we just evicted. clearRoomCache does
@@ -227,6 +228,39 @@ object RoomTimelineCache {
     // When a room is opened and paginated, it's marked as cached. When WebSocket reconnects, all are marked as needing pagination.
     private val activelyCachedRooms = mutableSetOf<String>()
     private val cacheStateLock = Any()
+
+    /**
+     * Per-room encryption flag, as reported by get_room_state.
+     *
+     * This lives here rather than only in AppViewModel.currentRoomState because that is a
+     * single-room slot which is nulled on every room switch (AppViewModel.kt "Clear stale room
+     * state when switching to a different room"), while this cache is per-room and outlives the
+     * switch. A room that has a timeline cache has already had its state requested, so its
+     * encryption status must survive at least as long as that cache does — otherwise the header
+     * falls back to "not encrypted" and paints an open padlock on an E2EE room.
+     *
+     * An absent key means "never fetched" (render as unknown, never as unencrypted). get_room_state
+     * always returns the complete room state, so a stored `false` is authoritative: the response
+     * genuinely contained no m.room.encryption event.
+     *
+     * Cleaned up alongside [roomsInitialized] / [activelyCachedRooms] on eviction and every clear
+     * path.
+     */
+    private val roomEncryption = mutableMapOf<String, Boolean>()
+
+    /** Records the authoritative encryption status of [roomId] from a get_room_state response. */
+    fun setRoomEncryption(roomId: String, isEncrypted: Boolean) {
+        synchronized(cacheLock) {
+            roomEncryption[roomId] = isEncrypted
+        }
+    }
+
+    /** Returns the cached encryption status of [roomId], or null if it was never fetched. */
+    fun getRoomEncryption(roomId: String): Boolean? {
+        synchronized(cacheLock) {
+            return roomEncryption[roomId]
+        }
+    }
 
     // Monotonic generation counter for the per-room freshness-probe mechanism. Bumped by every
     // markAllStale() (each intentional WebSocket drop). A probe captures the room's staleEpoch
@@ -1548,6 +1582,7 @@ object RoomTimelineCache {
                 roomEventsCache.remove(roomId)
                 roomsInitialized.remove(roomId)
                 activelyCachedRooms.remove(roomId)
+                roomEncryption.remove(roomId)
             }
 
             // Clean up all related caches for this room
@@ -1588,6 +1623,7 @@ object RoomTimelineCache {
             val allRoomIds = roomEventsCache.keys.toSet()
             roomEventsCache.clear()
             roomsInitialized.clear()
+            roomEncryption.clear()
 
             // Clear all related caches completely
             allRoomIds.forEach { ProfileCache.clearRoom(it) }
@@ -1625,6 +1661,7 @@ object RoomTimelineCache {
                     roomEventsCache.clear()
                     roomsInitialized.clear()
                     activelyCachedRooms.clear()
+                    roomEncryption.clear()
 
                     // Clear all related caches for all rooms
                     allRoomIds.forEach { ProfileCache.clearRoom(it) }
@@ -1668,6 +1705,11 @@ object RoomTimelineCache {
                     // pagination (no cache entry yet) must also be cleared so they stop
                     // receiving sync_complete event appends until the user explicitly opens them.
                     activelyCachedRooms.retainAll(openedRooms)
+
+                    // Same reasoning for the encryption flags: a room can have a cached flag with
+                    // no roomEventsCache entry (state fetched, timeline not yet paginated), so key
+                    // off the opened set rather than roomsToClear.
+                    roomEncryption.keys.retainAll(openedRooms)
 
                     // Clear event-specific caches for all cleared rooms' events.
                     // ReadReceiptCache is already cleared per-room above via clearRoom.
@@ -1893,6 +1935,7 @@ object RoomTimelineCache {
                     roomEventsCache.clear()
                     roomsInitialized.clear()
                     activelyCachedRooms.clear()
+                    roomEncryption.clear()
 
                     // Clear all related caches for all rooms
                     allRoomIds.forEach { ProfileCache.clearRoom(it) }
@@ -1927,6 +1970,10 @@ object RoomTimelineCache {
                         RoomMemberCache.clearRoom(roomId)
                         ReadReceiptCache.clearRoom(roomId)
                     }
+
+                    // Key off the opened set: a room can have a cached encryption flag with no
+                    // roomEventsCache entry (state fetched, timeline not yet paginated).
+                    roomEncryption.keys.retainAll(openedRooms)
 
                     // Clear event-specific caches for all cleared rooms' events
                     // ReadReceiptCache is already cleared per-room above via clearRoom.

@@ -112,7 +112,10 @@ data class RoomState(
     val canonicalAlias: String?,
     val topic: String?,
     val avatarUrl: String?,
-    val isEncrypted: Boolean = false,
+    // Tri-state: null means "we have never fetched this room's state", which must render as
+    // unknown rather than as an open padlock. A non-null value came from a get_room_state
+    // response, which always carries the complete room state and is therefore authoritative.
+    val isEncrypted: Boolean? = null,
     val powerLevels: PowerLevelsInfo? = null,
     val pinnedEventIds: List<String> = emptyList(),
     val bridgeInfo: BridgeInfo? = null,
