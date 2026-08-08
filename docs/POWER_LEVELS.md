@@ -2,7 +2,9 @@
 
 ## Parsing
 
-Power levels are parsed from `m.room.power_levels` state events into `PowerLevelsInfo` (`RoomItem.kt`) and stored on `RoomState.powerLevels`. Parsing happens in `AppViewModel.parseRoomStateFromEvents`.
+Power levels are parsed from `m.room.power_levels` state events into `PowerLevelsInfo` (`RoomItem.kt`) and stored on `RoomState.powerLevels`, which lives in `RoomStateStore` — see [ROOM_STATE.md](ROOM_STATE.md). Parsing happens once, in `utils/RoomStateParsing.kt` `parsePowerLevels`, called from `AppViewModel.parseCompleteRoomStateFromEvents`.
+
+There used to be **two** classes named `PowerLevelsInfo` and **three** parsers for them. The copy in `UserInfo` omitted `state_default`, so it fell back to the class default of 50 rather than the room's value — meaning `canPin` computed through that path compared against the wrong number in any room that sets `state_default`.
 
 ## Key Matrix Spec Rules
 
@@ -18,13 +20,18 @@ Power levels are parsed from `m.room.power_levels` state events into `PowerLevel
 
 ## `canPin` Computation
 
-Computed in `ReplyFunctions.kt` and `NarratorFunctions.kt` (shared by all timeline screens).
-
-Fallback chain for `pinnedEventsPowerLevel`:
+`RoomPermissions.canPin` (`utils/RoomPermissions.kt`), used by both message menus. Fallback chain:
 ```
 events["m.room.pinned_events"] ?: stateDefault ?: 50
 ```
 
+## Unknown power levels
+
+The fallback is deliberately **not uniform**. `canSendMessage` fails **open**; every moderation
+predicate fails **closed**. See the class doc in `RoomPermissions.kt` and `RoomPermissionsTest`.
+
 ## Known Gap
 
-Live `m.room.power_levels` timeline events are not yet propagated to update `currentRoomState.powerLevels`. Power levels are only set on initial room state load via `parseRoomStateFromEvents`.
+Live `m.room.power_levels` timeline events are still not propagated into the store — power levels are
+set from `get_room_state` responses only. They now at least survive a room switch and a cold start,
+so the window is "until the next state fetch" rather than "until you navigate away".
