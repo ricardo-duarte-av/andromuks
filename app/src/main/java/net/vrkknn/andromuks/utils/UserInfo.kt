@@ -681,9 +681,6 @@ fun UserInfoScreen(
     var banRedactRecentMessages by remember { mutableStateOf(false) } // OFF by default
     var banRedactSystemMessages by remember { mutableStateOf(true) }
 
-    // Room state and power levels (for moderation buttons)
-    var roomPowerLevels by remember { mutableStateOf<net.vrkknn.andromuks.PowerLevelsInfo?>(null) }
-
     // Ignore dialog state
     var showIgnoreDialog by remember { mutableStateOf(false) }
     var isUserIgnored by remember { mutableStateOf(false) }
@@ -771,6 +768,27 @@ fun UserInfoScreen(
         checkContactStatus()
     }
 
+    // Power levels for the moderation buttons, read straight from the per-room store.
+    //
+    // This used to request room state and then poll appViewModel.getRoomState() five times at 300ms
+    // — against roomStatesCache, which is never written, so the loop always ran its full 1.5s and
+    // always ended with null. The buttons only ever appeared when the profile was opened from the
+    // room that happened to be open, because that path read currentRoomState instead.
+    //
+    // The store answers for any room, and is snapshot-backed, so a response arriving later
+    // recomposes this without a polling loop.
+    val roomPowerLevels = effectiveRoomId?.let {
+        net.vrkknn.andromuks.utils.RoomStateStore.getParsed(it)?.powerLevels
+    }
+
+    // Refresh regardless of what the cache had: the stored copy is always treated as possibly
+    // stale. requestRoomState de-duplicates in-flight requests, so this cannot pile up.
+    LaunchedEffect(effectiveRoomId) {
+        if (effectiveRoomId != null) {
+            appViewModel.requestRoomState(effectiveRoomId)
+        }
+    }
+
     // Debug logging for moderation buttons visibility
     LaunchedEffect(effectiveRoomId, myUserId, userId, roomPowerLevels) {
         if (BuildConfig.DEBUG) {
@@ -778,61 +796,6 @@ fun UserInfoScreen(
                 "Andromuks",
                 "UserInfoScreen: Moderation buttons check - effectiveRoomId=$effectiveRoomId, myUserId=$myUserId, userId=$userId, roomPowerLevels=${roomPowerLevels != null}, willShow=${effectiveRoomId != null && myUserId != userId}",
             )
-        }
-    }
-
-    // Get power levels from current room state if available (same room)
-    val currentRoomState = appViewModel.currentRoomState
-    val powerLevelsFromCurrentRoom = remember(effectiveRoomId, currentRoomState) {
-        if (effectiveRoomId != null && currentRoomState?.roomId == effectiveRoomId) {
-            currentRoomState.powerLevels
-        } else {
-            null
-        }
-    }
-
-    // Request room state to get power levels (for moderation buttons)
-    LaunchedEffect(effectiveRoomId) {
-        if (effectiveRoomId != null) {
-            // First check if we already have power levels from current room state
-            if (powerLevelsFromCurrentRoom != null) {
-                roomPowerLevels = powerLevelsFromCurrentRoom
-                return@LaunchedEffect
-            }
-
-            // Otherwise, request room state and parse power levels
-            appViewModel.requestRoomState(effectiveRoomId)
-
-            // Try multiple times with delays to get the state
-            var attempts = 0
-            while (attempts < 5 && roomPowerLevels == null) {
-                delay(300)
-                val roomStateJson = appViewModel.getRoomState(effectiveRoomId)
-                if (roomStateJson != null) {
-                    // Parse power levels from the state events
-                    for (i in 0 until roomStateJson.length()) {
-                        val event = roomStateJson.optJSONObject(i)
-                        if (event?.optString("type") == "m.room.power_levels") {
-                            val content = event.optJSONObject("content")
-                            if (content != null) {
-                                roomPowerLevels = parsePowerLevels(content)
-                                break
-                            }
-                        }
-                    }
-                    if (roomPowerLevels != null) break
-                }
-                attempts++
-            }
-        } else {
-            roomPowerLevels = null
-        }
-    }
-
-    // Also update when current room state changes (if it's the same room)
-    LaunchedEffect(powerLevelsFromCurrentRoom) {
-        if (powerLevelsFromCurrentRoom != null) {
-            roomPowerLevels = powerLevelsFromCurrentRoom
         }
     }
 
