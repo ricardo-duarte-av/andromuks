@@ -1091,13 +1091,7 @@ fun MessageBubbleWithMenu(
     // Calculate power level permissions (works for both e2ee and non-e2ee rooms)
     // Matrix: "redact" is the minimum PL to redact *others'* messages. You can always redact your own.
     // If my PL >= redact PL, we can redact anyone's messages (no comparison to sender's PL).
-    val myPowerLevel = if (myUserId != null && effectivePowerLevels != null) {
-        effectivePowerLevels.users[myUserId] ?: effectivePowerLevels.usersDefault
-    } else {
-        0
-    }
-    val redactPowerLevel = effectivePowerLevels?.redact ?: 50
-    val canRedactOthersMessages = myPowerLevel >= redactPowerLevel
+    val canRedactOthersMessages = RoomPermissions.canRedactOthers(effectivePowerLevels, myUserId)
 
     // Determine which buttons to show (same logic for m.room.message and m.room.encrypted)
     // Own messages: always edit/delete (server allows redacting own events without redact PL).
@@ -1138,14 +1132,8 @@ fun MessageBubbleWithMenu(
     val isPinned = remember(roomId, currentRoomState?.pinnedEventIds, event.eventId) {
         currentRoomState?.pinnedEventIds?.contains(event.eventId) ?: false
     }
-    val pinnedEventsPowerLevel = remember(effectivePowerLevels) {
-        // m.room.pinned_events is a state event: fall back to state_default (50), not events_default (0)
-        effectivePowerLevels?.events?.get("m.room.pinned_events")
-            ?: effectivePowerLevels?.stateDefault
-            ?: 50
-    }
-    val canPin = remember(myPowerLevel, pinnedEventsPowerLevel) {
-        myPowerLevel >= pinnedEventsPowerLevel
+    val canPin = remember(effectivePowerLevels, myUserId) {
+        RoomPermissions.canPin(effectivePowerLevels, myUserId)
     }
     val canUnpin = canPin
 
@@ -1214,8 +1202,6 @@ fun MessageBubbleWithMenu(
             onShowMenu?.invoke(menuConfig)
         }
     }
-
-    // android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
 
     // Detect dark mode for custom shadow/glow
     val isDarkMode = isSystemInDarkTheme()
