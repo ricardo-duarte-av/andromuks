@@ -5,6 +5,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.compose.runtime.IntState
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.isPollSatelliteEvent
 import net.vrkknn.andromuks.utils.isReactionEvent
@@ -245,8 +246,14 @@ object RoomTimelineCache {
      *
      * Cleaned up alongside [roomsInitialized] / [activelyCachedRooms] on eviction and every clear
      * path.
+     *
+     * Snapshot-backed, unlike its sibling maps: a composable that reads one room's entry subscribes
+     * to that key alone, so a late get_room_state response recomposes the room header (and the call
+     * overlay, which must not build its join URL claiming a room is unencrypted) without waking
+     * every other reader. [cacheStateCounter] would be the wrong tool here — it is a single counter
+     * and initial load sets this once per room.
      */
-    private val roomEncryption = mutableMapOf<String, Boolean>()
+    private val roomEncryption = mutableStateMapOf<String, Boolean>()
 
     /** Records the authoritative encryption status of [roomId] from a get_room_state response. */
     fun setRoomEncryption(roomId: String, isEncrypted: Boolean) {
