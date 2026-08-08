@@ -809,7 +809,6 @@ class FCMService : FirebaseMessagingService() {
             if (BuildConfig.DEBUG) Log.d(TAG, "Found ${dismissArray.length()} dismiss requests")
 
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val notificationManagerCompat = NotificationManagerCompat.from(this)
 
             // Every id we cancel in this batch, refreshed into the group summary ONCE after the
             // loop. cancel() is asynchronous across the binder, so refreshing per room made each
@@ -860,15 +859,10 @@ class FCMService : FirebaseMessagingService() {
                         // Record the dismiss even though nothing is on screen: a message post for
                         // this room may still be in flight (Race 1). The tombstone lets that post
                         // suppress itself when it reaches its guarded notify().
-                        synchronized(NotificationDismissTracker.lockFor(roomId)) {
-                            NotificationDismissTracker.recordDismiss(roomId)
-                            EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
-                            notificationManagerCompat.cancel(notifID)
-                        }
-                        cancelledIds += notifID
-                        Androlog(
-                            "Notifications",
-                            "Room $roomId: dismiss recorded (no active notification — cancel-anyway / in-flight guard)",
+                        cancelledIds += EnhancedNotificationDisplay.dismissRoomNotification(
+                            this,
+                            roomId,
+                            reason = "no active notification — cancel-anyway / in-flight guard",
                         )
                     }
                     continue
@@ -886,15 +880,10 @@ class FCMService : FirebaseMessagingService() {
                         pendingNotifications.remove(roomId)
                     }
                     // Also cancel the notification ID in case it gets posted before we finish
-                    synchronized(NotificationDismissTracker.lockFor(roomId)) {
-                        NotificationDismissTracker.recordDismiss(roomId)
-                        EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
-                        notificationManagerCompat.cancel(notifID)
-                    }
-                    cancelledIds += notifID
-                    Androlog(
-                        "Notifications",
-                        "Room $roomId: dismiss recorded (pending notification cancelled before post)",
+                    cancelledIds += EnhancedNotificationDisplay.dismissRoomNotification(
+                        this,
+                        roomId,
+                        reason = "pending notification cancelled before post",
                     )
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully cancelled pending notification for room: $roomId")
                     continue
@@ -968,13 +957,11 @@ class FCMService : FirebaseMessagingService() {
                     // next notification for this room starts fresh and does not re-display
                     // messages the user has already acknowledged.
                     if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - Dismissing notification (no active bubble)")
-                    synchronized(NotificationDismissTracker.lockFor(roomId)) {
-                        NotificationDismissTracker.recordDismiss(roomId)
-                        EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
-                        notificationManagerCompat.cancel(notifID)
-                    }
-                    cancelledIds += notifID
-                    Androlog("Notifications", "Room $roomId: notification dismissed (active, no bubble)")
+                    cancelledIds += EnhancedNotificationDisplay.dismissRoomNotification(
+                        this,
+                        roomId,
+                        reason = "active, no bubble",
+                    )
                     if (BuildConfig.DEBUG) Log.d(TAG, "Successfully dismissed notification for room: $roomId")
                 }
 

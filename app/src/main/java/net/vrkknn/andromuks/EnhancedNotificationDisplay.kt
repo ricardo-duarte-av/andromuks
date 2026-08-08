@@ -203,6 +203,35 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             refreshGroupSummary(context, justPostedChild = false, justCancelledIds = setOf(justCancelledId))
 
         /**
+         * The one way to take a room's notification down. Records the dismiss tombstone, drops the
+         * cached MessagingStyle history and cancels — all three under the room monitor, which is
+         * what makes this safe against a concurrent post.
+         *
+         * Every cancel site must go through here. The ones that didn't (the shade Mark-read and
+         * Mute receivers, [updateNotificationAsRead], [clearNotificationForRoom]) skipped
+         * [NotificationDismissTracker.recordDismiss] and ran outside [NotificationDismissTracker.lockFor],
+         * so a [NotificationImageWorker] mid-download passed its "was this dismissed?" guard and
+         * re-posted the notification seconds later. Mark-read additionally skipped the cache clear,
+         * so already-read lines replayed in the room's next notification.
+         *
+         * Does **not** refresh the group summary — the caller does, so a batch can reconcile once
+         * with every cancelled id (see [refreshGroupSummary]).
+         *
+         * @return the cancelled notification id, for the caller's summary refresh.
+         */
+        fun dismissRoomNotification(context: Context, roomId: String, reason: String): Int {
+            // Must match the posting id: roomId.hashCode(), no abs().
+            val notifID = roomId.hashCode()
+            synchronized(NotificationDismissTracker.lockFor(roomId)) {
+                NotificationDismissTracker.recordDismiss(roomId)
+                clearRoomMessageCache(roomId)
+                NotificationManagerCompat.from(context).cancel(notifID)
+            }
+            Androlog("Notifications", "Room $roomId: notification dismissed ($reason)")
+            return notifID
+        }
+
+        /**
          * Called by NotificationImageWorker after a successful Phase 2 image update.
          * Replaces the text-only placeholder in the cache with an image-bearing message
          * so that any subsequent showEnhancedNotification call rebuilds from the correct state.
@@ -2338,12 +2367,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 return
             }
 
-            // Clear message cache — next notification for this room starts fresh
-            roomMessageCache.remove(roomId)
-
-            // Dismiss the notification now that it's been marked as read (only if no bubble)
-            val notificationManagerCompat = NotificationManagerCompat.from(context)
-            notificationManagerCompat.cancel(notifID)
+            // Dismiss the notification now that it's been marked as read (only if no bubble).
+            // Goes through the shared helper so the tombstone is recorded and a Phase-2 worker
+            // mid-download can't resurrect what we just took down.
+            dismissRoomNotification(context, roomId, reason = "marked read")
             refreshGroupSummary(context, justCancelledId = notifID)
 
             if (BuildConfig.DEBUG) Log.d(TAG, "Dismissed notification and cleared unread count for room: $roomId")
@@ -2370,14 +2397,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             return
         }
 
-        // Clear message cache — next notification for this room starts fresh
-        roomMessageCache.remove(roomId)
-
-        // Must match the posting id (roomId.hashCode(), no abs); abs() missed the real
-        // notification whenever the hash was negative, so it was never actually cleared.
-        val notifID = roomId.hashCode()
-        val notificationManager = NotificationManagerCompat.from(context)
-        notificationManager.cancel(notifID)
+        val notifID = dismissRoomNotification(context, roomId, reason = "cleared for room")
         refreshGroupSummary(context, justCancelledId = notifID)
     }
 

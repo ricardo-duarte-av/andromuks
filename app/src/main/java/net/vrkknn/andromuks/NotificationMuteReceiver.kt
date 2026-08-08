@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.core.app.NotificationManagerCompat
 import net.vrkknn.andromuks.utils.ExecApi
 import net.vrkknn.andromuks.utils.RoomNotificationLevel
 import kotlin.concurrent.thread
@@ -88,9 +87,13 @@ class NotificationMuteReceiver : BroadcastReceiver() {
             return
         }
         try {
-            val notifId = roomId.hashCode()
-            NotificationManagerCompat.from(context).cancel(notifId)
-            EnhancedNotificationDisplay.clearRoomMessageCache(roomId)
+            // Shared helper: also records the dismiss tombstone under the room monitor, so a
+            // Phase-2 NotificationImageWorker mid-download can't re-post the room we just muted.
+            val notifId = EnhancedNotificationDisplay.dismissRoomNotification(
+                context,
+                roomId,
+                reason = "mute action",
+            )
             EnhancedNotificationDisplay.refreshGroupSummary(context, justCancelledId = notifId)
         } catch (e: Exception) {
             Log.e(TAG, "Error dismissing notification after mute", e)

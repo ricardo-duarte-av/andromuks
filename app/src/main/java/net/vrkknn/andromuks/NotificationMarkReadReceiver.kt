@@ -4,7 +4,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
-import androidx.core.app.NotificationManagerCompat
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.ExecApi
 import kotlin.concurrent.thread
@@ -77,8 +76,15 @@ class NotificationMarkReadReceiver : BroadcastReceiver() {
         }
 
         try {
-            val notifID = roomId.hashCode()
-            NotificationManagerCompat.from(context).cancel(notifID)
+            // Shared helper: records the dismiss tombstone and clears the cached MessagingStyle
+            // under the room monitor. Cancelling directly here left neither, so a Phase-2
+            // NotificationImageWorker mid-download re-posted the notification seconds later, and
+            // the already-read lines replayed in this room's next notification.
+            val notifID = EnhancedNotificationDisplay.dismissRoomNotification(
+                context,
+                roomId,
+                reason = "mark-read action",
+            )
             // Keep the group summary in sync (and remove it once this was the last child).
             EnhancedNotificationDisplay.refreshGroupSummary(context, justCancelledId = notifID)
             if (BuildConfig.DEBUG) Log.d(TAG, "Dismissed notification for room: $roomId")
