@@ -10964,6 +10964,15 @@ class AppViewModel : ViewModel() {
             )
         }
 
+        // Record whatever state this targeted fetch returned. Merges rather than replaces: unlike
+        // get_room_state, this response speaks only for the keys it was asked about.
+        //
+        // Inert today — every get_specific_room_state this app sends asks for m.room.member keys
+        // (batched profile resolution), and members are never cached. It is wired anyway so that
+        // widening any of those requests to other state types needs no second thought, and so the
+        // two response paths have symmetric handling.
+        (data as? JSONArray)?.let { net.vrkknn.andromuks.utils.RoomStateStore.ingestPartialState(roomId, it) }
+
         // Check if this is an emoji pack request
         val emojiPackInfo = emojiPackRequests.remove(requestId)
         if (emojiPackInfo != null) {
