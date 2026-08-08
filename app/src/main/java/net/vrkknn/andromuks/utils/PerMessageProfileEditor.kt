@@ -41,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -58,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -67,89 +69,189 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.AccountDataCache
 import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.RoomAccountDataCache
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * One stored per-message profile (MSC4461 revision 2).
+ * One trigger condition on a stored profile (MSC4461 revision 3).
  *
- * [id], [displayname] and [avatarUrl] come from MSC4144 and are copied verbatim into the outgoing
- * `com.beeper.per_message_profile`. [prefixes] is the private `trigger.prefix` list and MUST NOT be
- * sent — the backend matches it against the composer text, strips it, and attaches the profile.
+ * The composer text must start with [prefix] **and** end with [suffix] for the trigger to fire;
+ * either may be empty, but a trigger with both empty never matches. Both ends are stripped from the
+ * body before sending.
  *
- * Prefixes are case-sensitive and matched verbatim, trailing space included: `cat:` does not match
- * `cat: meow`, only `cat: ` does. Order matters both inside [prefixes] and across the stored list —
- * all prefixes of the first profile take priority over the second profile's.
+ * Matching is case-sensitive and verbatim — surrounding spaces are part of the trigger, so `"cat:"`
+ * does not match `cat: meow` while `"cat: "` does. gomuks also requires the two not to overlap
+ * (`len(input) >= len(prefix) + len(suffix)`), so a text consisting of nothing but the trigger
+ * strings will not match.
  */
-data class PerMessageProfileEntry(val id: String, val displayname: String, val avatarUrl: String, val prefixes: List<String>) {
-    /** The profile as it is sent inside `com.beeper.per_message_profile` — never includes `trigger`. */
+data class PerMessageProfileTrigger(val prefix: String = "", val suffix: String = "") {
+    fun isBlank(): Boolean = prefix.isEmpty() && suffix.isEmpty()
+
+    /** Quoted so leading/trailing spaces stay visible in the UI. */
+    fun label(): String = when {
+        prefix.isNotEmpty() && suffix.isNotEmpty() -> "\"$prefix\"…\"$suffix\""
+        suffix.isNotEmpty() -> "…\"$suffix\""
+        else -> "\"$prefix\""
+    }
+}
+
+/**
+ * One stored per-message profile (MSC4461 revision 3).
+ *
+ * [id], [displayname], [avatarUrl] and [extras] come from MSC4144 and are copied verbatim into the
+ * outgoing `com.beeper.per_message_profile`. [triggers] is private and MUST NOT be sent — the
+ * backend matches it against the composer text, strips the match, and attaches the profile.
+ *
+ * Order is match priority both inside [triggers] and across the stored list: all triggers of the
+ * first profile take priority over the second profile's, and room-scoped profiles beat global ones.
+ */
+data class PerMessageProfileEntry(
+    val id: String,
+    val displayname: String,
+    val avatarUrl: String,
+    val triggers: List<PerMessageProfileTrigger>,
+    val extras: Map<String, Any> = emptyMap(),
+) {
+    /** The profile as it is sent inside `com.beeper.per_message_profile` — never includes `triggers`. */
     fun toContentMap(): Map<String, Any> {
-        val map = mutableMapOf<String, Any>(
-            "id" to id,
-            "displayname" to displayname,
-        )
-        if (avatarUrl.isNotBlank()) map["avatar_url"] = avatarUrl
+        // MSC4461 rev-3: every field except `triggers` is copied into the message, including ones
+        // this client doesn't model. Known fields are written last so they always win.
+        val map = extras.toMutableMap()
+        map["id"] = id
+        map["displayname"] = displayname
+        if (avatarUrl.isNotBlank()) map["avatar_url"] = avatarUrl else map.remove("avatar_url")
         return map
     }
 }
 
-/** MSC4461 rev-2 unstable key — the only one gomuks reads (`event.AccountDataPerMessageProfiles`). */
-private const val V2_UNSTABLE_KEY = "fi.mau.msc4461.per_message_profiles.v2"
+/**
+ * The profiles and default stored in one scope (global account data, or one room's account data).
+ *
+ * [defaultProfileId] distinguishes three states, and the difference is load-bearing per MSC4461:
+ * `null` means the field is absent or JSON null (fall through to the global value), `""` means
+ * "explicitly no profile here" (do not fall through), and any other value names a profile.
+ */
+data class PerMessageProfileStore(val profiles: List<PerMessageProfileEntry> = emptyList(), val defaultProfileId: String? = null) {
+    fun isEmpty(): Boolean = profiles.isEmpty() && defaultProfileId == null
+}
 
-/** Stable key. Same name in rev-1 and rev-2, but the content shape differs — always check for `profiles`. */
+/** MSC4461 rev-3 unstable key — the only one gomuks reads (`event.AccountDataPerMessageProfiles`). */
+private const val V3_UNSTABLE_KEY = "fi.mau.msc4461.per_message_profiles.v3"
+
+/** Stable key. Same name in every revision but with incompatible shapes, so the reader sniffs. */
 private const val STABLE_KEY = "m.per_message_profiles"
+
+/** Rev-2 unstable key, holding `trigger: {prefix: [...]}` entries. Read for migration, then blanked. */
+private const val V2_UNSTABLE_KEY = "fi.mau.msc4461.per_message_profiles.v2"
 
 /** Rev-1 unstable key, holding the old shortcode→profile map. Read for migration, then blanked. */
 private const val LEGACY_V1_KEY = "fi.mau.msc4461.per_message_profiles"
 
 /**
- * Read the stored profiles, preferring the rev-2 array. Falls back to converting rev-1 data so the
- * picker keeps working before [migrateLegacyProfilesIfNeeded] has run.
+ * Global profiles, preferring the rev-3 key and falling back through rev-2 and rev-1 so the picker
+ * keeps working before [migrateLegacyProfilesIfNeeded] has run.
  */
-fun readPerMessageProfiles(): List<PerMessageProfileEntry> {
-    readV2Profiles()?.let { return it }
+fun readGlobalPerMessageProfiles(): PerMessageProfileStore {
+    parseStore(contentOf(V3_UNSTABLE_KEY))?.let { return it }
+    parseStore(contentOf(STABLE_KEY))?.let { return it }
+    parseStore(contentOf(V2_UNSTABLE_KEY))?.let { return it }
     return readLegacyProfiles()
 }
 
-/** Rev-2 profiles, or null when no key holds array-shaped content. */
-private fun readV2Profiles(): List<PerMessageProfileEntry>? {
-    val content = contentOf(V2_UNSTABLE_KEY)?.takeIf { it.has("profiles") }
-        ?: contentOf(STABLE_KEY)?.takeIf { it.has("profiles") }
-        ?: return null
-    val array = content.optJSONArray("profiles") ?: return emptyList()
-    val result = mutableListOf<PerMessageProfileEntry>()
-    for (i in 0 until array.length()) {
-        val entry = array.optJSONObject(i)
-        val id = entry?.optString("id").orEmpty()
-        if (entry == null || id.isBlank()) continue
-        val prefixArray = entry.optJSONObject("trigger")?.optJSONArray("prefix")
-        val prefixes = mutableListOf<String>()
-        if (prefixArray != null) {
-            for (p in 0 until prefixArray.length()) {
-                prefixArray.optString(p).takeIf { it.isNotEmpty() }?.let { prefixes.add(it) }
-            }
-        }
-        result.add(
-            PerMessageProfileEntry(
-                id = id,
-                displayname = entry.optString("displayname", id),
-                avatarUrl = entry.optString("avatar_url", ""),
-                prefixes = prefixes,
-            ),
-        )
-    }
-    return result
+/**
+ * One room's profiles. Rev-3 introduced room-scoped storage, so there is no legacy shape to fall
+ * back to here. Returns an empty store when the room has none.
+ */
+fun readRoomPerMessageProfiles(roomId: String): PerMessageProfileStore = parseStore(roomContentOf(roomId, V3_UNSTABLE_KEY))
+    ?: parseStore(roomContentOf(roomId, STABLE_KEY))
+    ?: PerMessageProfileStore()
+
+/**
+ * Every profile that can be used in [roomId], in gomuks' match order: room-scoped profiles first,
+ * then global ones. Pass null for the global list alone.
+ */
+fun readPerMessageProfiles(roomId: String? = null): List<PerMessageProfileEntry> =
+    (roomId?.let { readRoomPerMessageProfiles(it).profiles } ?: emptyList()) + readGlobalPerMessageProfiles().profiles
+
+/**
+ * The profile gomuks would apply when no trigger matches, mirroring `PickPerMessageProfile`: the
+ * room's `default_profile_id` wins when present (an empty string meaning "none here" and suppressing
+ * the global value), otherwise the global one. Null when there is no default or it names a profile
+ * that no longer exists.
+ */
+fun resolveDefaultPerMessageProfile(roomId: String?): PerMessageProfileEntry? {
+    val room = roomId?.let { readRoomPerMessageProfiles(it) } ?: PerMessageProfileStore()
+    val global = readGlobalPerMessageProfiles()
+    val id = room.defaultProfileId ?: global.defaultProfileId
+    if (id.isNullOrEmpty()) return null
+    return (room.profiles + global.profiles).firstOrNull { it.id == id }
 }
 
 /**
- * Rev-1 profiles converted to the rev-2 model. The old format had no triggers, so each shortcode
+ * Parse rev-2/rev-3 array-shaped content, or null when [content] is absent or is not array-shaped
+ * (i.e. it is rev-1's shortcode map, which [readLegacyProfiles] handles).
+ */
+internal fun parseStore(content: JSONObject?): PerMessageProfileStore? {
+    if (content == null || !content.has("profiles")) return null
+    val array = content.optJSONArray("profiles")
+    val result = mutableListOf<PerMessageProfileEntry>()
+    for (i in 0 until (array?.length() ?: 0)) {
+        parseEntry(array?.optJSONObject(i))?.let { result.add(it) }
+    }
+    return PerMessageProfileStore(profiles = result, defaultProfileId = readNullableString(content, "default_profile_id"))
+}
+
+/**
+ * `null` for both an absent key and an explicit JSON null; the raw string otherwise. `optString`
+ * cannot tell those apart, and for `default_profile_id` the distinction between null and `""` is
+ * what decides whether the global default still applies.
+ */
+private fun readNullableString(content: JSONObject, key: String): String? = if (content.has(key) && !content.isNull(key)) content.optString(key) else null
+
+/** One profile object, tolerating both the rev-3 `triggers` array and the rev-2 `trigger.prefix` list. */
+internal fun parseEntry(entry: JSONObject?): PerMessageProfileEntry? {
+    val id = entry?.optString("id").orEmpty()
+    if (entry == null || id.isBlank()) return null
+    val triggers = mutableListOf<PerMessageProfileTrigger>()
+    val triggerArray = entry.optJSONArray("triggers")
+    if (triggerArray != null) {
+        for (t in 0 until triggerArray.length()) {
+            val trigger = triggerArray.optJSONObject(t) ?: continue
+            PerMessageProfileTrigger(trigger.optString("prefix"), trigger.optString("suffix"))
+                .takeIf { !it.isBlank() }
+                ?.let { triggers.add(it) }
+        }
+    } else {
+        // Rev-2: a single `trigger` object holding a prefix array.
+        val prefixArray = entry.optJSONObject("trigger")?.optJSONArray("prefix")
+        for (p in 0 until (prefixArray?.length() ?: 0)) {
+            prefixArray?.optString(p)?.takeIf { it.isNotEmpty() }?.let { triggers.add(PerMessageProfileTrigger(prefix = it)) }
+        }
+    }
+    val known = setOf("id", "displayname", "avatar_url", "triggers", "trigger")
+    val extras = mutableMapOf<String, Any>()
+    entry.keys().forEach { key ->
+        if (key !in known && !entry.isNull(key)) extras[key] = entry.get(key)
+    }
+    return PerMessageProfileEntry(
+        id = id,
+        displayname = entry.optString("displayname", id),
+        avatarUrl = entry.optString("avatar_url", ""),
+        triggers = triggers,
+        extras = extras,
+    )
+}
+
+/**
+ * Rev-1 profiles converted to the current model. The old format had no triggers, so each shortcode
  * becomes a `"<shortcode>: "` prefix — the colon convention gomuks used before commit 951bac5.
  */
-private fun readLegacyProfiles(): List<PerMessageProfileEntry> {
+private fun readLegacyProfiles(): PerMessageProfileStore {
     val content = contentOf(LEGACY_V1_KEY)?.takeIf { !it.has("profiles") }
         ?: contentOf(STABLE_KEY)?.takeIf { !it.has("profiles") }
-        ?: return emptyList()
+        ?: return PerMessageProfileStore()
     val result = mutableListOf<PerMessageProfileEntry>()
     val keys = content.keys()
     while (keys.hasNext()) {
@@ -160,14 +262,24 @@ private fun readLegacyProfiles(): List<PerMessageProfileEntry> {
                 id = entry.optString("id", shortcode),
                 displayname = entry.optString("displayname", shortcode),
                 avatarUrl = entry.optString("avatar_url", ""),
-                prefixes = listOf("$shortcode: "),
+                triggers = listOf(PerMessageProfileTrigger(prefix = "$shortcode: ")),
             ),
         )
     }
-    return result.sortedBy { it.id }
+    return PerMessageProfileStore(profiles = result.sortedBy { it.id })
 }
 
 private fun contentOf(type: String): JSONObject? = AccountDataCache.getAccountData(type)?.optJSONObject("content")
+
+/**
+ * Room account data is cached either wrapped in a `content` object or as the bare content, depending
+ * on the sync shape — the same ambiguity [net.vrkknn.andromuks.RoomAccountDataCache] documents for
+ * `m.fully_read`. Prefer the wrapper, fall back to the object itself.
+ */
+private fun roomContentOf(roomId: String, type: String): JSONObject? {
+    val data = RoomAccountDataCache.getRoomAccountData(roomId, type) ?: return null
+    return data.optJSONObject("content") ?: data
+}
 
 /**
  * True when [draft] is a bare `/pmp` / `/profile` command with no shortcode after it — the composer
@@ -178,84 +290,97 @@ fun isBarePerMessageProfileCommand(draft: String): Boolean {
     return trimmed.equals("/pmp", ignoreCase = true) || trimmed.equals("/profile", ignoreCase = true)
 }
 
-/** `{"profiles": [...]}` — the account data content for [profiles], triggers included. */
-private fun buildProfilesContentMap(profiles: List<PerMessageProfileEntry>): Map<String, Any> {
-    val list = profiles.map { entry ->
-        val map = entry.toContentMap().toMutableMap()
-        if (entry.prefixes.isNotEmpty()) {
-            map["trigger"] = mapOf("prefix" to entry.prefixes)
-        }
-        map
-    }
-    return mapOf("profiles" to list)
-}
-
-/**
- * Persist [profiles] to both the rev-2 unstable key and the stable key, and update
- * [AccountDataCache] optimistically so the picker reflects the change before the sync round-trip.
- */
-private fun writePerMessageProfiles(appViewModel: AppViewModel, profiles: List<PerMessageProfileEntry>) {
-    val contentMap = buildProfilesContentMap(profiles)
-    appViewModel.setAccountDataContent(V2_UNSTABLE_KEY, contentMap)
-    appViewModel.setAccountDataContent(STABLE_KEY, contentMap)
-
+/** `{"profiles": [...], "default_profile_id": …}` — the account data content for [store]. */
+private fun buildStoreContent(store: PerMessageProfileStore): JSONObject {
     val array = JSONArray()
-    profiles.forEach { entry ->
-        val entryJson = JSONObject()
-            .put("id", entry.id)
-            .put("displayname", entry.displayname)
-        if (entry.avatarUrl.isNotBlank()) entryJson.put("avatar_url", entry.avatarUrl)
-        if (entry.prefixes.isNotEmpty()) {
-            entryJson.put("trigger", JSONObject().put("prefix", JSONArray(entry.prefixes)))
+    store.profiles.forEach { entry ->
+        val entryJson = JSONObject(entry.toContentMap())
+        val triggers = entry.triggers.filter { !it.isBlank() }
+        if (triggers.isNotEmpty()) {
+            val triggerArray = JSONArray()
+            triggers.forEach { trigger ->
+                val triggerJson = JSONObject()
+                if (trigger.prefix.isNotEmpty()) triggerJson.put("prefix", trigger.prefix)
+                if (trigger.suffix.isNotEmpty()) triggerJson.put("suffix", trigger.suffix)
+                triggerArray.put(triggerJson)
+            }
+            entryJson.put("triggers", triggerArray)
         }
         array.put(entryJson)
     }
-    val wrapper = JSONObject().put("content", JSONObject().put("profiles", array))
-    AccountDataCache.setAccountData(V2_UNSTABLE_KEY, wrapper)
-    AccountDataCache.setAccountData(STABLE_KEY, wrapper)
+    val content = JSONObject().put("profiles", array)
+    // Absent when null; written verbatim otherwise, so "" survives as the "no profile here" marker.
+    store.defaultProfileId?.let { content.put("default_profile_id", it) }
+    return content
 }
 
 /**
- * One-shot rev-1 → rev-2 migration: if nothing holds array-shaped content but legacy data exists,
- * rewrite it in the new shape and blank the old unstable key so it stops shadowing.
- * Returns the profiles to display.
+ * Persist [store] to both the rev-3 unstable key and the stable key. [roomId] scopes the write to a
+ * room's account data; null writes global account data. `setAccountDataRaw` updates the matching
+ * cache optimistically, so the picker reflects the change before the sync round-trip.
  */
-private fun migrateLegacyProfilesIfNeeded(appViewModel: AppViewModel): List<PerMessageProfileEntry> {
-    readV2Profiles()?.let { return it }
-    val legacy = readLegacyProfiles()
-    if (legacy.isEmpty()) return emptyList()
-    android.util.Log.i("Andromuks", "PerMessageProfiles: migrating ${legacy.size} profile(s) to MSC4461 rev-2")
+private fun writePerMessageProfiles(appViewModel: AppViewModel, store: PerMessageProfileStore, roomId: String? = null) {
+    appViewModel.setAccountDataRaw(V3_UNSTABLE_KEY, buildStoreContent(store), roomId)
+    appViewModel.setAccountDataRaw(STABLE_KEY, buildStoreContent(store), roomId)
+}
+
+/**
+ * One-shot rev-1/rev-2 → rev-3 migration for global profiles: if the rev-3 key holds nothing but an
+ * older revision does, rewrite it in the new shape and blank the superseded unstable keys so they
+ * stop shadowing. Returns the store to display.
+ *
+ * Note this makes the profiles invisible to a gomuks older than commit `c416f431`, which reads only
+ * the rev-2 key. Dual-writing is not an option: rev-2 has no way to express a suffix trigger.
+ */
+private fun migrateLegacyProfilesIfNeeded(appViewModel: AppViewModel): PerMessageProfileStore {
+    parseStore(contentOf(V3_UNSTABLE_KEY))?.let { return it }
+    val legacy = readGlobalPerMessageProfiles()
+    if (legacy.isEmpty()) return PerMessageProfileStore()
+    android.util.Log.i("Andromuks", "PerMessageProfiles: migrating ${legacy.profiles.size} profile(s) to MSC4461 rev-3")
     writePerMessageProfiles(appViewModel, legacy)
-    appViewModel.setAccountDataContent(LEGACY_V1_KEY, emptyMap())
-    AccountDataCache.setAccountData(LEGACY_V1_KEY, JSONObject().put("content", JSONObject()))
+    listOf(V2_UNSTABLE_KEY, LEGACY_V1_KEY).forEach { key ->
+        if (contentOf(key)?.length()?.let { it > 0 } == true) {
+            appViewModel.setAccountDataRaw(key, JSONObject())
+        }
+    }
     return legacy
 }
 
+/**
+ * Editor for the profiles stored in one scope. [roomId] null edits global account data; non-null
+ * edits that room's account data, where profiles and the default both outrank the global ones.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: AppViewModel) {
+fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: AppViewModel, roomId: String? = null) {
     // The avatar-rendering composables below take these as parameters rather than reading the
     // view model, so hoist them once here.
     val homeserverUrl = appViewModel.homeserverUrl
     val authToken = appViewModel.authToken
-    var profiles by remember { mutableStateOf(readPerMessageProfiles()) }
+    var store by remember {
+        mutableStateOf(if (roomId != null) readRoomPerMessageProfiles(roomId) else readGlobalPerMessageProfiles())
+    }
+    // Only the global scope can name a profile that isn't in this scope's list, so the default
+    // picker needs to offer global profiles too when editing a room.
+    val globalProfiles = remember(store) { if (roomId != null) readGlobalPerMessageProfiles().profiles else emptyList() }
     var showAddEditDialog by remember { mutableStateOf(false) }
     var editingIndex by remember { mutableStateOf<Int?>(null) }
     var showDeleteConfirmFor by remember { mutableStateOf<Int?>(null) }
+    var showDefaultPicker by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        profiles = migrateLegacyProfilesIfNeeded(appViewModel)
+    LaunchedEffect(roomId) {
+        if (roomId == null) store = migrateLegacyProfilesIfNeeded(appViewModel)
     }
 
-    fun saveProfiles(updated: List<PerMessageProfileEntry>) {
-        profiles = updated
-        writePerMessageProfiles(appViewModel, updated)
+    fun save(updated: PerMessageProfileStore) {
+        store = updated
+        writePerMessageProfiles(appViewModel, updated, roomId)
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Per-Message Profiles") },
+                title = { Text(if (roomId != null) "Room Per-Message Profiles" else "Per-Message Profiles") },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -272,39 +397,50 @@ fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: Ap
             }
         },
     ) { paddingValues ->
-        Box(
+        // Stored order is match priority (MSC4461: earlier profiles win), so never sort here.
+        LazyColumn(
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
         ) {
-            if (profiles.isEmpty()) {
-                Text(
-                    text = "No per-message profiles yet.\nTap + to add one.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(32.dp),
+            item {
+                DefaultProfileCard(
+                    store = store,
+                    globalProfiles = globalProfiles,
+                    isRoomScope = roomId != null,
+                    onClick = { showDefaultPicker = true },
                 )
+            }
+            if (store.profiles.isEmpty()) {
+                item {
+                    Text(
+                        text = if (roomId != null) {
+                            "No profiles defined just for this room.\nTap + to add one, or pick a global profile as this room's default above."
+                        } else {
+                            "No per-message profiles yet.\nTap + to add one."
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(32.dp),
+                    )
+                }
             } else {
-                // Stored order is match priority (MSC4461: earlier profiles win), so never sort here.
-                LazyColumn(
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    itemsIndexed(profiles) { index, profile ->
-                        ProfileListItem(
-                            profile = profile,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            onEdit = {
-                                editingIndex = index
-                                showAddEditDialog = true
-                            },
-                            onDelete = { showDeleteConfirmFor = index },
-                        )
-                    }
+                itemsIndexed(store.profiles) { index, profile ->
+                    ProfileListItem(
+                        profile = profile,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onEdit = {
+                            editingIndex = index
+                            showAddEditDialog = true
+                        },
+                        onDelete = { showDeleteConfirmFor = index },
+                    )
                 }
             }
         }
@@ -312,26 +448,39 @@ fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: Ap
 
     if (showAddEditDialog) {
         AddEditProfileDialog(
-            existing = editingIndex?.let { profiles.getOrNull(it) },
+            existing = editingIndex?.let { store.profiles.getOrNull(it) },
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             onDismiss = { showAddEditDialog = false },
             onSave = { updated ->
-                val newProfiles = profiles.toMutableList()
+                val newProfiles = store.profiles.toMutableList()
                 val index = editingIndex
                 if (index != null && index in newProfiles.indices) {
                     newProfiles[index] = updated
                 } else {
                     newProfiles.add(updated)
                 }
-                saveProfiles(newProfiles)
+                save(store.copy(profiles = newProfiles))
                 showAddEditDialog = false
             },
         )
     }
 
+    if (showDefaultPicker) {
+        DefaultProfilePickerDialog(
+            store = store,
+            globalProfiles = globalProfiles,
+            isRoomScope = roomId != null,
+            onDismiss = { showDefaultPicker = false },
+            onSelect = { newDefault ->
+                save(store.copy(defaultProfileId = newDefault))
+                showDefaultPicker = false
+            },
+        )
+    }
+
     showDeleteConfirmFor?.let { index ->
-        val profile = profiles.getOrNull(index)
+        val profile = store.profiles.getOrNull(index)
         AlertDialog(
             onDismissRequest = { showDeleteConfirmFor = null },
             title = { Text("Delete profile") },
@@ -339,9 +488,11 @@ fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: Ap
             confirmButton = {
                 Button(
                     onClick = {
-                        val newProfiles = profiles.toMutableList()
+                        val newProfiles = store.profiles.toMutableList()
                         if (index in newProfiles.indices) newProfiles.removeAt(index)
-                        saveProfiles(newProfiles)
+                        // A default pointing at the profile we just removed would silently do nothing.
+                        val newDefault = store.defaultProfileId?.takeIf { it.isEmpty() || newProfiles.any { p -> p.id == it } }
+                        save(PerMessageProfileStore(newProfiles, newDefault))
                         showDeleteConfirmFor = null
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -353,6 +504,120 @@ fun PerMessageProfileEditorScreen(navController: NavController, appViewModel: Ap
                 TextButton(onClick = { showDeleteConfirmFor = null }) { Text("Cancel") }
             },
         )
+    }
+}
+
+/** Summary row for `default_profile_id` — the profile used when no trigger matches. */
+@Composable
+private fun DefaultProfileCard(store: PerMessageProfileStore, globalProfiles: List<PerMessageProfileEntry>, isRoomScope: Boolean, onClick: () -> Unit) {
+    val summary = when (val id = store.defaultProfileId) {
+        null -> if (isRoomScope) "Use the global default" else "None — send as yourself"
+        "" -> "None — send as yourself, ignoring the global default"
+        else -> (store.profiles + globalProfiles).firstOrNull { it.id == id }?.displayname ?: "$id (missing)"
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { onClick() }
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(text = "Default profile", style = MaterialTheme.typography.labelMedium)
+        Text(
+            text = summary,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = if (isRoomScope) {
+                "Used for messages in this room when no trigger matches. Overrides the global default."
+            } else {
+                "Used when no trigger matches and you haven't picked a profile."
+            },
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * Options for `default_profile_id`. The room scope has one extra option, because MSC4461 gives
+ * "unset" (fall through to the global default) and `""` (explicitly no profile here) different
+ * meanings — the empty string exists precisely so a room can opt out of a global default.
+ */
+@Composable
+private fun DefaultProfilePickerDialog(
+    store: PerMessageProfileStore,
+    globalProfiles: List<PerMessageProfileEntry>,
+    isRoomScope: Boolean,
+    onDismiss: () -> Unit,
+    onSelect: (String?) -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Default profile") },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                DefaultProfileOption(
+                    label = if (isRoomScope) "Use the global default" else "None — send as yourself",
+                    selected = store.defaultProfileId == null,
+                    onClick = { onSelect(null) },
+                )
+                if (isRoomScope) {
+                    DefaultProfileOption(
+                        label = "None in this room",
+                        selected = store.defaultProfileId == "",
+                        onClick = { onSelect("") },
+                    )
+                }
+                store.profiles.forEach { profile ->
+                    DefaultProfileOption(
+                        label = profile.displayname,
+                        selected = store.defaultProfileId == profile.id,
+                        onClick = { onSelect(profile.id) },
+                    )
+                }
+                // Global profiles are legal values for a room default; gomuks looks the id up in
+                // room storage first and then falls back to global.
+                if (globalProfiles.isNotEmpty()) {
+                    Text(
+                        text = "Global profiles",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
+                    )
+                    globalProfiles.forEach { profile ->
+                        DefaultProfileOption(
+                            label = profile.displayname,
+                            selected = store.defaultProfileId == profile.id,
+                            onClick = { onSelect(profile.id) },
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
+}
+
+@Composable
+private fun DefaultProfileOption(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Text(text = label, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -402,11 +667,11 @@ private fun ProfileListItem(profile: PerMessageProfileEntry, homeserverUrl: Stri
     }
 }
 
-/** `id — "prefix" "prefix"`, with prefixes quoted so trailing spaces stay visible. */
-private fun PerMessageProfileEntry.subtitle(): String = if (prefixes.isEmpty()) {
+/** `id — "prefix" …"suffix"`, with triggers quoted so surrounding spaces stay visible. */
+private fun PerMessageProfileEntry.subtitle(): String = if (triggers.isEmpty()) {
     id
 } else {
-    "$id — ${prefixes.joinToString(" ") { "\"$it\"" }}"
+    "$id — ${triggers.joinToString(" ") { it.label() }}"
 }
 
 @Composable
@@ -423,7 +688,9 @@ private fun AddEditProfileDialog(
     var id by remember { mutableStateOf(existing?.id ?: "") }
     var displayname by remember { mutableStateOf(existing?.displayname ?: "") }
     var avatarUrl by remember { mutableStateOf(existing?.avatarUrl ?: "") }
-    var prefixes by remember { mutableStateOf(existing?.prefixes?.ifEmpty { listOf("") } ?: listOf("")) }
+    var triggers by remember {
+        mutableStateOf(existing?.triggers?.ifEmpty { listOf(PerMessageProfileTrigger()) } ?: listOf(PerMessageProfileTrigger()))
+    }
     var avatarUploadInProgress by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
@@ -476,8 +743,9 @@ private fun AddEditProfileDialog(
                     onValueChange = { newId ->
                         val cleaned = newId.replace(" ", "").replace("\n", "")
                         // Keep the default prefix in step with the id until the user edits it.
-                        if (prefixes.size == 1 && (prefixes[0].isEmpty() || prefixes[0] == "$id: ")) {
-                            prefixes = listOf(if (cleaned.isEmpty()) "" else "$cleaned: ")
+                        val only = triggers.singleOrNull()
+                        if (only != null && only.suffix.isEmpty() && (only.prefix.isEmpty() || only.prefix == "$id: ")) {
+                            triggers = listOf(PerMessageProfileTrigger(prefix = if (cleaned.isEmpty()) "" else "$cleaned: "))
                         }
                         id = cleaned
                     },
@@ -494,9 +762,9 @@ private fun AddEditProfileDialog(
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 )
-                PrefixEditor(
-                    prefixes = prefixes,
-                    onPrefixesChange = { prefixes = it },
+                TriggerEditor(
+                    triggers = triggers,
+                    onTriggersChange = { triggers = it },
                 )
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -581,8 +849,10 @@ private fun AddEditProfileDialog(
                             id = trimmedId,
                             displayname = trimmedDisplayname,
                             avatarUrl = avatarUrl,
-                            // Prefixes are stored verbatim — trailing spaces are part of the match.
-                            prefixes = prefixes.filter { it.isNotEmpty() },
+                            // Triggers are stored verbatim — surrounding spaces are part of the match.
+                            triggers = triggers.filter { !it.isBlank() },
+                            // Preserve MSC4144 fields we don't model rather than dropping them on edit.
+                            extras = existing?.extras.orEmpty(),
                         ),
                     )
                 },
@@ -596,53 +866,68 @@ private fun AddEditProfileDialog(
 }
 
 /**
- * Editor for a profile's `trigger.prefix` list. Typing a prefix at the start of a message makes the
- * backend use this profile and strip the prefix. Values are never trimmed — `"cat: "` and `"cat:"`
- * are different triggers.
+ * Editor for a profile's `triggers` list. A trigger fires when the message starts with its prefix
+ * *and* ends with its suffix; leaving one side empty matches on the other alone. Values are never
+ * trimmed — `"cat: "` and `"cat:"` are different triggers.
  */
 @Composable
-private fun PrefixEditor(prefixes: List<String>, onPrefixesChange: (List<String>) -> Unit) {
+private fun TriggerEditor(triggers: List<PerMessageProfileTrigger>, onTriggersChange: (List<PerMessageProfileTrigger>) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(
-            text = "Trigger prefixes",
+            text = "Triggers",
             style = MaterialTheme.typography.labelMedium,
         )
         Text(
-            text = "Typing one of these at the start of a message uses this profile. Case-sensitive; " +
-                "include the trailing space if you want \"cat: meow\" to match.",
+            text = "A message that starts with the prefix and ends with the suffix uses this profile, " +
+                "with both stripped off. Leave one side blank to match on the other alone. " +
+                "Case-sensitive; include the trailing space if you want \"cat: meow\" to match.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        prefixes.forEachIndexed { index, prefix ->
+        triggers.forEachIndexed { index, trigger ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 OutlinedTextField(
-                    value = prefix,
+                    value = trigger.prefix,
                     onValueChange = { newValue ->
-                        onPrefixesChange(prefixes.toMutableList().also { it[index] = newValue.replace("\n", "") })
+                        onTriggersChange(
+                            triggers.toMutableList().also { it[index] = trigger.copy(prefix = newValue.replace("\n", "")) },
+                        )
                     },
                     label = { Text("Prefix ${index + 1}") },
                     singleLine = true,
                     modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 )
+                OutlinedTextField(
+                    value = trigger.suffix,
+                    onValueChange = { newValue ->
+                        onTriggersChange(
+                            triggers.toMutableList().also { it[index] = trigger.copy(suffix = newValue.replace("\n", "")) },
+                        )
+                    },
+                    label = { Text("Suffix ${index + 1}") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                )
                 IconButton(
-                    onClick = { onPrefixesChange(prefixes.toMutableList().also { it.removeAt(index) }) },
-                    enabled = prefixes.size > 1,
+                    onClick = { onTriggersChange(triggers.toMutableList().also { it.removeAt(index) }) },
+                    enabled = triggers.size > 1,
                 ) {
-                    Icon(Icons.Filled.Close, contentDescription = "Remove prefix", modifier = Modifier.size(18.dp))
+                    Icon(Icons.Filled.Close, contentDescription = "Remove trigger", modifier = Modifier.size(18.dp))
                 }
             }
         }
         TextButton(
-            onClick = { onPrefixesChange(prefixes + "") },
+            onClick = { onTriggersChange(triggers + PerMessageProfileTrigger()) },
             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         ) {
             Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.width(4.dp))
-            Text("Add prefix", style = MaterialTheme.typography.labelMedium)
+            Text("Add trigger", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
@@ -695,12 +980,64 @@ fun PerMessageProfileChip(
 }
 
 /**
- * Floating per-message profile picker opened from the composer. Selecting a profile arms it for the
- * next send (the profile travels in `base_content`); it does not rewrite the draft.
+ * Passive chip for a `default_profile_id` that applies in this room. Unlike [PerMessageProfileChip]
+ * there is nothing armed to clear — the backend applies this default itself whenever no trigger
+ * matches, so the chip only tells the user what will happen and offers the picker to override it.
+ *
+ * Deliberately *not* wired into `base_content`: that would beat gomuks' own trigger matching, so
+ * typing a prefix for another profile would silently send under the default instead.
  */
 @Composable
-fun PerMessageProfilePicker(homeserverUrl: String, authToken: String, onProfileSelected: (PerMessageProfileEntry) -> Unit, modifier: Modifier = Modifier) {
-    val profiles = remember { readPerMessageProfiles() }
+fun PerMessageProfileDefaultChip(
+    profile: PerMessageProfileEntry,
+    homeserverUrl: String,
+    authToken: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AvatarImage(
+            mxcUrl = profile.avatarUrl.takeIf { it.isNotBlank() },
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = profile.displayname,
+            size = 24.dp,
+        )
+        Text(
+            text = "Sending as ${profile.displayname} by default",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+    }
+}
+
+/**
+ * Floating per-message profile picker opened from the composer. Selecting a profile arms it for the
+ * next send (the profile travels in `base_content`); it does not rewrite the draft.
+ *
+ * [roomId] brings in that room's own profiles, listed first because gomuks matches room storage
+ * before global storage.
+ */
+@Composable
+fun PerMessageProfilePicker(
+    homeserverUrl: String,
+    authToken: String,
+    onProfileSelected: (PerMessageProfileEntry) -> Unit,
+    modifier: Modifier = Modifier,
+    roomId: String? = null,
+) {
+    val roomProfiles = remember(roomId) { roomId?.let { readRoomPerMessageProfiles(it).profiles }.orEmpty() }
+    val globalProfiles = remember(roomId) { readGlobalPerMessageProfiles().profiles }
 
     androidx.compose.material3.Surface(
         modifier = modifier,
@@ -709,7 +1046,7 @@ fun PerMessageProfilePicker(homeserverUrl: String, authToken: String, onProfileS
         tonalElevation = 8.dp,
         shadowElevation = 4.dp,
     ) {
-        if (profiles.isEmpty()) {
+        if (roomProfiles.isEmpty() && globalProfiles.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -728,7 +1065,25 @@ fun PerMessageProfilePicker(homeserverUrl: String, authToken: String, onProfileS
                 contentPadding = PaddingValues(8.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                itemsIndexed(profiles) { _, profile ->
+                // Headers only when both scopes have something, so the common global-only case
+                // looks exactly as it did before room storage existed.
+                if (roomProfiles.isNotEmpty()) {
+                    if (globalProfiles.isNotEmpty()) {
+                        item { PerMessageProfileSectionHeader("This room") }
+                    }
+                    itemsIndexed(roomProfiles) { _, profile ->
+                        PerMessageProfilePickerItem(
+                            profile = profile,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onSelected = { onProfileSelected(profile) },
+                        )
+                    }
+                    if (globalProfiles.isNotEmpty()) {
+                        item { PerMessageProfileSectionHeader("All rooms") }
+                    }
+                }
+                itemsIndexed(globalProfiles) { _, profile ->
                     PerMessageProfilePickerItem(
                         profile = profile,
                         homeserverUrl = homeserverUrl,
@@ -739,6 +1094,16 @@ fun PerMessageProfilePicker(homeserverUrl: String, authToken: String, onProfileS
             }
         }
     }
+}
+
+@Composable
+private fun PerMessageProfileSectionHeader(label: String) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+    )
 }
 
 @Composable

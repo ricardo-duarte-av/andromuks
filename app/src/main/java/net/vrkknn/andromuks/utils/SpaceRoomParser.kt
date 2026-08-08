@@ -216,6 +216,14 @@ object SpaceRoomParser {
         if (fullyReadData != null) {
             net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, "m.fully_read", fullyReadData)
         }
+        // MSC4461 rev-3 allows per-message profiles (and a room default) in room account data, where
+        // they outrank the global ones. Cached so the composer picker and chip agree with the
+        // profile gomuks will actually attach when sending in this room.
+        listOf("fi.mau.msc4461.per_message_profiles.v3", "m.per_message_profiles").forEach { type ->
+            accountData.optJSONObject(type)?.let {
+                net.vrkknn.andromuks.RoomAccountDataCache.setRoomAccountData(roomId, type, it)
+            }
+        }
         return RoomAccountDataResult(isFavourite, isLowPriority, hasTags)
     }
 

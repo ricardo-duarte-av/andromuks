@@ -534,18 +534,44 @@ fun RoomInfoScreen(
                     }
                 }
 
-                // Room Preferences button
-                Button(
-                    onClick = {
-                        navController.navigate(
-                            "room_preferences/${java.net.URLEncoder.encode(roomId, "UTF-8")}",
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(48.dp),
+                // Room Preferences + room-scoped per-message profiles (MSC4461 rev-3 stores both
+                // profiles and a default_profile_id in room account data).
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text("Room Preferences")
+                    Button(
+                        onClick = {
+                            navController.navigate(
+                                "room_preferences/${java.net.URLEncoder.encode(roomId, "UTF-8")}",
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                    ) {
+                        Text(
+                            "Room\nPreferences",
+                            style = MaterialTheme.typography.labelMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            navController.navigate(
+                                "per_message_profile_editor/${java.net.URLEncoder.encode(roomId, "UTF-8")}",
+                            )
+                        },
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                    ) {
+                        Text(
+                            "Per-Message\nProfiles",
+                            style = MaterialTheme.typography.labelMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
 
                 // Technical cache info (always last items)

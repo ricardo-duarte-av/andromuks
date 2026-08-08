@@ -371,8 +371,10 @@ internal class SlashCommandsCoordinator(private val vm: AppViewModel) {
                     val selector = args[0]
                     val messageBody = trimmed.removePrefix(parts[0]).trimStart().removePrefix(selector).trimStart()
                     if (messageBody.isBlank()) return false
-                    val profile = net.vrkknn.andromuks.utils.readPerMessageProfiles().firstOrNull {
-                        it.id == selector || it.prefixes.any { prefix -> prefix.trimEnd().trimEnd(':') == selector }
+                    // Room-scoped profiles come first, matching gomuks' room-then-global lookup order.
+                    val profile = net.vrkknn.andromuks.utils.readPerMessageProfiles(roomId).firstOrNull {
+                        it.id == selector ||
+                            it.triggers.any { trigger -> trigger.prefix.trimEnd().trimEnd(':') == selector }
                     }
                     if (profile == null) {
                         android.widget.Toast.makeText(

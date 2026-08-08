@@ -2195,6 +2195,8 @@ fun UserInfoScreen(
                     "moe.sable.app.bio",
                     "m.per_message_profiles",
                     "fi.mau.msc4461.per_message_profiles",
+                    "fi.mau.msc4461.per_message_profiles.v2",
+                    "fi.mau.msc4461.per_message_profiles.v3",
                 )
                 val arbitraryFields = userProfileInfo!!.arbitraryFields
                     .filterKeys { it !in hiddenKnownProfileKeys }

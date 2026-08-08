@@ -2710,6 +2710,19 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                             appViewModel = appViewModel,
                         )
                     }
+                    // Room-scoped variant (MSC4461 rev-3): same editor over that room's account data.
+                    composable(
+                        route = "per_message_profile_editor/{roomId}",
+                        arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
+                    ) { backStackEntry ->
+                        // Navigation already decodes path arguments, same as the room_preferences route.
+                        val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+                        net.vrkknn.andromuks.utils.PerMessageProfileEditorScreen(
+                            navController = navController,
+                            appViewModel = appViewModel,
+                            roomId = roomId,
+                        )
+                    }
                 }
             } // End of SharedTransitionLayout
 

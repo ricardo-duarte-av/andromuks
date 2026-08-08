@@ -128,6 +128,7 @@ import net.vrkknn.andromuks.utils.MessageMenuBar
 import net.vrkknn.andromuks.utils.MessageMenuConfig
 import net.vrkknn.andromuks.utils.POLL_START_TYPES
 import net.vrkknn.andromuks.utils.PerMessageProfileChip
+import net.vrkknn.andromuks.utils.PerMessageProfileDefaultChip
 import net.vrkknn.andromuks.utils.PerMessageProfileEntry
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.StickerSelectionDialog
@@ -139,6 +140,7 @@ import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
 import net.vrkknn.andromuks.utils.isBarePollCommand
 import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.navigateToUserInfo
+import net.vrkknn.andromuks.utils.resolveDefaultPerMessageProfile
 import kotlin.math.min
 
 /** Floating room list for room mentions */
@@ -1678,13 +1680,27 @@ fun ThreadViewerScreen(
                                 ) {
                                     Column {
                                         // Armed per-message profile (MSC4461) — travels in base_content on send
-                                        selectedPmpProfile?.let { armed ->
+                                        val armedPmpProfile = selectedPmpProfile
+                                        val roomDefaultPmpProfile = remember(roomId, appViewModel.timelineRefreshTrigger) {
+                                            resolveDefaultPerMessageProfile(roomId)
+                                        }
+                                        if (armedPmpProfile != null) {
                                             PerMessageProfileChip(
-                                                profile = armed,
+                                                profile = armedPmpProfile,
                                                 homeserverUrl = appViewModel.homeserverUrl,
                                                 authToken = appViewModel.authToken,
                                                 onClick = { showPmpProfilePicker = true },
                                                 onClear = { selectedPmpProfile = null },
+                                            )
+                                        } else if (roomDefaultPmpProfile != null) {
+                                            // MSC4461 rev-3 default_profile_id. gomuks applies this itself when no
+                                            // trigger matches, so the chip is informational and must not arm
+                                            // base_content — that would override the user's own trigger prefixes.
+                                            PerMessageProfileDefaultChip(
+                                                profile = roomDefaultPmpProfile,
+                                                homeserverUrl = appViewModel.homeserverUrl,
+                                                authToken = appViewModel.authToken,
+                                                onClick = { showPmpProfilePicker = true },
                                             )
                                         }
 
@@ -2595,6 +2611,7 @@ fun ThreadViewerScreen(
                             net.vrkknn.andromuks.utils.PerMessageProfilePicker(
                                 homeserverUrl = appViewModel.homeserverUrl,
                                 authToken = appViewModel.authToken,
+                                roomId = roomId,
                                 onProfileSelected = { profile ->
                                     selectedPmpProfile = profile
                                     // The profile now rides in base_content, so the command text is dead weight.
