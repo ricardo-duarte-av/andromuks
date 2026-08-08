@@ -30,7 +30,7 @@ If notifications for a room are only arriving when the screen is turned on, chec
 `FCMService` extends `FirebaseMessagingService`. Key responsibilities:
 
 - Decrypts the encrypted `payload` field using the stored push encryption key (`web_client_prefs / push_encryption_key`, base64-encoded AES key).
-- Routes decrypted JSON to `handleMessageNotification` or `handleDismissNotification` based on whether the payload has a `messages` or `dismiss` key.
+- Routes decrypted JSON to `handleDismissNotification` **and/or** `handleMessageNotification` — see [Payload routing](#payload-routing--messages-and-dismiss-are-not-alternatives) below.
 - Suppresses notifications for the currently open room when the app is in the foreground (`shouldSuppressNotification`).
 - Skips notifications for rooms in `low_priority_rooms` (SharedPreferences set).
 - Verifies `self.id` against `current_user_id` to discard notifications for other accounts.
@@ -124,8 +124,7 @@ does not replay messages the user has already seen:**
 
 | Where | Why |
 |---|---|
-| `EnhancedNotificationDisplay.updateNotificationAsRead` / `clearNotificationForRoom` | Inline reply / mark-read action button — user explicitly engaged with the notification from the shade. |
-| `FCMService.handleDismissNotification` (all three cancel branches) | Backend pushed a dismiss because the conversation was marked read server-side (e.g. the user read it in another client, or the read-receipt for an in-app read round-tripped). |
+| `EnhancedNotificationDisplay.dismissRoomNotification` — the shared helper behind **every** cancel site: `updateNotificationAsRead`, `clearNotificationForRoom`, `NotificationMarkReadReceiver`, `NotificationMuteReceiver`, and all three `FCMService.handleDismissNotification` branches | Any acknowledgement of the conversation: the shade's Mark-read / Mute buttons, or a backend dismiss because the room was marked read server-side (read in another client, or an in-app read-receipt round-tripping). Clearing the cache is not optional here — the shade Mark-read path used to cancel without it, so already-read lines replayed in the room's next notification. |
 | `MainActivity.onCreate` / `onNewIntent` on the `fromNotification == true && roomId != null` branch | User tapped the notification body. Closes the window between tap and the eventual backend-dismiss FCM, and covers "tap but immediately switch away" where the read-receipt never gets sent. |
 
 **Do NOT clear when:**
@@ -135,6 +134,9 @@ does not replay messages the user has already seen:**
 - The dismiss arrives within the 5-second reply-protection window — that
   dismiss is the backend's echo of our own reply's mark-read; the cache was
   already cleared by the reply path.
+
+In both cases the dismiss is *deferred*, not dropped; the cache is cleared when
+`drainDeferred` eventually applies it through `dismissRoomNotification`.
 
 The single public entry point is `EnhancedNotificationDisplay.clearRoomMessageCache(roomId)`.
 
@@ -162,15 +164,76 @@ Two details specific to the worker's media handling:
 
 **Auth token:** `doWork()` re-reads the token from SharedPreferences (`AndromuksAppPrefs / image_auth_token`, falling back to `gomuks_auth_token`) at run time, so a delayed job uses a current credential. It's used as a `Cookie: gomuks_auth=<token>` header by `IntelligentMediaCache.downloadAndCache`; however the image URL already contains `?image_auth=<batchToken>` (appended in `FCMService.handleMessageNotification`) which is the primary credential, and the avatar URLs get `?image_auth=` appended from the same batch token. The cookie is a fallback.
 
+### Payload routing — `messages` and `dismiss` are not alternatives
+
+gomuks' `PushNotification` struct carries **both** arrays, each `omitempty`:
+
+```go
+type PushNotification struct {
+    Dismiss     []PushDismiss     `json:"dismiss,omitempty"`
+    RawMessages []json.RawMessage `json:"messages,omitempty"`
+    ImageAuth   jsoncmd.ImageAuthToken `json:"image_auth,omitempty"`
+}
+```
+
+so **one push can announce new messages for one room and dismiss another**. The router must
+therefore handle both arrays, not pick one.
+
+> This was a real bug. The router was a `when` that tested `has("messages")` first and dispatched
+> to `handleMessageNotification`, which only ever reads the messages array — so every dismiss
+> batched alongside a message was silently discarded, with no tombstone and no retry. Because both
+> fields are `omitempty` a dismiss-only push has no `messages` key at all, so dismissal worked in
+> isolation and only failed when reading rooms elsewhere *while other rooms were still active*.
+> Symptom: notifications piling up for conversations the user had already read.
+
+**Dismisses are processed first.** `handleMessageNotification` stamps each message with its own
+`messageReceivedAt`, and the tombstone is a high-water mark compared against it (see
+[the dismiss tombstone](#dismisspost-race--the-per-room-dismiss-tombstone)); recording the
+dismisses before those stamps are taken makes a room present in *both* arrays resolve
+deterministically rather than by loop order. An `Androlog` line records the shape of every payload
+(`dismiss=N messages=M`), which is what makes the batched case diagnosable from a release log.
+
+A payload with neither array falls through to `handleLegacyNotification` (flat key/value parsing,
+kept for older backends).
+
 ### Dismiss handling
 
-`handleDismissNotification` cancels active notifications for a room when the backend signals the conversation was read. It will **not** cancel if:
+`handleDismissNotification` cancels active notifications for a room when the backend signals the
+conversation was read. Each cancel goes through
+`EnhancedNotificationDisplay.dismissRoomNotification(context, roomId, reason)` — the single entry
+point for taking a room's notification down, which records the dismiss tombstone, clears the cached
+MessagingStyle and cancels, all under `NotificationDismissTracker.lockFor(roomId)`. **Every** cancel
+site uses it (the shade Mark-read and Mute receivers, `updateNotificationAsRead`,
+`clearNotificationForRoom`); the ones that used to cancel directly recorded no tombstone and took no
+lock, so a `NotificationImageWorker` mid-download passed its guard and re-posted seconds later.
+
+It will **not** cancel immediately if:
 - The room is within a 5-second **reply protection window** — set by `FCMService.markRoomReplied(roomId)` when the user replies via the inline notification action (`NotificationReplyReceiver`). Replying marks the room read, which causes the backend to immediately push a dismiss FCM; this window prevents that auto-dismiss from collapsing the notification. Dismisses arriving after the window expire are treated as true remote dismissals and proceed normally.
 - A chat bubble for that room is actively open (`BubbleTracker.isBubbleOpen`).
+
+**Both cases defer rather than drop** (`NotificationDismissTracker.deferDismiss`). They used to
+`continue` past the dismiss entirely, which lost it permanently — the backend never re-sends, and
+nothing re-evaluated when the blocker cleared. The bubble case was the worse of the two:
+`isBubbleOpen` stays true for as long as `ChatBubbleActivity` exists, *including a bubble collapsed
+to an icon* (`onPause` clears only the **visible** set; `openBubbles` is cleared in `onDestroy`), so
+every dismiss for that room was discarded for the lifetime of the bubble.
+`NotificationDismissTracker.drainDeferred` applies them later — on `BubbleTracker.onBubbleClosed`
+(which now takes an optional `Context` for exactly this) and once the reply window has elapsed. A
+drain re-checks `isBubbleOpen`, so a bubble that came back keeps its rooms deferred.
 
 The protection window is **not** set for replies sent from other clients (Webmuks, another Andromuks instance, etc.). Those replies arrive via WebSocket sync and do not go through `NotificationReplyReceiver`, so the dismiss FCM they trigger is allowed through and correctly clears the Android notification.
 
 > ⚠️ **Group-summary invariant: never `cancel()` the group summary while any child is still posted.** Android cancels a group's *children* when its summary is cancelled, so `refreshGroupSummary` only cancels `SUMMARY_NOTIF_ID` when `childCount == 0`. With one child left it leaves the summary in place (self-clears when the last child goes). Cancelling the summary at `childCount == 1` was the "mark one room read → every notification vanishes" bug: the per-room `cancel` dropped its own room, then the summary-cancel cascade took the surviving sibling down with it.
+
+> ⚠️ **Batch callers must refresh the summary once, with every cancelled id.** `refreshGroupSummary`
+> takes `justCancelledIds: Set<Int>` because `cancel()` is asynchronous across the binder: inside
+> `handleDismissNotification`'s loop the rooms cancelled on earlier iterations are typically still
+> listed in `activeNotifications`. Excluding only the *current* id counted those stale siblings, so
+> dismissing N rooms in one payload made the final refresh see ~N-1 children and **re-post** the
+> summary — leaving a "Matrix Messages / N conversations" notification with nothing under it.
+> Accumulate the ids across the loop and refresh after it. The single-id overload is for one-room
+> callers only. The dismiss-tombstone suppression `return` in `showEnhancedNotification` refreshes
+> too: it cancels a child without posting one, and used to skip the reconciliation entirely.
 
 ### Dismiss/post race — the per-room dismiss tombstone
 
