@@ -9913,25 +9913,16 @@ class AppViewModel : ViewModel() {
         // ✓ FIX: Only update currentRoomState if this is the currently open room
         // This prevents the room header from flashing through all rooms during shortcut loading
         if (roomId == currentRoomId) {
-            // MERGE rather than overwrite: get_room_state responses for a given room can
-            // arrive with only a subset of state events (e.g. just power_levels + encryption,
-            // no m.room.name / m.room.avatar). A destructive `currentRoomState = roomState`
-            // assignment then wipes the name/avatar that an earlier response or
-            // updateRoomStateFromTimelineEvents call had populated, producing the visible
-            // header flicker on FCM open. Keep the previous value when the new field is null.
-            val previous = currentRoomState?.takeIf { it.roomId == roomId }
-            currentRoomState = if (previous != null) {
-                roomState.copy(
-                    name = roomState.name ?: previous.name,
-                    canonicalAlias = roomState.canonicalAlias ?: previous.canonicalAlias,
-                    topic = roomState.topic ?: previous.topic,
-                    avatarUrl = roomState.avatarUrl ?: previous.avatarUrl,
-                    powerLevels = roomState.powerLevels ?: previous.powerLevels,
-                    bridgeInfo = roomState.bridgeInfo ?: previous.bridgeInfo,
-                )
-            } else {
-                roomState
-            }
+            // Straight overwrite. This used to merge each null field from the previous value,
+            // on the belief that a response could arrive carrying only a subset of the room's
+            // state — but get_room_state always returns the COMPLETE state (its only options
+            // concern the member list and refetch). So a null field is the room genuinely not
+            // having that state event, and preserving the old value made the cache keep asserting
+            // a name or topic the room had removed.
+            //
+            // The header flicker the merge was written for came from the single-room slot being
+            // nulled on every room switch, which the store fixes properly.
+            currentRoomState = roomState
             roomStateUpdateCounter++
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
