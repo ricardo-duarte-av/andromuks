@@ -276,6 +276,13 @@ dependencies {
     // WorkManager for periodic background tasks
     implementation("androidx.work:work-runtime-ktx:2.11.2")
 
+    // Glance — the home-screen room widget (net.vrkknn.andromuks.widget, docs/WIDGET.md).
+    // Compose-for-RemoteViews: renders through the AppWidget IPC channel, so it is deliberately
+    // NOT under the compose-bom platform above (Glance ships its own release train; the BOM still
+    // governs its transitive compose-runtime).
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
+
     // Google Maps for location sharing (MSC3488)
     implementation("com.google.android.gms:play-services-maps:19.2.0")
     implementation("com.google.maps.android:maps-compose:8.3.0")

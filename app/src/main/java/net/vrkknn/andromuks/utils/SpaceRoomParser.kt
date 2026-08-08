@@ -15,8 +15,12 @@ object SpaceRoomParser {
      * Matrix reply fallback bodies start with quoted parent lines (`> ...`); the actual reply
      * follows after a blank line. Strip the quote block so room list shows the reply text,
      * not the parent message. Mirrors [net.vrkknn.andromuks.utils.html] stripReplyFallback logic.
+     *
+     * `internal` rather than private because the home-screen room widget needs the identical
+     * treatment for the same reason — see
+     * [net.vrkknn.andromuks.widget.WidgetEventFormatter.format].
      */
-    private fun stripMatrixReplyQuote(body: String): String {
+    internal fun stripMatrixReplyQuote(body: String): String {
         if (body.isEmpty()) return body
         val lines = body.split('\n')
         if (lines.isEmpty() || !lines.first().startsWith(">")) return body

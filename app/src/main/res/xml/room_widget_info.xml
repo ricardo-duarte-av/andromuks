@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Home-screen room widget (docs/WIDGET.md).
+
+  updatePeriodMillis is 0 on purpose: the widget is refreshed by events that actually mean something
+  — a notification for the room, a live sync event, or the user tapping refresh — not by a timer.
+  The AppWidget polling minimum is 30 minutes anyway, which is both too slow to be useful and too
+  wasteful to justify next to the push-driven paths.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="180dp"
+    android:minHeight="110dp"
+    android:minResizeWidth="180dp"
+    android:minResizeHeight="110dp"
+    android:targetCellWidth="3"
+    android:targetCellHeight="3"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/glance_default_loading_layout"
+    android:configure="net.vrkknn.andromuks.widget.WidgetConfigActivity"
+    android:description="@string/room_widget_description"
+    android:previewLayout="@layout/glance_default_loading_layout" />

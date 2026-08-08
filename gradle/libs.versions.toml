@@ -25,6 +25,11 @@ materialKolor = "4.1.1"
 # compose-rules' detekt ruleset is compiled against this same detekt 2.0 alpha.
 detekt = "2.0.0-alpha.5"
 composeRules = "0.6.2"
+# Glance (home-screen widget) versions independently of composeBom above — it is NOT a
+# compose-bom module, so it must be pinned here. 1.1.1 is the latest STABLE line (1.2.0 never
+# left rc). Its transitive androidx.compose.runtime is still constrained by the BOM, so the
+# single-Compose-BOM rule in docs/DEPENDENCIES.md is not violated. See docs/WIDGET.md.
+glance = "1.1.1"
 
 
 [libraries]
@@ -55,6 +60,8 @@ material-kolor = { group = "com.materialkolor", name = "material-kolor", version
 # `detekt-formatting` artifact to `detekt-rules-ktlint-wrapper` under the new `dev.detekt` group.
 detekt-ktlint-wrapper = { module = "dev.detekt:detekt-rules-ktlint-wrapper", version.ref = "detekt" }
 compose-rules-detekt = { module = "io.nlopez.compose.rules:detekt", version.ref = "composeRules" }
+androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
+androidx-glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -184,6 +184,33 @@
             android:exported="false"
             android:enabled="true" />
         
+        <!--
+          Home-screen room widget: one room per instance, last few messages (docs/WIDGET.md).
+          Exported because the launcher hosts it. The configuration activity binds the room before
+          the widget is ever drawn.
+        -->
+        <receiver
+            android:name=".widget.RoomWidgetReceiver"
+            android:label="@string/room_widget_label"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/room_widget_info" />
+        </receiver>
+
+        <activity
+            android:name=".widget.WidgetConfigActivity"
+            android:exported="true"
+            android:theme="@style/Theme.Andromuks"
+            android:excludeFromRecents="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
         <!-- BootStartReceiver - Restarts service on device boot -->
         <receiver
             android:name=".BootStartReceiver"

@@ -429,6 +429,14 @@ Each room notification creates or updates a `ShortcutInfoCompat` (via `Conversat
 
 ## People / Conversation widget tile updates
 
+> **Not to be confused with our own home-screen room widget** — see [WIDGET.md](WIDGET.md). That one
+> is app-owned Glance code we fully control; everything below is about the launcher-hosted AOSP
+> People tile, which we can only influence through `notify()`. Both are updated from the same
+> post-notify site in `showEnhancedNotification`: `conversationsApi.onRoomActivity(...)` for the
+> tile, `RoomWidgetUpdater.onRoomNotification(...)` for ours. The room widget does **not** replace
+> the tile in code — `ConversationsApi` shortcuts are still required for `MessagingStyle`, bubbles
+> and Direct Share.
+
 The Android **People / Conversation widget** (a launcher-hosted tile bound to a conversation `shortcutId`) is kept current for our rooms — including when the conversation is **silenced in Android** (the original goal: silencing is a device-side action gomuks doesn't know about, so it keeps pushing FCM, but a silenced notification no longer drives the widget on its own). The mechanism below was reverse-engineered against the AOSP People Space service and is **non-obvious** — several "obvious" approaches were tried and disproven, so read this before changing it.
 
 ### What actually drives the tile content: the latest notification post

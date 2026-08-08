@@ -1,4 +1,11 @@
 <resources>
     <!-- app_name is provided per product flavor via resValue() in app/build.gradle.kts -->
     <string name="google_maps_api_key">AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA</string>
+
+    <!-- Home-screen room widget (docs/WIDGET.md) -->
+    <string name="room_widget_label">Room</string>
+    <string name="room_widget_description">Recent messages from one room</string>
+    <string name="room_widget_config_title">Choose a room</string>
+    <string name="room_widget_config_empty">No rooms available yet. Open Andromuks first, then add the widget.</string>
+    <string name="room_widget_config_search">Search rooms</string>
 </resources>

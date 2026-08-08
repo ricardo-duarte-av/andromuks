@@ -313,6 +313,18 @@ object ExecApi {
     fun callObject(creds: Credentials, command: String, body: JSONObject): JSONObject? =
         (execRaw(creds, command, body) as? ExecResult.Success)?.data as? JSONObject
 
+    /**
+     * [callObject] for the commands whose response is a bare array rather than an object.
+     *
+     * `get_specific_room_state` is the one that matters today: it answers with a JSONArray of state
+     * events, which is how the room widget resolves sender display names and avatars without a
+     * ViewModel (`AppViewModel.handleRoomSpecificStateResponse` does the same cast on the WS side).
+     * `paginate` can also answer with a bare array instead of an `{events: […]}` envelope, so
+     * callers of that command should try both shapes.
+     */
+    fun callArray(creds: Credentials, command: String, body: JSONObject): org.json.JSONArray? =
+        (execRaw(creds, command, body) as? ExecResult.Success)?.data as? org.json.JSONArray
+
     /** Fire-and-forget send. Blocking — must be called off the main thread. Returns true on success. */
     fun sendMessage(creds: Credentials, roomId: String, text: String): Boolean {
         val body = JSONObject().apply {
