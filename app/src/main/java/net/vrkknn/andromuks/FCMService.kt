@@ -1,14 +1,11 @@
 package net.vrkknn.andromuks
 
 import android.app.ActivityManager
-import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
-import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -26,7 +23,6 @@ import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.Encryption
 import org.json.JSONObject
-import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -64,16 +60,6 @@ class FCMService : FirebaseMessagingService() {
 
     companion object {
         private const val TAG = "FCMService"
-        private const val CHANNEL_ID = "matrix_notifications"
-        private const val CHANNEL_NAME = "Matrix Messages"
-        private const val CHANNEL_DESCRIPTION = "Notifications for Matrix messages and events"
-
-        // Notification action constants
-        private const val ACTION_REPLY = "action_reply"
-        private const val ACTION_MARK_READ = "action_mark_read"
-        private const val EXTRA_ROOM_ID = "extra_room_id"
-        private const val EXTRA_EVENT_ID = "extra_event_id"
-        private const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
 
         // Rooms where the user just replied via the inline notification action.
         // Dismiss FCMs arriving within this window are ignored because they are
@@ -133,13 +119,6 @@ class FCMService : FirebaseMessagingService() {
             enhancedNotificationDisplay = display
             display
         }
-    }
-
-    private fun buildRawResourceUri(rawResId: Int): android.net.Uri {
-        // Match the format android.resource resolver expects:
-        // android.resource://<package>/raw/<entryName>
-        val entryName = resources.getResourceEntryName(rawResId) // e.g. "bright"
-        return android.net.Uri.parse("android.resource://$packageName/raw/$entryName")
     }
 
     // Track pending notifications to handle race conditions with dismiss notifications
@@ -296,20 +275,6 @@ class FCMService : FirebaseMessagingService() {
             }
         }
 
-        // Handle notification payload (for when app is in background)
-        remoteMessage.notification?.let { notification ->
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    TAG,
-                    "Processing notification payload - title: ${notification.title}, body: ${notification.body}",
-                )
-            }
-            showNotification(
-                title = notification.title ?: "New message",
-                body = notification.body ?: "",
-                data = remoteMessage.data,
-            )
-        }
     }
 
     /**
@@ -1016,117 +981,6 @@ class FCMService : FirebaseMessagingService() {
         serviceScope.launch(Dispatchers.IO) {
             registerTokenWithBackend(token)
         }
-    }
-
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_HIGH,
-            ).apply {
-                description = CHANNEL_DESCRIPTION
-                enableLights(true)
-                enableVibration(true)
-            }
-
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
-        }
-    }
-
-    // POST_NOTIFICATIONS is requested via the app's permission flow; posting without it is a silent
-    // no-op on API 33+ (no crash). Lint can't see the request, so suppress the false positive.
-    @android.annotation.SuppressLint("MissingPermission")
-    private fun showNotification(title: String, body: String, data: Map<String, String>) {
-        val roomId = data["room_id"]
-        val eventId = data["event_id"]
-
-        // Check if room is marked as low priority - skip notifications for low priority rooms
-        if (roomId != null) {
-            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-            val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
-
-            if (lowPriorityRooms.contains(roomId)) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "Skipping background notification for low priority room: $roomId")
-                return
-            }
-
-            // Check if notification should be suppressed (room is open and app is foreground)
-            if (shouldSuppressNotification(roomId)) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "Suppressing background notification for room: $roomId - room is open and app is in foreground",
-                    )
-                }
-                return
-            }
-        }
-
-        val notificationId = generateNotificationId(roomId)
-
-        // Create intent for opening the app.
-        // SINGLE_TOP (not CLEAR_TASK) so the tap routes through MainActivity.onNewIntent on
-        // an existing instance — same path as launcher tap, which empirically recovers the
-        // long-background "no WS, blank timeline" wedge. CLEAR_TASK recreated MainActivity
-        // (and its AppViewModel) on every tap, leaving a "fresh VM + stale process singletons"
-        // hybrid that bailed silently in the WS-revival chain. Back-stack hygiene is handled
-        // by Compose nav (navigateToRoomTimelineForExternalEntry synthesises a room_list base
-        // beneath the timeline), not by the Activity flags. See docs/DEBUG_WS_REVIVAL.md.
-        val intent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-            putExtra("room_id", roomId)
-            putExtra("event_id", eventId)
-        }
-
-        val pendingIntent = PendingIntent.getActivity(
-            this,
-            notificationId,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        // Determine if this is likely a group room based on available data
-        // If room_name != sender_display_name, it's a group room
-        // If room_name == sender_display_name or room_name is null, it's a DM
-        val roomName = data["room_name"]
-        val senderDisplayName = data["sender_display_name"] ?: data["sender"]
-        val isLikelyGroupRoom = when {
-            roomName != null && senderDisplayName != null -> roomName != senderDisplayName
-
-            roomName != null -> true
-
-            // If we have room name but no sender name, assume group
-            else -> title.contains(":") || title.length > 20 // Fallback to heuristic
-        }
-
-        // Choose sound based on room type
-        val soundResource = if (isLikelyGroupRoom) R.raw.descending else R.raw.bright
-        val soundUri = buildRawResourceUri(soundResource)
-
-        // Create notification with reply action
-        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setContentIntent(pendingIntent)
-            .setAutoCancel(true)
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
-            .setSound(soundUri)
-            .build()
-
-        // Show notification
-        val notificationManager = NotificationManagerCompat.from(this)
-        notificationManager.notify(notificationId, notification)
-    }
-
-    private fun generateNotificationId(roomId: String?): Int {
-        // Generate a consistent notification ID for the room
-        return roomId?.hashCode()?.let { kotlin.math.abs(it) } ?: UUID.randomUUID().hashCode()
     }
 
     private suspend fun registerTokenWithBackend(token: String) {
