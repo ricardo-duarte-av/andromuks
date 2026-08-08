@@ -7224,6 +7224,19 @@ class AppViewModel : ViewModel() {
             }
         }
 
+        // A live m.room.name / m.room.avatar timeline event refines the room's cached state. Write
+        // it to the store keyed by roomId rather than only to the current-room slot, so the update
+        // is not lost the moment the user switches away.
+        val cachedState = net.vrkknn.andromuks.utils.RoomStateStore.getParsed(roomId)
+        if (cachedState != null && (eventName != null || eventAvatarUrl != null)) {
+            net.vrkknn.andromuks.utils.RoomStateStore.putParsed(
+                roomId,
+                cachedState.copy(
+                    name = eventName ?: cachedState.name,
+                    avatarUrl = eventAvatarUrl ?: cachedState.avatarUrl,
+                ),
+            )
+        }
         if (currentRoomId == roomId && currentRoomState != null) {
             currentRoomState = currentRoomState?.copy(
                 name = eventName ?: currentRoomState?.name,
@@ -11562,6 +11575,10 @@ class AppViewModel : ViewModel() {
                                 pinnedEventIds = previous?.pinnedEventIds ?: emptyList(),
                                 bridgeInfo = previous?.bridgeInfo,
                             )
+                            // The sync `meta` delta refines the room's cached state. It is not a
+                            // state EVENT, so it never reaches the raw tier or disk — those stay
+                            // the exclusive record of what get_room_state returned.
+                            net.vrkknn.andromuks.utils.RoomStateStore.putParsed(roomId, roomState)
                             // ✓ Safety check: Only update if this is the currently open room
                             if (roomId == currentRoomId) {
                                 currentRoomState = roomState
