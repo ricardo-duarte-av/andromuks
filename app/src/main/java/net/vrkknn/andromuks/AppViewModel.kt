@@ -6864,6 +6864,19 @@ class AppViewModel : ViewModel() {
             // the password is no longer valid (changed/revoked), so they must be re-entered.
             net.vrkknn.andromuks.utils.CredentialStore.clearCredentials(prefs)
 
+            // Drop the persisted room metadata and its in-memory mirror.
+            //
+            // This is the only logout path, and until now nothing cleared either: the SQLite rows
+            // survived, so logging in as a different account cold-painted the PREVIOUS account's
+            // room names and avatars from disk until its first sync landed. (docs/AUTHCHECK.md
+            // claimed this was already handled; clearAll had no production caller at all.)
+            //
+            // RoomListCache is cleared in the same breath deliberately — it is the write-through
+            // source for those rows, so clearing only the store would let the next persist call
+            // resurrect the old account's rooms straight back onto disk.
+            RoomListCache.clear()
+            net.vrkknn.andromuks.utils.RoomMetadataStore.clearAll()
+
             // Clear in-memory state
             currentRunId = ""
             vapidKey = ""
