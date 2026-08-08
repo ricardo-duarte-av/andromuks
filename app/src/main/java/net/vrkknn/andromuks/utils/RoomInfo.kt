@@ -1727,12 +1727,7 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
                 }
 
                 "m.room.topic" -> {
-                    // Plain string topic (common)
-                    topic = content?.optString("topic")?.takeIf { it.isNotBlank() }
-                    // Fallback: MSC-style m.topic.m.text[].body when topic key missing or empty
-                    if (topic.isNullOrBlank()) {
-                        topic = extractTopicFromMTopicContent(content)
-                    }
+                    topic = parseRoomTopic(content)
                 }
 
                 "m.room.avatar" -> {

@@ -9578,19 +9578,8 @@ class AppViewModel : ViewModel() {
                 }
 
                 "m.room.topic" -> {
-                    // OPTIMIZED: Cache parsed topic to avoid re-parsing
                     if (topic.isNullOrBlank()) {
-                        topic = content.optString("topic").takeIf { it.isNotBlank() }
-
-                        // Fallback to structured format if simple topic not found
-                        if (topic.isNullOrBlank()) {
-                            val topicContent = content.optJSONObject("m.topic")
-                            val textArray = topicContent?.optJSONArray("m.text")
-                            if (textArray != null && textArray.length() > 0) {
-                                val firstText = textArray.optJSONObject(0)
-                                topic = firstText?.optString("body")?.takeIf { it.isNotBlank() }
-                            }
-                        }
+                        topic = net.vrkknn.andromuks.utils.parseRoomTopic(content)
                     }
                 }
 

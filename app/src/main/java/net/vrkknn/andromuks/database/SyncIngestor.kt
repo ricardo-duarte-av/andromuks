@@ -1104,22 +1104,7 @@ class SyncIngestor(private val context: Context) {
                     }
 
                     "m.room.topic" -> {
-                        // Handle both simple topic format and complex m.topic format
-                        val simpleTopic = content?.optString("topic")?.takeIf { it.isNotBlank() }
-                        if (simpleTopic != null) {
-                            roomTopic = simpleTopic
-                        } else {
-                            // Try m.topic.m.text format
-                            val mTopic = content?.optJSONObject("m.topic")
-                            val mText = mTopic?.optJSONArray("m.text")
-                            if (mText != null && mText.length() > 0) {
-                                val firstText = mText.optJSONObject(0)
-                                val body = firstText?.optString("body")?.takeIf { it.isNotBlank() }
-                                if (body != null) {
-                                    roomTopic = body
-                                }
-                            }
-                        }
+                        net.vrkknn.andromuks.utils.parseRoomTopic(content)?.let { roomTopic = it }
                     }
 
                     "m.room.canonical_alias" -> {
