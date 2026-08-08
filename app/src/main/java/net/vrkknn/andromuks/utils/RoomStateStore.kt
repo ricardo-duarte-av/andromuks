@@ -4,6 +4,7 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
 import androidx.compose.runtime.mutableStateMapOf
+import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.RoomState
 import org.json.JSONObject
@@ -61,6 +62,70 @@ object RoomStateStore {
 
     /** Composite key for the raw tier and the DB primary key: type plus state key. */
     internal fun stateKeyOf(type: String, stateKey: String): String = "$type|$stateKey"
+
+    /** One state event, flattened to what this store keeps. */
+    data class StateEvent(
+        val type: String,
+        val stateKey: String,
+        val content: JSONObject,
+        val sender: String? = null,
+        val eventId: String? = null,
+        val timestamp: Long? = null,
+    )
+
+    /**
+     * Flatten a `get_room_state` events array, dropping member events and anything malformed.
+     *
+     * A state event with no `type` or no `content` object is unusable, and one bad entry must not
+     * cost us the rest of the room's state.
+     */
+    fun flatten(events: org.json.JSONArray): List<StateEvent> {
+        val out = ArrayList<StateEvent>(events.length())
+        for (i in 0 until events.length()) {
+            val event = toStateEvent(events.optJSONObject(i)) ?: continue
+            out.add(event)
+        }
+        return out
+    }
+
+    /** One state event, or null if it is a member event or too malformed to keep. */
+    private fun toStateEvent(event: JSONObject?): StateEvent? {
+        if (event == null) return null
+        val type = event.optString("type").takeIf { it.isNotBlank() } ?: return null
+        if (type == MEMBER_TYPE) return null
+        val content = event.optJSONObject("content") ?: return null
+        return StateEvent(
+            type = type,
+            stateKey = event.optString("state_key"),
+            content = content,
+            sender = event.optString("sender").takeIf { it.isNotBlank() },
+            eventId = event.optString("event_id").takeIf { it.isNotBlank() },
+            timestamp = event.optLong("timestamp").takeIf { it > 0L },
+        )
+    }
+
+    /**
+     * Record a complete `get_room_state` answer: RAM first so readers see it immediately, disk
+     * after. [parsed] is supplied by the caller's parser rather than re-derived here, so there is
+     * exactly one place that knows how to turn state events into a [RoomState].
+     */
+    fun ingestFullState(roomId: String, events: org.json.JSONArray, parsed: RoomState) {
+        val flattened = flatten(events)
+        putParsed(roomId, parsed)
+        putRaw(roomId, flattened.associate { stateKeyOf(it.type, it.stateKey) to it.content })
+        persistFullState(roomId, flattened)
+    }
+
+    /**
+     * Record a targeted `get_specific_room_state` answer. Merges rather than replaces — the
+     * response speaks only for the keys it was asked about.
+     */
+    fun ingestPartialState(roomId: String, events: org.json.JSONArray) {
+        val flattened = flatten(events)
+        if (flattened.isEmpty()) return
+        mergeRaw(roomId, flattened.associate { stateKeyOf(it.type, it.stateKey) to it.content })
+        persistPartialState(roomId, flattened)
+    }
 
     /**
      * Parsed state per room. Snapshot-backed for per-key Compose subscription.
@@ -144,6 +209,123 @@ object RoomStateStore {
     fun clearMemory() {
         parsedStates.clear()
         synchronized(rawLock) { rawStates.clear() }
+    }
+
+    // ------------------------------------------------------------------ persistence
+
+    /**
+     * Persist [roomId]'s complete state, replacing whatever was stored for it.
+     *
+     * **Replace, not merge.** `get_room_state` returns the room's entire state, so a state event
+     * absent from [events] has genuinely been removed — merging would resurrect it and leave the
+     * cache permanently claiming things the room stopped saying. The delete is scoped to
+     * `type != m.room.member` so it stays correct if members are ever persisted.
+     *
+     * Fire-and-forget on the shared IO scope, one transaction for the whole room. Losing an
+     * in-flight write costs nothing: the store is a paint optimisation and the next
+     * `get_room_state` rewrites it.
+     */
+    internal fun persistFullState(roomId: String, events: List<StateEvent>) {
+        val db = RoomMetadataStore.writableDbOrNull() ?: return
+        val persistable = events.filter { it.type != MEMBER_TYPE }
+        RoomMetadataStore.sharedIoScope.launch {
+            writeTransaction(db, roomId, persistable, replaceAll = true)
+        }
+    }
+
+    /**
+     * Upsert individual state entries without disturbing the rest of the room's stored state.
+     *
+     * For targeted fetches (`get_specific_room_state`), which answer for the keys they were asked
+     * about and say nothing about any other — so unlike [persistFullState] this must not delete.
+     */
+    internal fun persistPartialState(roomId: String, events: List<StateEvent>) {
+        val db = RoomMetadataStore.writableDbOrNull() ?: return
+        val persistable = events.filter { it.type != MEMBER_TYPE }
+        if (persistable.isEmpty()) return
+        RoomMetadataStore.sharedIoScope.launch {
+            writeTransaction(db, roomId, persistable, replaceAll = false)
+        }
+    }
+
+    /** Drop [roomId]'s persisted state. Paired with the RAM eviction in [forgetRoom]. */
+    internal fun deleteRoom(roomId: String) {
+        val db = RoomMetadataStore.writableDbOrNull() ?: return
+        RoomMetadataStore.sharedIoScope.launch {
+            try {
+                db.delete(
+                    RoomMetadataStore.STATE_TABLE,
+                    "${RoomMetadataStore.COL_STATE_ROOM_ID} = ?",
+                    arrayOf(roomId),
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "deleteRoom failed for $roomId", t)
+            }
+        }
+    }
+
+    /** Drop every persisted state row. Logout. */
+    internal fun deleteAll() {
+        val db = RoomMetadataStore.writableDbOrNull() ?: return
+        RoomMetadataStore.sharedIoScope.launch {
+            try {
+                db.delete(RoomMetadataStore.STATE_TABLE, null, null)
+            } catch (t: Throwable) {
+                Log.w(TAG, "deleteAll failed", t)
+            }
+        }
+    }
+
+    private fun writeTransaction(db: SQLiteDatabase, roomId: String, events: List<StateEvent>, replaceAll: Boolean) {
+        try {
+            db.beginTransaction()
+            try {
+                if (replaceAll) {
+                    db.delete(
+                        RoomMetadataStore.STATE_TABLE,
+                        "${RoomMetadataStore.COL_STATE_ROOM_ID} = ? AND ${RoomMetadataStore.COL_STATE_TYPE} != ?",
+                        arrayOf(roomId, MEMBER_TYPE),
+                    )
+                }
+                val now = System.currentTimeMillis()
+                for (event in events) {
+                    val values = android.content.ContentValues().apply {
+                        put(RoomMetadataStore.COL_STATE_ROOM_ID, roomId)
+                        put(RoomMetadataStore.COL_STATE_TYPE, event.type)
+                        put(RoomMetadataStore.COL_STATE_KEY, event.stateKey)
+                        put(RoomMetadataStore.COL_STATE_CONTENT, event.content.toString())
+                        put(RoomMetadataStore.COL_STATE_SENDER, event.sender)
+                        put(RoomMetadataStore.COL_STATE_EVENT_ID, event.eventId)
+                        put(RoomMetadataStore.COL_STATE_TIMESTAMP, event.timestamp)
+                        put(RoomMetadataStore.COL_STATE_UPDATED_AT, now)
+                    }
+                    // INSERT-OR-IGNORE then UPDATE, never CONFLICT_REPLACE: replace would drop any
+                    // column absent from `values`. Same primitive RoomMetadataStore.writePartial
+                    // uses, for the same reason.
+                    val inserted = db.insertWithOnConflict(
+                        RoomMetadataStore.STATE_TABLE,
+                        null,
+                        values,
+                        SQLiteDatabase.CONFLICT_IGNORE,
+                    )
+                    if (inserted == -1L) {
+                        db.update(
+                            RoomMetadataStore.STATE_TABLE,
+                            values,
+                            "${RoomMetadataStore.COL_STATE_ROOM_ID} = ? AND " +
+                                "${RoomMetadataStore.COL_STATE_TYPE} = ? AND ${RoomMetadataStore.COL_STATE_KEY} = ?",
+                            arrayOf(roomId, event.type, event.stateKey),
+                        )
+                    }
+                }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
+            }
+        } catch (t: Throwable) {
+            // Roll the batch back rather than take the process down; the next response rewrites it.
+            Log.w(TAG, "State write failed for $roomId", t)
+        }
     }
 
     // ------------------------------------------------------------------ hydration
