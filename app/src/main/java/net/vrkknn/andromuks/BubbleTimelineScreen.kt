@@ -688,7 +688,11 @@ fun BubbleTimelineScreen(
         // In E2EE rooms the client sends m.room.encrypted, so the homeserver enforces power
         // levels against that event type — not m.room.message (which never reaches the server).
         val messageEventType =
-            if (appViewModel.currentRoomState?.isEncrypted == true) "m.room.encrypted" else "m.room.message"
+            if ((appViewModel.currentRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId)) == true) {
+                "m.room.encrypted"
+            } else {
+                "m.room.message"
+            }
         val required = pl.events[messageEventType] ?: pl.eventsDefault
         myPl >= required
     }
@@ -3419,7 +3423,8 @@ fun BubbleTimelineScreen(
                                                 controller = urlPreviewController,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
-                                                isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false,
+                                                isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted
+                                                    ?: RoomTimelineCache.getRoomEncryption(roomId) ?: false,
                                             )
                                         }
 
@@ -5240,17 +5245,26 @@ fun BubbleRoomHeader(
 
                 // Room topic / encryption indicator (below display name)
                 val roomTopic = roomState?.topic
-                val isRoomEncrypted = roomState?.isEncrypted ?: false
+                // Tri-state, mirroring RoomHeader in RoomTimelineScreen — see the note there.
+                val isRoomEncrypted = roomState?.isEncrypted ?: roomId?.let { RoomTimelineCache.getRoomEncryption(it) }
                 val iconSize = with(LocalDensity.current) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 2.dp),
                 ) {
                     Icon(
-                        imageVector = if (isRoomEncrypted) Icons.Filled.Lock else Icons.Filled.LockOpen,
-                        contentDescription = if (isRoomEncrypted) "Encrypted room" else "Unencrypted room",
+                        imageVector = if (isRoomEncrypted == false) Icons.Filled.LockOpen else Icons.Filled.Lock,
+                        contentDescription = when (isRoomEncrypted) {
+                            true -> "Encrypted room"
+                            false -> "Unencrypted room"
+                            null -> "Checking encryption"
+                        },
                         modifier = Modifier.size(iconSize),
-                        tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        tint = when (isRoomEncrypted) {
+                            true -> MaterialTheme.colorScheme.primary
+                            false -> MaterialTheme.colorScheme.error
+                            null -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                     if (roomTopic != null && roomTopic.isNotBlank()) {
                         Spacer(modifier = Modifier.width(4.dp))

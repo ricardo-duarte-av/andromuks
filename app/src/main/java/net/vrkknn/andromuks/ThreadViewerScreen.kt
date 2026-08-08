@@ -619,7 +619,11 @@ fun ThreadViewerScreen(
         // In E2EE rooms the client sends m.room.encrypted, so the homeserver enforces power
         // levels against that event type — not m.room.message (which never reaches the server).
         val messageEventType =
-            if (appViewModel.currentRoomState?.isEncrypted == true) "m.room.encrypted" else "m.room.message"
+            if ((appViewModel.currentRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId)) == true) {
+                "m.room.encrypted"
+            } else {
+                "m.room.message"
+            }
         val required = pl.events[messageEventType] ?: pl.eventsDefault
         myPl >= required
     }
@@ -1280,7 +1284,8 @@ fun ThreadViewerScreen(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     // Encryption indicator + thread root preview
-                                    val isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
+                                    val isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted
+                                        ?: RoomTimelineCache.getRoomEncryption(roomId) ?: false
                                     val iconSize = with(
                                         LocalDensity.current,
                                     ) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
@@ -1725,7 +1730,8 @@ fun ThreadViewerScreen(
                                                 controller = urlPreviewController,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
-                                                isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false,
+                                                isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted
+                                                    ?: RoomTimelineCache.getRoomEncryption(roomId) ?: false,
                                             )
                                         }
 

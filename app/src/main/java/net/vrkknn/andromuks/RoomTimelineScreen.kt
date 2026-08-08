@@ -868,7 +868,11 @@ fun RoomTimelineScreen(
         // In E2EE rooms the client sends m.room.encrypted, so the homeserver enforces power
         // levels against that event type — not m.room.message (which never reaches the server).
         val messageEventType =
-            if (currentRoomState?.isEncrypted == true) "m.room.encrypted" else "m.room.message"
+            if ((currentRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId)) == true) {
+                "m.room.encrypted"
+            } else {
+                "m.room.message"
+            }
         val required = pl.events[messageEventType] ?: pl.eventsDefault
         myPl >= required
     }
@@ -4796,7 +4800,8 @@ fun RoomTimelineScreen(
                                                 controller = urlPreviewController,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
-                                                isRoomEncrypted = currentRoomState?.isEncrypted ?: false,
+                                                isRoomEncrypted = currentRoomState?.isEncrypted
+                                                    ?: RoomTimelineCache.getRoomEncryption(roomId) ?: false,
                                             )
                                         }
 
@@ -6673,17 +6678,31 @@ fun RoomHeader(
 
                 // Room topic / encryption indicator (below display name)
                 val roomTopic = roomState?.topic
-                val isRoomEncrypted = roomState?.isEncrypted ?: false
+                // Tri-state: null means the room's state has never been fetched. Fall back to the
+                // per-room timeline cache, which outlives the room switches that null out
+                // currentRoomState — without it, returning to a warm E2EE room paints an open
+                // padlock until a fresh get_room_state lands.
+                val isRoomEncrypted = roomState?.isEncrypted ?: roomId?.let { RoomTimelineCache.getRoomEncryption(it) }
                 val iconSize = with(LocalDensity.current) { MaterialTheme.typography.bodySmall.fontSize.toDp() }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 2.dp),
                 ) {
                     Icon(
-                        imageVector = if (isRoomEncrypted) Icons.Filled.Lock else Icons.Filled.LockOpen,
-                        contentDescription = if (isRoomEncrypted) "Encrypted room" else "Unencrypted room",
+                        // Only a confirmed `false` gets the open padlock; unknown stays neutral so
+                        // the header never claims an encrypted room is unencrypted.
+                        imageVector = if (isRoomEncrypted == false) Icons.Filled.LockOpen else Icons.Filled.Lock,
+                        contentDescription = when (isRoomEncrypted) {
+                            true -> "Encrypted room"
+                            false -> "Unencrypted room"
+                            null -> "Checking encryption"
+                        },
                         modifier = Modifier.size(iconSize),
-                        tint = if (isRoomEncrypted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                        tint = when (isRoomEncrypted) {
+                            true -> MaterialTheme.colorScheme.primary
+                            false -> MaterialTheme.colorScheme.error
+                            null -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                     if (roomTopic != null && roomTopic.isNotBlank()) {
                         Spacer(modifier = Modifier.width(4.dp))

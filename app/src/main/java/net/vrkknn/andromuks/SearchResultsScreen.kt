@@ -91,13 +91,14 @@ fun SearchResultsScreen(navController: NavController, modifier: Modifier = Modif
     val myUserId = appViewModel.currentUserId
 
     val isRoomEncrypted = remember(roomId) {
-        when {
-            roomId == null -> false
-
-            appViewModel.currentRoomId == roomId && appViewModel.currentRoomState != null ->
-                appViewModel.currentRoomState?.isEncrypted ?: false
-
-            else -> isRoomEncryptedFromState(appViewModel.getRoomState(roomId)) ?: false
+        if (roomId == null) {
+            false
+        } else {
+            // currentRoomState only ever describes the room currently open, so guard on roomId and
+            // fall back to the per-room timeline cache, which holds the last authoritative
+            // get_room_state answer for any room regardless of which one is on screen.
+            val openRoomState = appViewModel.currentRoomState?.takeIf { it.roomId == roomId }
+            openRoomState?.isEncrypted ?: RoomTimelineCache.getRoomEncryption(roomId) ?: false
         }
     }
 
