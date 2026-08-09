@@ -2,21 +2,27 @@
 <!--
   Static preview shown in the launcher's widget picker (android:previewLayout, API 31+).
 
-  This is NOT the widget: it is a plain RemoteViews-compatible mock of what the widget looks like
-  once configured. It has to be static because the picker renders it without ever starting a Glance
-  session — which is why pointing previewLayout at Glance's loading layout, as this did originally,
-  produced a spinner that never resolved.
+  This is NOT the widget: it is a static mock of what the widget looks like once configured. The
+  picker renders it without ever starting a Glance session, which is why pointing previewLayout at
+  Glance's loading layout (as this did originally) produced a spinner that never resolved.
 
-  Theme attributes rather than fixed colours so it follows the launcher's light/dark treatment.
+  IMPORTANT — the launcher inflates this as **RemoteViews**, so only the RemoteViews-supported
+  widget classes may appear here: FrameLayout, LinearLayout, RelativeLayout, GridLayout, TextView,
+  ImageView, ImageButton, Button, ProgressBar, Chronometer, AnalogClock and the adapter views.
+  A plain <View> is NOT among them — using one for the avatar placeholders made inflation throw,
+  which the launcher surfaces as a black preview and "couldn't add widget".
+
+  Colours are explicit day/night resources rather than ?android:attr/... for the same reason: the
+  theme resolved during inflation belongs to the launcher, not to us.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:padding="12dp"
-    android:background="?android:attr/colorBackground">
+    android:background="@drawable/room_widget_preview_card">
 
-    <!-- Header: room avatar + room name -->
+    <!-- Header: room avatar + room name + refresh affordance -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -26,7 +32,7 @@
         <ImageView
             android:layout_width="24dp"
             android:layout_height="24dp"
-            android:src="@drawable/ic_matrix_notification"
+            android:src="@drawable/room_widget_preview_avatar"
             android:contentDescription="@null" />
 
         <TextView
@@ -38,27 +44,28 @@
             android:ellipsize="end"
             android:textSize="15sp"
             android:textStyle="bold"
-            android:textColor="?android:attr/textColorPrimary"
+            android:textColor="@color/room_widget_preview_text"
             android:text="@string/room_widget_preview_room" />
 
         <ImageView
             android:layout_width="24dp"
             android:layout_height="24dp"
-            android:src="@drawable/ic_widget_refresh"
+            android:src="@drawable/room_widget_preview_refresh"
             android:contentDescription="@null" />
     </LinearLayout>
 
-    <!-- Two sample message rows -->
+    <!-- Sample message row 1 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="10dp"
         android:orientation="horizontal">
 
-        <View
+        <ImageView
             android:layout_width="28dp"
             android:layout_height="28dp"
-            android:background="@drawable/room_widget_preview_avatar" />
+            android:src="@drawable/room_widget_preview_avatar"
+            android:contentDescription="@null" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -72,7 +79,7 @@
                 android:layout_height="wrap_content"
                 android:maxLines="1"
                 android:textSize="12sp"
-                android:textColor="?android:attr/colorAccent"
+                android:textColor="@color/room_widget_preview_sender"
                 android:text="@string/room_widget_preview_sender_one" />
 
             <TextView
@@ -81,21 +88,23 @@
                 android:maxLines="2"
                 android:ellipsize="end"
                 android:textSize="14sp"
-                android:textColor="?android:attr/textColorPrimary"
+                android:textColor="@color/room_widget_preview_text"
                 android:text="@string/room_widget_preview_message_one" />
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Sample message row 2 -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
         android:orientation="horizontal">
 
-        <View
+        <ImageView
             android:layout_width="28dp"
             android:layout_height="28dp"
-            android:background="@drawable/room_widget_preview_avatar" />
+            android:src="@drawable/room_widget_preview_avatar_alt"
+            android:contentDescription="@null" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -109,7 +118,7 @@
                 android:layout_height="wrap_content"
                 android:maxLines="1"
                 android:textSize="12sp"
-                android:textColor="?android:attr/colorAccent"
+                android:textColor="@color/room_widget_preview_sender"
                 android:text="@string/room_widget_preview_sender_two" />
 
             <TextView
@@ -118,7 +127,7 @@
                 android:maxLines="2"
                 android:ellipsize="end"
                 android:textSize="14sp"
-                android:textColor="?android:attr/textColorPrimary"
+                android:textColor="@color/room_widget_preview_text"
                 android:text="@string/room_widget_preview_message_two" />
         </LinearLayout>
     </LinearLayout>

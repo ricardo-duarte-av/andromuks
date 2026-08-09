@@ -13,4 +13,11 @@
          Day/night variants so a locked app's task-switcher thumbnail matches the active theme
          (see values-night/colors.xml). Approximates the Material 3 default background tokens. -->
     <color name="window_background">#FFFFFBFE</color>
+    <!-- Widget picker preview (res/layout/room_widget_preview.xml). Explicit day/night colours
+         rather than ?android:attr/... because the preview is inflated as RemoteViews in the
+         launcher's process, where the resolved theme is not ours. -->
+    <color name="room_widget_preview_background">#FFFFFBFE</color>
+    <color name="room_widget_preview_text">#FF1C1B1F</color>
+    <color name="room_widget_preview_sender">#FF6750A4</color>
+    <color name="room_widget_preview_icon">#FF49454F</color>
 </resources>

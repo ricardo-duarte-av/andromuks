@@ -3,4 +3,9 @@
     <!-- Dark-mode window background — matches the Material 3 dark default so the FLAG_SECURE
          recents placeholder is dark (not white) when the app is in dark mode. -->
     <color name="window_background">#FF1C1B1F</color>
+    <!-- Dark variants for the widget picker preview; see values/colors.xml. -->
+    <color name="room_widget_preview_background">#FF1F1F24</color>
+    <color name="room_widget_preview_text">#FFE6E1E5</color>
+    <color name="room_widget_preview_sender">#FFD0BCFF</color>
+    <color name="room_widget_preview_icon">#FFC9C5CA</color>
 </resources>

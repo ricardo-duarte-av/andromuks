@@ -68,8 +68,14 @@ Resources: `res/xml/room_widget_info.xml`, `res/drawable/ic_widget_refresh.xml`,
 8. Room header: `RoomMetadataStore` (SQLite, survives process death) → `/exec get_room_summary` →
    the name captured at configuration time → the raw room id.
 9. Avatars: `IntelligentMediaCache` for the download, then a 96 px circular PNG in
-   `cacheDir/room_widget_avatars/`, referenced by **path**. Unreferenced files are pruned each
-   refresh.
+   `cacheDir/room_widget_avatars/`, referenced by **path**.
+
+**Pruning those files is deliberately not done here.** The avatar directory is shared by every
+widget, so a keep-set built from the room being refreshed deletes the files other widgets are
+displaying — avatars vanish and only return when the widget is re-added. `RoomWidgetRefreshWorker`
+prunes instead, *after* storing the snapshot and against
+`RoomWidgetStore.allReferencedAvatarPaths` — every live snapshot at once, including the one just
+written.
 
 Failures degrade rather than blank: a network error keeps the previous messages and sets
 `state = ERROR`.
@@ -85,8 +91,10 @@ Two consequences worth keeping:
 - **The list is a plain `Column`, never a `LazyColumn`.** A scrollable list inside a widget is the
   wrong interaction — it puts a scrollbar on the home screen and competes with the launcher's
   gestures. The widget shows exactly what fits, so there is nothing to scroll to.
-- **`ROW_HEIGHT_DP` over-estimates a row on purpose.** Rows vary (a continuation row has no sender
-  line). With no scrolling, guessing high costs one message; guessing low clips the bottom row.
+- **`ROW_HEIGHT_DP` and `CHROME_HEIGHT_DP` are measured against what the widget draws, not
+  guessed.** An over-estimate is not free: it shows fewer rows than fit and leaves dead space along
+  the bottom at *every* size. Rows vary (a continuation row has no sender line), so the constant
+  sits mid-band — wrong by part of a row rather than by a whole one.
 
 The floor is 1, not 5. A floor above what actually fits is precisely what pushes content off the
 bottom edge.
@@ -194,6 +202,22 @@ beats blanking the widget for the couple of seconds a refetch takes.
 (`res/layout/room_widget_preview.xml`) — a hand-built mock of the widget with sample content. The
 launcher renders it without ever starting a Glance session, which is why pointing it at Glance's
 `glance_default_loading_layout` (as this originally did) showed a spinner that never resolved.
+
+**The launcher inflates it as `RemoteViews`**, which is a much narrower world than a normal layout:
+only the `@RemoteView`-annotated classes may appear (`LinearLayout`, `FrameLayout`, `RelativeLayout`,
+`GridLayout`, `TextView`, `ImageView`, `ImageButton`, `Button`, `ProgressBar`, `Chronometer`,
+`AnalogClock`, the adapter views). A plain `<View>` is **not** among them — using one as an avatar
+placeholder made inflation throw, which the launcher renders as a black preview plus "couldn't add
+widget". (`View` genuinely lacks the annotation; you can confirm any class with
+`unzip -p $ANDROID_HOME/platforms/android-37.0/android.jar android/view/View.class | strings | grep RemoteView`.)
+
+Two consequences follow, and both are easy to undo by accident:
+
+- **Colours are explicit day/night resources, not `?android:attr/...`.** The theme resolved during
+  inflation is the launcher's, not ours.
+- **No `android:tint`.** Lint rejects it in favour of AppCompat's `app:tint`, which cannot work in a
+  RemoteViews layout — so the refresh glyph is a separate drawable with its colour baked in
+  (`room_widget_preview_refresh.xml`) rather than a tint of the widget's own icon.
 
 `android:previewImage` is the API < 31 fallback, currently a hand-drawn vector stand-in. To use a
 real screenshot instead, drop a PNG at `res/drawable-nodpi/room_widget_preview_image.png` and delete

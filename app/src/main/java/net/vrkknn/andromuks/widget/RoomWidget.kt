@@ -284,14 +284,16 @@ class RoomWidget : GlanceAppWidget() {
      * size the user drags the widget to *is* the setting. A 4x1 widget shows one message (the
      * latest); growing it to 4x4 shows more, up to [RoomWidgetStore.MAX_MESSAGE_LIMIT].
      *
-     * [ROW_HEIGHT_DP] deliberately over-estimates a row (a continuation row without the sender line
-     * is shorter): with no scrolling, guessing high shows one message fewer, while guessing low
-     * clips the bottom row. The floor is 1, not 5 — a one-row widget is a legitimate size, and a
-     * floor above what fits is exactly what forces content off the bottom edge.
+     * The constants are measured against what the widget actually draws, not guessed — an
+     * over-estimate here is not free: it shows fewer rows than fit and leaves dead space at the
+     * bottom at *every* widget size, which is exactly what a too-tall row estimate produced before.
+     *
+     * The floor is 1, not 5 — a one-row widget is a legitimate size, and a floor above what fits is
+     * what forces content off the bottom edge.
      */
     @Composable
     private fun fittingMessageCount(): Int {
-        val availableDp = (LocalSize.current.height.value - HEADER_HEIGHT_DP - VERTICAL_PADDING_DP).coerceAtLeast(0f)
+        val availableDp = (LocalSize.current.height.value - CHROME_HEIGHT_DP).coerceAtLeast(0f)
         val fits = (availableDp / ROW_HEIGHT_DP).toInt()
         return fits.coerceIn(RoomWidgetStore.MIN_MESSAGE_LIMIT, RoomWidgetStore.MAX_MESSAGE_LIMIT)
     }
@@ -324,13 +326,22 @@ class RoomWidget : GlanceAppWidget() {
 
     companion object {
         private const val TAG = "RoomWidget"
-        private const val HEADER_HEIGHT_DP = 40f
 
-        /** Over-estimates a row on purpose — see [fittingMessageCount]. */
-        private const val ROW_HEIGHT_DP = 48f
+        /**
+         * Everything above the message list: the root Column's 12dp top+bottom padding (24), the
+         * header row (a 24dp avatar, the tallest thing in it) and the 8dp spacer under it.
+         */
+        private const val CHROME_HEIGHT_DP = 24f + 24f + 8f
 
-        /** The Column's own 12dp top+bottom padding. */
-        private const val VERTICAL_PADDING_DP = 24f
+        /**
+         * One message row.
+         *
+         * A row is 3dp+3dp padding around `max(avatar, text column)`. With the sender line that is
+         * ~17dp (12sp) + ~20dp (14sp body) = 37; a continuation row is the 28dp avatar spacer. So
+         * real rows land in the 34–43dp band and 40 sits in the middle — close enough that a full
+         * widget looks full, and when it is wrong it is wrong by part of one row.
+         */
+        private const val ROW_HEIGHT_DP = 40f
 
         /**
          * Recomposition signal, bumped by [RoomWidgetUpdater.redraw] on every snapshot write.

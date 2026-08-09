@@ -156,6 +156,25 @@ object RoomWidgetStore {
             .apply()
     }
 
+    /**
+     * Every avatar file path referenced by any live snapshot.
+     *
+     * This is the keep-set for [RoomWidgetAvatars.prune]. It has to span **all** widgets because
+     * they share one avatar directory: pruning against a single room's snapshot deletes the files
+     * other widgets are currently displaying, which shows up as avatars that vanish and only come
+     * back when the widget is re-added.
+     */
+    fun allReferencedAvatarPaths(context: Context): Set<String> {
+        ensureLoaded(context)
+        return buildSet {
+            bindings.keys.forEach { appWidgetId ->
+                val snapshot = readSnapshot(context, appWidgetId) ?: return@forEach
+                snapshot.roomAvatarPath?.let { add(it) }
+                snapshot.messages.forEach { message -> message.senderAvatarPath?.let { add(it) } }
+            }
+        }
+    }
+
     /** Write the same snapshot to every widget bound to its room. Returns the ids written. */
     fun writeSnapshotForRoom(context: Context, roomId: String, snapshot: RoomWidgetSnapshot): List<Int> {
         val ids = widgetIdsForRoom(context, roomId)

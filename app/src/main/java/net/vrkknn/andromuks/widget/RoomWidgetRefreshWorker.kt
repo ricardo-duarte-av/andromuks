@@ -34,6 +34,13 @@ class RoomWidgetRefreshWorker(context: Context, params: WorkerParameters) : Coro
         val snapshot = RoomWidgetRefresher.refresh(applicationContext, roomId, limit, previous)
 
         RoomWidgetStore.writeSnapshotForRoom(applicationContext, roomId, snapshot)
+
+        // Prune after the write, and against every widget's snapshot — the avatar directory is
+        // shared, so a keep-set covering only this room would delete the files other widgets are
+        // displaying. Doing it after the write also means the snapshot we just stored is always
+        // part of the keep-set rather than racing it.
+        RoomWidgetAvatars.prune(applicationContext, RoomWidgetStore.allReferencedAvatarPaths(applicationContext))
+
         RoomWidgetUpdater.redraw(applicationContext)
         Log.i(TAG, "Refreshed $roomId: ${snapshot.messages.size} message(s), state=${snapshot.state}")
         return Result.success()

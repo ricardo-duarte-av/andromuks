@@ -125,16 +125,11 @@ object RoomWidgetRefresher {
             authToken = creds.authToken,
         )
 
-        // Keep only the avatar files this snapshot actually references; senders scroll out of the
-        // window over time and their files would otherwise accumulate forever.
-        RoomWidgetAvatars.prune(
-            context,
-            buildSet {
-                messages.forEach { msg -> msg.senderAvatarPath?.let { add(it) } }
-                roomAvatarPath?.let { add(it) }
-            },
-        )
-
+        // NB: no avatar pruning here. It used to happen at this point and deleted files belonging
+        // to *other* widgets — the avatar directory is shared by every room, but the keep-set here
+        // only covers the room being refreshed, so refreshing room A blanked room B's avatars.
+        // Pruning now runs after the snapshot is stored, against every live snapshot at once:
+        // RoomWidgetRefreshWorker -> RoomWidgetAvatars.prune.
         return RoomWidgetSnapshot(
             roomId = roomId,
             roomName = identity.name,
