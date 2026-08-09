@@ -42,7 +42,16 @@ class RoomWidgetRefreshWorker(context: Context, params: WorkerParameters) : Coro
         RoomWidgetAvatars.prune(applicationContext, RoomWidgetStore.allReferencedAvatarPaths(applicationContext))
 
         RoomWidgetUpdater.redraw(applicationContext)
-        Log.i(TAG, "Refreshed $roomId: ${snapshot.messages.size} message(s), state=${snapshot.state}")
+        // Log.i, not Log.d: R8 strips Log.d from release builds, and this one line is what makes a
+        // user-supplied logcat dump answer "is the widget stale, empty, or failing?" without a
+        // debug build. Newest timestamp included because a stale snapshot is the failure that looks
+        // identical to a working one in a screenshot.
+        val newest = snapshot.messages.lastOrNull()
+        Log.i(
+            TAG,
+            "Refreshed $roomId: ${snapshot.messages.size} message(s), state=${snapshot.state}, " +
+                "stale=${snapshot.stale}, newestTs=${newest?.timestamp ?: 0}, newestFrom=${newest?.senderName ?: "-"}",
+        )
         return Result.success()
     }
 

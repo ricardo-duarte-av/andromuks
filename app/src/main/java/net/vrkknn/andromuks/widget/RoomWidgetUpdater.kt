@@ -195,7 +195,7 @@ object RoomWidgetUpdater {
             context,
             appWidgetId,
             current.copy(
-                messages = (current.messages + message).takeLast(limit),
+                messages = WidgetMessage.merge(current.messages, listOf(message), limit),
                 updatedAt = System.currentTimeMillis(),
                 state = RoomWidgetSnapshot.State.OK,
             ),

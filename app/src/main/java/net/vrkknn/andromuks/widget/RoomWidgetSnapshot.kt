@@ -132,6 +132,28 @@ data class WidgetMessage(
     }
 
     companion object {
+        /**
+         * Merge [incoming] into [existing] and keep the newest [limit], in chronological order.
+         *
+         * **Ordering is by timestamp, deliberately not by `timelineRowid`.** The timeline sorts on
+         * rowid (`processTimelineEvents`), which is right for a timeline but wrong here: an event
+         * that arrives over sync without a rowid mapping is cached with `timeline_rowid = 0`, and 0
+         * sorts *below* every real rowid — so a brand-new message lands at the oldest end and
+         * `takeLast` throws it away. That is a widget missing its newest messages while showing a
+         * short, stale slice. `SyncIngestor` logs a warning when it caches such an event.
+         *
+         * De-duplication is by `eventId` with [incoming] winning, so an optimistic row built from a
+         * push payload is replaced by the authoritative one rather than doubled.
+         */
+        fun merge(existing: List<WidgetMessage>, incoming: List<WidgetMessage>, limit: Int): List<WidgetMessage> {
+            val byId = LinkedHashMap<String, WidgetMessage>(existing.size + incoming.size)
+            existing.forEach { byId[it.eventId] = it }
+            incoming.forEach { byId[it.eventId] = it }
+            return byId.values
+                .sortedWith(compareBy({ it.timestamp }, { it.eventId }))
+                .takeLast(limit)
+        }
+
         private const val KEY_EVENT_ID = "event_id"
         private const val KEY_SENDER_ID = "sender_id"
         private const val KEY_SENDER_NAME = "sender_name"

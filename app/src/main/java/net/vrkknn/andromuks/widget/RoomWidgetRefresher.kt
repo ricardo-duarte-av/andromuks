@@ -108,12 +108,16 @@ object RoomWidgetRefresher {
         }
 
         val edits = WidgetEventFormatter.collectEdits(rawEvents)
+        // Newest by TIMESTAMP, not by the rowid order processTimelineEvents leaves behind: an event
+        // that reaches the cache without a rowid mapping carries timeline_rowid = 0, which sorts
+        // below every real rowid, so takeLast would discard the newest message. See
+        // WidgetMessage.merge for the full explanation.
         val renderable = processTimelineEvents(
             timelineEvents = rawEvents,
             allowedEventTypes = WIDGET_ALLOWED_TYPES,
             showHiddenEvents = false,
             showMembershipEvents = false,
-        ).takeLast(limit)
+        ).sortedWith(compareBy({ it.timestamp }, { it.eventId })).takeLast(limit)
 
         val identity = resolveRoomIdentity(context, roomId, previous)
         val messages = toMessages(context, roomId, renderable, edits, creds)
@@ -173,7 +177,7 @@ object RoomWidgetRefresher {
             if (appended.isEmpty()) return@withContext null
 
             snapshot.copy(
-                messages = (snapshot.messages + appended).takeLast(limit),
+                messages = WidgetMessage.merge(snapshot.messages, appended, limit),
                 updatedAt = System.currentTimeMillis(),
                 state = RoomWidgetSnapshot.State.OK,
                 refreshing = false,

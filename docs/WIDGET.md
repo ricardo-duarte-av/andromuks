@@ -118,6 +118,22 @@ reveals rows that are already there and needs no refetch. The one exception is a
 fewer than the maximum (a room with little history, or a fetch cut short) — the resize handler asks
 for a refresh in that case, since the new space might now be fillable.
 
+### Ordering is by timestamp, not by rowid
+
+`WidgetMessage.merge` is the single place message lists are built, and it sorts on **timestamp**.
+That is a deliberate divergence from the timeline, which sorts on `timelineRowid`
+(`processTimelineEvents`), and it must not be "corrected" back:
+
+An event that reaches the cache without a rowid mapping is stored with `timeline_rowid = 0` —
+`SyncIngestor` logs a warning when it happens — and `0` sorts *below* every real rowid. Ordering the
+widget on rowid therefore pushed brand-new messages to the oldest end of the list, where
+`takeLast(limit)` discarded them. The symptom is a widget missing its newest messages *and* showing
+a gap at the bottom, because the surviving slice is both stale and short.
+
+`merge` also de-duplicates by `eventId` with the incoming side winning, so the optimistic row the
+notification path writes from a push payload is replaced by the authoritative one instead of
+doubling. `RoomWidgetSnapshotTest` pins all of this.
+
 ### The RemoteViews IPC budget
 
 Every bitmap in a widget update rides the `RemoteViews` transaction, which is hard-capped (~1–2 MB)

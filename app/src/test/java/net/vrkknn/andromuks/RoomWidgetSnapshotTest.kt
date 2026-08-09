@@ -120,6 +120,66 @@ class RoomWidgetSnapshotTest {
     }
 
     @Test
+    fun `merge orders by timestamp, not by list position`() {
+        // The regression this guards: an event that reaches the cache without a rowid mapping is
+        // stored with timeline_rowid = 0, which sorts below every real rowid. Ordering the widget
+        // on rowid therefore pushed the NEWEST message to the oldest end, where takeLast discarded
+        // it — the widget showed a short, stale slice with a gap at the bottom.
+        val older = sampleMessage("\$older").copy(timestamp = 1_000L)
+        val newest = sampleMessage("\$newest").copy(timestamp = 3_000L)
+        val middle = sampleMessage("\$middle").copy(timestamp = 2_000L)
+
+        val merged = WidgetMessage.merge(listOf(newest, older, middle), emptyList(), limit = 10)
+
+        assertEquals(listOf("\$older", "\$middle", "\$newest"), merged.map { it.eventId })
+    }
+
+    @Test
+    fun `merge keeps the newest when over the limit`() {
+        val messages = (1..10).map { sampleMessage("\$e$it").copy(timestamp = it * 1_000L) }
+
+        val merged = WidgetMessage.merge(messages, emptyList(), limit = 3)
+
+        assertEquals(listOf("\$e8", "\$e9", "\$e10"), merged.map { it.eventId })
+    }
+
+    @Test
+    fun `merge replaces an optimistic row rather than doubling it`() {
+        // The notification path writes a row built from the push payload; the refresh that follows
+        // carries the authoritative version of the same event.
+        val optimistic = sampleMessage("\$evt").copy(text = "📷 Image", timestamp = 5_000L)
+        val authoritative = sampleMessage("\$evt").copy(text = "📷 Sent a photo", timestamp = 5_000L)
+
+        val merged = WidgetMessage.merge(listOf(optimistic), listOf(authoritative), limit = 10)
+
+        assertEquals(1, merged.size)
+        assertEquals("📷 Sent a photo", merged.single().text)
+    }
+
+    @Test
+    fun `merge appends genuinely new messages`() {
+        val existing = listOf(sampleMessage("\$a").copy(timestamp = 1_000L))
+        val incoming = listOf(sampleMessage("\$b").copy(timestamp = 2_000L))
+
+        val merged = WidgetMessage.merge(existing, incoming, limit = 10)
+
+        assertEquals(listOf("\$a", "\$b"), merged.map { it.eventId })
+    }
+
+    @Test
+    fun `merge is stable for messages sharing a timestamp`() {
+        // Bridged and bulk-sent messages routinely share a millisecond; ordering must still be
+        // deterministic or rows would shuffle between refreshes.
+        val a = sampleMessage("\$aaa").copy(timestamp = 1_000L)
+        val b = sampleMessage("\$bbb").copy(timestamp = 1_000L)
+
+        assertEquals(
+            WidgetMessage.merge(listOf(a, b), emptyList(), limit = 10).map { it.eventId },
+            WidgetMessage.merge(listOf(b, a), emptyList(), limit = 10).map { it.eventId },
+        )
+    }
+
+    @Test
     fun `loading factory marks the widget as not yet fetched`() {
         val snapshot = RoomWidgetSnapshot.loading(room, "Test Room")
 

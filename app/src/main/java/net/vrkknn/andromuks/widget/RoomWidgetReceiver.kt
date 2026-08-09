@@ -39,14 +39,13 @@ class RoomWidgetReceiver : GlanceAppWidgetReceiver() {
         // is enough.
         RoomWidgetUpdater.redraw(context)
 
-        // The exception is a snapshot that holds fewer than the maximum — a room whose first fetch
-        // was cut short, or one that simply had little history at the time. Growing such a widget
-        // exposes empty space that a refetch may now be able to fill.
-        val snapshot = RoomWidgetStore.readSnapshot(context, appWidgetId)
+        // Refresh unconditionally rather than only when the snapshot is short. A resize is a
+        // deliberate user action on a surface they are looking at, so it is the right moment to
+        // reconcile — and gating on "fewer than the maximum" meant a snapshot that was full but
+        // stale could never refresh from here, which is precisely the widget that looks wrong
+        // after being made bigger. requestRefresh is debounced, so dragging costs one fetch.
         val roomId = RoomWidgetStore.roomIdFor(context, appWidgetId) ?: return
-        if (snapshot == null || snapshot.messages.size < RoomWidgetStore.MAX_MESSAGE_LIMIT) {
-            RoomWidgetUpdater.requestRefresh(context, roomId, reason = "widget-resized")
-        }
+        RoomWidgetUpdater.requestRefresh(context, roomId, reason = "widget-resized")
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {
