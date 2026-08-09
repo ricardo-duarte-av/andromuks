@@ -342,6 +342,12 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                     }
                 }
 
+                // Before the cache fast-paths below take their early returns: top up the backend's
+                // member list if sync said it only has the lazy-loaded subset. A warm timeline
+                // cache says nothing about membership, and these are precisely the rooms opened
+                // most often. No-op when the backend already has the list.
+                ensureMemberListFetched(roomId)
+
                 var cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
                 android.util.Log.d(
                     "Andromuks",

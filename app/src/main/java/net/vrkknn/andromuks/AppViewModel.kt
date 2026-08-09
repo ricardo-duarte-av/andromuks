@@ -5981,6 +5981,10 @@ class AppViewModel : ViewModel() {
     private val timelineRenderCallbacks = mutableMapOf<Int, () -> Unit>()
     internal val fullMemberListRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_room_state with include_members requests)
 
+    // requestId -> roomId for the fetch_members top-up fired on room open (ensureMemberListFetched).
+    // Separate from the maps above so it can't disturb their duplicate-suppression sets.
+    private val memberListFetchRequests = mutableMapOf<Int, String>()
+
     // requestId -> completion hook for get_mentions. The response handler updates mentionEvents /
     // isMentionsLoading directly rather than through a callback, so this hook exists purely to let
     // RpcResilienceCoordinator learn that the request settled.
@@ -6503,6 +6507,9 @@ class AppViewModel : ViewModel() {
         fullMemberListRequests.keys.filter { it > 0 }.toList().forEach { id ->
             fullMemberListRequests.remove(id)?.let { pendingFullMemberListRequests.remove(it) }
         }
+        // Nothing to unblock here — the fetch flag was set optimistically at send time and the
+        // next sync restates it. Just don't leak the entries.
+        memberListFetchRequests.keys.filter { it > 0 }.toList().forEach { memberListFetchRequests.remove(it) }
     }
 
     /**
@@ -7754,12 +7761,19 @@ class AppViewModel : ViewModel() {
     /**
      * Requests complete room state including member list
      * Used by the Room Info screen to display detailed room information
+     *
+     * @param fetchMembers when true, gomuks fetches `/members` from the homeserver before
+     *   answering, so the response is the room's real membership rather than whatever subset its
+     *   database happens to hold. Costs a federated round trip — the response is *synchronous* on
+     *   this path (unlike the background fetch that `include_members=false` gets), so callers must
+     *   be prepared for a slower reply and should show progress. Use it where the user explicitly
+     *   asked for the member list; leave it false for incidental state reads.
      */
-    fun requestRoomStateWithMembers(roomId: String, callback: RoomStateWithMembersCallback) {
+    fun requestRoomStateWithMembers(roomId: String, fetchMembers: Boolean = false, callback: RoomStateWithMembersCallback) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Requesting room state with members for room: $roomId",
+                "AppViewModel: Requesting room state with members for room: $roomId (fetchMembers=$fetchMembers)",
             )
         }
 
@@ -7784,6 +7798,10 @@ class AppViewModel : ViewModel() {
         // Store the callback to handle the response
         roomStateWithMembersRequests[stateRequestId] = roomId to callback
 
+        // A fetch_members request makes the backend's copy authoritative, so record that we've
+        // asked — the room-open top-up must not fire a second fetch for the same room.
+        if (fetchMembers) RoomMemberListStatus.markFetchRequested(roomId)
+
         // IMPORTANT: Request room state with include_members: true to get the full member list
         // This ensures RoomInfo screen displays the actual member list from the server
         sendWebSocketCommand(
@@ -7792,7 +7810,7 @@ class AppViewModel : ViewModel() {
             mapOf(
                 "room_id" to roomId,
                 "include_members" to true, // CRITICAL: Include members in response for RoomInfo screen
-                "fetch_members" to false,
+                "fetch_members" to fetchMembers,
                 "refetch" to false,
             ),
         )
@@ -8233,6 +8251,74 @@ class AppViewModel : ViewModel() {
         )
     }
 
+    /**
+     * Asks the backend to fetch this room's full `m.room.member` state, but only if sync has told
+     * us it doesn't have it (`meta.has_member_list == false`). Idempotent and cheap to call on
+     * every room open — for a room the backend already has members for, it sends nothing.
+     *
+     * Why it matters: `get_room_state` answers out of gomuks' own database. For a room it never
+     * fetched members for, that database holds only the senders that happened to arrive with the
+     * timeline, so the member dialog and the @-mention picker show a partial room and there is no
+     * way to tell that from the response — a short list looks exactly like a small room.
+     *
+     * `include_members=false` is deliberate, and is what makes this safe to fire on room open:
+     * with `fetch_members=true` and `include_members=false`, gomuks runs the `/members` fetch in a
+     * background goroutine and answers immediately with the non-member state. So the room open
+     * pays nothing, and a 10k-member list is never serialised to the app — it lands in gomuks'
+     * database, which is what every later member query reads anyway.
+     */
+    fun ensureMemberListFetched(roomId: String) {
+        if (!RoomMemberListStatus.needsFetch(roomId)) {
+            return
+        }
+        if (!isWebSocketConnected()) {
+            return
+        }
+
+        val requestId = WebSocketService.allocateRequestId()
+        // Mark before sending, not on response: the point is that repeat opens don't re-fetch, and
+        // a failed fetch is corrected by the next sync that restates has_member_list=false.
+        RoomMemberListStatus.markFetchRequested(roomId)
+        memberListFetchRequests[requestId] = roomId
+
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Backend lacks member list for $roomId — requesting background fetch (reqId: $requestId)",
+            )
+        }
+
+        sendWebSocketCommand(
+            "get_room_state",
+            requestId,
+            mapOf(
+                "room_id" to roomId,
+                "include_members" to false, // keeps the fetch asynchronous backend-side
+                "fetch_members" to true,
+                "refetch" to false,
+            ),
+        )
+    }
+
+    /**
+     * Response to the [ensureMemberListFetched] probe. The members themselves are not in here (the
+     * request asked for none, and the backend fetch is still running); this is the room's ordinary
+     * non-member state, which is worth publishing to [RoomStateStore] since we have it.
+     */
+    private fun handleMemberListFetchResponse(requestId: Int, data: Any) {
+        val roomId = memberListFetchRequests.remove(requestId) ?: return
+        val events = when (data) {
+            is JSONArray -> data
+            is JSONObject -> data.optJSONArray("events")
+            else -> null
+        } ?: return
+        try {
+            parseCompleteRoomStateFromEvents(roomId, events)
+        } catch (e: Exception) {
+            android.util.Log.w("Andromuks", "AppViewModel: Failed to parse member-fetch room state for $roomId", e)
+        }
+    }
+
     fun sendTyping(roomId: String) = messageSendCoordinator.sendTyping(roomId)
 
     fun sendMessage(roomId: String, text: String) = messageSendCoordinator.sendMessage(roomId, text)
@@ -8500,6 +8586,7 @@ class AppViewModel : ViewModel() {
                 joinRoomCallbacks.containsKey(requestId) ||
                 roomSpecificStateRequests.containsKey(requestId) ||
                 fullMemberListRequests.containsKey(requestId) ||
+                memberListFetchRequests.containsKey(requestId) ||
                 outgoingRequests.containsKey(requestId) ||
                 mentionsRequests.containsKey(requestId) ||
                 widgetCommandRequests.containsKey(requestId) ||
@@ -8599,6 +8686,8 @@ class AppViewModel : ViewModel() {
             handleRoomSpecificStateResponse(requestId, data)
         } else if (fullMemberListRequests.containsKey(requestId)) {
             memberProfilesCoordinator.handleFullMemberListResponse(requestId, data)
+        } else if (memberListFetchRequests.containsKey(requestId)) {
+            handleMemberListFetchResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             handleOutgoingRequestResponse(requestId, data)
         } else if (mentionsRequests.containsKey(requestId)) {

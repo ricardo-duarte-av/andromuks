@@ -1141,6 +1141,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
 
             val forceFreshPaginate = needsFreshTimelinePaginate()
 
+            // Top up the backend's member list if sync said it only has the lazy-loaded subset.
+            // No-op for rooms it already has. See AppViewModel.ensureMemberListFetched.
+            ensureMemberListFetched(roomId)
+
             if (forceFreshPaginate) {
                 clearPendingPaginateStateForRoom(roomId)
                 isPaginating = false

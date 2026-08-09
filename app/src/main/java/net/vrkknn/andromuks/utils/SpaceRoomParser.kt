@@ -493,6 +493,17 @@ object SpaceRoomParser {
             // Detect if this is a Direct Message room
             val isDirectMessage = detectDirectMessage(roomId, roomObj, meta, appViewModel)
 
+            // Whether the backend holds this room's full member list. Recorded (not carried on
+            // RoomItem — nothing renders it) so opening the room can top up a lazy-loaded one.
+            // Guarded on has(): a meta object that omits the key says nothing, and recording a
+            // false for it would provoke a pointless federated fetch. See RoomMemberListStatus.
+            if (meta.has("has_member_list")) {
+                net.vrkknn.andromuks.RoomMemberListStatus.setFromSync(
+                    roomId,
+                    meta.optBoolean("has_member_list", false),
+                )
+            }
+
             // Extract message preview and sender from events JSON
             // Always parse to keep summaries up-to-date (no local persistence, so only JSON parsing cost)
             var messagePreview: String? = null

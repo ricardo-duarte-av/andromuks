@@ -1026,6 +1026,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             PendingInvitesCache.clear()
             MessageVersionsCache.clear()
             RoomMemberCache.clear()
+            // The backend just disowned its state; whatever it told us about has_member_list is
+            // void until the fresh sync_complete re-states it.
+            RoomMemberListStatus.clear()
 
             // CRITICAL: Clear timeline caches only when server sends clear_state=true (base set of data).
             // Do not clear on init_complete or resume (last_received_event); only when clear_state is present.
