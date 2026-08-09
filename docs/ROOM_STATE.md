@@ -44,6 +44,9 @@ the room genuinely no longer has it, and the store **replaces** what it holds fo
 `get_specific_room_state` returns **only the keys it was asked for** and says nothing about the rest.
 Those responses **merge**.
 
+(Membership is the exception to "entire" — see
+[`has_member_list`](#and-the-backends-copy-may-not-be-complete-either--has_member_list).)
+
 Feeding a partial response to the full parser would delete every state event it did not mention.
 That is why the parser is named `parseCompleteRoomStateFromEvents` — the requirement is stated at
 every call site. Its two callers are both `get_room_state` (`include_members` false and true).
@@ -67,6 +70,30 @@ Membership stays in `RoomMemberCache` / `ProfileCache`. `RoomInfoScreen` gets it
 **transient** returned alongside the parse (`requestRoomStateWithMembers` yields
 `(state, members, error)`) — including invited, left and banned users, which `RoomMemberCache` does
 not hold.
+
+### …and the backend's copy may not be complete either — `has_member_list`
+
+The completeness rule above holds for *non-member* state only. `include_members=true` returns
+whatever membership **gomuks' own database** holds, which for a room it never fetched members for is
+just the senders that arrived with the timeline. A short list looks exactly like a small room; there
+is no marker in the response.
+
+`meta.has_member_list` in `sync_complete` is the marker. `RoomMemberListStatus` records it per room
+(in-memory only — it is a claim about the backend's database, restated in full on every connect, so
+persisting it would only let a stale claim be acted on at cold start).
+
+Two consumers, matching the two shapes `fetch_members` takes backend-side
+([`GetRoomState`](https://github.com/gomuks/gomuks/blob/main/pkg/hicli/paginate.go)):
+
+| Trigger | Command | Backend behaviour |
+|---|---|---|
+| Room open, flag says `false` (`AppViewModel.ensureMemberListFetched`, called from `requestRoomTimeline` **and** `navigateToRoomWithCache` — the cache fast-paths return before the former) | `fetch_members=true`, `include_members=false` | Fetch runs in a **background goroutine**; the response is the ordinary non-member state, returned immediately. Costs the room open nothing and never serialises a 10k-member list to the app. |
+| Members button in `RoomInfoScreen` | `fetch_members=true`, `include_members=true` | Fetch runs **synchronously**; the response carries the real membership. Slower, so the dialog opens on the cached list and shows a spinner until it lands. |
+
+The room-open flag is set optimistically at send time, not on response: gomuks re-dispatches a
+room's meta only when something visible changed, so a room whose only change is
+`has_member_list: false → true` may produce no observable sync. A later sync that genuinely says
+`false` (fetch failed, state reset) wins, and the next open retries. `clear_state` clears the lot.
 
 ## Staleness contract
 

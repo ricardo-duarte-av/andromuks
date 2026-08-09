@@ -93,6 +93,7 @@ fun RoomInfoScreen(
     var showPowerLevelsDialog by remember { mutableStateOf(false) }
     var showServerAclDialog by remember { mutableStateOf(false) }
     var showMembersDialog by remember { mutableStateOf(false) }
+    var isMembersRefreshing by remember { mutableStateOf(false) }
     var showPushRulesDialog by remember { mutableStateOf(false) }
     var memberDialogSearchQuery by remember { mutableStateOf("") }
 
@@ -474,6 +475,24 @@ fun RoomInfoScreen(
                         onClick = {
                             memberDialogSearchQuery = ""
                             showMembersDialog = true
+                            // The list already in `roomMembers` is whatever the backend's database
+                            // held when the screen opened — for a room it never fetched members
+                            // for, that's the lazy-loaded subset. Opening the dialog is the user
+                            // explicitly asking "who is in this room", so re-ask with
+                            // fetch_members=true and show the cached list until it lands.
+                            isMembersRefreshing = true
+                            appViewModel.requestRoomStateWithMembers(roomId, fetchMembers = true) { state, members, error ->
+                                isMembersRefreshing = false
+                                if (error != null) {
+                                    android.util.Log.w(
+                                        "Andromuks",
+                                        "RoomInfoScreen: Member refresh failed, keeping cached list: $error",
+                                    )
+                                } else {
+                                    if (state != null) roomState = state
+                                    roomMembers = members
+                                }
+                            }
                         },
                         modifier = Modifier
                             .weight(1f)
@@ -819,6 +838,7 @@ fun RoomInfoScreen(
         MembersDialog(
             members = roomMembers,
             powerLevels = roomState!!.powerLevels,
+            isRefreshing = isMembersRefreshing,
             memberMap = memberMap,
             memberSearchQuery = memberDialogSearchQuery,
             onSearchQueryChange = { memberDialogSearchQuery = it },
@@ -1141,6 +1161,7 @@ private fun PinnedEventsDialog(
 private fun MembersDialog(
     members: List<RoomMember>,
     powerLevels: PowerLevelsInfo?,
+    isRefreshing: Boolean,
     memberMap: Map<String, MemberProfile>,
     memberSearchQuery: String,
     onSearchQueryChange: (String) -> Unit,
@@ -1209,7 +1230,13 @@ private fun MembersDialog(
         onDismissRequest = onDismiss,
         title = {
             Column {
-                Text("Room Members ($presentCount)")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Room Members ($presentCount)")
+                    if (isRefreshing) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        ExpressiveLoadingIndicator(modifier = Modifier.size(20.dp))
+                    }
+                }
                 if (invitedCount > 0) {
                     Text(
                         text = "$joinedCount joined, $invitedCount invited",
