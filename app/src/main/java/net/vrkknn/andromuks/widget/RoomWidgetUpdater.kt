@@ -2,6 +2,8 @@ package net.vrkknn.andromuks.widget
 
 import android.content.Context
 import android.util.Log
+import androidx.glance.appwidget.GlanceAppWidgetManager
+import androidx.glance.appwidget.state.updateAppWidgetState
 import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,11 +42,25 @@ object RoomWidgetUpdater {
     /** roomId -> pending debounced refresh, so a burst collapses into one fetch. */
     private val pendingRefreshes = ConcurrentHashMap<String, Job>()
 
-    /** Ask Glance to repaint every widget from its stored snapshot. No data work. */
+    /**
+     * Ask Glance to repaint every widget from its stored snapshot. No data work.
+     *
+     * The revision bump is not optional bookkeeping — it is what makes the repaint show anything
+     * new. `provideGlance` runs once per session, so the composition only observes values it read
+     * through `currentState`; bumping [RoomWidget.REVISION_KEY] and then calling `updateAll` is the
+     * pair that reloads the Glance state and re-reads [RoomWidgetStore]. `updateAll` on its own
+     * recomposes with the previous data and looks like nothing happened.
+     */
     fun redraw(context: Context) {
         val appContext = context.applicationContext
         scope.launch {
             try {
+                val manager = GlanceAppWidgetManager(appContext)
+                manager.getGlanceIds(RoomWidget::class.java).forEach { glanceId ->
+                    updateAppWidgetState(appContext, glanceId) { prefs ->
+                        prefs[RoomWidget.REVISION_KEY] = (prefs[RoomWidget.REVISION_KEY] ?: 0) + 1
+                    }
+                }
                 RoomWidget().updateAll(appContext)
             } catch (e: Exception) {
                 Log.w(TAG, "Widget redraw failed: ${e.message}")

@@ -8,9 +8,12 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
@@ -28,7 +31,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.R
+import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.utils.CredentialStore
 import net.vrkknn.andromuks.utils.RoomMetadataStore
 
 /**
@@ -60,11 +65,21 @@ class WidgetConfigActivity : ComponentActivity() {
         }
 
         val rooms = loadRooms()
+        // Avatars load straight from the homeserver via the shared Coil loader; the picker may well
+        // be running with the app force-stopped, so these come from prefs rather than a ViewModel.
+        val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+        val homeserverUrl = prefs.getString("homeserver_url", "").orEmpty()
+        val authToken = CredentialStore.getAuthToken(prefs)
 
         setContent {
             AndromuksTheme {
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-                    RoomPicker(rooms = rooms, onPick = ::onRoomChosen)
+                    RoomPicker(
+                        rooms = rooms,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onPick = ::onRoomChosen,
+                    )
                 }
             }
         }
@@ -74,7 +89,14 @@ class WidgetConfigActivity : ComponentActivity() {
     private fun loadRooms(): List<RoomChoice> = try {
         RoomMetadataStore.initialize(applicationContext)
         RoomMetadataStore.loadAll().values
-            .map { RoomChoice(roomId = it.roomId, name = it.name?.takeIf { n -> n.isNotBlank() } ?: it.roomId, sortTs = it.sortTs) }
+            .map {
+                RoomChoice(
+                    roomId = it.roomId,
+                    name = it.name?.takeIf { n -> n.isNotBlank() } ?: it.roomId,
+                    avatarMxc = it.avatarMxc?.takeIf { a -> a.isNotBlank() },
+                    sortTs = it.sortTs,
+                )
+            }
             .sortedByDescending { it.sortTs }
     } catch (e: Exception) {
         emptyList()
@@ -104,10 +126,10 @@ class WidgetConfigActivity : ComponentActivity() {
 }
 
 /** One selectable row in the picker. */
-data class RoomChoice(val roomId: String, val name: String, val sortTs: Long)
+data class RoomChoice(val roomId: String, val name: String, val avatarMxc: String?, val sortTs: Long)
 
 @Composable
-private fun RoomPicker(rooms: List<RoomChoice>, onPick: (RoomChoice) -> Unit) {
+private fun RoomPicker(rooms: List<RoomChoice>, homeserverUrl: String, authToken: String, onPick: (RoomChoice) -> Unit) {
     var query by remember { mutableStateOf("") }
     val filtered = remember(query, rooms) {
         if (query.isBlank()) {
@@ -149,32 +171,47 @@ private fun RoomPicker(rooms: List<RoomChoice>, onPick: (RoomChoice) -> Unit) {
 
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(filtered, key = { it.roomId }) { room ->
-                RoomRow(room = room, onPick = onPick)
+                RoomRow(room = room, homeserverUrl = homeserverUrl, authToken = authToken, onPick = onPick)
             }
         }
     }
 }
 
 @Composable
-private fun RoomRow(room: RoomChoice, onPick: (RoomChoice) -> Unit) {
-    Column(
+private fun RoomRow(room: RoomChoice, homeserverUrl: String, authToken: String, onPick: (RoomChoice) -> Unit) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onPick(room) }
-            .padding(vertical = 12.dp),
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = room.name,
-            style = MaterialTheme.typography.bodyLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        // The app's own avatar composable, so the picker looks like the room list and reuses its
+        // Coil loader, auth-cookie interceptor and initials fallback.
+        AvatarImage(
+            mxcUrl = room.avatarMxc,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = room.name,
+            userId = room.roomId,
+            displayName = room.name,
+            size = 40.dp,
         )
-        Text(
-            text = room.roomId,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Column {
+            Text(
+                text = room.name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = room.roomId,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }

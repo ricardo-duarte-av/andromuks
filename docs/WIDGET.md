@@ -82,6 +82,27 @@ and **kills the whole update** when exceeded. Two things keep us clear of it: av
 a run of messages from one person costs one bitmap. Do not raise `AVATAR_PX` or draw an avatar per
 row without recalculating this.
 
+## Reactivity: why `redraw` bumps a revision
+
+`provideGlance` runs **once per Glance session**, and `provideContent` never returns. Anything read
+above `provideContent` is captured exactly once, at session start — and a widget's session starts
+the moment the host binds it, which is *before* the configuration activity has picked a room.
+
+Reading `RoomWidgetStore` up there therefore captured "unconfigured" permanently: refreshes ran,
+snapshots were written, `updateAll()` recomposed, and the widget sat on "Tap to configure" forever
+because the composition never re-read anything. The refresh button was dead for the same reason —
+it was passing an empty room id from the stale capture.
+
+Only `currentState` reads are reactive: `updateAll()` reloads the Glance state DataStore and
+recomposes. So the store is read **inside** `provideContent`, inside a `remember` keyed on
+`RoomWidget.REVISION_KEY`, and `RoomWidgetUpdater.redraw` bumps that key before calling `updateAll`.
+The revision carries no meaning beyond "something changed" — the data still lives in
+`RoomWidgetStore`, which workers and `SyncIngestor` can write synchronously from any thread, unlike
+Glance state.
+
+**If you add a new write path, route its repaint through `redraw`.** A bare `updateAll()` recomposes
+with the previous data and looks like nothing happened.
+
 ## Trigger matrix
 
 | Trigger | Path | Network? |

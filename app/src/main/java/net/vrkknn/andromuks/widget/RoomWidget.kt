@@ -3,9 +3,12 @@ package net.vrkknn.andromuks.widget
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
 import androidx.glance.GlanceTheme
@@ -27,6 +30,7 @@ import androidx.glance.appwidget.lazy.LazyColumn
 import androidx.glance.appwidget.lazy.itemsIndexed
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
+import androidx.glance.currentState
 import androidx.glance.layout.Alignment
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
@@ -60,28 +64,52 @@ class RoomWidget : GlanceAppWidget() {
         val appWidgetId = try {
             GlanceAppWidgetManager(context).getAppWidgetId(id)
         } catch (e: Exception) {
+            Log.w(TAG, "Could not resolve an appWidgetId from $id: ${e.message}")
             null
         }
-        val snapshot = appWidgetId?.let { RoomWidgetStore.readSnapshot(context, it) }
-        val roomId = appWidgetId?.let { RoomWidgetStore.roomIdFor(context, it) }
-        val configuredName = appWidgetId?.let { RoomWidgetStore.configuredRoomName(context, it) }
-        val limit = appWidgetId?.let { RoomWidgetStore.messageLimit(context, it) }
-            ?: RoomWidgetStore.DEFAULT_MESSAGE_LIMIT
 
         provideContent {
+            // CRITICAL: the store must be read INSIDE provideContent, keyed on a value Glance
+            // actually tracks.
+            //
+            // provideGlance runs once per session and provideContent never returns, so anything
+            // read above this line is captured exactly once — at session start. A widget's session
+            // starts the moment it is bound to the host, which is BEFORE the configuration activity
+            // has picked a room, so reading the store up there captured "unconfigured" and every
+            // later updateAll() recomposed with that same stale capture. The widget sat on
+            // "Tap to configure" forever while refreshes ran and wrote snapshots nobody read.
+            //
+            // Only currentState reads are reactive: updateAll() reloads the Glance state DataStore
+            // and recomposes. RoomWidgetUpdater bumps REVISION_KEY on every write, so this remember
+            // re-reads the store exactly when there is something new to read.
+            val revision = currentState(REVISION_KEY) ?: 0
+            val data = remember(revision, appWidgetId) { readWidgetData(context, appWidgetId) }
+
             GlanceTheme {
-                WidgetBody(
-                    snapshot = snapshot ?: roomId?.let {
-                        RoomWidgetSnapshot.loading(it, configuredName ?: it)
-                    },
-                    configuredLimit = limit,
-                )
+                WidgetBody(snapshot = data.snapshot, configuredLimit = data.limit, roomId = data.roomId)
             }
         }
     }
 
+    /** Everything one render needs from [RoomWidgetStore], read in one go. */
+    private data class WidgetData(val snapshot: RoomWidgetSnapshot?, val roomId: String?, val limit: Int)
+
+    private fun readWidgetData(context: Context, appWidgetId: Int?): WidgetData {
+        if (appWidgetId == null) return WidgetData(null, null, RoomWidgetStore.DEFAULT_MESSAGE_LIMIT)
+        val roomId = RoomWidgetStore.roomIdFor(context, appWidgetId)
+        val stored = RoomWidgetStore.readSnapshot(context, appWidgetId)
+        val configuredName = RoomWidgetStore.configuredRoomName(context, appWidgetId)
+        return WidgetData(
+            // A configured widget whose snapshot hasn't landed yet shows its room name and a
+            // spinner, never the unconfigured placeholder.
+            snapshot = stored ?: roomId?.let { RoomWidgetSnapshot.loading(it, configuredName ?: it) },
+            roomId = roomId,
+            limit = RoomWidgetStore.messageLimit(context, appWidgetId),
+        )
+    }
+
     @Composable
-    private fun WidgetBody(snapshot: RoomWidgetSnapshot?, configuredLimit: Int) {
+    private fun WidgetBody(snapshot: RoomWidgetSnapshot?, configuredLimit: Int, roomId: String?) {
         val context = LocalContext.current
         // The configured limit is a ceiling; what actually fits is decided by height, so a resized
         // widget shows as much as it can rather than a fixed count with dead space or clipping.
@@ -94,9 +122,9 @@ class RoomWidget : GlanceAppWidget() {
                 .background(GlanceTheme.colors.widgetBackground)
                 .cornerRadius(16.dp)
                 .padding(12.dp)
-                .clickable(openRoomAction(context, snapshot?.roomId)),
+                .clickable(openRoomAction(context, roomId ?: snapshot?.roomId)),
         ) {
-            WidgetHeader(snapshot)
+            WidgetHeader(snapshot, roomId ?: snapshot?.roomId)
             Spacer(GlanceModifier.size(8.dp))
             when {
                 snapshot == null -> CenteredNotice("Tap to configure")
@@ -117,7 +145,7 @@ class RoomWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun WidgetHeader(snapshot: RoomWidgetSnapshot?) {
+    private fun WidgetHeader(snapshot: RoomWidgetSnapshot?, roomId: String?) {
         Row(
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -142,7 +170,10 @@ class RoomWidget : GlanceAppWidget() {
                     .size(24.dp)
                     .clickable(
                         actionRunCallback<RefreshWidgetAction>(
-                            actionParametersOf(RefreshWidgetAction.roomIdKey to (snapshot?.roomId ?: "")),
+                            // Prefer the binding over the snapshot: a widget whose first refresh
+                            // hasn't landed has no snapshot yet, and its refresh button must still
+                            // work — that is exactly the state you want to retry from.
+                            actionParametersOf(RefreshWidgetAction.roomIdKey to (roomId ?: snapshot?.roomId ?: "")),
                         ),
                     ),
             )
@@ -281,9 +312,20 @@ class RoomWidget : GlanceAppWidget() {
             },
         )
 
-    private companion object {
-        const val HEADER_HEIGHT_DP = 40f
-        const val ROW_HEIGHT_DP = 44f
+    companion object {
+        private const val TAG = "RoomWidget"
+        private const val HEADER_HEIGHT_DP = 40f
+        private const val ROW_HEIGHT_DP = 44f
+
+        /**
+         * Recomposition signal, bumped by [RoomWidgetUpdater.redraw] on every snapshot write.
+         *
+         * Glance only re-reads state that the composition consumes via `currentState`, so this key
+         * is what makes an `updateAll()` actually show new data. It carries no meaning beyond
+         * "something changed" — the data itself lives in [RoomWidgetStore], which the workers and
+         * `SyncIngestor` can write synchronously from any thread.
+         */
+        val REVISION_KEY = intPreferencesKey("snapshot_revision")
     }
 }
 
