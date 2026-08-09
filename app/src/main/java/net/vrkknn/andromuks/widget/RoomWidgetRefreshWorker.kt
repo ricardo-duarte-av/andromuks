@@ -29,7 +29,7 @@ class RoomWidgetRefreshWorker(context: Context, params: WorkerParameters) : Coro
             return Result.success()
         }
 
-        val limit = RoomWidgetStore.maxMessageLimitForRoom(applicationContext, roomId)
+        val limit = RoomWidgetStore.MAX_MESSAGE_LIMIT
         val previous = widgetIds.firstNotNullOfOrNull { RoomWidgetStore.readSnapshot(applicationContext, it) }
         val snapshot = RoomWidgetRefresher.refresh(applicationContext, roomId, limit, previous)
 

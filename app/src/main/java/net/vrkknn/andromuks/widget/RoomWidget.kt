@@ -26,8 +26,6 @@ import androidx.glance.appwidget.action.ActionCallback
 import androidx.glance.appwidget.action.actionRunCallback
 import androidx.glance.appwidget.appWidgetBackground
 import androidx.glance.appwidget.cornerRadius
-import androidx.glance.appwidget.lazy.LazyColumn
-import androidx.glance.appwidget.lazy.itemsIndexed
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.currentState
@@ -86,16 +84,16 @@ class RoomWidget : GlanceAppWidget() {
             val data = remember(revision, appWidgetId) { readWidgetData(context, appWidgetId) }
 
             GlanceTheme {
-                WidgetBody(snapshot = data.snapshot, configuredLimit = data.limit, roomId = data.roomId)
+                WidgetBody(snapshot = data.snapshot, roomId = data.roomId)
             }
         }
     }
 
     /** Everything one render needs from [RoomWidgetStore], read in one go. */
-    private data class WidgetData(val snapshot: RoomWidgetSnapshot?, val roomId: String?, val limit: Int)
+    private data class WidgetData(val snapshot: RoomWidgetSnapshot?, val roomId: String?)
 
     private fun readWidgetData(context: Context, appWidgetId: Int?): WidgetData {
-        if (appWidgetId == null) return WidgetData(null, null, RoomWidgetStore.DEFAULT_MESSAGE_LIMIT)
+        if (appWidgetId == null) return WidgetData(null, null)
         val roomId = RoomWidgetStore.roomIdFor(context, appWidgetId)
         val stored = RoomWidgetStore.readSnapshot(context, appWidgetId)
         val configuredName = RoomWidgetStore.configuredRoomName(context, appWidgetId)
@@ -104,16 +102,13 @@ class RoomWidget : GlanceAppWidget() {
             // spinner, never the unconfigured placeholder.
             snapshot = stored ?: roomId?.let { RoomWidgetSnapshot.loading(it, configuredName ?: it) },
             roomId = roomId,
-            limit = RoomWidgetStore.messageLimit(context, appWidgetId),
         )
     }
 
     @Composable
-    private fun WidgetBody(snapshot: RoomWidgetSnapshot?, configuredLimit: Int, roomId: String?) {
+    private fun WidgetBody(snapshot: RoomWidgetSnapshot?, roomId: String?) {
         val context = LocalContext.current
-        // The configured limit is a ceiling; what actually fits is decided by height, so a resized
-        // widget shows as much as it can rather than a fixed count with dead space or clipping.
-        val visibleCount = fittingMessageCount(configuredLimit)
+        val visibleCount = fittingMessageCount()
 
         Column(
             modifier = GlanceModifier
@@ -180,12 +175,20 @@ class RoomWidget : GlanceAppWidget() {
         }
     }
 
+    /**
+     * The newest [visibleCount] messages, oldest first.
+     *
+     * A plain [Column], not a `LazyColumn`: a scrollable list inside a widget is the wrong
+     * interaction — it puts a scrollbar on the home screen and competes with the launcher's own
+     * gestures. Instead the widget shows exactly what fits at its current size (see
+     * [fittingMessageCount]) and nothing more, so there is never anything to scroll to.
+     */
     @Composable
     private fun MessageList(snapshot: RoomWidgetSnapshot, visibleCount: Int) {
         val context = LocalContext.current
         val messages = snapshot.messages.takeLast(visibleCount)
-        LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
-            itemsIndexed(messages, itemId = { _, item -> item.eventId.hashCode().toLong() }) { index, message ->
+        Column(modifier = GlanceModifier.fillMaxSize()) {
+            messages.forEachIndexed { index, message ->
                 // Sender identity is drawn only when the sender changes, matching the timeline's
                 // grouping — and halving the number of bitmaps in the RemoteViews transaction.
                 val isNewSender = index == 0 || messages[index - 1].senderId != message.senderId
@@ -275,15 +278,22 @@ class RoomWidget : GlanceAppWidget() {
     }
 
     /**
-     * How many rows fit in the current widget height, capped by the user's configured maximum.
+     * How many message rows fit at the widget's current size.
      *
-     * Each row is roughly 44 dp (two text lines plus padding) and the header costs ~40 dp.
+     * The count is derived purely from height — there is no configured message count, because the
+     * size the user drags the widget to *is* the setting. A 4x1 widget shows one message (the
+     * latest); growing it to 4x4 shows more, up to [RoomWidgetStore.MAX_MESSAGE_LIMIT].
+     *
+     * [ROW_HEIGHT_DP] deliberately over-estimates a row (a continuation row without the sender line
+     * is shorter): with no scrolling, guessing high shows one message fewer, while guessing low
+     * clips the bottom row. The floor is 1, not 5 — a one-row widget is a legitimate size, and a
+     * floor above what fits is exactly what forces content off the bottom edge.
      */
     @Composable
-    private fun fittingMessageCount(configuredLimit: Int): Int {
-        val availableDp = (LocalSize.current.height.value - HEADER_HEIGHT_DP).coerceAtLeast(0f)
+    private fun fittingMessageCount(): Int {
+        val availableDp = (LocalSize.current.height.value - HEADER_HEIGHT_DP - VERTICAL_PADDING_DP).coerceAtLeast(0f)
         val fits = (availableDp / ROW_HEIGHT_DP).toInt()
-        return fits.coerceIn(RoomWidgetStore.MIN_MESSAGE_LIMIT, configuredLimit.coerceAtLeast(RoomWidgetStore.MIN_MESSAGE_LIMIT))
+        return fits.coerceIn(RoomWidgetStore.MIN_MESSAGE_LIMIT, RoomWidgetStore.MAX_MESSAGE_LIMIT)
     }
 
     /**
@@ -315,7 +325,12 @@ class RoomWidget : GlanceAppWidget() {
     companion object {
         private const val TAG = "RoomWidget"
         private const val HEADER_HEIGHT_DP = 40f
-        private const val ROW_HEIGHT_DP = 44f
+
+        /** Over-estimates a row on purpose — see [fittingMessageCount]. */
+        private const val ROW_HEIGHT_DP = 48f
+
+        /** The Column's own 12dp top+bottom padding. */
+        private const val VERTICAL_PADDING_DP = 24f
 
         /**
          * Recomposition signal, bumped by [RoomWidgetUpdater.redraw] on every snapshot write.

@@ -34,8 +34,19 @@ class RoomWidgetReceiver : GlanceAppWidgetReceiver() {
 
     override fun onAppWidgetOptionsChanged(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        // Size changed only: the snapshot is still valid, the layout just has to be recomputed.
+        // A resize normally needs no data at all: snapshots always carry MAX_MESSAGE_LIMIT
+        // messages, so growing the widget just reveals rows that were already there, and a repaint
+        // is enough.
         RoomWidgetUpdater.redraw(context)
+
+        // The exception is a snapshot that holds fewer than the maximum — a room whose first fetch
+        // was cut short, or one that simply had little history at the time. Growing such a widget
+        // exposes empty space that a refetch may now be able to fill.
+        val snapshot = RoomWidgetStore.readSnapshot(context, appWidgetId)
+        val roomId = RoomWidgetStore.roomIdFor(context, appWidgetId) ?: return
+        if (snapshot == null || snapshot.messages.size < RoomWidgetStore.MAX_MESSAGE_LIMIT) {
+            RoomWidgetUpdater.requestRefresh(context, roomId, reason = "widget-resized")
+        }
     }
 
     override fun onDeleted(context: Context, appWidgetIds: IntArray) {

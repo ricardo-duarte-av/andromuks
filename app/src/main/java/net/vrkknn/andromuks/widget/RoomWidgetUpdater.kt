@@ -190,7 +190,7 @@ object RoomWidgetUpdater {
         val current = RoomWidgetStore.readSnapshot(context, appWidgetId) ?: return false
         // The authoritative refresh may already have landed this event.
         if (current.messages.any { it.eventId == message.eventId }) return false
-        val limit = RoomWidgetStore.messageLimit(context, appWidgetId)
+        val limit = RoomWidgetStore.MAX_MESSAGE_LIMIT
         RoomWidgetStore.writeSnapshot(
             context,
             appWidgetId,
@@ -237,7 +237,7 @@ object RoomWidgetUpdater {
         // A stale snapshot is waiting on a full refetch; appending to it would paint rows that the
         // pending refresh is about to contradict.
         if (current.stale) return false
-        val limit = RoomWidgetStore.messageLimit(context, appWidgetId)
+        val limit = RoomWidgetStore.MAX_MESSAGE_LIMIT
         val updated = try {
             RoomWidgetRefresher.appendEvents(context, roomId, current, events, limit)
         } catch (e: Exception) {

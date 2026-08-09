@@ -74,6 +74,28 @@ Resources: `res/xml/room_widget_info.xml`, `res/drawable/ic_widget_refresh.xml`,
 Failures degrade rather than blank: a network error keeps the previous messages and sets
 `state = ERROR`.
 
+### Sizing: the widget's size *is* the setting
+
+There is no configured message count. `RoomWidget.fittingMessageCount` derives it from
+`LocalSize.current.height`, so a 4x1 widget shows one message (the latest) and a 4x4 shows several,
+clamped to `MAX_MESSAGE_LIMIT`.
+
+Two consequences worth keeping:
+
+- **The list is a plain `Column`, never a `LazyColumn`.** A scrollable list inside a widget is the
+  wrong interaction — it puts a scrollbar on the home screen and competes with the launcher's
+  gestures. The widget shows exactly what fits, so there is nothing to scroll to.
+- **`ROW_HEIGHT_DP` over-estimates a row on purpose.** Rows vary (a continuation row has no sender
+  line). With no scrolling, guessing high costs one message; guessing low clips the bottom row.
+
+The floor is 1, not 5. A floor above what actually fits is precisely what pushes content off the
+bottom edge.
+
+Snapshots always store `MAX_MESSAGE_LIMIT` messages regardless of current size, so growing a widget
+reveals rows that are already there and needs no refetch. The one exception is a snapshot holding
+fewer than the maximum (a room with little history, or a fetch cut short) — the resize handler asks
+for a refresh in that case, since the new space might now be fillable.
+
 ### The RemoteViews IPC budget
 
 Every bitmap in a widget update rides the `RemoteViews` transaction, which is hard-capped (~1–2 MB)
@@ -113,7 +135,7 @@ with the previous data and looks like nothing happened.
 | Live sync | `SyncIngestor.processRoom` → `onSyncEvents` | usually no |
 | Sync reset / edit / redaction | `SyncIngestor` → `invalidate` → refresh | yes |
 | Widget added / host restart | `RoomWidgetReceiver.onUpdate` → `requestRefresh` | yes |
-| Resize | `onAppWidgetOptionsChanged` → `redraw` | no |
+| Resize | `onAppWidgetOptionsChanged` → `redraw` (+ refresh only if the snapshot is short) | usually no |
 | Boot | `BootStartReceiver` → `refreshAll` | yes |
 
 `updatePeriodMillis` is **0**. The AppWidget polling minimum is 30 minutes — too slow to be useful
@@ -165,6 +187,17 @@ them needs `EditVersionCoordinator`'s edit-chain machinery. The widget does not 
 `requiresFullRefresh`, and the widget marks its snapshot stale and refetches over `/exec`. Marking
 rather than clearing is deliberate — stale rows keep showing until real ones replace them, which
 beats blanking the widget for the couple of seconds a refetch takes.
+
+## The picker preview
+
+`android:previewLayout` must point at a **static** RemoteViews layout
+(`res/layout/room_widget_preview.xml`) — a hand-built mock of the widget with sample content. The
+launcher renders it without ever starting a Glance session, which is why pointing it at Glance's
+`glance_default_loading_layout` (as this originally did) showed a spinner that never resolved.
+
+`android:previewImage` is the API < 31 fallback, currently a hand-drawn vector stand-in. To use a
+real screenshot instead, drop a PNG at `res/drawable-nodpi/room_widget_preview_image.png` and delete
+`res/drawable/room_widget_preview_image.xml`; only the resource name is referenced.
 
 ## Relationship to the People / Conversation tile
 

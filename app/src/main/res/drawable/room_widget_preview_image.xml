@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Fallback preview for the widget picker on API < 31, where android:previewLayout is ignored and
+  only android:previewImage is honoured. On API 31+ the launcher prefers room_widget_preview.xml,
+  which is a much better likeness.
+
+  This is a hand-drawn stand-in: a header bar with an avatar, then two message rows. To replace it
+  with a real screenshot, drop a PNG at res/drawable-nodpi/room_widget_preview_image.png and delete
+  this file — the resource name is what room_widget_info.xml references, not the format.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp"
+    android:height="133dp"
+    android:viewportWidth="240"
+    android:viewportHeight="160">
+
+    <!-- Card -->
+    <path
+        android:fillColor="#1F1F24"
+        android:pathData="M0,16 A16,16 0 0 1 16,0 L224,0 A16,16 0 0 1 240,16 L240,144 A16,16 0 0 1 224,160 L16,160 A16,16 0 0 1 0,144 Z" />
+
+    <!-- Header: room avatar + name bar -->
+    <path
+        android:fillColor="#4A9B89"
+        android:pathData="M16,20 m-10,0 a10,10 0 1,0 20,0 a10,10 0 1,0 -20,0" />
+    <path
+        android:fillColor="#E6E1E5"
+        android:pathData="M34,15 L140,15 L140,25 L34,25 Z" />
+    <path
+        android:fillColor="#8E8E93"
+        android:pathData="M212,12 h14 v16 h-14 Z" />
+
+    <!-- Message row 1 -->
+    <path
+        android:fillColor="#9B4A8B"
+        android:pathData="M20,60 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0" />
+    <path
+        android:fillColor="#D0BCFF"
+        android:pathData="M42,50 L92,50 L92,58 L42,58 Z" />
+    <path
+        android:fillColor="#C9C5CA"
+        android:pathData="M42,64 L214,64 L214,72 L42,72 Z" />
+
+    <!-- Message row 2 -->
+    <path
+        android:fillColor="#4A8B9B"
+        android:pathData="M20,110 m-12,0 a12,12 0 1,0 24,0 a12,12 0 1,0 -24,0" />
+    <path
+        android:fillColor="#D0BCFF"
+        android:pathData="M42,100 L86,100 L86,108 L42,108 Z" />
+    <path
+        android:fillColor="#C9C5CA"
+        android:pathData="M42,114 L188,114 L188,122 L42,122 Z" />
+</vector>

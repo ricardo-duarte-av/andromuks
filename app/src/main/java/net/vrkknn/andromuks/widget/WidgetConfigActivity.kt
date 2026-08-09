@@ -108,7 +108,6 @@ class WidgetConfigActivity : ComponentActivity() {
             appWidgetId = appWidgetId,
             roomId = choice.roomId,
             roomName = choice.name,
-            messageLimit = RoomWidgetStore.DEFAULT_MESSAGE_LIMIT,
         )
         // Seed a placeholder so the widget paints its header immediately instead of flashing
         // "Tap to configure" until the first fetch lands.

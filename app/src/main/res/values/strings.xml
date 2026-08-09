@@ -8,4 +8,10 @@
     <string name="room_widget_config_title">Choose a room</string>
     <string name="room_widget_config_empty">No rooms available yet. Open Andromuks first, then add the widget.</string>
     <string name="room_widget_config_search">Search rooms</string>
+    <!-- Sample content for the widget picker preview; never shown in the real widget -->
+    <string name="room_widget_preview_room">Room</string>
+    <string name="room_widget_preview_sender_one">Alice</string>
+    <string name="room_widget_preview_message_one">See you at the usual place</string>
+    <string name="room_widget_preview_sender_two">Bob</string>
+    <string name="room_widget_preview_message_two">📷 Sent a photo</string>
 </resources>

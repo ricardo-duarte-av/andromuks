@@ -23,16 +23,20 @@ object RoomWidgetStore {
     private const val TAG = "RoomWidgetStore"
     private const val PREFS_NAME = "AndromuksWidgetPrefs"
     private const val KEY_PREFIX_ROOM = "widget_room_"
-    private const val KEY_PREFIX_LIMIT = "widget_limit_"
     private const val KEY_PREFIX_NAME = "widget_name_"
     private const val KEY_PREFIX_SNAPSHOT = "widget_snapshot_"
 
-    /** Fallback cap on rendered messages when a widget has no explicit configuration. */
-    const val DEFAULT_MESSAGE_LIMIT = 10
-
-    /** Hard floor/ceiling; the height-derived count in [RoomWidget] is clamped to this range. */
-    const val MIN_MESSAGE_LIMIT = 5
+    /**
+     * How many messages a snapshot holds.
+     *
+     * There is no per-widget message count: the size the user drags the widget to decides how many
+     * are *shown* (`RoomWidget.fittingMessageCount`), so a snapshot always carries the maximum and
+     * growing a widget needs no refetch to fill the new space.
+     */
     const val MAX_MESSAGE_LIMIT = 10
+
+    /** A one-row widget (4x1) is a legitimate size — it shows the latest message and nothing else. */
+    const val MIN_MESSAGE_LIMIT = 1
 
     /**
      * appWidgetId -> roomId for every configured widget. Replaced wholesale (never mutated in
@@ -109,12 +113,11 @@ object RoomWidgetStore {
     }
 
     /** Persist a widget's room binding plus the display name captured at configuration time. */
-    fun bind(context: Context, appWidgetId: Int, roomId: String, roomName: String, messageLimit: Int) {
+    fun bind(context: Context, appWidgetId: Int, roomId: String, roomName: String) {
         ensureLoaded(context)
         prefs(context).edit()
             .putString(KEY_PREFIX_ROOM + appWidgetId, roomId)
             .putString(KEY_PREFIX_NAME + appWidgetId, roomName)
-            .putInt(KEY_PREFIX_LIMIT + appWidgetId, messageLimit.coerceIn(MIN_MESSAGE_LIMIT, MAX_MESSAGE_LIMIT))
             .apply()
         synchronized(this) { publish(bindings + (appWidgetId to roomId)) }
     }
@@ -125,7 +128,6 @@ object RoomWidgetStore {
         prefs(context).edit()
             .remove(KEY_PREFIX_ROOM + appWidgetId)
             .remove(KEY_PREFIX_NAME + appWidgetId)
-            .remove(KEY_PREFIX_LIMIT + appWidgetId)
             .remove(KEY_PREFIX_SNAPSHOT + appWidgetId)
             .apply()
         synchronized(this) { publish(bindings - appWidgetId) }
@@ -137,14 +139,6 @@ object RoomWidgetStore {
      */
     fun configuredRoomName(context: Context, appWidgetId: Int): String? =
         prefs(context).getString(KEY_PREFIX_NAME + appWidgetId, null)?.takeIf { it.isNotBlank() }
-
-    fun messageLimit(context: Context, appWidgetId: Int): Int = prefs(context).getInt(KEY_PREFIX_LIMIT + appWidgetId, DEFAULT_MESSAGE_LIMIT)
-        .coerceIn(MIN_MESSAGE_LIMIT, MAX_MESSAGE_LIMIT)
-
-    /** Largest configured limit across every widget on [roomId] — what a shared refresh must fetch. */
-    fun maxMessageLimitForRoom(context: Context, roomId: String): Int = widgetIdsForRoom(context, roomId)
-        .maxOfOrNull { messageLimit(context, it) }
-        ?: DEFAULT_MESSAGE_LIMIT
 
     fun readSnapshot(context: Context, appWidgetId: Int): RoomWidgetSnapshot? {
         val raw = prefs(context).getString(KEY_PREFIX_SNAPSHOT + appWidgetId, null) ?: return null
