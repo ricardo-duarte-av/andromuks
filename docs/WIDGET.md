@@ -192,7 +192,7 @@ with the previous data and looks like nothing happened.
 
 | Trigger | Path | Network? |
 |---|---|---|
-| Refresh button | `RefreshWidgetAction` → `requestManualRefresh` → expedited worker | yes |
+| Refresh button | `RefreshWidgetAction` → `requestManualRefresh` → expedited worker (shows a spinner) | yes |
 | Notification posted | `EnhancedNotificationDisplay` → `onRoomNotification` | **no** (optimistic), then a reconciling refresh |
 | Notification phase 2 | `NotificationImageWorker` → `requestRefresh` | yes |
 | Live sync, app foregrounded | `SyncIngestor.processRoom` → `onSyncEvents` | usually no |
@@ -278,6 +278,21 @@ them needs `EditVersionCoordinator`'s edit-chain machinery. The widget does not 
 `requiresFullRefresh`, and the widget marks its snapshot stale and refetches over `/exec`. Marking
 rather than clearing is deliberate — stale rows keep showing until real ones replace them, which
 beats blanking the widget for the couple of seconds a refetch takes.
+
+### The refresh button must show that it was tapped
+
+A refresh that finds nothing new changes no pixels, so without explicit feedback a working button is
+indistinguishable from a dead one — which is exactly how it was reported. `RoomWidgetSnapshot`
+carries a `refreshing` flag for this; the header swaps the glyph for a `CircularProgressIndicator`
+while it is set, and the worker clears it when the new snapshot lands. If you add another refresh
+entry point, set that flag.
+
+The glyph is 24dp but its touch target is the Android minimum of 48dp. At 24dp a near-miss landed on
+the root `Column` instead and silently opened the room, which also reads as "the button does
+nothing".
+
+`RefreshWidgetAction` logs at `Log.i` on tap, so a logcat dump can separate "the tap never arrived"
+from "the tap worked and there was nothing new".
 
 ## The picker preview
 

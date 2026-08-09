@@ -20,6 +20,7 @@ import androidx.glance.LocalSize
 import androidx.glance.action.ActionParameters
 import androidx.glance.action.actionParametersOf
 import androidx.glance.action.clickable
+import androidx.glance.appwidget.CircularProgressIndicator
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetManager
 import androidx.glance.appwidget.SizeMode
@@ -31,6 +32,7 @@ import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.currentState
 import androidx.glance.layout.Alignment
+import androidx.glance.layout.Box
 import androidx.glance.layout.Column
 import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
@@ -162,21 +164,47 @@ class RoomWidget : GlanceAppWidget() {
                 ),
                 modifier = GlanceModifier.defaultWeight(),
             )
-            Image(
-                provider = ImageProvider(R.drawable.ic_widget_refresh),
-                contentDescription = "Refresh",
-                colorFilter = androidx.glance.ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
-                modifier = GlanceModifier
-                    .size(24.dp)
-                    .clickable(
-                        actionRunCallback<RefreshWidgetAction>(
-                            // Prefer the binding over the snapshot: a widget whose first refresh
-                            // hasn't landed has no snapshot yet, and its refresh button must still
-                            // work — that is exactly the state you want to retry from.
-                            actionParametersOf(RefreshWidgetAction.roomIdKey to (roomId ?: snapshot?.roomId ?: "")),
+            // A refresh in flight replaces the glyph with a spinner. Without this the button is
+            // indistinguishable from a dead one: a refresh that finds nothing new changes no
+            // pixels, so the only honest feedback is showing that the tap was received.
+            if (snapshot?.refreshing == true) {
+                Box(
+                    modifier = GlanceModifier.size(TAP_TARGET_DP.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = GlanceModifier.size(20.dp),
+                        color = GlanceTheme.colors.onSurfaceVariant,
+                    )
+                }
+            } else {
+                // The icon is 24dp but its touch target is 48dp — the Android minimum. At 24dp a
+                // near-miss landed on the root Column instead and silently opened the room, which
+                // reads as "the button does nothing".
+                Box(
+                    modifier = GlanceModifier
+                        .size(TAP_TARGET_DP.dp)
+                        .clickable(
+                            actionRunCallback<RefreshWidgetAction>(
+                                // Prefer the binding over the snapshot: a widget whose first
+                                // refresh hasn't landed has no snapshot yet, and its refresh button
+                                // must still work — that is exactly the state you want to retry
+                                // from.
+                                actionParametersOf(
+                                    RefreshWidgetAction.roomIdKey to (roomId ?: snapshot?.roomId ?: ""),
+                                ),
+                            ),
                         ),
-                    ),
-            )
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Image(
+                        provider = ImageProvider(R.drawable.ic_widget_refresh),
+                        contentDescription = "Refresh",
+                        colorFilter = androidx.glance.ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
+                        modifier = GlanceModifier.size(24.dp),
+                    )
+                }
+            }
         }
     }
 
@@ -409,11 +437,16 @@ class RoomWidget : GlanceAppWidget() {
     companion object {
         private const val TAG = "RoomWidget"
 
+        /** Android's minimum touch target. The refresh glyph is 24dp inside this. */
+        private const val TAP_TARGET_DP = 48f
+
         /**
          * Everything above the message list: the root Column's 12dp top+bottom padding (24), the
-         * header row (a 24dp avatar, the tallest thing in it) and the 8dp spacer under it.
+         * header row (whose tallest element is the refresh button's touch target) and the 8dp
+         * spacer under it.
          */
-        private const val CHROME_HEIGHT_DP = 24f + 24f + 8f
+
+        private const val CHROME_HEIGHT_DP = 24f + TAP_TARGET_DP + 8f
 
         /**
          * A row that draws the sender: 3dp+3dp padding around `max(28dp avatar, 17dp name line +
@@ -459,7 +492,15 @@ class RoomWidget : GlanceAppWidget() {
 /** Manual refresh button. Marks the snapshot as refreshing, redraws, then does the real work. */
 class RefreshWidgetAction : ActionCallback {
     override suspend fun onAction(context: Context, glanceId: GlanceId, parameters: ActionParameters) {
-        val roomId = parameters[roomIdKey]?.takeIf { it.isNotBlank() } ?: return
+        val roomId = parameters[roomIdKey]?.takeIf { it.isNotBlank() }
+        // Log.i on both branches: "the refresh button does nothing" is otherwise unfalsifiable from
+        // outside — a tap that never arrived and a refresh that found nothing new look identical.
+        // This is the line that says which.
+        if (roomId == null) {
+            Log.w("RefreshWidgetAction", "Refresh tapped but no room id was bound to the widget")
+            return
+        }
+        Log.i("RefreshWidgetAction", "Refresh tapped for $roomId")
         RoomWidgetUpdater.requestManualRefresh(context, roomId)
     }
 
