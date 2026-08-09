@@ -91,10 +91,20 @@ Two consequences worth keeping:
 - **The list is a plain `Column`, never a `LazyColumn`.** A scrollable list inside a widget is the
   wrong interaction — it puts a scrollbar on the home screen and competes with the launcher's
   gestures. The widget shows exactly what fits, so there is nothing to scroll to.
-- **`ROW_HEIGHT_DP` and `CHROME_HEIGHT_DP` are measured against what the widget draws, not
-  guessed.** An over-estimate is not free: it shows fewer rows than fit and leaves dead space along
-  the bottom at *every* size. Rows vary (a continuation row has no sender line), so the constant
-  sits mid-band — wrong by part of a row rather than by a whole one.
+- **Rows are pinned to two fixed heights, and the fit is computed exactly — not by division.**
+  A row that draws its sender is 44dp; a continuation row (same sender as the row above, so no
+  avatar and no name) is 26dp. Left to wrap, a row ranges from ~26dp to ~63dp, and no single
+  average survives that: too low and rows render past the bottom edge, too high and the widget
+  wastes a row. So `MessageRow` pins its height with `GlanceModifier.height`, the body is capped at
+  one ellipsized line, and `visibleMessages` walks newest-to-oldest spending an exact budget.
+
+  The subtlety that makes this a walk rather than a division: **the same widget holds a different
+  number of messages depending on who sent them.** A run from one sender packs into cheap
+  continuation rows where alternating senders need expensive sender rows — at 4x2 that is 4 messages
+  versus 2. And adding an older message can make its successor *cheaper*, because whichever message
+  is drawn first always shows its sender: prepending a same-sender message demotes the previous
+  first row and hands budget back. `showsSender` is the render-time rule the budget is computed
+  against; the two must stay in step.
 
 The floor is 1, not 5. A floor above what actually fits is precisely what pushes content off the
 bottom edge.

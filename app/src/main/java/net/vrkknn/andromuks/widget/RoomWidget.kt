@@ -35,6 +35,7 @@ import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.size
 import androidx.glance.layout.width
@@ -108,7 +109,7 @@ class RoomWidget : GlanceAppWidget() {
     @Composable
     private fun WidgetBody(snapshot: RoomWidgetSnapshot?, roomId: String?) {
         val context = LocalContext.current
-        val visibleCount = fittingMessageCount()
+        val visible = visibleMessages(snapshot?.messages.orEmpty())
 
         Column(
             modifier = GlanceModifier
@@ -134,7 +135,7 @@ class RoomWidget : GlanceAppWidget() {
 
                 snapshot.messages.isEmpty() -> CenteredNotice("No messages yet")
 
-                else -> MessageList(snapshot, visibleCount)
+                else -> MessageList(snapshot, visible)
             }
         }
     }
@@ -184,35 +185,46 @@ class RoomWidget : GlanceAppWidget() {
      * [fittingMessageCount]) and nothing more, so there is never anything to scroll to.
      */
     @Composable
-    private fun MessageList(snapshot: RoomWidgetSnapshot, visibleCount: Int) {
+    private fun MessageList(snapshot: RoomWidgetSnapshot, messages: List<WidgetMessage>) {
         val context = LocalContext.current
-        val messages = snapshot.messages.takeLast(visibleCount)
         Column(modifier = GlanceModifier.fillMaxSize()) {
             messages.forEachIndexed { index, message ->
                 // Sender identity is drawn only when the sender changes, matching the timeline's
                 // grouping — and halving the number of bitmaps in the RemoteViews transaction.
-                val isNewSender = index == 0 || messages[index - 1].senderId != message.senderId
+                // [visibleMessages] budgets against this exact rule, so the two must stay in step.
                 MessageRow(
                     message = message,
-                    showSender = isNewSender,
+                    showSender = showsSender(messages, index),
                     onClick = openRoomAction(context, snapshot.roomId, message.eventId),
                 )
             }
         }
     }
 
+    /**
+     * One message row, at a **fixed** height.
+     *
+     * Pinning the height is what lets [visibleMessages] be exact rather than approximate. Left to
+     * wrap, a row is anywhere from ~26dp (a continuation row) to ~63dp (a sender row whose body
+     * wraps onto a second line), and no single average survives that spread — guess low and rows
+     * render past the bottom edge, guess high and the widget wastes a row of space. The body is
+     * therefore capped at one ellipsized line.
+     */
     @Composable
     private fun MessageRow(message: WidgetMessage, showSender: Boolean, onClick: androidx.glance.action.Action) {
         Row(
             modifier = GlanceModifier
                 .fillMaxWidth()
+                .height((if (showSender) SENDER_ROW_HEIGHT_DP else CONTINUATION_ROW_HEIGHT_DP).dp)
                 .padding(vertical = 3.dp)
                 .clickable(onClick),
         ) {
             if (showSender) {
                 AvatarImage(path = message.senderAvatarPath, sizeDp = 28)
             } else {
-                Spacer(GlanceModifier.size(28.dp))
+                // width only: `size` would also pin the height, keeping continuation rows as tall
+                // as an avatar they do not draw.
+                Spacer(GlanceModifier.width(28.dp))
             }
             Spacer(GlanceModifier.width(8.dp))
             Column(modifier = GlanceModifier.defaultWeight()) {
@@ -229,7 +241,7 @@ class RoomWidget : GlanceAppWidget() {
                 }
                 Text(
                     text = message.text,
-                    maxLines = 2,
+                    maxLines = 1,
                     style = TextStyle(color = GlanceTheme.colors.onSurface, fontSize = 14.sp),
                 )
             }
@@ -284,19 +296,43 @@ class RoomWidget : GlanceAppWidget() {
      * size the user drags the widget to *is* the setting. A 4x1 widget shows one message (the
      * latest); growing it to 4x4 shows more, up to [RoomWidgetStore.MAX_MESSAGE_LIMIT].
      *
-     * The constants are measured against what the widget actually draws, not guessed — an
-     * over-estimate here is not free: it shows fewer rows than fit and leaves dead space at the
-     * bottom at *every* widget size, which is exactly what a too-tall row estimate produced before.
+     * Rows are two different fixed heights, so this cannot be a division: a run of messages from
+     * one sender packs into short continuation rows where alternating senders need tall ones, and
+     * the same widget therefore holds a different *number* of messages depending on who sent them.
+     * Averaging over that spread is what made rows render past the bottom edge.
      *
-     * The floor is 1, not 5 — a one-row widget is a legitimate size, and a floor above what fits is
-     * what forces content off the bottom edge.
+     * So walk newest-to-oldest and spend the height budget exactly. The subtlety is that adding an
+     * older message can make the message after it *cheaper*: whichever message is drawn first
+     * always shows its sender, so prepending a same-sender message downgrades the previous first
+     * row from a sender row to a continuation row and hands some budget back.
+     *
+     * Returns newest-last, matching render order.
      */
     @Composable
-    private fun fittingMessageCount(): Int {
-        val availableDp = (LocalSize.current.height.value - CHROME_HEIGHT_DP).coerceAtLeast(0f)
-        val fits = (availableDp / ROW_HEIGHT_DP).toInt()
-        return fits.coerceIn(RoomWidgetStore.MIN_MESSAGE_LIMIT, RoomWidgetStore.MAX_MESSAGE_LIMIT)
+    private fun visibleMessages(all: List<WidgetMessage>): List<WidgetMessage> {
+        if (all.isEmpty()) return emptyList()
+        val budget = (LocalSize.current.height.value - CHROME_HEIGHT_DP).coerceAtLeast(0f)
+
+        val picked = mutableListOf<WidgetMessage>() // newest first while building
+        var used = 0f
+        for (candidate in all.asReversed().take(RoomWidgetStore.MAX_MESSAGE_LIMIT)) {
+            // A newly prepended row always draws its sender, hence the full height...
+            val previousFirst = picked.lastOrNull()
+            // ...but it may demote the row that was first until now.
+            val demotesPrevious = previousFirst != null && previousFirst.senderId == candidate.senderId
+            val cost = if (demotesPrevious) CONTINUATION_ROW_HEIGHT_DP else SENDER_ROW_HEIGHT_DP
+            if (used + cost > budget && picked.isNotEmpty()) break
+            used += cost
+            picked.add(candidate)
+        }
+        // Always show at least the latest message: a widget too short for even one row should still
+        // say something rather than render an empty card.
+        return picked.reversed()
     }
+
+    /** The render-time rule [visibleMessages] budgets against: first row, or the sender changed. */
+    private fun showsSender(messages: List<WidgetMessage>, index: Int): Boolean = index == 0 ||
+        messages[index - 1].senderId != messages[index].senderId
 
     /**
      * Open the room — and optionally scroll to [eventId] — via exactly the intent contract
@@ -334,14 +370,13 @@ class RoomWidget : GlanceAppWidget() {
         private const val CHROME_HEIGHT_DP = 24f + 24f + 8f
 
         /**
-         * One message row.
-         *
-         * A row is 3dp+3dp padding around `max(avatar, text column)`. With the sender line that is
-         * ~17dp (12sp) + ~20dp (14sp body) = 37; a continuation row is the 28dp avatar spacer. So
-         * real rows land in the 34–43dp band and 40 sits in the middle — close enough that a full
-         * widget looks full, and when it is wrong it is wrong by part of one row.
+         * A row that draws the sender: 3dp+3dp padding around `max(28dp avatar, 17dp name line +
+         * 20dp body line)`. Pinned via `GlanceModifier.height`, so this is exact, not an estimate.
          */
-        private const val ROW_HEIGHT_DP = 40f
+        private const val SENDER_ROW_HEIGHT_DP = 44f
+
+        /** A continuation row: padding around a single 20dp body line, with no avatar and no name. */
+        private const val CONTINUATION_ROW_HEIGHT_DP = 26f
 
         /**
          * Recomposition signal, bumped by [RoomWidgetUpdater.redraw] on every snapshot write.
