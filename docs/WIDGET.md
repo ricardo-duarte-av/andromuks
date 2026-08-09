@@ -118,6 +118,21 @@ reveals rows that are already there and needs no refetch. The one exception is a
 fewer than the maximum (a room with little history, or a fetch cut short) — the resize handler asks
 for a refresh in that case, since the new space might now be fillable.
 
+### Glance containers hold at most 10 children
+
+A Glance `Column`/`Row`/`Box` maps onto a **generated** RemoteViews layout with a fixed number of
+child slots. The library ships `column_*_0children` … `column_*_10children` and nothing beyond, and
+the translator's own message is blunt: `container cannot have more than 10 elements`.
+
+Exceeding it does not wrap, scroll or throw — it **silently drops the surplus, from the end**. A
+14-row widget lost its four newest messages and rendered a gap where they belonged, which reads
+exactly like a stale snapshot and sent this investigation down the wrong path twice. If the widget
+ever looks short again, `adb logcat -s GlanceAppWidget` is the first thing to check.
+
+`MessageList` therefore chunks rows into nested `Column`s of ten, giving 10² = 100 slots against a
+30-message cap. **Do not flatten it back into a single `Column`** — it will compile, run, and
+quietly truncate. Nesting depth itself is unconstrained; only per-container width is.
+
 ### Ordering is by timestamp, not by rowid
 
 `WidgetMessage.merge` is the single place message lists are built, and it sorts on **timestamp**.

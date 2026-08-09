@@ -198,17 +198,37 @@ class RoomWidget : GlanceAppWidget() {
         // would instead scale the transaction with the message count and eventually exceed the cap,
         // killing the update outright rather than degrading.
         val avatars = remember(messages) { decodeAvatars(messages) }
+
+        // Rows are grouped into nested Columns of at most MAX_COLUMN_CHILDREN.
+        //
+        // A Glance Column maps onto a generated RemoteViews layout with a FIXED number of child
+        // slots — ten — and exceeding it does not wrap or scroll: the translator drops the
+        // surplus and logs "Column container cannot have more than 10 elements". It drops the
+        // *last* children, so an 14-row widget silently lost its four newest messages and showed a
+        // gap where they belonged.
+        //
+        // Nesting sidesteps it: each chunk is one child of the outer Column, so capacity becomes
+        // MAX_COLUMN_CHILDREN² = 100 rows, comfortably past MAX_MESSAGE_LIMIT. Flattening this back
+        // into a single Column will silently truncate again.
+        // Belt and braces: nesting affords MAX_COLUMN_CHILDREN² rows, and truncation past that
+        // would be silent again. MAX_MESSAGE_LIMIT is well inside it today.
+        val chunks = messages.takeLast(MAX_COLUMN_CHILDREN * MAX_COLUMN_CHILDREN).chunked(MAX_COLUMN_CHILDREN)
         Column(modifier = GlanceModifier.fillMaxSize()) {
-            messages.forEachIndexed { index, message ->
-                // Sender identity is drawn only when the sender changes, matching the timeline's
-                // grouping. [visibleMessages] budgets against this exact rule, so the two must
-                // stay in step.
-                MessageRow(
-                    message = message,
-                    avatar = message.senderAvatarPath?.let { avatars[it] },
-                    showSender = showsSender(messages, index),
-                    onClick = openRoomAction(context, snapshot.roomId, message.eventId),
-                )
+            chunks.forEachIndexed { chunkIndex, chunk ->
+                Column(modifier = GlanceModifier.fillMaxWidth()) {
+                    chunk.forEachIndexed { indexInChunk, message ->
+                        // Sender grouping is decided against the *whole* visible list, not the
+                        // chunk, or the first row of each chunk would redundantly repeat its
+                        // sender — and [visibleMessages] budgets against this exact rule.
+                        val index = chunkIndex * MAX_COLUMN_CHILDREN + indexInChunk
+                        MessageRow(
+                            message = message,
+                            avatar = message.senderAvatarPath?.let { avatars[it] },
+                            showSender = showsSender(messages, index),
+                            onClick = openRoomAction(context, snapshot.roomId, message.eventId),
+                        )
+                    }
+                }
             }
         }
     }
@@ -413,6 +433,16 @@ class RoomWidget : GlanceAppWidget() {
          * many *different* senders on screen at once.
          */
         private const val MAX_DISTINCT_AVATARS = 16
+
+        /**
+         * Children a single Glance container can hold.
+         *
+         * Not a style choice — a hard limit of the generated RemoteViews layouts. Past it the
+         * translator *silently drops the surplus* (logging "Column container cannot have more than
+         * 10 elements") rather than scrolling or wrapping, and it drops the last children, so the
+         * newest messages are the ones lost. [MessageList] nests containers to get around it.
+         */
+        private const val MAX_COLUMN_CHILDREN = 10
 
         /**
          * Recomposition signal, bumped by [RoomWidgetUpdater.redraw] on every snapshot write.
