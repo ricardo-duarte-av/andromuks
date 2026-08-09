@@ -1578,6 +1578,13 @@ class AppViewModel : ViewModel() {
                 android.util.Log.e("Andromuks", "AppViewModel: Error in onBatchComplete callback: ${e.message}", e)
             }
         },
+        // 4. Home-screen room widgets can't wait for the flush: they are only ever looked at while
+        // the app is backgrounded, which is exactly when batching defers everything for up to
+        // batchIntervalMs (5 min by default). This hands widget-bound rooms their events straight
+        // away and costs nothing when no widget is installed. See docs/WIDGET.md.
+        onSyncDeferred = { syncJson ->
+            syncIngestor?.previewWidgetRooms(syncJson)
+        },
     )
 
     /** ViewModel lifecycle: primary/visibility/onCleared — see [ViewModelLifecycleCoordinator]. */

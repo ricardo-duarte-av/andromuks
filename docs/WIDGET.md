@@ -195,7 +195,8 @@ with the previous data and looks like nothing happened.
 | Refresh button | `RefreshWidgetAction` → `requestManualRefresh` → expedited worker | yes |
 | Notification posted | `EnhancedNotificationDisplay` → `onRoomNotification` | **no** (optimistic), then a reconciling refresh |
 | Notification phase 2 | `NotificationImageWorker` → `requestRefresh` | yes |
-| Live sync | `SyncIngestor.processRoom` → `onSyncEvents` | usually no |
+| Live sync, app foregrounded | `SyncIngestor.processRoom` → `onSyncEvents` | usually no |
+| Live sync, app backgrounded | `SyncIngestor.previewWidgetRooms` → `onSyncEvents` | usually no |
 | Sync reset / edit / redaction | `SyncIngestor` → `invalidate` → refresh | yes |
 | Widget added / host restart | `RoomWidgetReceiver.onUpdate` → `requestRefresh` | yes |
 | Resize | `onAppWidgetOptionsChanged` → `redraw` (+ refresh only if the snapshot is short) | usually no |
@@ -215,6 +216,33 @@ The FCM payload already carries sender, display name, avatar URL, body and times
 `NotificationDataParser.createNotificationBody`, the same vocabulary the notification itself shows —
 and repaints with **zero network**. The refresh queued behind it only reconciles what the payload
 cannot express (a server-applied edit, a per-message profile).
+
+### Batching would otherwise make the sync trigger useless
+
+`SyncBatchProcessor` queues `sync_complete` while the app is backgrounded and applies the queue on a
+timer — `batchIntervalMs`, **5 minutes by default** and up to a day if the user raised the background
+purge interval. (`docs/SYNC_BATCH.md` mentions a 500 ms delay; that is the *foreground-resume settle*
+delay, not this.) Since `SyncIngestor.processRoom` only runs at flush, the widget's sync trigger
+would fire minutes late.
+
+That is not an edge case, it is the normal case: **a home-screen widget is only ever looked at while
+the app is backgrounded**, which is exactly when batching is active. A room that generates no push —
+muted, low priority — had nothing else to keep it current.
+
+So `SyncBatchProcessor` calls `onSyncDeferred` for any `sync_complete` it queues rather than
+applies, wired to `SyncIngestor.previewWidgetRooms`. That parses **only widget-bound rooms** (it
+iterates the widget set against the payload, not the other way round) and hands their events to
+`RoomWidgetUpdater`. Cost is proportional to widget-room traffic and is zero with no widget
+installed.
+
+Deliberately *not* done: suppressing batching for widget owners, the way a visible Chat Bubble does.
+A bubble bypass is self-limiting — it ends when the user closes the bubble — whereas a widget is
+permanent, so that would disable batching for every room, forever, for anyone who ever added one.
+
+Two properties make the early peek safe to run alongside the eventual flush: it writes to no cache,
+and the widget de-duplicates by event id (`WidgetMessage.merge`), so the same events arriving again
+at flush time are a no-op. It is invoked outside `batchLock` so it cannot stall other sync
+processing.
 
 ## The `SyncIngestor` change
 

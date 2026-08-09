@@ -30,6 +30,13 @@ class SyncBatchProcessor(
     private val processSyncImmediately: suspend (JSONObject, Int, String, Boolean) -> SyncUpdateResult?,
     private val onBatchRoomListApply: (suspend (SyncUpdateResult) -> Unit)? = null,
     private val onBatchComplete: (suspend () -> Unit)? = null,
+    /**
+     * Called with a `sync_complete` that was **queued rather than applied**, so surfaces which
+     * cannot wait for the flush can peek at it. Today that is the home-screen room widget, which is
+     * only ever viewed while the app is backgrounded — i.e. exactly when batching defers everything
+     * for up to [batchIntervalMs]. Invoked outside [batchLock]; must not mutate app caches.
+     */
+    private val onSyncDeferred: (suspend (JSONObject) -> Unit)? = null,
 ) {
     // CRASH FIX: Track batch processing state to prevent animations during flush
     private var _isProcessingBatch = MutableStateFlow(false)
@@ -118,6 +125,7 @@ class SyncBatchProcessor(
      * - If app is backgrounded and battery-saver mode is off: add to batch queue.
      */
     suspend fun processSyncComplete(syncJson: JSONObject, requestId: Int, runId: String) {
+        var wasDeferred = false
         batchLock.withLock {
             // CRITICAL FIX: If a batch is currently being processed, defer this sync_complete
             // even if app is visible. This prevents messages from appearing one-by-one during batch flush.
@@ -146,6 +154,7 @@ class SyncBatchProcessor(
                     )
                 }
                 batchQueue.add(SyncMessage(syncJson, requestId, runId))
+                wasDeferred = true
 
                 // Start batch timer if not running (only if app is backgrounded)
                 if (!appVisible.get()) {
@@ -157,8 +166,20 @@ class SyncBatchProcessor(
                     if (batchQueue.size >= maxBatchSize) {
                         Log.w(TAG, "Batch size limit reached (${batchQueue.size}/$maxBatchSize) - forcing flush")
                         flushBatchLocked()
+                        wasDeferred = false
                     }
                 }
+            }
+        }
+
+        // Outside the lock on purpose: this hook does its own parsing, and holding batchLock across
+        // it would stall every other sync_complete behind a surface that is not the app's timeline.
+        // It runs concurrently with a possible flush, which is safe because the hook only reads.
+        if (wasDeferred) {
+            try {
+                onSyncDeferred?.invoke(syncJson)
+            } catch (e: Exception) {
+                Log.w(TAG, "Deferred-sync hook failed: ${e.message}")
             }
         }
     }

@@ -484,46 +484,8 @@ class SyncIngestor(private val context: Context) {
             // No DB persistence needed - all data is in-memory only
         }
 
-        // CRITICAL FIX: Build timeline_rowid mapping from 'timeline' array BEFORE processing events
-        // The 'timeline' array maps event_rowid -> timeline_rowid (events in 'events' array may have timeline_rowid=0)
-        // Format: [{"timeline_rowid": 1542930, "event_rowid": 2261550}, ...]
-        val timelineRowidMapping = mutableMapOf<Long, Long>()
+        val timelineRowidMapping = buildTimelineRowidMapping(roomId, roomObj, existingTimelineRowCache)
         val timeline = roomObj.optJSONArray("timeline")
-        if (timeline != null) {
-            for (i in 0 until timeline.length()) {
-                val timelineEntry = timeline.optJSONObject(i) ?: continue
-                // Check if this is a mapping entry (has event_rowid) or old format (has event object)
-                if (timelineEntry.has("event_rowid")) {
-                    // New format: mapping entry
-                    val eventRowid = timelineEntry.optLong("event_rowid", -1)
-                    val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
-                    if (eventRowid != -1L && timelineRowid != -1L) {
-                        timelineRowidMapping[eventRowid] = timelineRowid
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                TAG,
-                                "SyncIngestor: Built timeline mapping: event_rowid=$eventRowid -> timeline_rowid=$timelineRowid",
-                            )
-                        }
-                    }
-                } else if (timelineEntry.has("event")) {
-                    // Old format: event object with timeline_rowid (legacy support)
-                    val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
-                    val eventJson = timelineEntry.optJSONObject("event") ?: continue
-                    val eventId = eventJson.optString("event_id") ?: continue
-                    // Store mapping by event_id for lookup (fallback if rowid not available)
-                    if (timelineRowid != -1L) {
-                        existingTimelineRowCache[eventId] = timelineRowid
-                    }
-                }
-            }
-            if (BuildConfig.DEBUG && timelineRowidMapping.isNotEmpty()) {
-                Log.d(
-                    TAG,
-                    "SyncIngestor: Built ${timelineRowidMapping.size} timeline_rowid mappings from timeline array for room $roomId",
-                )
-            }
-        }
 
         // CRITICAL: Process related_events FIRST before processing main events
         // This ensures that when main events are processed and rendered, the reply targets
@@ -668,71 +630,9 @@ class SyncIngestor(private val context: Context) {
                         "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for room $roomId (cached=$isRoomCached, widget=$isWidgetRoom)",
                     )
                 }
-                for (i in 0 until eventsArray.length()) {
-                    val eventJson = eventsArray.optJSONObject(i) ?: continue
-
-                    // CRITICAL FIX: Get timeline_rowid from event, but resolve from mapping if it's 0
-                    var timelineRowid = eventJson.optLong("timeline_rowid", -1)
-                    val eventRowid = eventJson.optLong("rowid", -1)
-
-                    // If timeline_rowid is 0 or missing, look it up in the mapping using event_rowid
-                    if ((timelineRowid == 0L || timelineRowid == -1L) && eventRowid != -1L) {
-                        val mappedTimelineRowid = timelineRowidMapping[eventRowid]
-                        if (mappedTimelineRowid != null && mappedTimelineRowid != 0L) {
-                            timelineRowid = mappedTimelineRowid
-                            if (BuildConfig.DEBUG) {
-                                Log.d(
-                                    TAG,
-                                    "SyncIngestor: Resolved timeline_rowid=$timelineRowid for event rowid=$eventRowid (was ${eventJson.optLong(
-                                        "timeline_rowid",
-                                        -1,
-                                    )})",
-                                )
-                            }
-                        } else if (timelineRowid == 0L) {
-                            // Event has timeline_rowid=0 but no mapping found - this is a bug!
-                            Log.w(
-                                TAG,
-                                "SyncIngestor: ⚠️ Event rowid=$eventRowid has timeline_rowid=0 but no mapping found in timeline array! Event will be cached with timeline_rowid=0 (may cause pagination issues)",
-                            )
-                        }
-                    }
-
-                    val sourceLabel = "events[$i]"
-                    val eventId = eventJson.optString("event_id") ?: "<missing>"
-
-                    val timelineEvent = try {
-                        parseEventFromJson(
-                            roomId = roomId,
-                            eventJson = eventJson,
-                            timelineRowid = timelineRowid,
-                            source = sourceLabel,
-                            existingTimelineRowCache = existingTimelineRowCache,
-                        )
-                    } catch (e: Exception) {
-                        logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
-                        null
-                    }
-
-                    if (timelineEvent != null) {
-                        // CRITICAL VALIDATION: Ensure we never cache events with timeline_rowid=0 (except as fallback)
-                        if (timelineEvent.timelineRowid == 0L) {
-                            Log.w(
-                                TAG,
-                                "SyncIngestor: ⚠️ Event ${timelineEvent.eventId} will be cached with timeline_rowid=0! This may cause pagination issues. event_rowid=$eventRowid, mapping=${timelineRowidMapping[eventRowid]}",
-                            )
-                        }
-
-                        // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
-                        if (timelineEvent.type == "m.room.redaction" || isReactionEvent(timelineEvent)) {
-                            hasEditRedactionReaction = true
-                        }
-                        if (timelineEvent.relationType == "m.replace") {
-                            hasEditRedactionReaction = true
-                        }
-                        eventsForCacheUpdate.add(timelineEvent)
-                    }
-                }
+                val parsed = parseEventsArray(roomId, eventsArray, timelineRowidMapping, existingTimelineRowCache)
+                eventsForCacheUpdate.addAll(parsed.events)
+                if (parsed.hasEditRedactionReaction) hasEditRedactionReaction = true
 
                 if (eventsForCacheUpdate.isNotEmpty() && isRoomCached) {
                     hasPersistedEvents = true
@@ -795,6 +695,169 @@ class SyncIngestor(private val context: Context) {
         }
 
         return hasPersistedEvents
+    }
+
+    /** Events parsed out of one room's `events` array, plus whether any of them mutate existing rows. */
+    private data class ParsedRoomEvents(val events: List<TimelineEvent>, val hasEditRedactionReaction: Boolean)
+
+    /**
+     * Build the `event_rowid -> timeline_rowid` mapping the `timeline` array carries.
+     *
+     * Events in the `events` array often arrive with `timeline_rowid = 0`; this mapping is the only
+     * way to recover their real position. The legacy shape (entries holding a whole `event` object)
+     * is folded into [existingTimelineRowCache] instead, keyed by event id.
+     *
+     * Extracted from [processRoom] so [previewWidgetRooms] resolves rowids identically — a widget
+     * fed unmapped events would show rows the timeline places elsewhere.
+     */
+    private fun buildTimelineRowidMapping(roomId: String, roomObj: JSONObject, existingTimelineRowCache: MutableMap<String, Long?>): Map<Long, Long> {
+        val timeline = roomObj.optJSONArray("timeline") ?: return emptyMap()
+        val mapping = mutableMapOf<Long, Long>()
+        for (i in 0 until timeline.length()) {
+            val timelineEntry = timeline.optJSONObject(i) ?: continue
+            // Check if this is a mapping entry (has event_rowid) or old format (has event object)
+            if (timelineEntry.has("event_rowid")) {
+                // New format: mapping entry
+                val eventRowid = timelineEntry.optLong("event_rowid", -1)
+                val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
+                if (eventRowid != -1L && timelineRowid != -1L) {
+                    mapping[eventRowid] = timelineRowid
+                }
+            } else if (timelineEntry.has("event")) {
+                // Old format: event object with timeline_rowid (legacy support)
+                val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
+                val eventJson = timelineEntry.optJSONObject("event") ?: continue
+                val eventId = eventJson.optString("event_id") ?: continue
+                // Store mapping by event_id for lookup (fallback if rowid not available)
+                if (timelineRowid != -1L) {
+                    existingTimelineRowCache[eventId] = timelineRowid
+                }
+            }
+        }
+        if (BuildConfig.DEBUG && mapping.isNotEmpty()) {
+            Log.d(TAG, "SyncIngestor: Built ${mapping.size} timeline_rowid mappings from timeline array for room $roomId")
+        }
+        return mapping
+    }
+
+    /**
+     * Parse one room's `events` array into [TimelineEvent]s, resolving `timeline_rowid = 0` against
+     * [timelineRowidMapping].
+     *
+     * Pure with respect to the app's caches — it only parses — which is what lets
+     * [previewWidgetRooms] call it on a `sync_complete` that has merely been *queued*, without
+     * disturbing anything the eventual flush will do.
+     */
+    private suspend fun parseEventsArray(
+        roomId: String,
+        eventsArray: org.json.JSONArray,
+        timelineRowidMapping: Map<Long, Long>,
+        existingTimelineRowCache: MutableMap<String, Long?>,
+    ): ParsedRoomEvents {
+        val events = mutableListOf<TimelineEvent>()
+        var hasEditRedactionReaction = false
+        for (i in 0 until eventsArray.length()) {
+            val eventJson = eventsArray.optJSONObject(i) ?: continue
+
+            // CRITICAL FIX: Get timeline_rowid from event, but resolve from mapping if it's 0
+            var timelineRowid = eventJson.optLong("timeline_rowid", -1)
+            val eventRowid = eventJson.optLong("rowid", -1)
+
+            // If timeline_rowid is 0 or missing, look it up in the mapping using event_rowid
+            if ((timelineRowid == 0L || timelineRowid == -1L) && eventRowid != -1L) {
+                val mappedTimelineRowid = timelineRowidMapping[eventRowid]
+                if (mappedTimelineRowid != null && mappedTimelineRowid != 0L) {
+                    timelineRowid = mappedTimelineRowid
+                } else if (timelineRowid == 0L) {
+                    // Event has timeline_rowid=0 but no mapping found - this is a bug!
+                    Log.w(
+                        TAG,
+                        "SyncIngestor: ⚠️ Event rowid=$eventRowid has timeline_rowid=0 but no mapping found in timeline array! Event will be cached with timeline_rowid=0 (may cause pagination issues)",
+                    )
+                }
+            }
+
+            val sourceLabel = "events[$i]"
+            val timelineEvent = try {
+                parseEventFromJson(
+                    roomId = roomId,
+                    eventJson = eventJson,
+                    timelineRowid = timelineRowid,
+                    source = sourceLabel,
+                    existingTimelineRowCache = existingTimelineRowCache,
+                )
+            } catch (e: Exception) {
+                logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
+                null
+            } ?: continue
+
+            // CRITICAL VALIDATION: Ensure we never cache events with timeline_rowid=0 (except as fallback)
+            if (timelineEvent.timelineRowid == 0L) {
+                Log.w(
+                    TAG,
+                    "SyncIngestor: ⚠️ Event ${timelineEvent.eventId} will be cached with timeline_rowid=0! This may cause pagination issues. event_rowid=$eventRowid, mapping=${timelineRowidMapping[eventRowid]}",
+                )
+            }
+
+            // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
+            if (timelineEvent.type == "m.room.redaction" || isReactionEvent(timelineEvent)) {
+                hasEditRedactionReaction = true
+            }
+            if (timelineEvent.relationType == "m.replace") {
+                hasEditRedactionReaction = true
+            }
+            events.add(timelineEvent)
+        }
+        return ParsedRoomEvents(events, hasEditRedactionReaction)
+    }
+
+    /**
+     * Hand widget-bound rooms their events from a `sync_complete` that is being **queued** rather
+     * than applied (`SyncBatchProcessor`'s background path).
+     *
+     * Without this a home-screen widget is stale for up to `batchIntervalMs` — five minutes by
+     * default, and up to a day if the user raised the background purge interval. That is not an
+     * edge case: a widget is only ever looked at while the app is backgrounded, which is precisely
+     * when batching is active. A room that produces no push (muted, low priority) had nothing else
+     * to fall back on.
+     *
+     * Why this rather than disabling batching for widget owners: the cost here is proportional to
+     * *widget-bound room traffic only* and is zero when no widget exists, whereas suppressing
+     * batching would pay full ingest for every room, permanently, for anyone who ever added one.
+     *
+     * Safe to run alongside the eventual flush: nothing here writes to a cache, and the widget
+     * de-duplicates by event id ([net.vrkknn.andromuks.widget.WidgetMessage.merge]), so the same
+     * events arriving again at flush time are a no-op. [parseEventFromJson]'s content
+     * normalisation is idempotent for the same reason it is safe on a re-parse.
+     */
+    suspend fun previewWidgetRooms(syncJson: JSONObject) = withContext(Dispatchers.IO) {
+        val widgetRooms = net.vrkknn.andromuks.widget.RoomWidgetStore.boundRoomIds(context)
+        if (widgetRooms.isEmpty()) return@withContext
+        val rooms = syncJson.optJSONObject("data")?.optJSONObject("rooms") ?: return@withContext
+
+        // Iterate the widget set, not the payload: there are at most a handful of widgets and
+        // potentially hundreds of rooms in a sync.
+        for (roomId in widgetRooms) {
+            val roomObj = rooms.optJSONObject(roomId) ?: continue
+            try {
+                val rowCache = mutableMapOf<String, Long?>()
+                val mapping = buildTimelineRowidMapping(roomId, roomObj, rowCache)
+                val eventsArray = roomObj.optJSONArray("events") ?: continue
+                val parsed = parseEventsArray(roomId, eventsArray, mapping, rowCache)
+                if (parsed.events.isEmpty()) continue
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: previewing ${parsed.events.size} batched event(s) for widget room $roomId")
+                }
+                net.vrkknn.andromuks.widget.RoomWidgetUpdater.onSyncEvents(
+                    context = context,
+                    roomId = roomId,
+                    events = parsed.events,
+                    requiresFullRefresh = parsed.hasEditRedactionReaction || roomObj.optBoolean("reset", false),
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Widget preview failed for $roomId: ${e.message}")
+            }
+        }
     }
 
     /**
