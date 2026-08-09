@@ -109,6 +109,10 @@ Two consequences worth keeping:
 The floor is 1, not 5. A floor above what actually fits is precisely what pushes content off the
 bottom edge.
 
+`MAX_MESSAGE_LIMIT` is **30**, not a tidy 10: a full-screen widget showing one person talking fits
+~28 continuation rows, and the original cap left most of that empty. What bounds it is the
+RemoteViews transaction, not the constant — see the bitmap budget below.
+
 Snapshots always store `MAX_MESSAGE_LIMIT` messages regardless of current size, so growing a widget
 reveals rows that are already there and needs no refetch. The one exception is a snapshot holding
 fewer than the maximum (a room with little history, or a fetch cut short) — the resize handler asks
@@ -117,10 +121,20 @@ for a refresh in that case, since the new space might now be fillable.
 ### The RemoteViews IPC budget
 
 Every bitmap in a widget update rides the `RemoteViews` transaction, which is hard-capped (~1–2 MB)
-and **kills the whole update** when exceeded. Two things keep us clear of it: avatars are capped at
-96 px (~36 KB), and sender identity is drawn only when the sender changes from the previous row, so
-a run of messages from one person costs one bitmap. Do not raise `AVATAR_PX` or draw an avatar per
-row without recalculating this.
+and **kills the whole update** when exceeded — it does not degrade. Three things keep us clear:
+
+- Avatars are capped at 96 px (~36 KB each).
+- Sender identity is drawn only when the sender changes, so a run from one person costs one row's
+  worth of bitmap, not one per message.
+- **`decodeAvatars` decodes each distinct avatar once and shares the `Bitmap` instance across every
+  row that uses it.** `RemoteViews` keeps a `BitmapCache` keyed on the bitmap itself, so a two-person
+  conversation costs two bitmaps however many messages are shown. Decoding per row instead scales
+  the transaction with the message count — which is what made 30 messages affordable at all.
+  `MAX_DISTINCT_AVATARS` (16) is the backstop.
+
+Measured worst case at the 30-message cap: ~432 KB, with 12 distinct senders on a full-screen
+widget. Do not raise `AVATAR_PX`, drop the de-duplication, or draw an avatar per row without
+recomputing this.
 
 ## Reactivity: why `redraw` bumps a revision
 

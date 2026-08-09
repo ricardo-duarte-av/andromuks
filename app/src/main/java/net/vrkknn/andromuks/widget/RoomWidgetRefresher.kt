@@ -33,11 +33,13 @@ object RoomWidgetRefresher {
     private const val TAG = "RoomWidgetRefresher"
 
     /**
-     * How many events to ask the server for. Much larger than the ~10 we render because the render
-     * filter discards a lot — reactions, redactions, edits, membership noise, poll satellites — and
-     * a chatty room can easily spend 40 events producing 10 visible lines.
+     * How many events to ask the server for. Much larger than the messages we render because the
+     * render filter discards a lot — reactions, redactions, edits, membership noise, poll
+     * satellites. The ratio is nowhere near constant: a room heavy in `m.room.server_acl` was
+     * observed yielding 49 renderable messages from 167 events, so this needs generous headroom
+     * over [RoomWidgetStore.MAX_MESSAGE_LIMIT] rather than a tidy multiple of it.
      */
-    private const val PAGINATE_LIMIT = 40
+    private const val PAGINATE_LIMIT = 120
 
     /**
      * Event types the widget renders. The timeline whitelist (`RoomTimelineScreen`) minus
@@ -219,8 +221,14 @@ object RoomWidgetRefresher {
      * The shortcut matters more than it looks: when the app is running and the user has the room
      * open, a widget refresh should cost nothing. When the process is cold — the normal case — the
      * cache is empty and we pay for one `/exec paginate`.
+     *
+     * The threshold is expressed in *renderable* messages, not raw events. Comparing raw counts
+     * against [PAGINATE_LIMIT] would send almost every refresh to the network now that the limit is
+     * generous, while a room full of state noise can hold hundreds of cached events that yield
+     * barely any messages. Filtering first asks the question we actually care about: does the cache
+     * already contain a full widget's worth?
      */
-    private fun fetchEvents(context: Context, roomId: String, creds: ExecApi.Credentials): List<TimelineEvent> {
+    private suspend fun fetchEvents(context: Context, roomId: String, creds: ExecApi.Credentials): List<TimelineEvent> {
         val cached = try {
             RoomTimelineCache.setAppContext(context.applicationContext)
             RoomTimelineCache.getCachedEventsForTimeline(roomId)
@@ -228,7 +236,7 @@ object RoomWidgetRefresher {
             if (BuildConfig.DEBUG) Log.d(TAG, "Timeline cache unavailable: ${e.message}")
             emptyList()
         }
-        if (cached.size >= PAGINATE_LIMIT) {
+        if (cached.isNotEmpty() && renderableCount(cached) >= RoomWidgetStore.MAX_MESSAGE_LIMIT) {
             if (BuildConfig.DEBUG) Log.d(TAG, "Using ${cached.size} warm cached events for $roomId")
             return cached
         }
@@ -266,6 +274,14 @@ object RoomWidgetRefresher {
         if (BuildConfig.DEBUG) Log.d(TAG, "Fetched ${parsed.size} events for $roomId via /exec")
         return parsed
     }
+
+    /** How many of [events] survive the render filter. Shares the filter with [build] by construction. */
+    private suspend fun renderableCount(events: List<TimelineEvent>): Int = processTimelineEvents(
+        timelineEvents = events,
+        allowedEventTypes = WIDGET_ALLOWED_TYPES,
+        showHiddenEvents = false,
+        showMembershipEvents = false,
+    ).size
 
     /**
      * Display name + avatar for each sender about to be rendered.

@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.widget
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Log
 import androidx.compose.runtime.Composable
@@ -146,7 +147,10 @@ class RoomWidget : GlanceAppWidget() {
             modifier = GlanceModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            AvatarImage(path = snapshot?.roomAvatarPath, sizeDp = 24)
+            val roomAvatar = remember(snapshot?.roomAvatarPath) {
+                snapshot?.roomAvatarPath?.let { decodeAvatarFile(it) }
+            }
+            AvatarImage(bitmap = roomAvatar, sizeDp = 24)
             Spacer(GlanceModifier.width(8.dp))
             Text(
                 text = snapshot?.roomName?.takeIf { it.isNotBlank() } ?: "Andromuks",
@@ -187,18 +191,47 @@ class RoomWidget : GlanceAppWidget() {
     @Composable
     private fun MessageList(snapshot: RoomWidgetSnapshot, messages: List<WidgetMessage>) {
         val context = LocalContext.current
+        // Decode each distinct avatar ONCE and share the Bitmap instance across every row that
+        // uses it. RemoteViews keeps a BitmapCache keyed on the bitmap itself, so a conversation
+        // between two people costs two bitmaps in the IPC transaction no matter how many messages
+        // are shown — which is what makes a 30-message widget affordable at all. Decoding per row
+        // would instead scale the transaction with the message count and eventually exceed the cap,
+        // killing the update outright rather than degrading.
+        val avatars = remember(messages) { decodeAvatars(messages) }
         Column(modifier = GlanceModifier.fillMaxSize()) {
             messages.forEachIndexed { index, message ->
                 // Sender identity is drawn only when the sender changes, matching the timeline's
-                // grouping — and halving the number of bitmaps in the RemoteViews transaction.
-                // [visibleMessages] budgets against this exact rule, so the two must stay in step.
+                // grouping. [visibleMessages] budgets against this exact rule, so the two must
+                // stay in step.
                 MessageRow(
                     message = message,
+                    avatar = message.senderAvatarPath?.let { avatars[it] },
                     showSender = showsSender(messages, index),
                     onClick = openRoomAction(context, snapshot.roomId, message.eventId),
                 )
             }
         }
+    }
+
+    /**
+     * Decode the distinct sender avatars referenced by [messages].
+     *
+     * Capped at [MAX_DISTINCT_AVATARS]: senders beyond that render without a picture rather than
+     * risking the RemoteViews transaction limit. With per-sender de-duplication, reaching the cap
+     * needs that many *different* people in one screenful, which is rare.
+     */
+    private fun decodeAvatars(messages: List<WidgetMessage>): Map<String, Bitmap> = messages
+        .mapNotNull { it.senderAvatarPath }
+        .distinct()
+        .take(MAX_DISTINCT_AVATARS)
+        .mapNotNull { path -> decodeAvatarFile(path)?.let { path to it } }
+        .toMap()
+
+    private fun decodeAvatarFile(path: String): Bitmap? = try {
+        File(path).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath) }
+    } catch (e: Exception) {
+        Log.w(TAG, "Could not decode widget avatar $path: ${e.message}")
+        null
     }
 
     /**
@@ -211,7 +244,7 @@ class RoomWidget : GlanceAppWidget() {
      * therefore capped at one ellipsized line.
      */
     @Composable
-    private fun MessageRow(message: WidgetMessage, showSender: Boolean, onClick: androidx.glance.action.Action) {
+    private fun MessageRow(message: WidgetMessage, avatar: Bitmap?, showSender: Boolean, onClick: androidx.glance.action.Action) {
         Row(
             modifier = GlanceModifier
                 .fillMaxWidth()
@@ -220,7 +253,7 @@ class RoomWidget : GlanceAppWidget() {
                 .clickable(onClick),
         ) {
             if (showSender) {
-                AvatarImage(path = message.senderAvatarPath, sizeDp = 28)
+                AvatarImage(bitmap = avatar, sizeDp = 28)
             } else {
                 // width only: `size` would also pin the height, keeping continuation rows as tall
                 // as an avatar they do not draw.
@@ -248,22 +281,15 @@ class RoomWidget : GlanceAppWidget() {
         }
     }
 
-    /**
-     * Draw a pre-rendered circular avatar from disk, or nothing if the file is gone.
+/**
+     * Draw a pre-rendered circular avatar, or reserve its space if there is none.
      *
-     * Decoding happens here rather than at refresh time because a `Bitmap` cannot be persisted in
-     * the snapshot — but the file was already scaled to ~96 px by [RoomWidgetAvatars], so this is a
-     * cheap decode, not a resize.
+     * The bitmap is decoded by the caller so it can be shared between rows — see [decodeAvatars].
+     * The file itself was already scaled to ~96px by [RoomWidgetAvatars], so decoding is cheap and
+     * involves no resize.
      */
     @Composable
-    private fun AvatarImage(path: String?, sizeDp: Int) {
-        val bitmap = path?.let { p ->
-            try {
-                File(p).takeIf { it.exists() }?.let { BitmapFactory.decodeFile(it.absolutePath) }
-            } catch (e: Exception) {
-                null
-            }
-        }
+    private fun AvatarImage(bitmap: Bitmap?, sizeDp: Int) {
         if (bitmap != null) {
             Image(
                 provider = ImageProvider(bitmap),
@@ -377,6 +403,16 @@ class RoomWidget : GlanceAppWidget() {
 
         /** A continuation row: padding around a single 20dp body line, with no avatar and no name. */
         private const val CONTINUATION_ROW_HEIGHT_DP = 26f
+
+        /**
+         * Ceiling on distinct avatar bitmaps in one update.
+         *
+         * Every bitmap rides the RemoteViews transaction, which is hard-capped and drops the whole
+         * update when exceeded rather than degrading. At ~36KB per 96px avatar this leaves plenty
+         * of headroom, and because [decodeAvatars] de-duplicates by file, hitting it requires that
+         * many *different* senders on screen at once.
+         */
+        private const val MAX_DISTINCT_AVATARS = 16
 
         /**
          * Recomposition signal, bumped by [RoomWidgetUpdater.redraw] on every snapshot write.

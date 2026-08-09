@@ -30,10 +30,16 @@ object RoomWidgetStore {
      * How many messages a snapshot holds.
      *
      * There is no per-widget message count: the size the user drags the widget to decides how many
-     * are *shown* (`RoomWidget.fittingMessageCount`), so a snapshot always carries the maximum and
+     * are *shown* (`RoomWidget.visibleMessages`), so a snapshot always carries the maximum and
      * growing a widget needs no refetch to fill the new space.
+     *
+     * 30 because a full-screen widget genuinely holds that many. Continuation rows (consecutive
+     * messages from one sender) are 26dp against a sender row's 44dp, so a tall widget showing one
+     * person talking fits ~28 — the original cap of 10 left most of a full-screen widget empty.
+     * The ceiling on raising it further is the RemoteViews transaction, not this constant; see the
+     * bitmap de-duplication in `RoomWidget.decodeAvatars`.
      */
-    const val MAX_MESSAGE_LIMIT = 10
+    const val MAX_MESSAGE_LIMIT = 30
 
     /** A one-row widget (4x1) is a legitimate size — it shows the latest message and nothing else. */
     const val MIN_MESSAGE_LIMIT = 1
