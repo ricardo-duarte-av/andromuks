@@ -4978,7 +4978,10 @@ fun VideoPlayerDialog(
                                 context,
                                 videoHttpUrl,
                                 mediaMessage.filename,
-                                mediaMessage.info.mimeType ?: "video/mp4",
+                                // MediaInfo.mimeType is non-null but defaults to "" when the event
+                                // omitted info.mimetype, so `?: "video/mp4"` never fired and the
+                                // empty string reached MediaStore.Video.Media.MIME_TYPE.
+                                mediaMessage.info.mimeType.takeIf { it.isNotBlank() } ?: "video/mp4",
                                 authToken,
                             )
                         }
