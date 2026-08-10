@@ -20,10 +20,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.InsertDriveFile
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.PauseCircle
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.PlayCircle
@@ -413,14 +413,14 @@ private fun resolveFileMeta(context: android.content.Context, uri: Uri): FileMet
 
 /** Pick a file icon based on the MIME type. */
 private fun fileIconFor(mimeType: String?): ImageVector {
-    val m = mimeType?.lowercase() ?: return Icons.Filled.InsertDriveFile
+    val m = mimeType?.lowercase() ?: return Icons.AutoMirrored.Filled.InsertDriveFile
     return when {
         m == "application/pdf" -> Icons.Filled.PictureAsPdf
 
         m.startsWith("text/") || m == "application/json" || m == "application/xml" ->
             Icons.Filled.Description
 
-        else -> Icons.Filled.InsertDriveFile
+        else -> Icons.AutoMirrored.Filled.InsertDriveFile
     }
 }
 

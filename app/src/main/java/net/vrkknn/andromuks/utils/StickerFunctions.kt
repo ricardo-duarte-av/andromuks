@@ -521,7 +521,10 @@ private fun StickerViewerDialog(stickerMessage: StickerMessage, homeserverUrl: S
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
 
-    val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
+    // Four-arg overload: (centroid, zoomChange, panChange, rotationChange). The centroid is ignored
+    // — this viewer zooms about the sticker's centre, not the pinch point — but taking it selects
+    // the non-deprecated overload.
+    val transformableState = rememberTransformableState { _, zoomChange, offsetChange, _ ->
         scale = (scale * zoomChange).coerceIn(0.5f, 5f)
         offsetX = (offsetX + offsetChange.x).coerceIn(-1000f, 1000f)
         offsetY = (offsetY + offsetChange.y).coerceIn(-1000f, 1000f)
