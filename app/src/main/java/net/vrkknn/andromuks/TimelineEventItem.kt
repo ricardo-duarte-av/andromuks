@@ -3751,9 +3751,8 @@ private fun StickerMessageContent(
             if (actualIsMine) Arrangement.End else Arrangement.Start,
             verticalAlignment = Alignment.Top,
         ) {
-            // For other users' messages, show read receipts on the right
-            if (!actualIsMine && readReceipts.isNotEmpty()) {
-                Spacer(modifier = Modifier.width(ReadReceiptGap))
+            // For my messages, show read receipts on the left
+            if (actualIsMine && readReceipts.isNotEmpty()) {
                 AnimatedInlineReadReceiptAvatars(
                     receipts = readReceipts,
                     userProfileCache = userProfileCache,
@@ -3764,8 +3763,9 @@ private fun StickerMessageContent(
                     eventId = event.eventId,
                     roomId = event.roomId,
                     onUserClick = onUserClick,
-                    isMine = false,
+                    isMine = true,
                 )
+                Spacer(modifier = Modifier.width(ReadReceiptGap))
             }
 
             StickerMessage(
