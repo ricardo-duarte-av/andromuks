@@ -2943,7 +2943,24 @@ private fun EncryptedMessageContent(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement =
                 if (actualIsMine) Arrangement.End else Arrangement.Start,
+                verticalAlignment = Alignment.Top,
             ) {
+                if (actualIsMine && readReceipts.isNotEmpty()) {
+                    AnimatedInlineReadReceiptAvatars(
+                        receipts = readReceipts,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        messageSender = event.sender,
+                        eventId = event.eventId,
+                        roomId = event.roomId,
+                        onUserClick = onUserClick,
+                        isMine = true,
+                    )
+                    Spacer(modifier = Modifier.width(ReadReceiptGap))
+                }
+
                 MessageBubbleWithMenu(
                     event = event,
                     bubbleColor = bubbleColor,
@@ -2971,6 +2988,22 @@ private fun EncryptedMessageContent(
                         color = textColor,
                         fontStyle = FontStyle.Italic,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                    )
+                }
+
+                if (!actualIsMine && readReceipts.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(ReadReceiptGap))
+                    AnimatedInlineReadReceiptAvatars(
+                        receipts = readReceipts,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        messageSender = event.sender,
+                        eventId = event.eventId,
+                        roomId = event.roomId,
+                        onUserClick = onUserClick,
+                        isMine = false,
                     )
                 }
             }
