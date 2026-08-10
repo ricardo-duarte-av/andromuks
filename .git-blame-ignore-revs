@@ -1,6 +1,11 @@
-# Revisions listed here are skipped by `git blame` (bulk mechanical changes).
-# Enable locally with: git config blame.ignoreRevsFile .git-blame-ignore-revs
-# GitHub honours this file automatically.
+# Revisions that are pure mechanical reformatting / no-behaviour-change cleanups.
+# `git blame` skips these so line authorship points at the real change.
+#
+# Enable locally with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# (GitHub honours this file automatically.)
 
-# style: apply detekt ktlint-wrapper auto-formatting across the tree
-57f9d10a8e80ff24d40b8b1effed0b358db4ad9d
+# refactor: clear all 143 remaining compiler warnings
+# Stripped redundant `?.` / `!!` across 28 files, incl. MediaFunctions and
+# TimelineEventItem, which would otherwise dominate blame on those files.
+d6cfdf570b7cdd9d2e91be74803532b5ac4a3bef
