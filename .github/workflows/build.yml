@@ -61,8 +61,16 @@ jobs:
       # `detekt` is flavor-independent; Android lint is scoped to base debug to avoid the 4-flavor
       # fan-out. Identical to the pr-check.yml lint job. Baselines absorb existing debt so only NEW
       # findings fail.
-      - name: Run detekt + Android lint
-        run: ./gradlew detekt :app:lintBaseDebug --stacktrace --no-daemon --build-cache
+      #
+      # -PwarningsAsErrors=true makes any Kotlin compiler warning fail this job (see the
+      # allWarningsAsErrors block in app/build.gradle.kts). The module is at zero warnings; this is
+      # what keeps it there. It is CI-only on purpose — a deprecation from a Compose/AGP bump must
+      # not make local builds unrunnable mid-upgrade.
+      #
+      # compileBaseDebugKotlin is named explicitly rather than left to lintBaseDebug's task graph:
+      # lint does depend on it today, but the gate shouldn't silently stop applying if that changes.
+      - name: Run detekt + Android lint (warnings are errors)
+        run: ./gradlew detekt :app:compileBaseDebugKotlin :app:lintBaseDebug -PwarningsAsErrors=true --stacktrace --no-daemon --build-cache
 
       - name: Upload lint/detekt reports
         if: failure()

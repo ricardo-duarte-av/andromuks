@@ -178,6 +178,20 @@ android {
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
+
+        // Warnings-as-errors, opt-in via -PwarningsAsErrors=true. CI's lint job passes it; local
+        // builds do not.
+        //
+        // Deliberately NOT on by default. The module is at zero warnings and this keeps it there,
+        // but a Compose/AGP/Kotlin upgrade routinely deprecates something — and if that turned
+        // every local build into a hard failure, the upgrade would have to be done in one sitting
+        // with the deprecations fixed before anything would even run. On CI that trade is right
+        // (a warning reaching master is what we're preventing); on a laptop mid-upgrade it isn't.
+        //
+        // Read through a provider so the configuration cache invalidates when the flag changes.
+        allWarningsAsErrors.set(
+            providers.gradleProperty("warningsAsErrors").map { it.toBoolean() }.orElse(false),
+        )
     }
 }
 
