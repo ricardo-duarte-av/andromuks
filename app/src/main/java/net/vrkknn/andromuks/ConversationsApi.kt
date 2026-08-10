@@ -713,7 +713,10 @@ class ConversationsApi(
                 val shortcut = createShortcutInfoCompat(
                     ConversationShortcut(
                         roomId = room.id,
-                        roomName = room.name ?: room.id,
+                        // RoomItem.name is non-null, so `?: room.id` never fired — but the cache
+                        // hydration path (RoomListCache.populateRoomMapFromCache) can produce a
+                        // blank name from a blank DB row, which would label the shortcut "".
+                        roomName = room.name.takeIf { it.isNotBlank() } ?: room.id,
                         roomAvatarUrl = room.avatarUrl,
                         lastMessage = null,
                         unreadCount = 0,

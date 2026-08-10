@@ -28,7 +28,9 @@ class ContactsIntegrationExample(private val context: Context, private val appVi
 
     private val contactsSyncService = ContactsSyncService(
         context = context,
-        accountName = appViewModel.currentUserId ?: "matrix_user",
+        // currentUserId is non-null but starts as "" until login resolves, so `?: "matrix_user"`
+        // never fired and an early construction would name the account "".
+        accountName = appViewModel.currentUserId.takeIf { it.isNotBlank() } ?: "matrix_user",
         accountType = "net.vrkknn.andromuks.matrix",
     )
 
