@@ -329,10 +329,10 @@ object IntelligentMediaCache {
                         return@use
                     }
 
-                    val body = response.body ?: run {
-                        Log.w(TAG, "Empty body for $mxcUrl (attempt ${attempt + 1}/$DOWNLOAD_ATTEMPTS)")
-                        return@use
-                    }
+                    // OkHttp guarantees a non-null body here, so the old `?: return@use` guard (and
+                    // the "Empty body" warning it logged) could never fire. An actually-empty
+                    // response is caught by the zero-byte check after the copy below.
+                    val body = response.body
 
                     val expectedLength = body.contentLength() // -1 if unknown / chunked
                     tmpFile.outputStream().use { output ->

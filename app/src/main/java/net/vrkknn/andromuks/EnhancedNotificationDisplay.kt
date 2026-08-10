@@ -1059,11 +1059,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 // Determine large icon based on room type
                 // For DMs: use sender's avatar (the conversation-level avatar)
                 // For groups: use room avatar (the conversation-level avatar)
-                val largeIconBitmap = if (isGroupRoom) {
-                    circularRoomAvatar ?: circularSenderAvatar // Prefer room avatar for groups
-                } else {
-                    circularSenderAvatar ?: circularRoomAvatar // Prefer sender avatar for DMs
-                }
+                //
+                // No cross-fallback between the two: both bitmaps already fall back to a lettermark
+                // at creation (createFallbackAvatarBitmap above), so neither is ever null and the
+                // `?:` that used to be here was dead. A group whose room avatar missed the cache
+                // gets the room's lettermark, not the sender's face — which is the intended
+                // conversation-level identity, and self-corrects once the worker warms the cache.
+                val largeIconBitmap = if (isGroupRoom) circularRoomAvatar else circularSenderAvatar
 
                 // Create main notification
                 // CRITICAL: When bubble is open, make notification silent and non-interruptive
