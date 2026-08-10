@@ -113,7 +113,7 @@ class SyncIngestor(private val context: Context) {
                             val value = when (key) {
                                 "name", "avatar", "topic" -> meta.optString(
                                     key,
-                                )?.takeIf { it.isNotBlank() }?.let { "\"$it\"" } ?: "null"
+                                ).takeIf { it.isNotBlank() }?.let { "\"$it\"" } ?: "null"
 
                                 "unread_messages", "unread_highlights" -> meta.optInt(key, 0).toString()
 
@@ -1013,7 +1013,7 @@ class SyncIngestor(private val context: Context) {
             // For non-thread replies/edits/reactions:
             // - edits/reactions/annotations: relatesToEventId = m.relates_to.event_id
             // - plain replies (no rel_type): event_id is nested at m.relates_to.m.in_reply_to.event_id
-            relatesToEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
+            relatesToEventId = relatesTo.optString("event_id").takeIf { it.isNotBlank() }
                 ?: relatesTo.optJSONObject("m.in_reply_to")?.optString("event_id")?.takeIf { it.isNotBlank() }
         }
 
@@ -1054,7 +1054,7 @@ class SyncIngestor(private val context: Context) {
             content = content,
             stateKey = eventJson.optString("state_key").takeIf { it.isNotBlank() },
             decrypted = eventJson.optJSONObject("decrypted"),
-            decryptedType = decryptedType?.takeIf { it.isNotBlank() },
+            decryptedType = decryptedType.takeIf { it.isNotBlank() },
             unsigned = unsigned,
             redactedBy = eventJson.optString("redacted_by").takeIf { it.isNotBlank() },
             localContent = localContent,
@@ -1164,9 +1164,9 @@ class SyncIngestor(private val context: Context) {
                     if (membership == "invite" && stateKey == currentUserId) {
                         inviterUserId = stateEvent.optString("sender", "")
                         // Extract invite reason if present
-                        inviteReason = content?.optString("reason")?.takeIf { it.isNotBlank() }
+                        inviteReason = content.optString("reason").takeIf { it.isNotBlank() }
                         // Check if is_direct flag is set
-                        val isDirect = content?.optBoolean("is_direct", false) ?: false
+                        val isDirect = content.optBoolean("is_direct", false)
                         if (isDirect) {
                             isDirectMessage = true
                         }
@@ -1187,9 +1187,9 @@ class SyncIngestor(private val context: Context) {
                         val membership = content?.optString("membership", "")
                         // Get inviter's display name and avatar from their member event (membership="join")
                         if (membership == "join" && stateKey == inviterUserId && inviterUserId.isNotBlank()) {
-                            inviterDisplayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
+                            inviterDisplayName = content.optString("displayname").takeIf { it.isNotBlank() }
                             // Use inviter's avatar as room avatar for DMs if room avatar is not available
-                            val inviterAvatar = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                            val inviterAvatar = content.optString("avatar_url").takeIf { it.isNotBlank() }
                             if (inviterAvatar != null && roomAvatar == null && isDirectMessage) {
                                 roomAvatar = inviterAvatar
                             }

@@ -167,7 +167,7 @@
     <ID>ModifierMissing:CallOverlay.kt:@Composable fun CallOverlay</ID>
     <ID>ModifierMissing:EmojiSelection.kt:@Composable fun ImageEmoji</ID>
     <ID>ModifierMissing:IncomingCallBanner.kt:@Composable fun IncomingCallBanner</ID>
-    <ID>ModifierMissing:LocationPickerScreen.kt:@OptIn(ExperimentalMaterial3Api::class) @Composable fun LocationPickerOverlay</ID>
+    <ID>ModifierMissing:LocationPickerScreen.kt:@OptIn(ExperimentalMaterial3Api::class, MapsComposeExperimentalApi::class) @Composable fun LocationPickerOverlay</ID>
     <ID>ModifierMissing:MediaPickerDialog.kt:@Composable fun FilePreview</ID>
     <ID>ModifierMissing:MediaPickerDialog.kt:@Composable fun VideoPlayerPreview</ID>
     <ID>ModifierMissing:NarratorFunctions.kt:@Composable fun ClickableNarratorText</ID>

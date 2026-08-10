@@ -114,8 +114,8 @@ private fun extractMediaItems(events: List<TimelineEvent>, homeserverUrl: String
             else -> return@mapNotNull null
         }
 
-        val fullMxc = content?.optString("url")?.takeIf { it.isNotBlank() }
-            ?: content?.optJSONObject("file")?.optString("url")?.takeIf { it.isNotBlank() }
+        val fullMxc = content.optString("url").takeIf { it.isNotBlank() }
+            ?: content.optJSONObject("file")?.optString("url")?.takeIf { it.isNotBlank() }
             ?: return@mapNotNull null
         val info = content.optJSONObject("info")
         val thumbnailMxc = info?.optString("thumbnail_url")?.takeIf { it.isNotBlank() }

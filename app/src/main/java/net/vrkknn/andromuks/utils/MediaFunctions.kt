@@ -514,10 +514,10 @@ fun MediaMessage(
     val maxBubbleWidthDp = if (isStandardizedMedia) {
         STANDARD_MEDIA_WIDTH
     } else if (useThumbnails && mediaMessage.info.thumbnailWidth != null &&
-        mediaMessage.info.thumbnailWidth!! > 0
+        mediaMessage.info.thumbnailWidth > 0
     ) {
         // Use thumbnail dimensions when thumbnails are enabled
-        with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
+        with(density) { mediaMessage.info.thumbnailWidth.toDp() }
     } else if (mediaMessage.info.width > 0) {
         // Use original dimensions when thumbnails disabled or not available
         with(density) { mediaMessage.info.width.toDp() }
@@ -957,9 +957,9 @@ private fun MediaContent(
             val aspectRatio = if (useThumbnail) {
                 // First try thumbnail dimensions
                 if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailHeight != null &&
-                    mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0
+                    mediaMessage.info.thumbnailWidth > 0 && mediaMessage.info.thumbnailHeight > 0
                 ) {
-                    mediaMessage.info.thumbnailWidth!!.toFloat() / mediaMessage.info.thumbnailHeight!!.toFloat()
+                    mediaMessage.info.thumbnailWidth.toFloat() / mediaMessage.info.thumbnailHeight.toFloat()
                 } else if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
                     // Fallback to full image dimensions if thumbnail dimensions not available
                     mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
@@ -988,8 +988,8 @@ private fun MediaContent(
             // If not using thumbnails: use full image dimensions
             val imageHeightDp = if (useThumbnail) {
                 // First try thumbnail height
-                if (mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) {
-                    with(density) { mediaMessage.info.thumbnailHeight!!.toDp() }
+                if (mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight > 0) {
+                    with(density) { mediaMessage.info.thumbnailHeight.toDp() }
                 } else if (mediaMessage.info.height > 0) {
                     // Fallback to full image height if thumbnail height not available
                     with(density) { mediaMessage.info.height.toDp() }
@@ -1009,8 +1009,8 @@ private fun MediaContent(
             // This prevents small thumbnails from being stretched to fill the full bubble width
             val maxImageWidthDp = if (useThumbnail) {
                 // Use thumbnail width when thumbnails are enabled
-                if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0) {
-                    with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
+                if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth > 0) {
+                    with(density) { mediaMessage.info.thumbnailWidth.toDp() }
                 } else if (mediaMessage.info.width > 0) {
                     with(density) { mediaMessage.info.width.toDp() }
                 } else {
@@ -1151,11 +1151,11 @@ private fun MediaContent(
                         val blurHashHeight: Int
                         if (useThumbnail && mediaMessage.info.thumbnailWidth != null &&
                             mediaMessage.info.thumbnailHeight != null &&
-                            mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0
+                            mediaMessage.info.thumbnailWidth > 0 && mediaMessage.info.thumbnailHeight > 0
                         ) {
                             // Use thumbnail dimensions
-                            val thumbW = mediaMessage.info.thumbnailWidth!!
-                            val thumbH = mediaMessage.info.thumbnailHeight!!
+                            val thumbW = mediaMessage.info.thumbnailWidth
+                            val thumbH = mediaMessage.info.thumbnailHeight
                             val scale = 100f / minOf(thumbW, thumbH).toFloat()
                             blurHashWidth = (thumbW * scale).toInt().coerceAtLeast(32)
                             blurHashHeight = (thumbH * scale).toInt().coerceAtLeast(32)
@@ -1188,7 +1188,7 @@ private fun MediaContent(
                                         )
                                     }
                                     val bitmap = BlurHashUtils.decodeBlurHash(
-                                        blurHashForDisplay!!,
+                                        blurHashForDisplay,
                                         blurHashWidth,
                                         blurHashHeight,
                                     )
@@ -1258,8 +1258,8 @@ private fun MediaContent(
                         // Check if JSON dimensions were actually valid
                         val hasValidJsonDimensions = if (useThumbnail) {
                             (
-                                mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 &&
-                                    mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0
+                                mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth > 0 &&
+                                    mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight > 0
                                 ) ||
                                 (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
                         } else {
@@ -1442,8 +1442,8 @@ private fun MediaContent(
                             // Check if JSON dimensions were actually valid for video
                             val hasValidVideoJsonDimensions =
                                 (
-                                    mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 &&
-                                        mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0
+                                    mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth > 0 &&
+                                        mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight > 0
                                     ) ||
                                     (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
 
@@ -1461,11 +1461,11 @@ private fun MediaContent(
                             val videoBlurHashWidth: Int
                             val videoBlurHashHeight: Int
                             if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailHeight != null &&
-                                mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0
+                                mediaMessage.info.thumbnailWidth > 0 && mediaMessage.info.thumbnailHeight > 0
                             ) {
                                 // Use thumbnail dimensions
-                                val thumbW = mediaMessage.info.thumbnailWidth!!
-                                val thumbH = mediaMessage.info.thumbnailHeight!!
+                                val thumbW = mediaMessage.info.thumbnailWidth
+                                val thumbH = mediaMessage.info.thumbnailHeight
                                 val scale = 100f / minOf(thumbW, thumbH).toFloat()
                                 videoBlurHashWidth = (thumbW * scale).toInt().coerceAtLeast(32)
                                 videoBlurHashHeight = (thumbH * scale).toInt().coerceAtLeast(32)
@@ -1495,7 +1495,7 @@ private fun MediaContent(
                                     decodedVideoBlurHashBitmap = null // Reset while decoding
                                     withContext(Dispatchers.Default) {
                                         val bitmap = BlurHashUtils.decodeBlurHash(
-                                            videoBlurHash!!,
+                                            videoBlurHash,
                                             videoBlurHashWidth,
                                             videoBlurHashHeight,
                                         )
@@ -2514,9 +2514,9 @@ private object PdfThumbnailCache {
                         return@withContext null
                     }
                     val tmp = File(dir, pdfFile.name + ".tmp")
-                    response.body?.byteStream()?.use { input ->
+                    response.body.byteStream().use { input ->
                         FileOutputStream(tmp).use { output -> input.copyTo(output) }
-                    } ?: return@withContext null
+                    }
                     if (tmp.length() == 0L) {
                         tmp.delete()
                         return@withContext null
@@ -2671,7 +2671,7 @@ private fun FileDownload(
     // whole file on disk (PdfRenderer is seek-based), so a large document would be pulled
     // down in full just for a thumbnail. Unknown size is treated as "too big" — skip it.
     val pdfSize = mediaMessage.info.size
-    val isPdf = mediaMessage.info.mimeType?.lowercase() == "application/pdf"
+    val isPdf = mediaMessage.info.mimeType.lowercase() == "application/pdf"
     val showPdfPreview = isPdf && pdfSize <= PDF_PREVIEW_MAX_BYTES
 
     Column(modifier = Modifier.fillMaxWidth()) {
@@ -2740,7 +2740,7 @@ private fun FileDownload(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     // File size
-                    mediaMessage.info.size?.let { sizeBytes ->
+                    mediaMessage.info.size.let { sizeBytes ->
                         Text(
                             text = formatFileSize(sizeBytes),
                             style = MaterialTheme.typography.bodySmall,
@@ -2749,7 +2749,7 @@ private fun FileDownload(
                     }
 
                     // MIME type
-                    mediaMessage.info.mimeType?.let { mimeType ->
+                    mediaMessage.info.mimeType.let { mimeType ->
                         Text(
                             text = mimeType,
                             style = MaterialTheme.typography.bodySmall,
@@ -2862,7 +2862,7 @@ private suspend fun downloadFileWithOkHttp(context: android.content.Context, url
                 counter++
             }
 
-            response.body?.byteStream()?.use { input ->
+            response.body.byteStream().use { input ->
                 FileOutputStream(finalFile).use { output ->
                     input.copyTo(output)
                 }
@@ -2948,7 +2948,7 @@ private suspend fun saveImageToGallery(
                         throw Exception("Failed to download image: ${response.code}")
                     }
 
-                    response.body?.byteStream()?.use { input ->
+                    response.body.byteStream().use { input ->
                         val tempFile = File(context.cacheDir, "temp_image_${System.currentTimeMillis()}.jpg")
                         FileOutputStream(tempFile).use { output ->
                             input.copyTo(output)
@@ -3583,7 +3583,7 @@ private fun ImageViewerPage(
                     .addHeader("Cookie", "gomuks_auth=$authToken")
                     .build()
                 client.newCall(request).execute().use { response ->
-                    val body = response.body?.string()?.takeIf { it.isNotBlank() }
+                    val body = response.body.string().takeIf { it.isNotBlank() }
                     buildString {
                         append("HTTP ${response.code} ${response.message}".trim())
                         if (body != null) {
@@ -3719,7 +3719,7 @@ private fun ImageViewerPage(
                         if (BuildConfig.DEBUG) {
                             Log.e(
                                 "Andromuks",
-                                "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable?.message} cachedFile=$cachedFile",
+                                "❌ ImageViewer: Full image error: $imageUrl — result=${state.result.throwable.message} cachedFile=$cachedFile",
                             )
                         }
                         if (cachedFile != null) {
@@ -3856,7 +3856,7 @@ private suspend fun saveVideoToGallery(context: Context, videoUrl: String, filen
 
                 // Write video data
                 context.contentResolver.openOutputStream(uri)?.use { output ->
-                    response.body?.byteStream()?.use { input ->
+                    response.body.byteStream().use { input ->
                         input.copyTo(output)
                     }
                 }

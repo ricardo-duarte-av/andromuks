@@ -809,7 +809,7 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         }
 
                         // Apply invites (in-memory) and UI invalidation flags.
-                        val invites = ingestResult?.invites ?: emptyList()
+                        val invites = ingestResult.invites
                         if (invites.isNotEmpty()) {
                             invites.forEach { invite ->
                                 PendingInvitesCache.updateInvite(invite)
@@ -826,7 +826,7 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         // If cached-room events arrived, refresh room summaries (foreground only).
                         // Coalesced via the debounce so the resume burst doesn't recompose the room
                         // list once per message.
-                        val roomsWithEvents = ingestResult?.roomsWithEvents ?: emptySet()
+                        val roomsWithEvents = ingestResult.roomsWithEvents
                         if (roomsWithEvents.isNotEmpty() && visible) {
                             vm.needsRoomSummaryUpdate = true
                             vm.scheduleUIUpdate("roomSummary")

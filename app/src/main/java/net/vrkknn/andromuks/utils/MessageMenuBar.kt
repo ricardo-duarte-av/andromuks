@@ -429,7 +429,7 @@ fun MessageMenuBar(menuConfig: MessageMenuConfig?, onDismiss: () -> Unit, button
                                         onDismiss()
                                         val json = event.toRawJsonString(2)
                                         if (menuConfig.onViewSource != null) {
-                                            menuConfig.onViewSource!!.invoke(json)
+                                            menuConfig.onViewSource.invoke(json)
                                         } else {
                                             rawJsonToShow = json
                                             showRawJsonDialog = true

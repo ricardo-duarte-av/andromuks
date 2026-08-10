@@ -51,6 +51,7 @@ import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.MapEffect
 import com.google.maps.android.compose.MapProperties
 import com.google.maps.android.compose.MapUiSettings
+import com.google.maps.android.compose.MapsComposeExperimentalApi
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
@@ -119,7 +120,9 @@ private suspend fun geocodeQuery(query: String, geocoder: Geocoder, biasCenter: 
  *   result markers, POI tapping, GPS jump, and a fixed center pin.
  * Phase 2 — PREVIEW: Static map thumbnail + optional caption before sending.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+// MapEffect is @MapsComposeExperimentalApi — it is the only way to reach the underlying
+// GoogleMap for setOnPoiClickListener, which maps-compose does not expose declaratively.
+@OptIn(ExperimentalMaterial3Api::class, MapsComposeExperimentalApi::class)
 @Composable
 fun LocationPickerOverlay(onDismiss: () -> Unit, onSendLocation: (latitude: Double, longitude: Double, caption: String) -> Unit) {
     val context = LocalContext.current

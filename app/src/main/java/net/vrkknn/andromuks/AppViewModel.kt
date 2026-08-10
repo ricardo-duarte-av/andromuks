@@ -3247,7 +3247,7 @@ class AppViewModel : ViewModel() {
         var hash = 1L
         for (room in rooms) {
             hash = hash * 31 + room.id.hashCode()
-            hash = hash * 31 + (room.name?.hashCode() ?: 0)
+            hash = hash * 31 + room.name.hashCode()
             hash = hash * 31 + room.unreadCount.hashCode()
             hash = hash * 31 + (room.messagePreview?.hashCode() ?: 0)
             hash = hash * 31 + (room.messageSender?.hashCode() ?: 0)

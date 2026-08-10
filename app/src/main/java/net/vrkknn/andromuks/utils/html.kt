@@ -794,7 +794,7 @@ private fun extractSpoilerData(nodes: List<HtmlNode>): Pair<String, List<HtmlNod
     }
 
     return if (!reason.isNullOrEmpty() && contentNodes != null) {
-        Pair(reason!!, contentNodes!!)
+        Pair(reason, contentNodes)
     } else {
         null
     }
@@ -2205,7 +2205,7 @@ fun HtmlMessageText(
             while (end > 0 && renderedString.text[end - 1] == '\n') {
                 end--
             }
-            renderedString.subSequence(0, end) as AnnotatedString
+            renderedString.subSequence(0, end)
         } else {
             renderedString
         }
@@ -3507,7 +3507,7 @@ fun renderHtmlToAnnotatedString(htmlContent: String, baseColor: Color = Color.Un
         }.let { annotatedString ->
             // Trim trailing newline if present
             if (annotatedString.text.endsWith("\n")) {
-                annotatedString.subSequence(0, annotatedString.length - 1) as AnnotatedString
+                annotatedString.subSequence(0, annotatedString.length - 1)
             } else {
                 annotatedString
             }

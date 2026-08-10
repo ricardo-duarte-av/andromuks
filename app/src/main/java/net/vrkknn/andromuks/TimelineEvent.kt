@@ -103,7 +103,7 @@ data class TimelineEvent(
             val transactionId = json.optString("transaction_id").takeIf { it.isNotBlank() }
 
             val decrypted = json.optJSONObject("decrypted")
-            val decryptedType = json.optString("decrypted_type")?.takeIf { it.isNotBlank() }
+            val decryptedType = json.optString("decrypted_type").takeIf { it.isNotBlank() }
             // relationType/relatesTo: prefer gomuks' top-level keys, but fall back to the message
             // payload's m.relates_to. For E2EE events the top-level relation_type/relates_to are
             // often absent on the live (encrypted) frame while the relation lives in
@@ -128,11 +128,11 @@ data class TimelineEvent(
                 type = json.optString("type", ""),
                 timestamp = timestamp,
                 content = content,
-                stateKey = json.optString("state_key")?.takeIf { it.isNotBlank() },
+                stateKey = json.optString("state_key").takeIf { it.isNotBlank() },
                 decrypted = decrypted,
                 decryptedType = decryptedType,
                 unsigned = json.optJSONObject("unsigned"),
-                redactedBy = json.optString("redacted_by")?.takeIf { it.isNotBlank() },
+                redactedBy = json.optString("redacted_by").takeIf { it.isNotBlank() },
                 localContent = json.optJSONObject("local_content"),
                 relationType = resolvedRelationType,
                 relatesTo = resolvedRelatesTo,
@@ -156,7 +156,7 @@ data class TimelineEvent(
             else -> null
         } ?: return null
 
-        val relatesTo = messageContent?.optJSONObject("m.relates_to")
+        val relatesTo = messageContent.optJSONObject("m.relates_to")
         // Thread fallback messages (is_falling_back=true) are not treated as replies
         val isFallback = relatesTo?.optBoolean("is_falling_back", false) ?: false
         if (isFallback) return null

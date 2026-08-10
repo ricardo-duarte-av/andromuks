@@ -313,7 +313,7 @@ object IntelligentMediaCache {
                         // URL (shows whether image_auth was appended), the cookie token length, and the
                         // server's error body (gomuks returns e.g. FI.MAU.GOMUKS.INVALID_COOKIE here).
                         val bodySnippet = try {
-                            response.body?.string()?.take(
+                            response.body.string().take(
                                 300,
                             )
                         } catch (e: Exception) {

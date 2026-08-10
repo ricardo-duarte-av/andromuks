@@ -1289,8 +1289,8 @@ private fun MemberEventNarrator(
             if (isProfileChange) {
                 val prevDisplayName = prevContent.optString("displayname", "")
                 val prevAvatar = prevContent.optString("avatar_url", "")
-                val currentDisplayName = content?.optString("displayname", "") ?: ""
-                val currentAvatar = content?.optString("avatar_url", "") ?: ""
+                val currentDisplayName = content.optString("displayname", "") ?: ""
+                val currentAvatar = content.optString("avatar_url", "") ?: ""
 
                 val contentMatches = prevDisplayName == currentDisplayName && prevAvatar == currentAvatar
 
@@ -1378,19 +1378,18 @@ private fun MemberEventNarrator(
                 ).substringBefore(":")
 
                 // Get kicked user profile for display name
-                val kickedProfile = leftUserId?.let { userId ->
+                val kickedProfile = leftUserId.let { userId ->
                     appViewModel?.getUserProfile(userId, roomId)
                 }
-                val kickedDisplayName = kickedProfile?.displayName ?: leftUserId?.substringAfter(
-                    "@",
-                )?.substringBefore(":") ?: "Unknown"
+                val kickedDisplayName = kickedProfile?.displayName
+                    ?: leftUserId.substringAfter("@").substringBefore(":")
 
                 // Request profiles if not found
                 if (senderProfile == null && appViewModel != null) {
                     appViewModel.requestUserProfile(event.sender, roomId)
                 }
                 if (kickedProfile == null && appViewModel != null) {
-                    leftUserId?.let { appViewModel.requestUserProfile(it, roomId) }
+                    leftUserId.let { appViewModel.requestUserProfile(it, roomId) }
                 }
 
                 // Get member map for user mentions in reason
@@ -1427,7 +1426,7 @@ private fun MemberEventNarrator(
 
                         // Kicked user name (clickable)
                         // leftUserId is guaranteed to be non-null in kick branch
-                        leftUserId?.let { userId ->
+                        leftUserId.let { userId ->
                             pushStringAnnotation("USER_ID", userId)
                             pushStyle(
                                 SpanStyle(
@@ -1438,11 +1437,6 @@ private fun MemberEventNarrator(
                             append(kickedDisplayName)
                             pop()
                             pop()
-                        } ?: run {
-                            // Fallback if leftUserId is somehow null
-                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                append(kickedDisplayName)
-                            }
                         }
 
                         // Reason with clickable user mentions

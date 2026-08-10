@@ -217,9 +217,9 @@ internal class MemberProfilesCoordinator(private val vm: AppViewModel) {
                         when (membership) {
                             "join" -> {
                                 val displayName =
-                                    content?.optString("displayname")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                                    content.optString("displayname").takeIf { it.isNotBlank() && it != "null" } ?: ""
                                 val avatarUrl =
-                                    content?.optString("avatar_url")?.takeIf { it.isNotBlank() && it != "null" } ?: ""
+                                    content.optString("avatar_url").takeIf { it.isNotBlank() && it != "null" } ?: ""
 
                                 val newProfile = MemberProfile(displayName, avatarUrl)
                                 memberMap[stateKey] = newProfile

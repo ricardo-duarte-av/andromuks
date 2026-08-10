@@ -199,7 +199,7 @@ private fun extractBodyFromVersion(version: net.vrkknn.andromuks.MessageVersion)
     return when {
         // For edit events, use m.new_content
         version.event.content?.has("m.new_content") == true -> {
-            val newContent = version.event.content?.optJSONObject("m.new_content")
+            val newContent = version.event.content.optJSONObject("m.new_content")
             newContent?.optString("body", "[No content]") ?: "[No content]"
         }
 
@@ -207,7 +207,7 @@ private fun extractBodyFromVersion(version: net.vrkknn.andromuks.MessageVersion)
         event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
             // Check if it's an edit
             if (event.decrypted?.has("m.new_content") == true) {
-                val newContent = event.decrypted?.optJSONObject("m.new_content")
+                val newContent = event.decrypted.optJSONObject("m.new_content")
                 newContent?.optString("body", "[No content]") ?: "[No content]"
             } else {
                 event.decrypted?.optString("body", "[No content]") ?: "[No content]"

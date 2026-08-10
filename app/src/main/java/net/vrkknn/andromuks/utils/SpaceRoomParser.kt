@@ -70,8 +70,8 @@ object SpaceRoomParser {
      */
     private fun extractPreviewFromEvent(event: JSONObject): Triple<String, String, String?>? {
         val eventType = event.optString("type")
-        val sender = event.optString("sender")?.takeIf { it.isNotBlank() } ?: return null
-        val eventId = event.optString("event_id")?.takeIf { it.isNotBlank() }
+        val sender = event.optString("sender").takeIf { it.isNotBlank() } ?: return null
+        val eventId = event.optString("event_id").takeIf { it.isNotBlank() }
         when (eventType) {
             "m.room.message" -> {
                 val content = event.optJSONObject("content") ?: return null
@@ -80,7 +80,7 @@ object SpaceRoomParser {
                 var body = if (isEdit) {
                     content.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
                 } else {
-                    content.optString("body")?.takeIf { it.isNotBlank() }
+                    content.optString("body").takeIf { it.isNotBlank() }
                 }
                 if (body != null && !isEdit && contentHasInReplyTo(content)) {
                     val stripped = stripMatrixReplyQuote(body).trim()
@@ -129,7 +129,7 @@ object SpaceRoomParser {
                     var body = if (isEdit) {
                         decrypted.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
                     } else {
-                        decrypted.optString("body")?.takeIf { it.isNotBlank() }
+                        decrypted.optString("body").takeIf { it.isNotBlank() }
                     }
                     if (body != null && !isEdit && contentHasInReplyTo(decrypted)) {
                         val stripped = stripMatrixReplyQuote(body).trim()
@@ -480,11 +480,11 @@ object SpaceRoomParser {
     ): Pair<RoomItem, Boolean>? {
         try {
             // This is a regular room
-            val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
-            val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
+            val name = meta.optString("name").takeIf { it.isNotBlank() } ?: roomId
+            val avatar = meta.optString("avatar").takeIf { it.isNotBlank() }
 
             // Extract canonical alias from meta
-            val canonicalAlias = meta.optString("canonical_alias")?.takeIf { it.isNotBlank() }
+            val canonicalAlias = meta.optString("canonical_alias").takeIf { it.isNotBlank() }
 
             // Extract unread count and highlight count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
@@ -563,7 +563,7 @@ object SpaceRoomParser {
                     var bestTs = -1L
                     for (i in 0 until events.length()) {
                         val ev = events.optJSONObject(i) ?: continue
-                        val eid = ev.optString("event_id")?.takeIf { it.isNotBlank() } ?: continue
+                        val eid = ev.optString("event_id").takeIf { it.isNotBlank() } ?: continue
                         val ts = ev.optLong("timestamp", 0L)
                         if (ts > bestTs) {
                             bestTs = ts
@@ -640,7 +640,7 @@ object SpaceRoomParser {
     private fun detectDirectMessage(roomId: String, roomObj: JSONObject, meta: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): Boolean {
         try {
             // Method 1: Check if dm_user_id is populated in meta - this indicates a DM
-            val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
+            val dmUserId = meta.optString("dm_user_id").takeIf { it.isNotBlank() }
 
             if (dmUserId != null) {
                 // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")

@@ -1013,7 +1013,7 @@ fun BubbleTimelineScreen(
                 if (isImageOrVideo) {
                     selectedMediaUri = it
                     // Detect if this is a video or image
-                    selectedMediaIsVideo = mimeType?.startsWith("video/") == true
+                    selectedMediaIsVideo = mimeType.startsWith("video/") == true
                     showMediaPreview = true
                 } else {
                     // Show error message for non-image/video files
@@ -2997,7 +2997,6 @@ fun BubbleTimelineScreen(
                                                 when (item) {
                                                     is BubbleTimelineItem.DateDivider -> "date"
                                                     is BubbleTimelineItem.Event -> "event"
-                                                    else -> "other"
                                                 }
                                             },
                                         ) { index, item ->

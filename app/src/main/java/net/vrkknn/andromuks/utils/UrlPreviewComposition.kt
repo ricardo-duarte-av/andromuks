@@ -99,10 +99,10 @@ private suspend fun fetchUrlPreview(
             .build()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UrlPreview: fetching $previewEndpoint")
         val response = client.newCall(request).execute()
-        val body = response.body?.string()
+        val body = response.body.string()
         if (!response.isSuccessful) {
             // Try to extract the "error" field from the JSON error body (e.g. {"errcode":"M_UNKNOWN","error":"Got error 403"})
-            val errorMessage = body?.let {
+            val errorMessage = body.let {
                 runCatching { JSONObject(it).optString("error", "").takeIf { m -> m.isNotBlank() } }.getOrNull()
             }
             if (BuildConfig.DEBUG) {
@@ -113,7 +113,6 @@ private suspend fun fetchUrlPreview(
             }
             return@withContext Pair(null, errorMessage)
         }
-        if (body == null) return@withContext Pair(null, null)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UrlPreview: response for $url: $body")
         val obj = JSONObject(body)
         if (obj.optString("og:title", "").isBlank()) Pair(null, null) else Pair(obj, null)
@@ -296,7 +295,7 @@ private fun UrlPreviewCard(item: UrlPreviewItemState, homeserverUrl: String, aut
 
         // ── Loaded ───────────────────────────────────────────────────────────
         else -> {
-            val data = item.data!!
+            val data = item.data
             val title = data.optString("og:title", "")
             if (title.isBlank()) return
 

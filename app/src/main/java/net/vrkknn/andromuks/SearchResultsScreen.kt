@@ -426,8 +426,8 @@ private fun SearchResultCard(
     val content = event.decrypted ?: event.content
     val format = content?.optString("format", "")
     val body = if (format == "org.matrix.custom.html") {
-        content?.optString("formatted_body", "")?.takeIf { it.isNotBlank() }
-            ?: content?.optString("body", "") ?: ""
+        content.optString("formatted_body", "").takeIf { it.isNotBlank() }
+            ?: content.optString("body", "") ?: ""
     } else {
         content?.optString("body", "") ?: ""
     }

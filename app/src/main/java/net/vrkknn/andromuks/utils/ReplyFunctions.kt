@@ -158,8 +158,8 @@ fun ReplyPreview(
                     // For edits (m.replace), new body is in m.new_content; fallback to top-level body
                     val isEdit = event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                     if (isEdit) {
-                        event.content?.optJSONObject("m.new_content")?.optString("body", "")
-                            ?: event.content?.optString("body", "")
+                        event.content.optJSONObject("m.new_content")?.optString("body", "")
+                            ?: event.content.optString("body", "")
                     } else {
                         event.content?.optString("body", "")
                     }
@@ -170,8 +170,8 @@ fun ReplyPreview(
                     val isEdit = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                     if (isEdit) {
                         // This is an edit, show the new content
-                        event.decrypted?.optJSONObject("m.new_content")?.optString("body", "")
-                            ?: event.decrypted?.optString("body", "")
+                        event.decrypted.optJSONObject("m.new_content")?.optString("body", "")
+                            ?: event.decrypted.optString("body", "")
                     } else {
                         // Regular encrypted message
                         event.decrypted?.optString("body", "")
@@ -213,9 +213,9 @@ fun ReplyPreview(
                     "m.relates_to",
                 )?.optString("rel_type") == "m.replace"
             ) {
-                fallback.decrypted?.optJSONObject(
+                fallback.decrypted.optJSONObject(
                     "m.new_content",
-                )?.optString("body", "") ?: fallback.decrypted?.optString("body", "")
+                )?.optString("body", "") ?: fallback.decrypted.optString("body", "")
             } else {
                 payload?.optString("body", "")
             }
@@ -417,13 +417,13 @@ fun formatEventForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.an
                 event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
             val body = if (isEdit) {
                 // For edits, get the body from m.new_content
-                event.decrypted?.optJSONObject("m.new_content")?.optString("body", "") ?: ""
+                event.decrypted.optJSONObject("m.new_content")?.optString("body", "") ?: ""
             } else {
                 content?.optString("body", "") ?: ""
             }
 
             if (actualMsgType in GALLERY_MSGTYPES) {
-                return galleryPreviewLabel(if (isEdit) event.decrypted?.optJSONObject("m.new_content") else content)
+                return galleryPreviewLabel(if (isEdit) event.decrypted.optJSONObject("m.new_content") else content)
                     ?: "🖼️ Sent a gallery"
             }
 
@@ -486,8 +486,8 @@ fun formatEventForReplyPreview(event: TimelineEvent, appViewModel: net.vrkknn.an
                         // Profile change - check what changed
                         val prevDisplayName = prevContent.optString("displayname", "")
                         val prevAvatar = prevContent.optString("avatar_url", "")
-                        val currentDisplayName = content?.optString("displayname", "") ?: ""
-                        val currentAvatar = content?.optString("avatar_url", "") ?: ""
+                        val currentDisplayName = content.optString("displayname", "") ?: ""
+                        val currentAvatar = content.optString("avatar_url", "") ?: ""
 
                         when {
                             prevDisplayName != currentDisplayName && prevAvatar != currentAvatar -> "Changed profile"

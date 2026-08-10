@@ -39,7 +39,7 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
                         }
                         return@use
                     }
-                    val body = response.body?.string().orEmpty()
+                    val body = response.body.string().orEmpty()
                     if (body.isBlank()) return@use
                     val json = JSONObject(body)
                     val rtcFoci = json.optJSONArray("org.matrix.msc4143.rtc_foci")

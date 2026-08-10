@@ -990,14 +990,14 @@ private fun RoomMessageContent(
     // This ensures edit events display the new content instead of the edit metadata
     val content =
         if (isEditEvent) {
-            event.content?.optJSONObject("m.new_content")
+            event.content.optJSONObject("m.new_content")
         } else {
             event.content
         }
     val format = content?.optString("format", "")
     val body =
         if (format == "org.matrix.custom.html") {
-            content?.optString("formatted_body", "") ?: ""
+            content.optString("formatted_body", "") ?: ""
         } else {
             content?.optString("body", "") ?: ""
         }
@@ -1108,7 +1108,7 @@ private fun RoomMessageContent(
                             authToken = authToken,
                             isMine = actualIsMine,
                             onReactionClick = { emoji ->
-                                appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                                appViewModel.sendReaction(event.roomId, event.eventId, emoji)
                             },
                         )
                     }
@@ -1910,7 +1910,7 @@ private fun RoomMediaMessageContent(
         ?.items
         ?.first()
         ?.takeIf { !it.hasNoDisplayableAsset }
-    val mediaMessage = singleMedia ?: singleGalleryItem?.media?.copy(caption = gallery?.caption)
+    val mediaMessage = singleMedia ?: singleGalleryItem?.media?.copy(caption = gallery.caption)
     val mosaicGallery = if (singleGalleryItem == null) gallery else null
     val hasEncryptedFile = singleGalleryItem?.isEncrypted ?: mediaContentHasEncryptedFile(content)
 
@@ -1983,7 +1983,7 @@ private fun RoomMediaMessageContent(
                         isMine = actualIsMine,
                         bubbleColor = mediaBubbleColor,
                         onReactionClick = { emoji ->
-                            appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                            appViewModel.sendReaction(event.roomId, event.eventId, emoji)
                         },
                     )
                 }
@@ -2490,7 +2490,7 @@ private fun RoomTextMessageContent(
                     bubbleColor = bubbleColor,
                     bubbleWidthPx = bubbleWidthPx,
                     onReactionClick = { emoji ->
-                        appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                        appViewModel.sendReaction(event.roomId, event.eventId, emoji)
                     },
                 )
             }
@@ -2729,7 +2729,7 @@ private fun EncryptedMessageContent(
         val format = decrypted?.optString("format", "")
         val body =
             if (format == "org.matrix.custom.html") {
-                decrypted?.optString("formatted_body", "") ?: ""
+                decrypted.optString("formatted_body", "") ?: ""
             } else {
                 decrypted?.optString("body", "") ?: ""
             }
@@ -2768,7 +2768,7 @@ private fun EncryptedMessageContent(
                                 authToken = authToken,
                                 isMine = actualIsMine,
                                 onReactionClick = { emoji ->
-                                    appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                                    appViewModel.sendReaction(event.roomId, event.eventId, emoji)
                                 },
                             )
                         }
@@ -2805,7 +2805,7 @@ private fun EncryptedMessageContent(
                 "m.replace"
         val editContent =
             if (isEdit) {
-                decrypted?.optJSONObject("m.new_content")
+                decrypted.optJSONObject("m.new_content")
             } else {
                 null
             }
@@ -2820,18 +2820,18 @@ private fun EncryptedMessageContent(
                     userProfileCache,
                 )
             } else if (editedBy != null && editedBy.decrypted != null) {
-                val newContent = editedBy.decrypted?.optJSONObject("m.new_content")
+                val newContent = editedBy.decrypted.optJSONObject("m.new_content")
                 val editFormat = newContent?.optString("format", "")
                 if (editFormat == "org.matrix.custom.html") {
-                    newContent?.optString("formatted_body", "") ?: ""
+                    newContent.optString("formatted_body", "") ?: ""
                 } else {
                     newContent?.optString("body", "") ?: ""
                 }
             } else if (editedBy != null && editedBy.content != null) {
-                val newContent = editedBy.content?.optJSONObject("m.new_content")
+                val newContent = editedBy.content.optJSONObject("m.new_content")
                 val editFormat = newContent?.optString("format", "")
                 if (editFormat == "org.matrix.custom.html") {
-                    newContent?.optString("formatted_body", "") ?: ""
+                    newContent.optString("formatted_body", "") ?: ""
                 } else {
                     newContent?.optString("body", "") ?: ""
                 }
@@ -2970,7 +2970,7 @@ private fun EncryptedMessageContent(
                 ?.items
                 ?.first()
                 ?.takeIf { !it.hasNoDisplayableAsset }
-            val mediaMessage = singleMedia ?: singleGalleryItem?.media?.copy(caption = gallery?.caption)
+            val mediaMessage = singleMedia ?: singleGalleryItem?.media?.copy(caption = gallery.caption)
             val mosaicGallery = if (singleGalleryItem == null) gallery else null
             val hasEncryptedFile = singleGalleryItem?.isEncrypted ?: mediaContentHasEncryptedFile(decrypted)
 
@@ -3062,7 +3062,7 @@ private fun EncryptedMessageContent(
                                 isMine = actualIsMine,
                                 bubbleColor = encryptedMediaBubbleColor,
                                 onReactionClick = { emoji ->
-                                    appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                                    appViewModel.sendReaction(event.roomId, event.eventId, emoji)
                                 },
                             )
                         }
@@ -3159,7 +3159,7 @@ private fun EncryptedMessageContent(
                                 isMine = actualIsMine,
                                 bubbleColor = bubbleColor,
                                 onReactionClick = { emoji ->
-                                    appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                                    appViewModel.sendReaction(event.roomId, event.eventId, emoji)
                                 },
                             )
                         }
@@ -3473,7 +3473,7 @@ private fun EncryptedMessageContent(
                             bubbleColor = bubbleColor,
                             bubbleWidthPx = encryptedTextBubbleWidthPx,
                             onReactionClick = { emoji ->
-                                appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                                appViewModel.sendReaction(event.roomId, event.eventId, emoji)
                             },
                         )
                     }
@@ -3833,7 +3833,7 @@ private fun StickerMessageContent(
                         isMine = actualIsMine,
                         bubbleColor = stickerBubbleColor,
                         onReactionClick = { emoji ->
-                            appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                            appViewModel.sendReaction(event.roomId, event.eventId, emoji)
                         },
                     )
                 }
@@ -3902,9 +3902,9 @@ fun TimelineEventItem(
         when {
             hasEncryptedPerMessageProfile -> {
                 val encryptedPerMessageDisplayName =
-                    encryptedPerMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
+                    encryptedPerMessageProfile.optString("displayname").takeIf { it.isNotBlank() }
                 val encryptedPerMessageAvatarUrl =
-                    encryptedPerMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                    encryptedPerMessageProfile.optString("avatar_url").takeIf { it.isNotBlank() }
 
                 MemberProfile(
                     displayName = encryptedPerMessageDisplayName ?: senderCachedProfile?.displayName,
@@ -3914,9 +3914,9 @@ fun TimelineEventItem(
 
             hasPerMessageProfile -> {
                 val perMessageDisplayName =
-                    perMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
+                    perMessageProfile.optString("displayname").takeIf { it.isNotBlank() }
                 val perMessageAvatarUrl =
-                    perMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                    perMessageProfile.optString("avatar_url").takeIf { it.isNotBlank() }
 
                 MemberProfile(
                     displayName = perMessageDisplayName ?: senderCachedProfile?.displayName,
@@ -3935,7 +3935,7 @@ fun TimelineEventItem(
         if (appViewModel == null || event.roomId.isBlank()) return@LaunchedEffect
         val perMsgComplete = (hasPerMessageProfile || hasEncryptedPerMessageProfile) &&
             !actualProfile?.displayName.isNullOrBlank() &&
-            !actualProfile?.avatarUrl.isNullOrBlank()
+            !actualProfile.avatarUrl.isNullOrBlank()
         if (perMsgComplete) return@LaunchedEffect
         val p = userProfileCache[event.sender]
         if (p != null &&
@@ -3963,7 +3963,7 @@ fun TimelineEventItem(
         if (hasPerMessageProfile || hasEncryptedPerMessageProfile) {
             val perMessageUserId =
                 if (hasEncryptedPerMessageProfile) {
-                    encryptedPerMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+                    encryptedPerMessageProfile.optString("id").takeIf { it.isNotBlank() }
                 } else {
                     perMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
                 }
@@ -4013,11 +4013,11 @@ fun TimelineEventItem(
                 timelineEvents.filter {
                     (
                         it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                            it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                            it.content.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                         ) ||
                         (
                             it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                                it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                                it.decrypted.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                             )
                 }.maxByOrNull { it.timestamp }
             } else {
@@ -4155,7 +4155,7 @@ fun TimelineEventItem(
     val isEmoteMessage = when {
         event.type == "m.room.message" -> {
             val isEdit = event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-            val content = if (isEdit) event.content?.optJSONObject("m.new_content") else event.content
+            val content = if (isEdit) event.content.optJSONObject("m.new_content") else event.content
             content?.optString("msgtype", "") == "m.emote"
         }
 
@@ -4480,11 +4480,11 @@ fun TimelineEventItem(
                                 // Get the fake sender's user ID from the per-message profile
                                 val fakeSenderId = when {
                                     hasEncryptedPerMessageProfile -> {
-                                        encryptedPerMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+                                        encryptedPerMessageProfile.optString("id").takeIf { it.isNotBlank() }
                                     }
 
                                     hasPerMessageProfile -> {
-                                        perMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+                                        perMessageProfile.optString("id").takeIf { it.isNotBlank() }
                                     }
 
                                     else -> null

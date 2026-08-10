@@ -551,7 +551,7 @@ class ConversationsApi(
                     }
 
                     val roomId = shortcutId
-                    val roomName = shortcut.shortLabel?.toString() ?: ""
+                    val roomName = shortcut.shortLabel.toString()
 
                     // Extract avatar URL from shortcut icon if available
                     val avatarUrl: String? = null // ShortcutInfoCompat doesn't expose avatar URL easily

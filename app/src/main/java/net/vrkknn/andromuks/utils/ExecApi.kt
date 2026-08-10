@@ -253,7 +253,7 @@ object ExecApi {
             .build()
         return try {
             client.newCall(request).execute().use { resp ->
-                val payload = resp.body?.string().orEmpty()
+                val payload = resp.body.string().orEmpty()
                 when {
                     resp.isSuccessful -> {
                         if (BuildConfig.DEBUG) Log.d(TAG, "exec $command (${auth.label}) -> ${resp.code}")

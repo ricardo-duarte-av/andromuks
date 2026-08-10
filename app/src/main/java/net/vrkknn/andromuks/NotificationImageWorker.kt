@@ -513,7 +513,7 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
         // Relabel the target message's sender as "<profile name> via <bot name>". The base name is
         // the target message's current sender name; stripping a pre-existing " via …" keeps this
         // idempotent so a worker retry (which reads its own earlier re-post) never double-wraps it.
-        val perMessageName: CharSequence? = if (hasProfileChange && perMessageProfile?.displayname != null) {
+        val perMessageName: CharSequence? = if (hasProfileChange && perMessageProfile.displayname != null) {
             val targetPerson = messages.getOrNull(targetIndex)?.person
             if (targetPerson != null && targetPerson.key == senderId) {
                 val baseName = targetPerson.name?.toString()?.substringAfterLast(" via ") ?: senderId
@@ -543,13 +543,13 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
             if (updatePerson || applyTarget || applyProfile) {
                 val newPerson = when {
                     applyProfile -> Person.Builder()
-                        .setName(perMessageName ?: person!!.name)
-                        .setKey(person!!.key)
+                        .setName(perMessageName ?: person.name)
+                        .setKey(person.key)
                         .setUri(person.uri)
                         .setIcon(profileIcon ?: senderIcon ?: person.icon)
                         .build()
 
-                    updatePerson -> rebuildPerson(person!!, senderIcon!!)
+                    updatePerson -> rebuildPerson(person, senderIcon)
 
                     else -> person
                 }

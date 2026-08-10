@@ -1006,7 +1006,7 @@ fun RoomTimelineScreen(
                         "RoomTimelineScreen: Navigation for different room $targetRoomId (current=$roomId)",
                     )
                 }
-                val notificationTimestamp = claim?.timestamp
+                val notificationTimestamp = claim.timestamp
                 // NAVIGATE FIRST. This used to await room-data readiness (up to 15 s) *before*
                 // calling navigate(), with the claim already consumed — so any disposal in that
                 // window (rotation, biometric gate, process-restore recomposition, a competing

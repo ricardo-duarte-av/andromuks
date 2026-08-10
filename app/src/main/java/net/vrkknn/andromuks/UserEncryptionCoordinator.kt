@@ -117,8 +117,8 @@ internal class UserEncryptionCoordinator(private val vm: AppViewModel) {
         return net.vrkknn.andromuks.utils.UserEncryptionInfo(
             devicesTracked = devicesTracked,
             devices = devices,
-            masterKey = jsonData.optString("master_key")?.takeIf { it.isNotBlank() },
-            firstMasterKey = jsonData.optString("first_master_key")?.takeIf { it.isNotBlank() },
+            masterKey = jsonData.optString("master_key").takeIf { it.isNotBlank() },
+            firstMasterKey = jsonData.optString("first_master_key").takeIf { it.isNotBlank() },
             userTrusted = jsonData.optBoolean("user_trusted", false),
             errors = jsonData.opt("errors"),
         )

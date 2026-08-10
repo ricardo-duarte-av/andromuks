@@ -513,7 +513,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Remove room shortcut when notifications are dismissed
      */
     fun removeRoomShortcut(roomId: String) {
-        conversationsApi?.removeRoomShortcut(roomId)
+        conversationsApi.removeRoomShortcut(roomId)
     }
 
     /**
@@ -805,7 +805,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Parse image URL parts here so the worker has both the HTTP URL and MXC cache key.
             val (deferredMxcUrl, deferredHttpUrl) = if (hasImage) {
                 when {
-                    notificationData.image!!.startsWith("mxc://") -> {
+                    notificationData.image.startsWith("mxc://") -> {
                         val mxc = notificationData.image
                         val http = net.vrkknn.andromuks.utils.MediaUtils.mxcToHttpUrl(mxc, homeserverUrl)
                         Pair(mxc, http)
@@ -872,7 +872,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 latestEventId = notificationData.eventId, // Use event_id from notification if available
             )
             // CRITICAL: Use synchronous update to ensure shortcut exists before notification is posted
-            conversationsApi?.updateShortcutForNotificationSync(roomItem)
+            conversationsApi.updateShortcutForNotificationSync(roomItem)
             if (BuildConfig.DEBUG) {
                 Log.d(
                     TAG,
@@ -884,7 +884,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Android's notification ranking system requires the shortcut to be "active"
             // Using FLAG_MATCH_DYNAMIC | FLAG_MATCH_PINNED | FLAG_MATCH_MANIFEST ensures we get it
             // Now that we've updated synchronously, the shortcut should exist
-            val shortcutInfo = conversationsApi?.let { api ->
+            val shortcutInfo = conversationsApi.let { api ->
                 try {
                     // Try to get from active shortcuts first (most reliable for ranking system)
                     val allShortcuts = ShortcutManagerCompat.getShortcuts(
@@ -1318,7 +1318,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 // AFTER the post makes the People/Conversation widget rebuild its tile from its cached
                 // previous notification, reverting the tile to the prior message (the "one behind"
                 // bug, confirmed by the post-notify pushDynamicShortcut in logcat). See onRoomActivity.
-                conversationsApi?.onRoomActivity(roomItem, pushShortcut = false)
+                conversationsApi.onRoomActivity(roomItem, pushShortcut = false)
 
                 // Home-screen room widget (docs/WIDGET.md). Deliberately alongside onRoomActivity:
                 // this is the point where a notification has definitely been posted, so the same
@@ -1358,7 +1358,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             if (willEnqueueWorker) {
                 val mimeType = if (imageDeferred) {
                     when {
-                        notificationData.image!!.contains(".jpg", ignoreCase = true) ||
+                        notificationData.image.contains(".jpg", ignoreCase = true) ||
                             notificationData.image.contains(".jpeg", ignoreCase = true) -> "image/jpeg"
 
                         notificationData.image.contains(".png", ignoreCase = true) -> "image/png"

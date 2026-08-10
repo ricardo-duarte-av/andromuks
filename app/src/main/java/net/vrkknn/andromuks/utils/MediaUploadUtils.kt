@@ -383,7 +383,7 @@ object MediaUploadUtils {
             val response = sharedUploadClient.newCall(request).execute()
             if (!response.isSuccessful) return@withContext null
 
-            val reader = BufferedReader(InputStreamReader(response.body?.byteStream() ?: return@withContext null))
+            val reader = BufferedReader(InputStreamReader(response.body.byteStream()))
             var line: String?
             var finalMxc: String? = null
 

@@ -112,7 +112,7 @@ private fun rememberMorphingStartupAvatarMaskModifier(): Modifier {
     val scaled = morphCycle * segmentCount
     val fromIndex = kotlin.math.floor(scaled).toInt().mod(segmentCount)
     val toIndex = (fromIndex + 1).mod(segmentCount)
-    val localProgress = scaled - kotlin.math.floor(scaled).toFloat()
+    val localProgress = scaled - kotlin.math.floor(scaled)
     val morph = remember(fromIndex, toIndex) { Morph(shapes[fromIndex], shapes[toIndex]) }
     val rawPath = remember(morph, localProgress) {
         morph.toPath(progress = localProgress).asComposePath()
