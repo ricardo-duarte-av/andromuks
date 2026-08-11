@@ -1618,7 +1618,10 @@ fun UserInfoScreen(
 
                 if (hasPronouns || hasTimezone) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        // The root Column has no horizontal padding — the profile banner is
+                        // full-bleed — so every content sibling carries the 16.dp gutter itself,
+                        // matching the name/status block above.
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         // Pronouns
@@ -1749,7 +1752,7 @@ fun UserInfoScreen(
                     val isEditableBio = profileBio.sourceKey == "chat.commet.profile_bio" ||
                         (profileBio.sourceKey == SPEC_BIO_SOURCE_KEY && profileBio.editSource != null)
                     Card(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.secondaryContainer,
                         ),
@@ -1886,7 +1889,7 @@ fun UserInfoScreen(
 
                 // 2x2 grid: row 1 always shown, row 2 only for own profile
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(
@@ -2013,7 +2016,7 @@ fun UserInfoScreen(
 
                     // 2x2 grid of moderation buttons
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         // First row: Kick and Ban
@@ -2109,11 +2112,11 @@ fun UserInfoScreen(
                         text = "Additional Profile Information",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 8.dp),
+                        modifier = Modifier.padding(bottom = 8.dp, start = 16.dp, end = 16.dp),
                     )
 
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         arbitraryFields.toSortedMap().forEach { (key, value) ->
