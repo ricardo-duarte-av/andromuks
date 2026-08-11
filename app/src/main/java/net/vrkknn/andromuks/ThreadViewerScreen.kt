@@ -1393,6 +1393,14 @@ fun ThreadViewerScreen(
                                     top = 8.dp,
                                     bottom = 8.dp,
                                 ),
+                                // Threads are usually shorter than the viewport, and this list is
+                                // top-anchored (no reverseLayout). Without this, a 3-reply thread
+                                // stacks at the top and leaves the whole slack between the last
+                                // reply and the typing area. Arrangement.Bottom only applies when
+                                // content is smaller than the viewport, so longer threads — which
+                                // clamp flush to the bottom anyway — are unaffected, as are the
+                                // oldest-first indices that scrollToItem/scroll restore depend on.
+                                verticalArrangement = Arrangement.Bottom,
                             ) {
                                 itemsIndexed(
                                     timelineItems,

@@ -4212,7 +4212,10 @@ fun RoomTimelineScreen(
                                             start = 8.dp,
                                             end = 0.dp,
                                             top = 8.dp,
-                                            bottom = 120.dp, // Extra padding at bottom for better scroll performance
+                                            // reverseLayout ⇒ this is the gap between the newest
+                                            // bubble and the typing area. It used to be 120.dp,
+                                            // which read as dead space no message ever occupied.
+                                            bottom = 8.dp,
                                         ),
                                         // PERFORMANCE: Enable smooth scrolling optimizations
                                         userScrollEnabled = true,
