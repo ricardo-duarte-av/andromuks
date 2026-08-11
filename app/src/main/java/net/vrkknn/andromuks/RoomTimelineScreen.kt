@@ -5439,6 +5439,12 @@ fun RoomTimelineScreen(
                                             } else {
                                                 MaterialTheme.colorScheme.onSurfaceVariant
                                             },
+                                            // The paper-plane glyph's mass sits at its tail (centroid
+                                            // ~x=9 of a 24 viewport), so geometric centring reads as
+                                            // shifted left inside the circle. Nudge 1.dp toward the
+                                            // tip; Modifier.offset is direction-aware, so this still
+                                            // holds for the auto-mirrored RTL variant.
+                                            modifier = Modifier.size(28.dp).offset(x = 1.dp),
                                         )
                                     }
                                 }
