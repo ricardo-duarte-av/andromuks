@@ -807,9 +807,14 @@ fun UserInfoScreen(
     //
     // The store answers for any room, and is snapshot-backed, so a response arriving later
     // recomposes this without a polling loop.
-    val roomPowerLevels = effectiveRoomId?.let {
-        net.vrkknn.andromuks.utils.RoomStateStore.getParsed(it)?.powerLevels
+    val roomStateForModeration = effectiveRoomId?.let {
+        net.vrkknn.andromuks.utils.RoomStateStore.getParsed(it)
     }
+    val roomPowerLevels = roomStateForModeration?.powerLevels
+    // From room version 12 a creator's power is not in m.room.power_levels at all, so the
+    // moderation buttons have to be gated on the create event too — otherwise a creator is
+    // treated as users_default and offered nothing.
+    val roomCreators = remember(roomStateForModeration) { RoomPermissions.creatorsOf(roomStateForModeration) }
 
     // Refresh regardless of what the cache had: the stored copy is always treated as possibly
     // stale. requestRoomState de-duplicates in-flight requests, so this cannot pile up.
@@ -831,16 +836,16 @@ fun UserInfoScreen(
 
     // Moderation actions. Kick and ban additionally require outranking the target; redact does not
     // — it is a flat check against the room's redact level.
-    val canKick = remember(roomPowerLevels, myUserId, userId) {
-        RoomPermissions.canKick(roomPowerLevels, myUserId, userId)
+    val canKick = remember(roomPowerLevels, roomCreators, myUserId, userId) {
+        RoomPermissions.canKick(roomPowerLevels, roomCreators, myUserId, userId)
     }
 
-    val canBan = remember(roomPowerLevels, myUserId, userId) {
-        RoomPermissions.canBan(roomPowerLevels, myUserId, userId)
+    val canBan = remember(roomPowerLevels, roomCreators, myUserId, userId) {
+        RoomPermissions.canBan(roomPowerLevels, roomCreators, myUserId, userId)
     }
 
-    val canRedact = remember(roomPowerLevels, myUserId) {
-        RoomPermissions.canRedactAsModerator(roomPowerLevels, myUserId)
+    val canRedact = remember(roomPowerLevels, roomCreators, myUserId) {
+        RoomPermissions.canRedactAsModerator(roomPowerLevels, roomCreators, myUserId)
     }
 
     // CRITICAL FIX: Always request fresh profile data from backend (never use cache)

@@ -1088,10 +1088,17 @@ fun MessageBubbleWithMenu(
     // (e.g. in e2ee rooms where room state may load asynchronously)
     val effectivePowerLevels = powerLevels ?: appViewModel?.currentRoomState?.powerLevels
 
+    // Creators (room version 12+) hold power that m.room.power_levels never states. Read them from
+    // the per-room store keyed on this event's room, not from currentRoomState — this composable
+    // also renders events from other rooms (pinned-event previews, event context).
+    val effectiveCreators = remember(event.roomId) {
+        RoomPermissions.creatorsOf(RoomStateStore.getParsed(event.roomId))
+    }
+
     // Calculate power level permissions (works for both e2ee and non-e2ee rooms)
     // Matrix: "redact" is the minimum PL to redact *others'* messages. You can always redact your own.
     // If my PL >= redact PL, we can redact anyone's messages (no comparison to sender's PL).
-    val canRedactOthersMessages = RoomPermissions.canRedactOthers(effectivePowerLevels, myUserId)
+    val canRedactOthersMessages = RoomPermissions.canRedactOthers(effectivePowerLevels, effectiveCreators, myUserId)
 
     // Determine which buttons to show (same logic for m.room.message and m.room.encrypted)
     // Own messages: always edit/delete (server allows redacting own events without redact PL).
@@ -1132,8 +1139,8 @@ fun MessageBubbleWithMenu(
     val isPinned = remember(roomId, currentRoomState?.pinnedEventIds, event.eventId) {
         currentRoomState?.pinnedEventIds?.contains(event.eventId) ?: false
     }
-    val canPin = remember(effectivePowerLevels, myUserId) {
-        RoomPermissions.canPin(effectivePowerLevels, myUserId)
+    val canPin = remember(effectivePowerLevels, effectiveCreators, myUserId) {
+        RoomPermissions.canPin(effectivePowerLevels, effectiveCreators, myUserId)
     }
     val canUnpin = canPin
 

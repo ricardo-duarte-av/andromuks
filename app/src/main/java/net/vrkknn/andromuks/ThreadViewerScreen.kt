@@ -616,10 +616,14 @@ fun ThreadViewerScreen(
     // Messages typed while the WebSocket is down are buffered and sent on reconnect,
     // so we only gate the input on send permission.
     val canSendMessage = remember(appViewModel.currentRoomState, myUserId) {
+        // currentRoomState is a single-room slot; fall back to the per-room store so the creator
+        // set and the encryption flag are both read from the same room's state.
+        val state = appViewModel.currentRoomState ?: RoomStateStore.getParsed(roomId)
         RoomPermissions.canSendMessage(
-            powerLevels = appViewModel.currentRoomState?.powerLevels,
+            powerLevels = state?.powerLevels,
+            creators = RoomPermissions.creatorsOf(state),
             userId = myUserId,
-            isEncrypted = appViewModel.currentRoomState?.isEncrypted ?: RoomStateStore.getParsed(roomId)?.isEncrypted,
+            isEncrypted = state?.isEncrypted,
         )
     }
     val isInputEnabled = canSendMessage

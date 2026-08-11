@@ -59,11 +59,24 @@ object RoomPermissions {
     }
 
     /**
-     * [userId]'s power level: their explicit entry, else the room's `users_default`, else 0 when
-     * power levels are unknown.
+     * The power level of a creator. Creators outrank every level a room can express, so this is
+     * deliberately unreachable by m.room.power_levels, which cannot hold a value above this.
+     *
+     * Only ever compared, never used in arithmetic — adding to it would overflow.
      */
-    fun powerLevelOf(powerLevels: PowerLevelsInfo?, userId: String?): Int {
-        if (powerLevels == null || userId.isNullOrBlank()) return 0
+    const val CREATOR_POWER_LEVEL = Int.MAX_VALUE
+
+    /**
+     * [userId]'s power level: [CREATOR_POWER_LEVEL] for a creator, else their explicit entry, else
+     * the room's `users_default`, else 0 when power levels are unknown.
+     *
+     * [creators] comes from [creatorsOf] and is empty below room version 12, which is what keeps
+     * this identical to the old behaviour for every existing room.
+     */
+    fun powerLevelOf(powerLevels: PowerLevelsInfo?, creators: Set<String>, userId: String?): Int {
+        if (userId.isNullOrBlank()) return 0
+        if (userId in creators) return CREATOR_POWER_LEVEL
+        if (powerLevels == null) return 0
         return powerLevels.users[userId] ?: powerLevels.usersDefault
     }
 
@@ -77,11 +90,11 @@ object RoomPermissions {
      *
      * Fails open — see the class doc.
      */
-    fun canSendMessage(powerLevels: PowerLevelsInfo?, userId: String?, isEncrypted: Boolean?): Boolean {
+    fun canSendMessage(powerLevels: PowerLevelsInfo?, creators: Set<String>, userId: String?, isEncrypted: Boolean?): Boolean {
         if (powerLevels == null || userId.isNullOrBlank()) return true
         val eventType = if (isEncrypted == true) "m.room.encrypted" else "m.room.message"
         val required = powerLevels.events[eventType] ?: powerLevels.eventsDefault
-        return powerLevelOf(powerLevels, userId) >= required
+        return powerLevelOf(powerLevels, creators, userId) >= required
     }
 
     /**
@@ -91,9 +104,9 @@ object RoomPermissions {
      * It is a flat comparison against the room's `redact` level — deliberately not a comparison
      * with the target's power level, which is a kick/ban rule, not a redaction one.
      */
-    fun canRedactOthers(powerLevels: PowerLevelsInfo?, userId: String?): Boolean {
+    fun canRedactOthers(powerLevels: PowerLevelsInfo?, creators: Set<String>, userId: String?): Boolean {
         val required = powerLevels?.redact ?: DEFAULT_POWER_LEVEL
-        return powerLevelOf(powerLevels, userId) >= required
+        return powerLevelOf(powerLevels, creators, userId) >= required
     }
 
     /**
@@ -103,11 +116,11 @@ object RoomPermissions {
      * `state_default`, not `events_default`. Getting that wrong silently compares against 0 in most
      * rooms and offers pinning to everyone.
      */
-    fun canPin(powerLevels: PowerLevelsInfo?, userId: String?): Boolean {
+    fun canPin(powerLevels: PowerLevelsInfo?, creators: Set<String>, userId: String?): Boolean {
         val required = powerLevels?.events?.get("m.room.pinned_events")
             ?: powerLevels?.stateDefault
             ?: DEFAULT_POWER_LEVEL
-        return powerLevelOf(powerLevels, userId) >= required
+        return powerLevelOf(powerLevels, creators, userId) >= required
     }
 
     /**
@@ -115,18 +128,28 @@ object RoomPermissions {
      *
      * Requires clearing the room's `kick` level *and* being strictly above the target: Matrix does
      * not let you kick a peer at your own level.
+     *
+     * Creators sit outside that arithmetic in both directions. A creator outranks every level, so
+     * they clear any threshold — including when power levels are unknown entirely, since their
+     * standing does not come from m.room.power_levels in the first place. And no one outranks a
+     * creator, so a creator can never be kicked, not even by another creator: they are equals at
+     * [CREATOR_POWER_LEVEL] and the rule is strictly-above.
      */
-    fun canKick(powerLevels: PowerLevelsInfo?, actorUserId: String?, targetUserId: String?): Boolean {
-        if (powerLevels == null) return false
-        val mine = powerLevelOf(powerLevels, actorUserId)
-        return mine >= powerLevels.kick && mine > powerLevelOf(powerLevels, targetUserId)
-    }
+    fun canKick(powerLevels: PowerLevelsInfo?, creators: Set<String>, actorUserId: String?, targetUserId: String?): Boolean =
+        canOutrank(powerLevels, creators, actorUserId, targetUserId, powerLevels?.kick)
 
     /** Whether [actorUserId] may ban [targetUserId]. Same shape as [canKick], against `ban`. */
-    fun canBan(powerLevels: PowerLevelsInfo?, actorUserId: String?, targetUserId: String?): Boolean {
-        if (powerLevels == null) return false
-        val mine = powerLevelOf(powerLevels, actorUserId)
-        return mine >= powerLevels.ban && mine > powerLevelOf(powerLevels, targetUserId)
+    fun canBan(powerLevels: PowerLevelsInfo?, creators: Set<String>, actorUserId: String?, targetUserId: String?): Boolean =
+        canOutrank(powerLevels, creators, actorUserId, targetUserId, powerLevels?.ban)
+
+    /** Shared body of [canKick] and [canBan] — they differ only in which threshold they clear. */
+    private fun canOutrank(powerLevels: PowerLevelsInfo?, creators: Set<String>, actorUserId: String?, targetUserId: String?, required: Int?): Boolean {
+        val theirs = powerLevelOf(powerLevels, creators, targetUserId)
+        if (theirs == CREATOR_POWER_LEVEL) return false
+        val mine = powerLevelOf(powerLevels, creators, actorUserId)
+        if (mine == CREATOR_POWER_LEVEL) return true
+        if (required == null) return false
+        return mine >= required && mine > theirs
     }
 
     /**
@@ -134,9 +157,12 @@ object RoomPermissions {
      *
      * Differs from [canRedactOthers] only in failing closed on unknown power levels: that screen
      * shows moderation buttons, where offering an action the server will refuse is the worse error.
+     * A creator is the exception — their power is not expressed by power levels, so not having
+     * fetched them says nothing about a creator.
      */
-    fun canRedactAsModerator(powerLevels: PowerLevelsInfo?, userId: String?): Boolean {
+    fun canRedactAsModerator(powerLevels: PowerLevelsInfo?, creators: Set<String>, userId: String?): Boolean {
+        if (userId != null && userId in creators) return true
         if (powerLevels == null) return false
-        return powerLevelOf(powerLevels, userId) >= powerLevels.redact
+        return powerLevelOf(powerLevels, creators, userId) >= powerLevels.redact
     }
 }

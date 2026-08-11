@@ -1206,7 +1206,7 @@ private fun MembersDialog(
                 // Creators outrank everyone: from room version 12 they hold power that
                 // m.room.power_levels never states, so reading `users` alone would file them
                 // under users_default and scatter them through the middle of the list.
-                { if (it.userId in creators) Int.MIN_VALUE else -(powerLevels?.users?.get(it.userId) ?: powerLevels?.usersDefault ?: 0) },
+                { -RoomPermissions.powerLevelOf(powerLevels, creators, it.userId) },
                 { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
                 { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
                 { usernameFromMatrixId(it.userId).lowercase() }, // Username

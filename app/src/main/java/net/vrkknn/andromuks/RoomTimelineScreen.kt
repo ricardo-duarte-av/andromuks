@@ -863,10 +863,14 @@ fun RoomTimelineScreen(
 
     // Permission to send messages based on power levels
     val canSendMessage = remember(currentRoomState, myUserId) {
+        // currentRoomState is a single-room slot; fall back to the per-room store so the creator
+        // set and the encryption flag are both read from the same room's state.
+        val state = currentRoomState ?: RoomStateStore.getParsed(roomId)
         RoomPermissions.canSendMessage(
-            powerLevels = currentRoomState?.powerLevels,
+            powerLevels = state?.powerLevels,
+            creators = RoomPermissions.creatorsOf(state),
             userId = myUserId,
-            isEncrypted = currentRoomState?.isEncrypted ?: RoomStateStore.getParsed(roomId)?.isEncrypted,
+            isEncrypted = state?.isEncrypted,
         )
     }
 

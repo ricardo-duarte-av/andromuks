@@ -190,7 +190,10 @@ fun SystemEventNarrator(
     // redact PL = minimum PL to redact others' messages; own messages can always be redacted.
     // If my PL >= redact PL, can redact anyone's messages (regardless of sender PL).
     val effectivePowerLevels = powerLevels ?: appViewModel?.currentRoomState?.powerLevels
-    val canRedactOthersMessages = RoomPermissions.canRedactOthers(effectivePowerLevels, myUserId)
+    // Creators (room version 12+) hold power m.room.power_levels never states — read from the
+    // per-room store keyed on this event's room rather than the single-room currentRoomState slot.
+    val effectiveCreators = remember(roomId) { RoomPermissions.creatorsOf(RoomStateStore.getParsed(roomId)) }
+    val canRedactOthersMessages = RoomPermissions.canRedactOthers(effectivePowerLevels, effectiveCreators, myUserId)
     val isMine = myUserId != null && event.sender == myUserId
     val canDelete = if (isMine) {
         true
@@ -203,8 +206,8 @@ fun SystemEventNarrator(
     val isPinned = remember(roomId, currentRoomState?.pinnedEventIds, event.eventId) {
         currentRoomState?.pinnedEventIds?.contains(event.eventId) ?: false
     }
-    val canPin = remember(effectivePowerLevels, myUserId) {
-        RoomPermissions.canPin(effectivePowerLevels, myUserId)
+    val canPin = remember(effectivePowerLevels, effectiveCreators, myUserId) {
+        RoomPermissions.canPin(effectivePowerLevels, effectiveCreators, myUserId)
     }
     val canUnpin = canPin
 

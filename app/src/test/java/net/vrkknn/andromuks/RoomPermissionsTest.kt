@@ -23,6 +23,9 @@ class RoomPermissionsTest {
     private val me = "@me:example.org"
     private val them = "@them:example.org"
 
+    /** A room with no privileged creators — every room below version 12, and most above it. */
+    private val noCreators = emptySet<String>()
+
     private fun levels(
         users: Map<String, Int> = emptyMap(),
         usersDefault: Int = 0,
@@ -50,14 +53,14 @@ class RoomPermissionsTest {
     fun `power level prefers the explicit entry, then users_default`() {
         val pl = levels(users = mapOf(me to 75), usersDefault = 10)
 
-        assertEquals(75, RoomPermissions.powerLevelOf(pl, me))
-        assertEquals(10, RoomPermissions.powerLevelOf(pl, them))
+        assertEquals(75, RoomPermissions.powerLevelOf(pl, noCreators, me))
+        assertEquals(10, RoomPermissions.powerLevelOf(pl, noCreators, them))
     }
 
     @Test
     fun `power level is zero when unknown`() {
-        assertEquals(0, RoomPermissions.powerLevelOf(null, me))
-        assertEquals(0, RoomPermissions.powerLevelOf(levels(usersDefault = 10), null))
+        assertEquals(0, RoomPermissions.powerLevelOf(null, noCreators, me))
+        assertEquals(0, RoomPermissions.powerLevelOf(levels(usersDefault = 10), noCreators, null))
     }
 
     // ------------------------------------------------------------------ canSendMessage
@@ -65,16 +68,16 @@ class RoomPermissionsTest {
     @Test
     fun `sending fails OPEN when power levels are unknown`() {
         // A slow state fetch must not lock someone out of a room they can post in.
-        assertTrue(RoomPermissions.canSendMessage(null, me, false))
-        assertTrue(RoomPermissions.canSendMessage(levels(), null, false))
+        assertTrue(RoomPermissions.canSendMessage(null, noCreators, me, false))
+        assertTrue(RoomPermissions.canSendMessage(levels(), noCreators, null, false))
     }
 
     @Test
     fun `sending is refused below the required level`() {
         val pl = levels(events = mapOf("m.room.message" to 50), usersDefault = 0)
 
-        assertFalse(RoomPermissions.canSendMessage(pl, me, false))
-        assertTrue(RoomPermissions.canSendMessage(pl.copy(users = mapOf(me to 50)), me, false))
+        assertFalse(RoomPermissions.canSendMessage(pl, noCreators, me, false))
+        assertTrue(RoomPermissions.canSendMessage(pl.copy(users = mapOf(me to 50)), noCreators, me, false))
     }
 
     @Test
@@ -86,22 +89,22 @@ class RoomPermissionsTest {
             events = mapOf("m.room.message" to 0, "m.room.encrypted" to 50),
         )
 
-        assertTrue(RoomPermissions.canSendMessage(pl, me, false))
-        assertFalse(RoomPermissions.canSendMessage(pl, me, isEncrypted = true))
+        assertTrue(RoomPermissions.canSendMessage(pl, noCreators, me, false))
+        assertFalse(RoomPermissions.canSendMessage(pl, noCreators, me, isEncrypted = true))
     }
 
     @Test
     fun `unknown encryption is treated as unencrypted`() {
         val pl = levels(users = mapOf(me to 25), events = mapOf("m.room.encrypted" to 50))
 
-        assertTrue(RoomPermissions.canSendMessage(pl, me, isEncrypted = null))
+        assertTrue(RoomPermissions.canSendMessage(pl, noCreators, me, isEncrypted = null))
     }
 
     // ------------------------------------------------------------------ canRedactOthers
 
     @Test
     fun `redacting others fails CLOSED when power levels are unknown`() {
-        assertFalse(RoomPermissions.canRedactOthers(null, me))
+        assertFalse(RoomPermissions.canRedactOthers(null, noCreators, me))
     }
 
     @Test
@@ -109,7 +112,7 @@ class RoomPermissionsTest {
         // Not against the target's power level — that is a kick/ban rule, not a redaction one.
         val pl = levels(users = mapOf(me to 50, them to 100), redact = 50)
 
-        assertTrue(RoomPermissions.canRedactOthers(pl, me))
+        assertTrue(RoomPermissions.canRedactOthers(pl, noCreators, me))
     }
 
     // ------------------------------------------------------------------ canPin
@@ -120,19 +123,19 @@ class RoomPermissionsTest {
         // comparing against it offers pinning to everybody.
         val pl = levels(usersDefault = 0, eventsDefault = 0, stateDefault = 50)
 
-        assertFalse(RoomPermissions.canPin(pl, me))
+        assertFalse(RoomPermissions.canPin(pl, noCreators, me))
     }
 
     @Test
     fun `an explicit pinned_events level wins over state_default`() {
         val pl = levels(users = mapOf(me to 25), events = mapOf("m.room.pinned_events" to 25), stateDefault = 100)
 
-        assertTrue(RoomPermissions.canPin(pl, me))
+        assertTrue(RoomPermissions.canPin(pl, noCreators, me))
     }
 
     @Test
     fun `pinning fails CLOSED when power levels are unknown`() {
-        assertFalse(RoomPermissions.canPin(null, me))
+        assertFalse(RoomPermissions.canPin(null, noCreators, me))
     }
 
     // ------------------------------------------------------------------ kick / ban
@@ -142,29 +145,29 @@ class RoomPermissionsTest {
         val pl = levels(users = mapOf(me to 50, them to 50), kick = 50)
 
         // Equal power: cleared the kick bar, but you cannot kick a peer.
-        assertFalse(RoomPermissions.canKick(pl, me, them))
-        assertTrue(RoomPermissions.canKick(pl.copy(users = mapOf(me to 51, them to 50)), me, them))
+        assertFalse(RoomPermissions.canKick(pl, noCreators, me, them))
+        assertTrue(RoomPermissions.canKick(pl.copy(users = mapOf(me to 51, them to 50)), noCreators, me, them))
     }
 
     @Test
     fun `kicking is refused below the kick level even when outranking the target`() {
         val pl = levels(users = mapOf(me to 40, them to 0), kick = 50)
 
-        assertFalse(RoomPermissions.canKick(pl, me, them))
+        assertFalse(RoomPermissions.canKick(pl, noCreators, me, them))
     }
 
     @Test
     fun `banning follows the same rule against the ban level`() {
         val pl = levels(users = mapOf(me to 50, them to 0), ban = 100)
 
-        assertFalse(RoomPermissions.canBan(pl, me, them))
-        assertTrue(RoomPermissions.canBan(pl.copy(ban = 50), me, them))
+        assertFalse(RoomPermissions.canBan(pl, noCreators, me, them))
+        assertTrue(RoomPermissions.canBan(pl.copy(ban = 50), noCreators, me, them))
     }
 
     @Test
     fun `kick and ban fail CLOSED when power levels are unknown`() {
-        assertFalse(RoomPermissions.canKick(null, me, them))
-        assertFalse(RoomPermissions.canBan(null, me, them))
+        assertFalse(RoomPermissions.canKick(null, noCreators, me, them))
+        assertFalse(RoomPermissions.canBan(null, noCreators, me, them))
     }
 
     // ------------------------------------------------------------------ moderator redact
@@ -173,8 +176,8 @@ class RoomPermissionsTest {
     fun `moderator redact fails CLOSED where the message-level check would not`() {
         // canRedactOthers(null, ...) is also false here, but the distinction matters if its
         // fallback ever changes: the moderation screen must never offer a refused action.
-        assertFalse(RoomPermissions.canRedactAsModerator(null, me))
-        assertTrue(RoomPermissions.canRedactAsModerator(levels(users = mapOf(me to 50), redact = 50), me))
+        assertFalse(RoomPermissions.canRedactAsModerator(null, noCreators, me))
+        assertTrue(RoomPermissions.canRedactAsModerator(levels(users = mapOf(me to 50), redact = 50), noCreators, me))
     }
 
     // ---------------------------------------------------------------------- creators
@@ -233,5 +236,72 @@ class RoomPermissionsTest {
     @Test
     fun `blank creator entries are dropped`() {
         assertTrue(RoomPermissions.creatorsOf(roomState(creator = "", additionalCreators = listOf(" "))).isEmpty())
+    }
+
+    // ------------------------------------------------------- creators outrank everything
+
+    /** A creator, as they actually appear: absent from `users` entirely. */
+    private val creators = setOf(me)
+
+    @Test
+    fun `a creator outranks every level the room can express`() {
+        val pl = levels(users = mapOf(them to 100), usersDefault = 0)
+
+        assertEquals(RoomPermissions.CREATOR_POWER_LEVEL, RoomPermissions.powerLevelOf(pl, creators, me))
+        assertTrue(RoomPermissions.powerLevelOf(pl, creators, me) > RoomPermissions.powerLevelOf(pl, creators, them))
+    }
+
+    @Test
+    fun `a creator may send, redact and pin regardless of the levels`() {
+        val pl = levels(
+            usersDefault = 0,
+            events = mapOf("m.room.message" to 100, "m.room.pinned_events" to 100),
+            redact = 100,
+        )
+
+        assertTrue(RoomPermissions.canSendMessage(pl, creators, me, false))
+        assertTrue(RoomPermissions.canRedactOthers(pl, creators, me))
+        assertTrue(RoomPermissions.canPin(pl, creators, me))
+        assertTrue(RoomPermissions.canRedactAsModerator(pl, creators, me))
+    }
+
+    @Test
+    fun `a creator may kick and ban someone the levels place above them`() {
+        // The creator is not in `users` at all, so without the creator rule this is 0 vs 100.
+        val pl = levels(users = mapOf(them to 100), usersDefault = 0, kick = 100, ban = 100)
+
+        assertTrue(RoomPermissions.canKick(pl, creators, me, them))
+        assertTrue(RoomPermissions.canBan(pl, creators, me, them))
+    }
+
+    @Test
+    fun `nobody may kick or ban a creator`() {
+        val pl = levels(users = mapOf(them to 100), usersDefault = 0, kick = 0, ban = 0)
+
+        // `them` is PL 100 against a creator who is not in `users` — and still cannot touch them.
+        assertFalse(RoomPermissions.canKick(pl, creators, them, me))
+        assertFalse(RoomPermissions.canBan(pl, creators, them, me))
+    }
+
+    @Test
+    fun `a creator may not kick or ban another creator`() {
+        // Equals at CREATOR_POWER_LEVEL, and the rule is strictly-above.
+        val both = setOf(me, them)
+        val pl = levels(kick = 0, ban = 0)
+
+        assertFalse(RoomPermissions.canKick(pl, both, me, them))
+        assertFalse(RoomPermissions.canBan(pl, both, me, them))
+    }
+
+    @Test
+    fun `a creator is privileged even when power levels are unknown`() {
+        // Their standing comes from m.room.create, so not having fetched m.room.power_levels
+        // says nothing about them — unlike everyone else, who still fails closed.
+        assertTrue(RoomPermissions.canKick(null, creators, me, them))
+        assertTrue(RoomPermissions.canBan(null, creators, me, them))
+        assertTrue(RoomPermissions.canRedactAsModerator(null, creators, me))
+
+        assertFalse(RoomPermissions.canKick(null, creators, them, me))
+        assertFalse(RoomPermissions.canRedactAsModerator(null, creators, them))
     }
 }

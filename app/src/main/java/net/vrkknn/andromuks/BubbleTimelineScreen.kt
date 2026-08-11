@@ -684,10 +684,14 @@ fun BubbleTimelineScreen(
 
     // Permission to send messages based on power levels
     val canSendMessage = remember(appViewModel.currentRoomState, myUserId) {
+        // currentRoomState is a single-room slot; fall back to the per-room store so the creator
+        // set and the encryption flag are both read from the same room's state.
+        val state = appViewModel.currentRoomState ?: RoomStateStore.getParsed(roomId)
         RoomPermissions.canSendMessage(
-            powerLevels = appViewModel.currentRoomState?.powerLevels,
+            powerLevels = state?.powerLevels,
+            creators = RoomPermissions.creatorsOf(state),
             userId = myUserId,
-            isEncrypted = appViewModel.currentRoomState?.isEncrypted ?: RoomStateStore.getParsed(roomId)?.isEncrypted,
+            isEncrypted = state?.isEncrypted,
         )
     }
 

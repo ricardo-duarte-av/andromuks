@@ -25,6 +25,29 @@ There used to be **two** classes named `PowerLevelsInfo` and **three** parsers f
 events["m.room.pinned_events"] ?: stateDefault ?: 50
 ```
 
+## Creators (room version 12+)
+
+From room version 12 (MSC4289) the room's **creators** hold power that `m.room.power_levels` never
+expresses. They are the sender of `m.room.create` plus everyone listed in that event's
+`additional_creators`, and they are deliberately **absent from `users`** — so reading power levels
+alone reports them at `users_default`, which is usually 0.
+
+`RoomPermissions.creatorsOf(state)` is the only place that knows the rule; every predicate takes the
+resulting `Set<String>` and `powerLevelOf` returns `CREATOR_POWER_LEVEL` (`Int.MAX_VALUE`) for a
+member of it. Consequences that fall out of that:
+
+- A creator clears every threshold — send, redact, pin, kick, ban — **including when power levels
+  are unknown**, because their standing does not come from that event at all. Everyone else still
+  fails closed there.
+- **No one can kick or ban a creator**, not even another creator: creators are equals at
+  `CREATOR_POWER_LEVEL` and the kick/ban rule is strictly-above.
+- The room-info member list sorts creators to the top and badges them `PL: ∞`, rendered from the
+  create event because their power level really is *absent* rather than zero.
+
+The gate is the **room version**, not the presence of `additional_creators`: that key carries no
+meaning in a room whose version does not define it, and must not confer standing there. A room whose
+version we cannot parse has no privileged creators.
+
 ## Unknown power levels
 
 The fallback is deliberately **not uniform**. `canSendMessage` fails **open**; every moderation
