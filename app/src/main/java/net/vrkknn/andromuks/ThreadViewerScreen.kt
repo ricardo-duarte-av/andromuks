@@ -88,6 +88,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -139,10 +140,12 @@ import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
+import net.vrkknn.andromuks.utils.estimatedMenuBarHeight
 import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
 import net.vrkknn.andromuks.utils.isBarePollCommand
 import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.navigateToUserInfo
+import net.vrkknn.andromuks.utils.rememberTimelineMenuInset
 import net.vrkknn.andromuks.utils.resolveDefaultPerMessageProfile
 import kotlin.math.min
 
@@ -660,6 +663,16 @@ fun ThreadViewerScreen(
             40.dp
         }
     }
+
+    // Both menu bars are overlays that would otherwise cover the bottom of the timeline (including
+    // the message just long-pressed). Reserve exactly their measured height at the bottom of the
+    // timeline slot while one is open; reverseLayout keeps index 0 pinned to the new bottom edge,
+    // so the last reply slides up into view and the list stays resting at the bottom.
+    var menuBarHeightPx by remember { mutableIntStateOf(0) }
+    val fallbackMenuBarHeight = estimatedMenuBarHeight()
+    val menuBarHeight = if (menuBarHeightPx > 0) with(density) { menuBarHeightPx.toDp() } else fallbackMenuBarHeight
+    val isMenuOpen = showAttachmentMenu || messageMenuConfig != null
+    val timelineMenuInset = rememberTimelineMenuInset(isMenuOpen, menuBarHeight)
 
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
@@ -1372,8 +1385,14 @@ fun ThreadViewerScreen(
                         }
 
                         // 2. Thread Timeline
-                        // clipToBounds ensures the date pill slides from behind the header rather than over it
-                        Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
+                        // clipToBounds ensures the date pill slides from behind the header rather than over it.
+                        // The bottom padding shrinks the slot by the open menu bar's height so it doesn't
+                        // cover the last reply.
+                        Box(
+                            modifier = Modifier.weight(1f).fillMaxWidth()
+                                .padding(bottom = timelineMenuInset)
+                                .clipToBounds(),
+                        ) {
                             // PERF: Memoize reversed list — .reversed() allocates a new list on every
                             // recomposition. Only recompute when timelineItems itself changes.
                             val reversedTimelineItems = remember(timelineItems) { timelineItems.reversed() }
@@ -2497,7 +2516,8 @@ fun ThreadViewerScreen(
                                         translationY = -with(
                                             density,
                                         ) { (buttonHeight + 24.dp).toPx() } + messageBarSlideOffsetPx.value
-                                    },
+                                    }
+                                    .onSizeChanged { menuBarHeightPx = it.height },
                             ) {
                                 net.vrkknn.andromuks.utils.MessageMenuBar(
                                     menuConfig = messageMenuConfig ?: retainedMessageMenuConfig,
@@ -2525,6 +2545,7 @@ fun ThreadViewerScreen(
                         onOpenPhotoCamera = { showCameraOverlay = true },
                         onOpenVideoCamera = { showVideoOverlay = true },
                         onPickLocation = { showLocationPickerOverlay = true },
+                        onHeightChange = { menuBarHeightPx = it },
                     )
 
                     net.vrkknn.andromuks.utils.InAppCameraOverlay(

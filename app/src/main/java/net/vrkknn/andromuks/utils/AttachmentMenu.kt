@@ -86,6 +86,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -123,6 +124,9 @@ enum class CameraFlashMode { OFF, AUTO, ON }
  * @param buttonHeight footer height used to offset the bar so it sits directly above it.
  * @param onDismiss invoked before any action fires (caller sets `showAttachmentMenu = false`).
  * @param onOpenPhotoCamera / onOpenVideoCamera invoked only once CAMERA permission is granted.
+ * @param onHeightChange reports the bar's measured height in px. The bar is wrapContent (its
+ *   labels wrap at large font scales), so callers that reserve timeline space for it need the real
+ *   height rather than a constant — see [rememberTimelineMenuInset].
  */
 @Composable
 fun AttachmentMenuBar(
@@ -136,6 +140,7 @@ fun AttachmentMenuBar(
     onOpenVideoCamera: () -> Unit,
     onPickLocation: () -> Unit,
     modifier: Modifier = Modifier,
+    onHeightChange: (Int) -> Unit = {},
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -201,7 +206,8 @@ fun AttachmentMenuBar(
                     .graphicsLayer {
                         // Position menu right above footer (footer height = buttonHeight + 24.dp padding)
                         translationY = -with(density) { (buttonHeight + 24.dp).toPx() } + attachmentBarSlideOffsetPx.value
-                    },
+                    }
+                    .onSizeChanged { onHeightChange(it.height) },
             ) {
                 Surface(
                     color = MaterialTheme.colorScheme.surface,

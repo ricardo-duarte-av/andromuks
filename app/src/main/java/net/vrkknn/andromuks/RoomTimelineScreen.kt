@@ -124,6 +124,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -203,11 +204,13 @@ import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
+import net.vrkknn.andromuks.utils.estimatedMenuBarHeight
 import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
 import net.vrkknn.andromuks.utils.isBarePollCommand
 import net.vrkknn.andromuks.utils.isPollSatelliteEvent
 import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.navigateToUserInfo
+import net.vrkknn.andromuks.utils.rememberTimelineMenuInset
 import net.vrkknn.andromuks.utils.resolveDefaultPerMessageProfile
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -1248,6 +1251,16 @@ fun RoomTimelineScreen(
             retainedMessageMenuConfig = messageMenuConfig
         }
     }
+
+    // Both menu bars are overlays that would otherwise cover the bottom of the timeline (including
+    // the message just long-pressed). Reserve exactly their measured height at the bottom of the
+    // timeline slot while one is open; reverseLayout keeps index 0 pinned to the new bottom edge,
+    // so the last message slides up into view and stick-to-bottom is unaffected.
+    var menuBarHeightPx by remember { mutableIntStateOf(0) }
+    val fallbackMenuBarHeight = estimatedMenuBarHeight()
+    val menuBarHeight = if (menuBarHeightPx > 0) with(density) { menuBarHeightPx.toDp() } else fallbackMenuBarHeight
+    val isMenuOpen = showAttachmentMenu || messageMenuConfig != null
+    val timelineMenuInset = rememberTimelineMenuInset(isMenuOpen, menuBarHeight)
 
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
@@ -4099,8 +4112,10 @@ fun RoomTimelineScreen(
                         // 2. Timeline (compressible, scrollable content)
                         Box(
                             modifier = Modifier.weight(1f).fillMaxWidth()
+                                // Shrink by the open menu bar's height so it doesn't cover the last message
+                                .padding(bottom = timelineMenuInset)
                                 .then(
-                                    if (showAttachmentMenu || messageMenuConfig != null) {
+                                    if (isMenuOpen) {
                                         Modifier.clickable {
                                             // Close attachment menu or message menu when tapping outside
                                             showAttachmentMenu = false
@@ -5499,9 +5514,8 @@ fun RoomTimelineScreen(
                     // Floating action button to scroll to bottom (only shown when detached)
                     // Keep this in the Box so it can overlay the content
                     if (!isAttachedToBottom) {
-                        // Push FAB up when attach menu or message menu is open
-                        val menuOpen = showAttachmentMenu || messageMenuConfig != null
-                        val fabBottomPadding = if (menuOpen) 200.dp else 90.dp // Higher when menu is open to avoid clipping
+                        // Push FAB up by the open menu bar's real (animated) height so it never clips
+                        val fabBottomPadding = 90.dp + timelineMenuInset
                         FloatingActionButton(
                             onClick = {
                                 coroutineScope.launch {
@@ -5535,8 +5549,7 @@ fun RoomTimelineScreen(
                     // effect) and this FAB does not come back for the rest of the room open — after the
                     // jump there is, by definition, nothing left unread to jump to.
                     if (isAttachedToBottom && unreadMarkerIndex >= 0 && !readMarkerDecision.consumed) {
-                        val menuOpen = showAttachmentMenu || messageMenuConfig != null
-                        val fabBottomPadding = if (menuOpen) 200.dp else 90.dp
+                        val fabBottomPadding = 90.dp + timelineMenuInset
                         FloatingActionButton(
                             onClick = {
                                 coroutineScope.launch {
@@ -5613,6 +5626,7 @@ fun RoomTimelineScreen(
                                 }
                                 .navigationBarsPadding()
                                 .imePadding()
+                                .onSizeChanged { menuBarHeightPx = it.height }
                                 .zIndex(5f), // Ensure it's above other content
                         ) {
                             net.vrkknn.andromuks.utils.MessageMenuBar(
@@ -5639,6 +5653,7 @@ fun RoomTimelineScreen(
                         onOpenPhotoCamera = { showCameraOverlay = true },
                         onOpenVideoCamera = { showVideoOverlay = true },
                         onPickLocation = { showLocationPickerOverlay = true },
+                        onHeightChange = { menuBarHeightPx = it },
                     )
 
                     // Floating emoji shortcode suggestion list
