@@ -1173,12 +1173,11 @@ fun ThreadViewerScreen(
             }
     }
 
-    // Auto-scroll to bottom on initial load
-    LaunchedEffect(timelineItems.size) {
-        if (timelineItems.isNotEmpty()) {
-            listState.scrollToItem(timelineItems.lastIndex)
-        }
-    }
+    // No auto-scroll-to-bottom effect: with reverseLayout the list starts at index 0 — the newest
+    // reply — and stays pinned there as replies arrive, so the bottom is the default resting place.
+    // The effect this replaces keyed on timelineItems.size and force-scrolled on every size change,
+    // which yanked you to the bottom whenever a reply landed while you were reading further up.
+    // Sending is still an unconditional "take me to the bottom" intent and scrolls explicitly.
 
     // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
     // This prevents loading 15,000+ profiles upfront for large rooms
@@ -1371,11 +1370,16 @@ fun ThreadViewerScreen(
                         // 2. Thread Timeline
                         // clipToBounds ensures the date pill slides from behind the header rather than over it
                         Box(modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
-                            // Standard layout (oldest first, no reverseLayout) — first visible index is oldest
-                            val oldestVisibleDateThread by remember(timelineItems) {
+                            // PERF: Memoize reversed list — .reversed() allocates a new list on every
+                            // recomposition. Only recompute when timelineItems itself changes.
+                            val reversedTimelineItems = remember(timelineItems) { timelineItems.reversed() }
+
+                            // Oldest visible item is at the highest index in the reversed list (top of screen)
+                            val oldestVisibleDateThread by remember(reversedTimelineItems) {
                                 derivedStateOf {
-                                    val idx = listState.firstVisibleItemIndex
-                                    when (val item = timelineItems.getOrNull(idx)) {
+                                    val highestIdx = listState.layoutInfo.visibleItemsInfo
+                                        .maxOfOrNull { it.index } ?: return@derivedStateOf null
+                                    when (val item = reversedTimelineItems.getOrNull(highestIdx)) {
                                         is TimelineItem.Event -> formatDate(item.event.timestamp)
                                         is TimelineItem.DateDivider -> item.date
                                         else -> null
@@ -1394,17 +1398,15 @@ fun ThreadViewerScreen(
                                     top = 8.dp,
                                     bottom = 8.dp,
                                 ),
-                                // Threads are usually shorter than the viewport, and this list is
-                                // top-anchored (no reverseLayout). Without this, a 3-reply thread
-                                // stacks at the top and leaves the whole slack between the last
-                                // reply and the typing area. Arrangement.Bottom only applies when
-                                // content is smaller than the viewport, so longer threads — which
-                                // clamp flush to the bottom anyway — are unaffected, as are the
-                                // oldest-first indices that scrollToItem/scroll restore depend on.
-                                verticalArrangement = Arrangement.Bottom,
+                                // Anchor at the bottom like RoomTimelineScreen/BubbleTimelineScreen:
+                                // index 0 is the newest reply, short threads sit against the input
+                                // instead of stacking at the top, and the anchor survives the IME
+                                // opening without any scroll bookkeeping. Indices below are indices
+                                // into reversedTimelineItems — newest-first — not timelineItems.
+                                reverseLayout = true,
                             ) {
                                 itemsIndexed(
-                                    timelineItems,
+                                    reversedTimelineItems,
                                     // Without a stable key, any list change (a new thread reply,
                                     // an edit) forces a full re-layout and drops per-item state.
                                     // The other timeline screens have keyed on stableKey for a
@@ -1430,11 +1432,17 @@ fun ThreadViewerScreen(
                                             val event = item.event
                                             val isMine = event.sender == myUserId
 
-                                            // Check if this is a consecutive message from the same sender
+                                            // Check if this is a consecutive message from the same sender.
+                                            // CRITICAL: the chronologically previous event is the *next*
+                                            // index in the reversed list, and must be read from the same
+                                            // list the LazyColumn renders. Walking timelineItems, or
+                                            // walking downwards, silently mis-groups avatars and name
+                                            // headers rather than failing — same trap RoomTimelineScreen
+                                            // documents at its reversedTimelineItems lookup.
                                             var previousEvent: TimelineEvent? = null
-                                            var prevIndex = index - 1
-                                            while (prevIndex >= 0 && previousEvent == null) {
-                                                when (val prevItem = timelineItems[prevIndex]) {
+                                            var prevIndex = index + 1
+                                            while (prevIndex <= reversedTimelineItems.lastIndex && previousEvent == null) {
+                                                when (val prevItem = reversedTimelineItems[prevIndex]) {
                                                     is TimelineItem.Event ->
                                                         previousEvent = prevItem.event
 
@@ -1444,7 +1452,7 @@ fun ThreadViewerScreen(
                                                     is TimelineItem.ReadMarker ->
                                                         break
                                                 }
-                                                prevIndex--
+                                                prevIndex++
                                             }
 
                                             val hasPerMessageProfile =
@@ -1488,7 +1496,10 @@ fun ThreadViewerScreen(
                                                     isConsecutive = isConsecutive,
                                                     appViewModel = appViewModel,
                                                     onScrollToMessage = { eventId ->
-                                                        val index = timelineItems.indexOfFirst { item ->
+                                                        // Search the reversed list so the hit is already
+                                                        // a LazyColumn index — converting from a
+                                                        // timelineItems index would need a flip here.
+                                                        val index = reversedTimelineItems.indexOfFirst { item ->
                                                             (item as? TimelineItem.Event)?.event?.eventId == eventId
                                                         }
                                                         if (index >= 0) {
@@ -1508,11 +1519,14 @@ fun ThreadViewerScreen(
                                                     },
                                                     onReply = { event ->
                                                         replyingToEvent = event
-                                                        // Scroll near the bottom to keep context like main timeline
+                                                        // Scroll near the bottom to keep context like main
+                                                        // timeline. Reversed: the bottom is index 0, so
+                                                        // "two rows short of the end" counts upwards.
                                                         coroutineScope.launch {
-                                                            val lastIndex = timelineItems.lastIndex
-                                                            if (lastIndex >= 0) {
-                                                                listState.scrollToItem(maxOf(lastIndex - 2, 0))
+                                                            if (reversedTimelineItems.isNotEmpty()) {
+                                                                listState.scrollToItem(
+                                                                    minOf(2, reversedTimelineItems.lastIndex),
+                                                                )
                                                             }
                                                         }
                                                     },
@@ -2343,6 +2357,11 @@ fun ThreadViewerScreen(
                                                 }
                                             }
 
+                                            // Sending means "put me at the bottom" — except an edit,
+                                            // which must leave you where the edited message is.
+                                            // Read before the branches null this out.
+                                            val wasEdit = editingEvent != null
+
                                             when {
                                                 editingEvent != null -> {
                                                     appViewModel.sendEdit(roomId, draft, editingEvent!!)
@@ -2376,6 +2395,15 @@ fun ThreadViewerScreen(
                                             urlPreviewController.clearAll()
                                             selectedPmpProfile = null // Armed for one message only
                                             draft = ""
+
+                                            // reverseLayout pins the bottom only while you are
+                                            // already there; if you had scrolled up to reply,
+                                            // nothing would bring you back to your own message.
+                                            if (!wasEdit) {
+                                                coroutineScope.launch {
+                                                    listState.animateScrollToItem(0)
+                                                }
+                                            }
                                         }
                                     },
                                     enabled = draft.isNotBlank() && isInputEnabled,
