@@ -135,6 +135,12 @@ data class RoomState(
     val altAliases: List<String> = emptyList(),
     /** Sender of m.room.create. */
     val creator: String? = null,
+    /**
+     * `additional_creators` from m.room.create. Defined from room version 12 (MSC4289), where
+     * creators hold power the m.room.power_levels event never mentions — see
+     * [net.vrkknn.andromuks.utils.RoomPermissions.creatorsOf].
+     */
+    val additionalCreators: List<String> = emptyList(),
     val roomVersion: String? = null,
     val historyVisibility: String? = null,
     val joinRule: String? = null,

@@ -9683,6 +9683,7 @@ class AppViewModel : ViewModel() {
         // Absorbed from the room-info screen's separate parser — see RoomState's doc.
         var altAliases: List<String> = emptyList()
         var creator: String? = null
+        var additionalCreators: List<String> = emptyList()
         var roomVersion: String? = null
         var historyVisibility: String? = null
         var joinRule: String? = null
@@ -9748,6 +9749,7 @@ class AppViewModel : ViewModel() {
                 "m.room.create" -> {
                     creator = event.optString("sender").takeIf { it.isNotBlank() }
                     roomVersion = content.optString("room_version").takeIf { it.isNotBlank() }
+                    additionalCreators = net.vrkknn.andromuks.utils.parseStringList(content, "additional_creators")
                 }
 
                 "m.room.history_visibility" -> {
@@ -9829,6 +9831,7 @@ class AppViewModel : ViewModel() {
             bridgeInfo = bridgeInfo,
             altAliases = altAliases,
             creator = creator,
+            additionalCreators = additionalCreators,
             roomVersion = roomVersion,
             historyVisibility = historyVisibility,
             joinRule = joinRule,

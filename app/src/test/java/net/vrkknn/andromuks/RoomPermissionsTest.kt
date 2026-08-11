@@ -176,4 +176,62 @@ class RoomPermissionsTest {
         assertFalse(RoomPermissions.canRedactAsModerator(null, me))
         assertTrue(RoomPermissions.canRedactAsModerator(levels(users = mapOf(me to 50), redact = 50), me))
     }
+
+    // ---------------------------------------------------------------------- creators
+
+    private fun roomState(creator: String? = null, additionalCreators: List<String> = emptyList(), roomVersion: String? = "12") = RoomState(
+        roomId = "!room:example.org",
+        name = null,
+        canonicalAlias = null,
+        topic = null,
+        avatarUrl = null,
+        creator = creator,
+        additionalCreators = additionalCreators,
+        roomVersion = roomVersion,
+    )
+
+    @Test
+    fun `creators are the create sender plus additional creators`() {
+        val creators = RoomPermissions.creatorsOf(
+            roomState(creator = me, additionalCreators = listOf(them, "@third:example.org")),
+        )
+
+        assertEquals(setOf(me, them, "@third:example.org"), creators)
+    }
+
+    @Test
+    fun `a creator repeated in additional creators appears once`() {
+        // Real rooms do this — the profile that prompted the fix lists the create sender in
+        // additional_creators as well.
+        assertEquals(setOf(me), RoomPermissions.creatorsOf(roomState(creator = me, additionalCreators = listOf(me))))
+    }
+
+    @Test
+    fun `rooms older than v12 have no privileged creators`() {
+        // Creating a room bought no standing before MSC4289, so the create event says nothing
+        // about power and additional_creators means nothing even if present.
+        listOf("11", "10", "1").forEach { version ->
+            assertTrue(
+                RoomPermissions.creatorsOf(
+                    roomState(creator = me, additionalCreators = listOf(them), roomVersion = version),
+                ).isEmpty(),
+            )
+        }
+    }
+
+    @Test
+    fun `an unknown or unparseable room version yields no creators`() {
+        assertTrue(RoomPermissions.creatorsOf(roomState(creator = me, roomVersion = null)).isEmpty())
+        assertTrue(RoomPermissions.creatorsOf(roomState(creator = me, roomVersion = "org.example.v12")).isEmpty())
+    }
+
+    @Test
+    fun `no room state means no creators`() {
+        assertTrue(RoomPermissions.creatorsOf(null).isEmpty())
+    }
+
+    @Test
+    fun `blank creator entries are dropped`() {
+        assertTrue(RoomPermissions.creatorsOf(roomState(creator = "", additionalCreators = listOf(" "))).isEmpty())
+    }
 }

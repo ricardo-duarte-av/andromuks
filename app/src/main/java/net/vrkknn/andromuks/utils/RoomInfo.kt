@@ -838,6 +838,7 @@ fun RoomInfoScreen(
         MembersDialog(
             members = roomMembers,
             powerLevels = roomState!!.powerLevels,
+            creators = RoomPermissions.creatorsOf(roomState),
             isRefreshing = isMembersRefreshing,
             memberMap = memberMap,
             memberSearchQuery = memberDialogSearchQuery,
@@ -1161,6 +1162,7 @@ private fun PinnedEventsDialog(
 private fun MembersDialog(
     members: List<RoomMember>,
     powerLevels: PowerLevelsInfo?,
+    creators: Set<String>,
     isRefreshing: Boolean,
     memberMap: Map<String, MemberProfile>,
     memberSearchQuery: String,
@@ -1172,7 +1174,7 @@ private fun MembersDialog(
     onDismiss: () -> Unit,
 ) {
     // Sort and filter members
-    val sortedAndFilteredMembers = remember(members, powerLevels, memberMap, memberSearchQuery) {
+    val sortedAndFilteredMembers = remember(members, powerLevels, creators, memberMap, memberSearchQuery) {
         // First filter by search query
         val filtered = if (memberSearchQuery.isBlank()) {
             members
@@ -1201,7 +1203,10 @@ private fun MembersDialog(
         // Sort active members: by power level (descending), then by room-specific displayname, then global displayname, then username
         val sortedActive = activeMembers.sortedWith(
             compareBy<RoomMember>(
-                { -(powerLevels?.users?.get(it.userId) ?: powerLevels?.usersDefault ?: 0) }, // Power level descending
+                // Creators outrank everyone: from room version 12 they hold power that
+                // m.room.power_levels never states, so reading `users` alone would file them
+                // under users_default and scatter them through the middle of the list.
+                { if (it.userId in creators) Int.MIN_VALUE else -(powerLevels?.users?.get(it.userId) ?: powerLevels?.usersDefault ?: 0) },
                 { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
                 { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
                 { usernameFromMatrixId(it.userId).lowercase() }, // Username
@@ -1294,6 +1299,7 @@ private fun MembersDialog(
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
                                 powerLevel = powerLevels?.users?.get(member.userId),
+                                isCreator = member.userId in creators,
                                 onUserClick = { userId ->
                                     navController.navigateToUserInfo(userId, roomId)
                                 },
@@ -1443,7 +1449,14 @@ private fun PinnedEventItemView(
  * Composable for a single room member item
  */
 @Composable
-fun RoomMemberItem(member: RoomMember, homeserverUrl: String, authToken: String, powerLevel: Int?, onUserClick: (String) -> Unit = {}) {
+fun RoomMemberItem(
+    member: RoomMember,
+    homeserverUrl: String,
+    authToken: String,
+    powerLevel: Int?,
+    isCreator: Boolean = false,
+    onUserClick: (String) -> Unit = {},
+) {
     val displayName = member.displayName ?: usernameFromMatrixId(member.userId)
     Row(
         modifier = Modifier
@@ -1505,14 +1518,16 @@ fun RoomMemberItem(member: RoomMember, homeserverUrl: String, authToken: String,
             }
         }
 
-        // Show power level badge if user has special powers
-        if (powerLevel != null && powerLevel > 0) {
+        // Show power level badge if user has special powers. A creator's power is not in
+        // m.room.power_levels at all, so it is rendered from the create event rather than from
+        // powerLevel — which for them is usually null.
+        if (isCreator || (powerLevel != null && powerLevel > 0)) {
             Surface(
                 color = MaterialTheme.colorScheme.primaryContainer,
                 shape = MaterialTheme.shapes.small,
             ) {
                 Text(
-                    text = "PL: $powerLevel",
+                    text = if (isCreator) "PL: ∞" else "PL: $powerLevel",
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )

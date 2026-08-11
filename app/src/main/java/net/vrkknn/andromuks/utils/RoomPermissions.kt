@@ -30,6 +30,35 @@ object RoomPermissions {
     private const val DEFAULT_POWER_LEVEL = 50
 
     /**
+     * First room version where m.room.create's sender and `additional_creators` hold power that
+     * m.room.power_levels never mentions (MSC4289). Below it, creating a room buys no standing
+     * beyond whatever `users` grants, so the create event tells us nothing about power.
+     */
+    private const val FIRST_CREATOR_POWER_ROOM_VERSION = 12
+
+    /**
+     * The room's creators, who outrank every explicit power level.
+     *
+     * From room version 12 the creator (the sender of m.room.create) and everyone in that event's
+     * `additional_creators` are privileged *implicitly*: they are deliberately absent from
+     * m.room.power_levels `users`, so reading power levels alone reports them at `users_default` —
+     * which is how they ended up sorted in among ordinary members.
+     *
+     * Empty for older rooms. The room version is the gate rather than the mere presence of
+     * `additional_creators`, because that key carries no meaning in a room whose version does not
+     * define it and must not be allowed to confer standing there.
+     */
+    fun creatorsOf(state: net.vrkknn.andromuks.RoomState?): Set<String> {
+        if (state == null) return emptySet()
+        val version = state.roomVersion?.toIntOrNull() ?: return emptySet()
+        if (version < FIRST_CREATOR_POWER_ROOM_VERSION) return emptySet()
+        return buildSet {
+            state.creator?.takeIf { it.isNotBlank() }?.let { add(it) }
+            state.additionalCreators.filter { it.isNotBlank() }.forEach { add(it) }
+        }
+    }
+
+    /**
      * [userId]'s power level: their explicit entry, else the room's `users_default`, else 0 when
      * power levels are unknown.
      */
