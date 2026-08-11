@@ -292,12 +292,44 @@ internal fun extractProfileBanner(arbitraryFields: Map<String, Any>): ProfileBan
 }
 
 /**
+ * Comparison key for "these two bios say the same thing".
+ *
+ * Clients that write a bio tend to write it to every field they know about, so the same text
+ * routinely arrives two or three times over — as MSC4440 HTML, as commet HTML and as sable HTML —
+ * and sometimes with one copy left as plain text because that vendor has no format field. Strip
+ * markup and collapse whitespace so all of those land on the same key. Anything still different
+ * afterwards is a real difference and keeps its own card.
+ *
+ * `&amp;` is decoded last so an escaped entity (`&amp;lt;`) does not decode twice into a tag.
+ */
+internal fun bioDedupeKey(body: String): String {
+    val text = body.replace(BIO_TAG_REGEX, " ")
+        .replace("&nbsp;", " ")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+    return text.replace(BIO_WHITESPACE_REGEX, " ").trim()
+}
+
+private val BIO_TAG_REGEX = Regex("<[^>]*>")
+
+private val BIO_WHITESPACE_REGEX = Regex("\\s+")
+
+/**
  * Extract all profile bios to display.
  *
  * [specBio] is the MSC4440 biography, already rendered to HTML by the backend — it comes first
  * when present. The remaining two are vendor fields we also understand:
  * chat.commet.profile_bio (with format detection) and moe.sable.app.bio (HTML). gomuks does
- * not aggregate these, so a user can genuinely have more than one and all are displayed.
+ * not aggregate these, so a user can genuinely have more than one and all are displayed —
+ * but only once each: duplicates of the same text are collapsed by [bioDedupeKey], keeping the
+ * first, since a profile mirrored across all three fields should read as one bio and not three.
+ *
+ * First-wins also keeps the right card editable: the order below is spec, commet, sable, and
+ * that is also descending editability — the spec bio carries an edit_source on our own profile,
+ * commet is always editable, sable never is.
  */
 internal fun extractProfileBios(arbitraryFields: Map<String, Any>, specBio: ProfileBioContent? = null): List<ProfileBio> {
     val bios = mutableListOf<ProfileBio>()
@@ -333,7 +365,7 @@ internal fun extractProfileBios(arbitraryFields: Map<String, Any>, specBio: Prof
         bios.add(ProfileBio(body = sableBio, isHtml = true, sourceKey = "moe.sable.app.bio"))
     }
 
-    return bios
+    return bios.distinctBy { bioDedupeKey(it.body) }
 }
 
 @Composable

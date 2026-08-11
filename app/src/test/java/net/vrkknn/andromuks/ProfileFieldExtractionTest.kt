@@ -2,12 +2,14 @@ package net.vrkknn.andromuks
 
 import net.vrkknn.andromuks.utils.ProfileBioContent
 import net.vrkknn.andromuks.utils.SPEC_BIO_SOURCE_KEY
+import net.vrkknn.andromuks.utils.bioDedupeKey
 import net.vrkknn.andromuks.utils.extractProfileBanner
 import net.vrkknn.andromuks.utils.extractProfileBios
 import net.vrkknn.andromuks.utils.extractProfileCall
 import net.vrkknn.andromuks.utils.extractProfileStatus
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -176,5 +178,79 @@ class ProfileFieldExtractionTest {
     @Test
     fun `no bios at all yields an empty list`() {
         assertTrue(extractProfileBios(emptyMap()).isEmpty())
+    }
+
+    // ------------------------------------------------------- duplicate bios
+
+    /**
+     * The same bio mirrored across all three fields, taken verbatim from a real profile that
+     * rendered as three cards labelled Bio, About and Bio.
+     */
+    @Test
+    fun `a bio mirrored across all three fields renders once`() {
+        val html =
+            "<p>Sometimes i feel like im simply a collection of mask.</p>\n" +
+                "<p>Hollow inside, with only emptiness behind all of these facades.</p>"
+        val bios = extractProfileBios(
+            mapOf(
+                "chat.commet.profile_bio" to JSONObject()
+                    .put("format", "org.matrix.custom.html")
+                    .put("formatted_body", html),
+                "moe.sable.app.bio" to html,
+            ),
+            ProfileBioContent(html = html, editSource = null),
+        )
+
+        assertEquals(listOf(SPEC_BIO_SOURCE_KEY), bios.map { it.sourceKey })
+    }
+
+    @Test
+    fun `a plain text copy of an html bio counts as the same bio`() {
+        val bios = extractProfileBios(
+            mapOf(
+                "chat.commet.profile_bio" to JSONObject("""{ "body": "hello there" }"""),
+                "moe.sable.app.bio" to "<p>hello there</p>",
+            ),
+        )
+
+        assertEquals(listOf("chat.commet.profile_bio"), bios.map { it.sourceKey })
+    }
+
+    @Test
+    fun `genuinely different bios are all kept`() {
+        val bios = extractProfileBios(
+            mapOf(
+                "chat.commet.profile_bio" to commetHtml,
+                "moe.sable.app.bio" to "<i>something else entirely</i>",
+            ),
+        )
+
+        assertEquals(listOf("chat.commet.profile_bio", "moe.sable.app.bio"), bios.map { it.sourceKey })
+    }
+
+    @Test
+    fun `deduping keeps the editable copy`() {
+        val bios = extractProfileBios(
+            mapOf("moe.sable.app.bio" to "<b>hello</b>"),
+            ProfileBioContent(html = "<b>hello</b>", editSource = "**hello**"),
+        )
+
+        assertEquals("**hello**", bios.single().editSource)
+    }
+
+    @Test
+    fun `dedupe key ignores markup and whitespace but not wording`() {
+        assertEquals(bioDedupeKey("<p>hello  there</p>"), bioDedupeKey("hello\nthere"))
+        assertNotEquals(bioDedupeKey("hello there"), bioDedupeKey("hello world"))
+    }
+
+    /**
+     * A bio containing the literal text `&lt;b&gt;` arrives as `&amp;lt;b&amp;gt;`. Decoding
+     * `&amp;` last means it decodes one step, to text — decoding it first would produce `<b>`
+     * and turn a user's escaped text into markup.
+     */
+    @Test
+    fun `dedupe key decodes an escaped entity only once`() {
+        assertEquals("&lt;b&gt;", bioDedupeKey("&amp;lt;b&amp;gt;"))
     }
 }
