@@ -13,7 +13,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -43,14 +42,40 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.Inflater
 
 /**
+ * Nesting depth past which a subtree is dropped rather than converted.
+ *
+ * This converter recurses, so nesting depth in an inbound frame is stack depth on a parse worker.
+ * Event `content` is arbitrary JSON authored by any user on the federation, and at the 64 KiB event
+ * cap a payload of `[[[[…]]]]` reaches tens of thousands of levels — far past what the stack holds.
+ * Real Matrix events nest under ~20 deep (an edit carrying a reply carrying formatted content), so
+ * 64 has enormous headroom over anything legitimate.
+ *
+ * Dropping the offending subtree rather than throwing is deliberate: throwing costs the whole frame
+ * (~99 rooms), and one absurd blob in one event should not cost anything beyond itself.
+ *
+ * This guards *our* recursion only. `Json.parseToJsonElement` recurses too and runs before we see
+ * the element at all, which is why the parse worker also has to survive `StackOverflowError`.
+ */
+private const val MAX_JSON_DEPTH = 64
+
+/**
  * Converts kotlinx.serialization.json.JsonElement to org.json equivalent (JSONObject or JSONArray).
  * Used so we can parse with fast kotlinx.serialization then pass org.json.JSONObject to existing ViewModel APIs.
  */
-private fun kotlinxJsonElementToOrgJson(element: JsonElement): Any? = when (element) {
-    is JsonObject -> {
+private fun kotlinxJsonElementToOrgJson(element: JsonElement, depth: Int = 0): Any? = when {
+    depth > MAX_JSON_DEPTH -> {
+        Log.w(
+            "Andromuks",
+            "NetworkUtils: dropping JSON subtree nested deeper than $MAX_JSON_DEPTH levels " +
+                "(kept the rest of the frame)",
+        )
+        null
+    }
+
+    element is JsonObject -> {
         val out = JSONObject()
         for ((k, v) in element) {
-            val converted = kotlinxJsonElementToOrgJson(v)
+            val converted = kotlinxJsonElementToOrgJson(v, depth + 1)
             if (converted != null) {
                 out.put(k, converted)
             } else {
@@ -60,10 +85,10 @@ private fun kotlinxJsonElementToOrgJson(element: JsonElement): Any? = when (elem
         out
     }
 
-    is JsonArray -> {
+    element is JsonArray -> {
         val out = JSONArray()
         for (e in element) {
-            val converted = kotlinxJsonElementToOrgJson(e)
+            val converted = kotlinxJsonElementToOrgJson(e, depth + 1)
             if (converted != null) {
                 out.put(converted)
             } else {
@@ -73,7 +98,7 @@ private fun kotlinxJsonElementToOrgJson(element: JsonElement): Any? = when (elem
         out
     }
 
-    is JsonPrimitive -> {
+    element is JsonPrimitive -> {
         // isString is the ONLY thing that distinguishes a quoted JSON string from a bare literal —
         // JsonPrimitive.content strips the quotes for both. Sniffing the text instead re-typed any
         // string that merely *looked* numeric/boolean, and one of those re-types is fatal: Kotlin's
@@ -105,7 +130,7 @@ private fun kotlinxJsonElementToOrgJson(element: JsonElement): Any? = when (elem
         }
     }
 
-    is JsonNull -> null
+    else -> null // JsonNull
 }
 
 /**
@@ -866,9 +891,23 @@ fun connectToWebsocket(
                     // would stall dispatch for the REST OF THE CONNECTION — sync dies silently
                     // while the socket still looks healthy, and the dispatcher's buffer grows
                     // unbounded holding every later message. Forward null and let it skip.
+                    // Throwable, not Exception. StackOverflowError is an Error, and both this
+                    // converter and kotlinx's parser recurse over attacker-shaped input (event
+                    // content is arbitrary JSON from anyone on the federation). Catching only
+                    // Exception let an Error escape the worker entirely — and because the worker
+                    // dies *before* resultQueue.send, that seq never arrives and the ordered
+                    // dispatcher below waits for it forever. Not a lost frame: sync dies for the
+                    // rest of the connection while the socket still looks healthy, which is the
+                    // exact failure the comment above says must never happen. It is also invisible
+                    // to the clear_state prune gate, since nothing is ever recorded as skipped.
+                    //
+                    // CancellationException must still propagate or the coroutine can't be
+                    // cancelled at teardown.
                     val json = try {
                         parseWebSocketMessageWithKotlinx(payload)
-                    } catch (e: Exception) {
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
                         Log.e("Andromuks", "NetworkUtils: Parse error (seq=$seq): ${e.message}", e)
                         null
                     }

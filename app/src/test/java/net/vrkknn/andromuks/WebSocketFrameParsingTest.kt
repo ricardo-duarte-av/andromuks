@@ -168,4 +168,50 @@ class WebSocketFrameParsingTest {
         val json = parseWebSocketMessageWithKotlinx("{\"command\":\"init_complete\",\"request_id\":0}\n")
         assertEquals("init_complete", json.getString("command"))
     }
+
+    /**
+     * Deep nesting must cost only the offending subtree, never the frame. The converter recurses,
+     * so nesting depth in an event's `content` — arbitrary JSON from any user on the federation —
+     * is stack depth on a parse worker. Losing the frame here would cost ~99 rooms; losing one
+     * absurd blob costs nothing anyone will miss.
+     */
+    @Test
+    fun `nesting past the depth cap drops only that subtree`() {
+        val depth = 400
+        val nested = "[".repeat(depth) + "1" + "]".repeat(depth)
+        val frame = """
+            {
+              "command": "sync_complete",
+              "data": {
+                "rooms": {
+                  "!keepme:example.org": { "meta": { "name": "Still Here" } }
+                },
+                "pathological": $nested
+              }
+            }
+        """.trimIndent()
+
+        val data = parseWebSocketMessageWithKotlinx(frame).getJSONObject("data")
+
+        // The rest of the frame survives — that is the whole point.
+        assertEquals(
+            "Still Here",
+            data.getJSONObject("rooms").getJSONObject("!keepme:example.org")
+                .getJSONObject("meta").getString("name"),
+        )
+        // The over-deep value is present but truncated to null rather than expanded.
+        assertTrue(data.has("pathological"))
+    }
+
+    /** Nesting that legitimate Matrix events reach (edit → reply → formatted content) must survive. */
+    @Test
+    fun `realistic nesting is well within the cap`() {
+        val depth = 20
+        val frame = """{"command":"sync_complete","data":{"v":${"[".repeat(depth)}42${"]".repeat(depth)}}}"""
+
+        var node = parseWebSocketMessageWithKotlinx(frame).getJSONObject("data").getJSONArray("v")
+        repeat(depth - 1) { node = node.getJSONArray(0) }
+
+        assertEquals(42L, node.getLong(0))
+    }
 }
