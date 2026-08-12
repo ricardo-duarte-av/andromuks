@@ -27,7 +27,7 @@ import net.vrkknn.andromuks.PowerLevelsInfo
 object RoomPermissions {
 
     /** Matrix's default for anything not otherwise specified. */
-    private const val DEFAULT_POWER_LEVEL = 50
+    private const val DEFAULT_POWER_LEVEL = 50L
 
     /**
      * First room version where m.room.create's sender and `additional_creators` hold power that
@@ -63,8 +63,26 @@ object RoomPermissions {
      * deliberately unreachable by m.room.power_levels, which cannot hold a value above this.
      *
      * Only ever compared, never used in arithmetic — adding to it would overflow.
+     *
+     * Long, because a power level is a Long: a room can legitimately express values up to the
+     * canonical-JSON ceiling of 2^53, which is far above Int.MAX_VALUE, and a creator has to stay
+     * above all of them.
      */
-    const val CREATOR_POWER_LEVEL = Int.MAX_VALUE
+    const val CREATOR_POWER_LEVEL = Long.MAX_VALUE
+
+    /**
+     * The level at or above which a power level is *meant* as "unreachable" rather than as a
+     * number, and is rendered as ∞ by [formatPowerLevel].
+     *
+     * Servers spell that intent as the top of the canonical-JSON integer range: Conduit gives a
+     * room-version-12 creator 2^53-2 and marks state events nobody may send 2^53-1. Those are
+     * genuine levels and are compared as such — only their *display* collapses, because
+     * "PL: 9007199254740990" tells a reader nothing that "PL: ∞" does not.
+     */
+    private const val INFINITE_POWER_LEVEL = (1L shl 53) - 2
+
+    /** A power level as the UI shows it: the number, or ∞ from [INFINITE_POWER_LEVEL] upwards. */
+    fun formatPowerLevel(level: Long): String = if (level >= INFINITE_POWER_LEVEL) "∞" else level.toString()
 
     /**
      * [userId]'s power level: [CREATOR_POWER_LEVEL] for a creator, else their explicit entry, else
@@ -73,10 +91,10 @@ object RoomPermissions {
      * [creators] comes from [creatorsOf] and is empty below room version 12, which is what keeps
      * this identical to the old behaviour for every existing room.
      */
-    fun powerLevelOf(powerLevels: PowerLevelsInfo?, creators: Set<String>, userId: String?): Int {
-        if (userId.isNullOrBlank()) return 0
+    fun powerLevelOf(powerLevels: PowerLevelsInfo?, creators: Set<String>, userId: String?): Long {
+        if (userId.isNullOrBlank()) return 0L
         if (userId in creators) return CREATOR_POWER_LEVEL
-        if (powerLevels == null) return 0
+        if (powerLevels == null) return 0L
         return powerLevels.users[userId] ?: powerLevels.usersDefault
     }
 
@@ -143,7 +161,7 @@ object RoomPermissions {
         canOutrank(powerLevels, creators, actorUserId, targetUserId, powerLevels?.ban)
 
     /** Shared body of [canKick] and [canBan] — they differ only in which threshold they clear. */
-    private fun canOutrank(powerLevels: PowerLevelsInfo?, creators: Set<String>, actorUserId: String?, targetUserId: String?, required: Int?): Boolean {
+    private fun canOutrank(powerLevels: PowerLevelsInfo?, creators: Set<String>, actorUserId: String?, targetUserId: String?, required: Long?): Boolean {
         val theirs = powerLevelOf(powerLevels, creators, targetUserId)
         if (theirs == CREATOR_POWER_LEVEL) return false
         val mine = powerLevelOf(powerLevels, creators, actorUserId)

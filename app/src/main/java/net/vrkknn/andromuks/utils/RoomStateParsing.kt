@@ -35,14 +35,14 @@ fun parseStringList(content: JSONObject?, key: String): List<String> {
     return out
 }
 
-/** All `key: Int` entries of a nested JSON object field, or an empty map when absent. */
-private fun parseIntMap(content: JSONObject?, key: String): Map<String, Int> {
+/** All `key: Long` entries of a nested JSON object field, or an empty map when absent. */
+private fun parseLongMap(content: JSONObject?, key: String): Map<String, Long> {
     val obj = content?.optJSONObject(key) ?: return emptyMap()
-    val out = mutableMapOf<String, Int>()
+    val out = mutableMapOf<String, Long>()
     val keys = obj.keys()
     while (keys.hasNext()) {
         val k = keys.next()
-        out[k] = obj.optInt(k, 0)
+        out[k] = obj.optLong(k, 0)
     }
     return out
 }
@@ -55,19 +55,23 @@ private fun parseIntMap(content: JSONObject?, key: String): Map<String, Int> {
  * through that path (canPin among them) was computed against 50 rather than the room's actual state
  * default. Defaults here are the spec's: `users_default` and `events_default` are 0, everything else
  * is 50.
+ *
+ * Read as **Long** throughout: these were `optInt`, which truncates rather than clamps, so a
+ * server-issued level near the canonical-JSON ceiling (Conduit gives a v12 creator
+ * `9007199254740990`) came back as -2 and inverted every comparison made against it.
  */
 fun parsePowerLevels(content: JSONObject?): net.vrkknn.andromuks.PowerLevelsInfo? {
     if (content == null) return null
     return net.vrkknn.andromuks.PowerLevelsInfo(
-        users = parseIntMap(content, "users"),
-        usersDefault = content.optInt("users_default", 0),
-        redact = content.optInt("redact", 50),
-        kick = content.optInt("kick", 50),
-        ban = content.optInt("ban", 50),
-        invite = content.optInt("invite", 50),
-        events = parseIntMap(content, "events"),
-        eventsDefault = content.optInt("events_default", 0),
-        stateDefault = content.optInt("state_default", 50),
+        users = parseLongMap(content, "users"),
+        usersDefault = content.optLong("users_default", 0),
+        redact = content.optLong("redact", 50),
+        kick = content.optLong("kick", 50),
+        ban = content.optLong("ban", 50),
+        invite = content.optLong("invite", 50),
+        events = parseLongMap(content, "events"),
+        eventsDefault = content.optLong("events_default", 0),
+        stateDefault = content.optLong("state_default", 50),
     )
 }
 

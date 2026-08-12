@@ -1453,7 +1453,7 @@ fun RoomMemberItem(
     member: RoomMember,
     homeserverUrl: String,
     authToken: String,
-    powerLevel: Int?,
+    powerLevel: Long?,
     isCreator: Boolean = false,
     onUserClick: (String) -> Unit = {},
 ) {
@@ -1527,7 +1527,8 @@ fun RoomMemberItem(
                 shape = MaterialTheme.shapes.small,
             ) {
                 Text(
-                    text = if (isCreator) "PL: ∞" else "PL: $powerLevel",
+                    // A creator has no level to format; anyone else in this branch has a non-null one.
+                    text = "PL: " + if (isCreator || powerLevel == null) "∞" else RoomPermissions.formatPowerLevel(powerLevel),
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                 )
@@ -1553,13 +1554,13 @@ fun PowerLevelsDialog(powerLevels: PowerLevelsInfo, onDismiss: () -> Unit) {
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Users Default: ${powerLevels.usersDefault}")
-                    Text("Events Default: ${powerLevels.eventsDefault}")
-                    Text("State Default: ${powerLevels.stateDefault}")
-                    Text("Ban: ${powerLevels.ban}")
-                    Text("Kick: ${powerLevels.kick}")
-                    Text("Redact: ${powerLevels.redact}")
-                    Text("Invite: ${powerLevels.invite}")
+                    Text("Users Default: ${RoomPermissions.formatPowerLevel(powerLevels.usersDefault)}")
+                    Text("Events Default: ${RoomPermissions.formatPowerLevel(powerLevels.eventsDefault)}")
+                    Text("State Default: ${RoomPermissions.formatPowerLevel(powerLevels.stateDefault)}")
+                    Text("Ban: ${RoomPermissions.formatPowerLevel(powerLevels.ban)}")
+                    Text("Kick: ${RoomPermissions.formatPowerLevel(powerLevels.kick)}")
+                    Text("Redact: ${RoomPermissions.formatPowerLevel(powerLevels.redact)}")
+                    Text("Invite: ${RoomPermissions.formatPowerLevel(powerLevels.invite)}")
 
                     if (powerLevels.users.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
@@ -1573,7 +1574,7 @@ fun PowerLevelsDialog(powerLevels: PowerLevelsInfo, onDismiss: () -> Unit) {
                 }
 
                 items(powerLevels.users.entries.toList()) { (userId, level) ->
-                    Text("$userId: $level")
+                    Text("$userId: ${RoomPermissions.formatPowerLevel(level)}")
                 }
 
                 item {
@@ -1589,7 +1590,7 @@ fun PowerLevelsDialog(powerLevels: PowerLevelsInfo, onDismiss: () -> Unit) {
                 }
 
                 items(powerLevels.events.entries.toList()) { (eventType, level) ->
-                    Text("$eventType: $level")
+                    Text("$eventType: ${RoomPermissions.formatPowerLevel(level)}")
                 }
             }
         },

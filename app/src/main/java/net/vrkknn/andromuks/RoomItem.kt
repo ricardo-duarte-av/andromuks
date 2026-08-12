@@ -155,18 +155,25 @@ data class RoomState(
 @Immutable
 data class ServerAclInfo(val allow: List<String>, val deny: List<String>, val allowIpLiterals: Boolean)
 
-/** Power levels information for a room */
+/**
+ * Power levels information for a room.
+ *
+ * Every level is a **Long**, not an Int. Matrix bounds power levels only by the JSON canonical
+ * integer range (±2^53), and servers do use the top of it: Conduit hands a room-version-12 creator
+ * `9007199254740990` in `users`. Parsing that as an Int truncates it to -2 — the creator came out
+ * ranked *below* everyone.
+ */
 @Immutable
 data class PowerLevelsInfo(
-    val users: Map<String, Int>,
-    val usersDefault: Int,
-    val redact: Int,
-    val kick: Int = 50, // Default kick power level
-    val ban: Int = 50, // Default ban power level
-    val invite: Int = 50, // Default invite power level (used to accept knocks)
-    val events: Map<String, Int> = emptyMap(),
-    val eventsDefault: Int = 0,
-    val stateDefault: Int = 50, // Per Matrix spec: default PL for state events not in events map
+    val users: Map<String, Long>,
+    val usersDefault: Long,
+    val redact: Long,
+    val kick: Long = 50, // Default kick power level
+    val ban: Long = 50, // Default ban power level
+    val invite: Long = 50, // Default invite power level (used to accept knocks)
+    val events: Map<String, Long> = emptyMap(),
+    val eventsDefault: Long = 0,
+    val stateDefault: Long = 50, // Per Matrix spec: default PL for state events not in events map
 )
 
 @Immutable

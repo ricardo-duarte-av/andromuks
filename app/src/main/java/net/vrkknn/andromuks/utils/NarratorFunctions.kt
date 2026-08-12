@@ -2434,7 +2434,7 @@ private fun PowerLevelsEventNarrator(
     val addedUsers = currentUserIds - previousUserIds
     val removedUsers = previousUserIds - currentUserIds
     val changedUsers = currentUserIds.intersect(previousUserIds).filter { userId ->
-        currentUsers.optInt(userId, -1) != previousUsers.optInt(userId, -1)
+        currentUsers.optLong(userId, -1) != previousUsers.optLong(userId, -1)
     }
 
     val roomPowerLevelKeys = setOf(
@@ -2457,16 +2457,16 @@ private fun PowerLevelsEventNarrator(
     val changedRoomSettings = mutableListOf<String>()
 
     for (key in roomPowerLevelKeys) {
-        val currentValue = content?.optInt(key, -1)
-        val previousValue = prevContent?.optInt(key, -1)
-        if (currentValue != previousValue && (currentValue != -1 || previousValue != -1)) {
+        val currentValue = content?.optLong(key, -1)
+        val previousValue = prevContent?.optLong(key, -1)
+        if (currentValue != previousValue && (currentValue != -1L || previousValue != -1L)) {
             changedRoomSettings.add(key)
         }
     }
 
     val changedEventKeys = (currentEventKeys + previousEventKeys).filter { eventKey ->
-        val currentValue = currentEvents.optInt(eventKey, -1)
-        val previousValue = previousEvents.optInt(eventKey, -1)
+        val currentValue = currentEvents.optLong(eventKey, -1)
+        val previousValue = previousEvents.optLong(eventKey, -1)
         currentValue != previousValue
     }
 
@@ -2555,7 +2555,7 @@ private fun PowerLevelsUserChangesNarrator(
     when {
         changedUsers.size == 1 && addedUsers.isEmpty() && removedUsers.isEmpty() -> {
             val userId = changedUsers.first()
-            val newLevel = currentUsers.optInt(userId)
+            val newLevel = currentUsers.optLong(userId)
 
             if (appViewModel != null) {
                 appViewModel.requestUserProfile(userId, roomId)
@@ -2570,7 +2570,7 @@ private fun PowerLevelsUserChangesNarrator(
                         appendClickableUser(senderId, senderDisplayName, userMentionColor)
                         append(" set user ")
                         appendClickableUser(userId, userDisplayName, userMentionColor)
-                        append(" power level to $newLevel")
+                        append(" power level to ${RoomPermissions.formatPowerLevel(newLevel)}")
                     }
                 }
 
@@ -2602,7 +2602,7 @@ private fun PowerLevelsUserChangesNarrator(
 
         addedUsers.size == 1 && removedUsers.isEmpty() && changedUsers.isEmpty() -> {
             val userId = addedUsers.first()
-            val newLevel = currentUsers.optInt(userId)
+            val newLevel = currentUsers.optLong(userId)
 
             if (appViewModel != null) {
                 appViewModel.requestUserProfile(userId, roomId)
@@ -2617,7 +2617,7 @@ private fun PowerLevelsUserChangesNarrator(
                         appendClickableUser(senderId, senderDisplayName, userMentionColor)
                         append(" set user ")
                         appendClickableUser(userId, userDisplayName, userMentionColor)
-                        append(" power level to $newLevel")
+                        append(" power level to ${RoomPermissions.formatPowerLevel(newLevel)}")
                     }
                 }
 
@@ -2652,7 +2652,7 @@ private fun PowerLevelsRoomChangesNarrator(
     when {
         changedEventKeys.size == 1 && changedRoomSettings.isEmpty() -> {
             val eventKey = changedEventKeys.first()
-            val newLevel = currentEvents.optInt(eventKey)
+            val newLevel = currentEvents.optLong(eventKey)
 
             val annotatedText = remember(senderId, senderDisplayName, eventKey, newLevel, userMentionColor) {
                 buildAnnotatedString {
@@ -2661,7 +2661,7 @@ private fun PowerLevelsRoomChangesNarrator(
                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                         append(eventKey)
                     }
-                    append(" powerlevel to $newLevel")
+                    append(" powerlevel to ${RoomPermissions.formatPowerLevel(newLevel)}")
                 }
             }
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
@@ -2669,7 +2669,7 @@ private fun PowerLevelsRoomChangesNarrator(
 
         changedRoomSettings.size == 1 && changedEventKeys.isEmpty() -> {
             val settingKey = changedRoomSettings.first()
-            val newLevel = content?.optInt(settingKey) ?: 0
+            val newLevel = content?.optLong(settingKey) ?: 0L
 
             val annotatedText = remember(senderId, senderDisplayName, settingKey, newLevel, userMentionColor) {
                 buildAnnotatedString {
@@ -2678,7 +2678,7 @@ private fun PowerLevelsRoomChangesNarrator(
                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                         append(settingKey)
                     }
-                    append(" powerlevel to $newLevel")
+                    append(" powerlevel to ${RoomPermissions.formatPowerLevel(newLevel)}")
                 }
             }
             ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
