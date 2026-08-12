@@ -3,6 +3,7 @@ package net.vrkknn.andromuks
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.utils.MSC4391_COMMAND_KEY
 import net.vrkknn.andromuks.utils.POLL_END_STABLE
 import net.vrkknn.andromuks.utils.POLL_END_UNSTABLE
 import net.vrkknn.andromuks.utils.POLL_RESPONSE_STABLE
@@ -18,6 +19,7 @@ import net.vrkknn.andromuks.utils.parsePollEnd
 import net.vrkknn.andromuks.utils.parsePollResponse
 import net.vrkknn.andromuks.utils.parsePollStart
 import net.vrkknn.andromuks.utils.pollEventType
+import net.vrkknn.andromuks.utils.quoteCommandArg
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -35,9 +37,6 @@ import org.json.JSONObject
 internal class PollCoordinator(private val vm: AppViewModel) {
 
     companion object {
-        /** MSC4391 command envelope key, unstable prefix — what gomuks and webmuks exchange today. */
-        const val MSC4391_COMMAND_KEY = "org.matrix.msc4391.command"
-
         /**
          * gomuks' internal local-bot address. Deliberately not a full MXID (no domain part) — this
          * is the literal value webmuks sends, and gomuks matches on it.
@@ -55,6 +54,10 @@ internal class PollCoordinator(private val vm: AppViewModel) {
      * omitted entirely), but we generate a faithful one anyway: every option is quoted, so unlike
      * webmuks' own example — where unquoted `Fourth Option` reads back as two separate options — this
      * round-trips through a shell-style parser without changing meaning.
+     *
+     * The quoting now comes from the shared [quoteCommandArg], which is a port of mautrix-go's
+     * `cmdschema.quoteString` and therefore also quotes the `<`/`>` array delimiters. Polls have no
+     * array arguments, so this only ever quotes *more* than before — never less.
      */
     private fun pollCommandFallbackBody(question: String, options: List<String>, maxSelections: Int): String = buildString {
         append("/poll")
@@ -67,17 +70,6 @@ internal class PollCoordinator(private val vm: AppViewModel) {
             append(' ')
             append(quoteCommandArg(it))
         }
-    }
-
-    /**
-     * Quotes only when needed — the fallback syntax splits on whitespace, so a bare word must stay
-     * bare to match what webmuks produces, while anything containing a space or quote has to be
-     * wrapped or it would read back as several arguments.
-     */
-    private fun quoteCommandArg(value: String): String = if (value.none { it.isWhitespace() || it == '"' || it == '\\' }) {
-        value
-    } else {
-        "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
     }
 
     /**
