@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -22,7 +23,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import net.vrkknn.andromuks.ui.components.AvatarImage
 
 /**
  * Command definition for autocomplete suggestions
@@ -169,14 +172,34 @@ object Commands {
 
 /**
  * Floating suggestion list for `/command` autocomplete.
+ *
+ * Shows this client's built-in commands first, then any MSC4391 commands the room's bots advertise,
+ * separated by a divider. Built-ins come first and shadow colliding bot commands (the filtering
+ * happens in [resolveBotCommands]) — the MSC requires that precedence so a bot cannot hijack, say,
+ * `/myroomnick`. Bot rows always carry the advertising bot's avatar and MXID, not only when there is
+ * a conflict, so it is always visible that the command leaves this client.
+ *
+ * [botCommands] and its callback default to empty so existing call sites are unaffected.
  */
 @Composable
-fun CommandSuggestionList(query: String, onCommandSelected: (CommandDefinition) -> Unit, modifier: Modifier = Modifier) {
+fun CommandSuggestionList(
+    query: String,
+    onCommandSelected: (CommandDefinition) -> Unit,
+    modifier: Modifier = Modifier,
+    botCommands: List<BotCommand> = emptyList(),
+    onBotCommandSelected: (BotCommand) -> Unit = {},
+    botProfileFor: (String) -> Pair<String?, String?> = { null to null },
+    homeserverUrl: String = "",
+    authToken: String = "",
+) {
     val suggestions = remember(query) {
         Commands.getSuggestions(query)
     }
+    val botSuggestions = remember(query, botCommands) {
+        botCommandSuggestions(botCommands, query)
+    }
 
-    if (suggestions.isEmpty()) return
+    if (suggestions.isEmpty() && botSuggestions.isEmpty()) return
 
     Surface(
         modifier = modifier
@@ -225,6 +248,86 @@ fun CommandSuggestionList(query: String, onCommandSelected: (CommandDefinition) 
                     }
                 }
             }
+
+            if (suggestions.isNotEmpty() && botSuggestions.isNotEmpty()) {
+                item {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                    )
+                }
+            }
+
+            items(botSuggestions, key = { it.stateKey }) { command ->
+                val (avatarUrl, displayName) = botProfileFor(command.sender)
+                BotCommandSuggestionRow(
+                    command = command,
+                    botAvatarUrl = avatarUrl,
+                    botDisplayName = displayName,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    onClick = { onBotCommandSelected(command) },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * One bot-advertised command in the suggestion list.
+ *
+ * The description and signature come from an arbitrary room member, so both are clamped to a single
+ * line and rendered as plain text — never as HTML.
+ */
+@Composable
+private fun BotCommandSuggestionRow(
+    command: BotCommand,
+    botAvatarUrl: String?,
+    botDisplayName: String?,
+    homeserverUrl: String,
+    authToken: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        AvatarImage(
+            mxcUrl = botAvatarUrl,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = (botDisplayName ?: command.sender).take(1),
+            size = 24.dp,
+            userId = command.sender,
+            displayName = botDisplayName,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "/${command.command}",
+                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.primary,
+            )
+            if (command.parameters.isNotEmpty()) {
+                Text(
+                    text = command.displaySignature,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = command.description.ifBlank { botDisplayName ?: command.sender },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }

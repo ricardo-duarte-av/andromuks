@@ -117,7 +117,9 @@ import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.CodeViewer
+import net.vrkknn.andromuks.utils.BotCommandSendOutcome
 import net.vrkknn.andromuks.utils.CommandSuggestionList
+import net.vrkknn.andromuks.utils.ComposerBotCommandOverlays
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
@@ -142,7 +144,9 @@ import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
 import net.vrkknn.andromuks.utils.estimatedMenuBarHeight
 import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
+import net.vrkknn.andromuks.utils.detectCommandQuery
 import net.vrkknn.andromuks.utils.isBarePollCommand
+import net.vrkknn.andromuks.utils.rememberComposerCommandState
 import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.rememberTimelineMenuInset
@@ -586,6 +590,10 @@ fun ThreadViewerScreen(
     var commandQuery by remember { mutableStateOf("") }
     var commandStartIndex by remember { mutableIntStateOf(-1) }
 
+    // MSC4391 in-room bot commands: the room's advertised commands, the invocation being typed, and
+    // the argument sheet. See docs/BOT_COMMANDS.md.
+    val composerCommands = rememberComposerCommandState(appViewModel, roomId)
+
     // Per-message profile picker state
     var showPmpProfilePicker by remember { mutableStateOf(false) }
 
@@ -975,61 +983,6 @@ fun ThreadViewerScreen(
         return null
     }
 
-    // Command detection function (for '/' based autocomplete)
-    fun detectCommand(text: String, cursorPosition: Int): Pair<String, Int>? {
-        if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
-
-        // Look for '/' at or before cursor position
-        var slashIndex = -1
-        for (i in (cursorPosition - 1) downTo 0) {
-            if (i < text.length && text[i] == '/') {
-                slashIndex = i
-                break
-            }
-            // Stop if we hit a space or newline before finding /
-            if (i < text.length && (text[i] == ' ' || text[i] == '\n')) {
-                break
-            }
-        }
-
-        // Also check if cursor is right after / (similar to mention detection)
-        if (slashIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
-            if (text[cursorPosition - 1] == '/') {
-                // Check if / is at beginning or preceded by space/newline
-                if (cursorPosition == 1 ||
-                    (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))
-                ) {
-                    slashIndex = cursorPosition - 1
-                }
-            }
-        }
-
-        if (slashIndex == -1) return null
-
-        // Extract the query after / (only the command name, up to first space/newline or cursor)
-        val queryStart = slashIndex + 1
-        var queryEnd = cursorPosition
-
-        // Find the first space or newline after / and before/at cursor position
-        for (i in queryStart until min(cursorPosition, text.length)) {
-            if (text[i] == ' ' || text[i] == '\n') {
-                queryEnd = i
-                break
-            }
-        }
-
-        // Allow showing command list even if we just typed / (empty query)
-        if (queryStart <= cursorPosition) {
-            val query = if (queryStart < min(queryEnd, text.length)) {
-                text.substring(queryStart, min(queryEnd, text.length)).trim()
-            } else {
-                "" // Empty query when just / is typed
-            }
-            return Pair(query, slashIndex)
-        }
-
-        return null
-    }
 
     // Handle backspace deletion of custom emoji markdown
     fun handleCustomEmojiDeletion(oldValue: TextFieldValue, newValue: TextFieldValue): TextFieldValue {
@@ -2058,10 +2011,17 @@ fun ThreadViewerScreen(
                                                 textFieldValue = replacedValue
                                                 draft = replacedValue.text
 
-                                                // Detect commands first ( /command ) - check before everything else
-                                                val commandResult = detectCommand(
+                                                // MSC4391: keep the bot-command invocation (and the signature strip)
+                                                // in step with the draft before deciding what to suggest.
+                                                composerCommands.onDraftChanged(
                                                     replacedValue.text,
                                                     replacedValue.selection.start,
+                                                )
+                                                // Detect commands first ( /command ) - check before everything else
+                                                val commandResult = detectCommandQuery(
+                                                    replacedValue.text,
+                                                    replacedValue.selection.start,
+                                                    composerCommands.multiWordPrefixes,
                                                 )
                                                 // Detect /pmp picker: draft is exactly "/pmp" or "/profile", nothing after
                                                 showPmpProfilePicker = isBarePerMessageProfileCommand(replacedValue.text)
@@ -2237,7 +2197,21 @@ fun ThreadViewerScreen(
                                                             draft = ""
                                                             textFieldValue = TextFieldValue("")
                                                             return@KeyboardActions
-                                                        } else if (draft.trim().startsWith("/")) {
+                                                        }
+                                                        // MSC4391 bot commands. Deliberately after executeCommand above: the MSC requires this
+                                                        // client's built-in commands to take precedence over anything a bot advertises.
+                                                        when (composerCommands.consumeSend(draft, threadRootEventId, replyingToEvent?.eventId)) {
+                                                            BotCommandSendOutcome.SENT -> {
+                                                                draft = ""
+                                                                textFieldValue = TextFieldValue("")
+                                                                replyingToEvent = null
+                                                                return@KeyboardActions
+                                                            }
+                                                            // The argument sheet is now open; the draft stays put until it is submitted.
+                                                            BotCommandSendOutcome.OPENED_SHEET -> return@KeyboardActions
+                                                            BotCommandSendOutcome.NOT_A_BOT_COMMAND -> Unit
+                                                        }
+                                                        if (draft.trim().startsWith("/")) {
                                                             // Check if it's an avatar command that needs image picker
                                                             val command = draft.trim().lowercase()
                                                             when {
@@ -2338,7 +2312,21 @@ fun ThreadViewerScreen(
                                                 draft = ""
                                                 textFieldValue = TextFieldValue("")
                                                 return@Button
-                                            } else if (draft.trim().startsWith("/")) {
+                                            }
+                                            // MSC4391 bot commands. Deliberately after executeCommand above: the MSC requires this
+                                            // client's built-in commands to take precedence over anything a bot advertises.
+                                            when (composerCommands.consumeSend(draft, threadRootEventId, replyingToEvent?.eventId)) {
+                                                BotCommandSendOutcome.SENT -> {
+                                                    draft = ""
+                                                    textFieldValue = TextFieldValue("")
+                                                    replyingToEvent = null
+                                                    return@Button
+                                                }
+                                                // The argument sheet is now open; the draft stays put until it is submitted.
+                                                BotCommandSendOutcome.OPENED_SHEET -> return@Button
+                                                BotCommandSendOutcome.NOT_A_BOT_COMMAND -> Unit
+                                            }
+                                            if (draft.trim().startsWith("/")) {
                                                 // Check if it's an avatar command that needs image picker
                                                 val command = draft.trim().lowercase()
                                                 when {
@@ -2694,6 +2682,20 @@ fun ThreadViewerScreen(
                     }
 
                     // Floating room suggestion list for room mentions
+                    // MSC4391: the signature strip for the command being typed, or its argument
+                    // sheet once one is open. Anchored like the other composer overlays.
+                    ComposerBotCommandOverlays(
+                        state = composerCommands,
+                        appViewModel = appViewModel,
+                        threadRootEventId = threadRootEventId,
+                        replyToEventId = replyingToEvent?.eventId,
+                        onSent = {
+                            draft = ""
+                            textFieldValue = TextFieldValue("")
+                            replyingToEvent = null
+                        },
+                    )
+
                     // Floating command suggestion list
                     if (showCommandSuggestionList) {
                         Box(
@@ -2730,6 +2732,17 @@ fun ThreadViewerScreen(
                                     commandQuery = ""
                                 },
                                 modifier = Modifier.zIndex(10f),
+                                // MSC4391: the room's bot commands, below the built-ins that shadow them.
+                                botCommands = composerCommands.botCommands,
+                                onBotCommandSelected = { botCommand ->
+                                    textFieldValue = composerCommands.onBotCommandSelected(botCommand)
+                                    draft = textFieldValue.text
+                                    showCommandSuggestionList = false
+                                    commandQuery = ""
+                                },
+                                botProfileFor = { sender -> composerCommands.botProfile(sender) },
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = appViewModel.authToken,
                             )
                         }
                     }
