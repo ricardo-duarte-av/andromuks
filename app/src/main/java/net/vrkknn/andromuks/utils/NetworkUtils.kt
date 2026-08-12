@@ -74,12 +74,34 @@ private fun kotlinxJsonElementToOrgJson(element: JsonElement): Any? = when (elem
     }
 
     is JsonPrimitive -> {
-        val content = element.content
-        when {
-            content == "true" -> true
-            content == "false" -> false
-            content == "null" -> null
-            else -> content.toLongOrNull() ?: content.toDoubleOrNull() ?: content
+        // isString is the ONLY thing that distinguishes a quoted JSON string from a bare literal —
+        // JsonPrimitive.content strips the quotes for both. Sniffing the text instead re-typed any
+        // string that merely *looked* numeric/boolean, and one of those re-types is fatal: Kotlin's
+        // toDoubleOrNull accepts the Java Double.valueOf grammar, so the displayname "NaN" became
+        // Double.NaN, and org.json's put() rejects NaN/Infinity outright (JSON.checkDouble). That
+        // JSONException propagates out of the whole conversion, so ONE member event with a
+        // "NaN"/"Infinity" displayname made the entire ~350 KB sync_complete frame unparseable —
+        // the ordered dispatcher then skipped it and the ~99 rooms it carried never existed, after
+        // which the clear_state diff-prune deleted them from the cache for not appearing in the
+        // batch. Observed live on a 670-room account (frame 6 of 9, one @user whose prev
+        // displayname was literally "NaN").
+        if (element.isString) {
+            element.content
+        } else {
+            val content = element.content
+            when (content) {
+                "true" -> true
+
+                "false" -> false
+
+                "null" -> null
+
+                // A bare JSON number can still overflow to Infinity (e.g. 1e999), which put()
+                // rejects the same way. Keep such a value as its raw text rather than throwing.
+                else -> content.toLongOrNull()
+                    ?: content.toDoubleOrNull()?.takeIf { it.isFinite() }
+                    ?: content
+            }
         }
     }
 
@@ -89,7 +111,7 @@ private fun kotlinxJsonElementToOrgJson(element: JsonElement): Any? = when (elem
 /**
  * Parses JSON string with kotlinx.serialization (fast) and converts to org.json.JSONObject for existing APIs.
  */
-private fun parseWebSocketMessageWithKotlinx(payload: String): JSONObject {
+internal fun parseWebSocketMessageWithKotlinx(payload: String): JSONObject {
     val element = Json.parseToJsonElement(payload)
     val obj = element.jsonObject
     @Suppress("UNCHECKED_CAST")
