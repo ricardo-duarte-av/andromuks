@@ -18,6 +18,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.ErrorReportingCoordinator
 import net.vrkknn.andromuks.IncomingWebSocketHint
 import net.vrkknn.andromuks.PerformanceMonitoringCoordinator
 import net.vrkknn.andromuks.ReconnectTrigger
@@ -935,7 +936,30 @@ fun connectToWebsocket(
                     nextExpected++
                     // null = that seq failed to parse; skip it but keep the sequence moving.
                     if (toDispatch != null) {
-                        dispatchParsedWebSocketMessage(toDispatch)
+                        // Same invariant as the parse stage, one stage later: this coroutine is
+                        // the connection's ONLY dispatcher, and the catch below covers just
+                        // ClosedReceiveChannelException — so anything else thrown here ends the
+                        // for-loop and every later message stalls forever. Dispatch is mostly
+                        // opt*() reads and async launches, but it is not provably total (it calls
+                        // JSONObject.toString(), which returns null on internal failure rather
+                        // than throwing, and NPEs at the Kotlin non-null boundary). One message
+                        // must never be able to end the connection's sync.
+                        //
+                        // Reported, not swallowed: a throw here is a real bug, and losing it
+                        // silently would trade a loud stall for a quiet one.
+                        try {
+                            dispatchParsedWebSocketMessage(toDispatch)
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Throwable) {
+                            Log.e(
+                                "Andromuks",
+                                "NetworkUtils: dispatch failed for seq=$skipped " +
+                                    "(command=${toDispatch.optString("command")}) — dispatcher continues",
+                                e,
+                            )
+                            ErrorReportingCoordinator.report(e, "WebSocket dispatch failed")
+                        }
                     } else {
                         // Recorded before logging so the count is already visible to anything the
                         // log races with. This also disarms the clear_state diff-prune for the rest
