@@ -66,9 +66,9 @@ fun PermissionsScreen(onPermissionsGranted: () -> Unit, modifier: Modifier = Mod
 
         if (BuildConfig.DEBUG) {
             Log.d(
-            "PermissionsScreen",
-            "Initial permission check - notifications: $notificationPermissionGranted, battery: $batteryOptimizationDisabled",
-        )
+                "PermissionsScreen",
+                "Initial permission check - notifications: $notificationPermissionGranted, battery: $batteryOptimizationDisabled",
+            )
         }
 
         // If notification permission is granted, proceed immediately (battery exemption is optional)

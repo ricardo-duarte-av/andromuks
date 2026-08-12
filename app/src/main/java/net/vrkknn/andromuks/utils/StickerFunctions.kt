@@ -157,9 +157,9 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
 
     if (BuildConfig.DEBUG) {
         Log.d(
-        "Andromuks",
-        "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x$finalHeight, mimeType=$mimeType, size=$size, hasEncryptedFile=$hasEncryptedFile",
-    )
+            "Andromuks",
+            "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x$finalHeight, mimeType=$mimeType, size=$size, hasEncryptedFile=$hasEncryptedFile",
+        )
     }
     return StickerMessage(url, body, finalWidth, finalHeight, hasEncryptedFile, mimeType, size)
 }

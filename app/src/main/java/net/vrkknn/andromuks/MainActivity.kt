@@ -406,9 +406,9 @@ class MainActivity : FragmentActivity() {
 
                             if (BuildConfig.DEBUG) {
                                 Log.d(
-                                "Andromuks",
-                                "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri",
-                            )
+                                    "Andromuks",
+                                    "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri",
+                                )
                             }
 
                             // Extract userId from matrix:u/ URI if present
@@ -991,9 +991,9 @@ class MainActivity : FragmentActivity() {
 
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'",
-                        )
+                                "Andromuks",
+                                "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'",
+                            )
                         }
 
                         if (roomId != null && replyText != null) {
@@ -1250,9 +1250,9 @@ class MainActivity : FragmentActivity() {
 
         if (BuildConfig.DEBUG) {
             Log.d(
-            "Andromuks",
-            "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri",
-        )
+                "Andromuks",
+                "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri",
+            )
         }
 
         val candidateRoomId = if (directNavigation && roomId != null) {

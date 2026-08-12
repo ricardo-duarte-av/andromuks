@@ -94,9 +94,9 @@ class WebSocketHealthCheckWorker(context: Context, params: WorkerParameters) : C
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected, isReconnectingOrConnecting=$isReconnectingOrConnecting, state=$connectionState",
-            )
+                    TAG,
+                    "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected, isReconnectingOrConnecting=$isReconnectingOrConnecting, state=$connectionState",
+                )
             }
 
             if (!isServiceRunning) {

@@ -1238,9 +1238,9 @@ object RoomTimelineCache {
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Room $roomId cache after merge: $cacheAfter events (added $added, was $cacheBefore). OldestRowId: $oldestRowIdBefore -> $oldestRowIdAfter",
-            )
+                    TAG,
+                    "Room $roomId cache after merge: $cacheAfter events (added $added, was $cacheBefore). OldestRowId: $oldestRowIdBefore -> $oldestRowIdAfter",
+                )
             }
 
             if (added == 0 && newEvents.isNotEmpty()) {
@@ -1573,9 +1573,9 @@ object RoomTimelineCache {
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Cleared cache for room $roomId and marked as not cached (also cleared profiles, members, receipts, reactions, versions)",
-            )
+                    TAG,
+                    "Cleared cache for room $roomId and marked as not cached (also cleared profiles, members, receipts, reactions, versions)",
+                )
             }
         }
     }
@@ -1638,9 +1638,9 @@ object RoomTimelineCache {
 
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "Cleared all room caches and marked all rooms as needing pagination (no opened rooms, also cleared all profiles, members, receipts, reactions, versions)",
-                    )
+                            TAG,
+                            "Cleared all room caches and marked all rooms as needing pagination (no opened rooms, also cleared all profiles, members, receipts, reactions, versions)",
+                        )
                     }
                 } else {
                     // Preserve caches for currently opened rooms

@@ -1,6 +1,6 @@
 package net.vrkknn.andromuks.utils
 
-/**
+/*
  * Composer `/command` detection, shared by RoomTimelineScreen, BubbleTimelineScreen and
  * ThreadViewerScreen.
  *
@@ -21,11 +21,7 @@ package net.vrkknn.andromuks.utils
  * The returned query never includes the leading `/`. Callers pass it to [Commands.getSuggestions]
  * and [botCommandSuggestions], which both prefix-match on it.
  */
-fun detectCommandQuery(
-    text: String,
-    cursorPosition: Int,
-    multiWordPrefixes: Set<List<String>> = emptySet(),
-): Pair<String, Int>? {
+fun detectCommandQuery(text: String, cursorPosition: Int, multiWordPrefixes: Set<List<String>> = emptySet()): Pair<String, Int>? {
     if (cursorPosition < 1 || cursorPosition > text.length) return null
     if (!text.startsWith("/")) return null
 

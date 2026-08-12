@@ -617,9 +617,9 @@ fun SystemEventNarrator(
 
                                             if (BuildConfig.DEBUG) {
                                                 android.util.Log.d(
-                                                "NarratorFunctions",
-                                                "SystemEventNarrator: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth",
-                                            )
+                                                    "NarratorFunctions",
+                                                    "SystemEventNarrator: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth",
+                                                )
                                             }
 
                                             IntOffset(

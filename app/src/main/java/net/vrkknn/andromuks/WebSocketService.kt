@@ -2913,9 +2913,9 @@ class WebSocketService : Service() {
 
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "WebSocketService",
-                                "Executing reconnection: $reasonLabel (attempt ${serviceInstance.reconnectionAttemptCount}/$MAX_RECONNECTION_ATTEMPTS, last_received_id: $lastReceivedId)",
-                            )
+                                    "WebSocketService",
+                                    "Executing reconnection: $reasonLabel (attempt ${serviceInstance.reconnectionAttemptCount}/$MAX_RECONNECTION_ATTEMPTS, last_received_id: $lastReceivedId)",
+                                )
                             }
                             logActivity(
                                 "[$reconnectTraceId] Reconnection Attempt - $reasonLabel",

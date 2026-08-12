@@ -132,13 +132,7 @@ fun BotCommandSignatureStrip(
  * text does not fit the declared type, and bold when the cursor is inside it.
  */
 @Composable
-private fun ParameterChip(
-    parameter: BotCommandParameter,
-    value: ArgValue?,
-    hasError: Boolean,
-    isActive: Boolean,
-    modifier: Modifier = Modifier,
-) {
+private fun ParameterChip(parameter: BotCommandParameter, value: ArgValue?, hasError: Boolean, isActive: Boolean, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
     val background = when {
         hasError -> colors.errorContainer

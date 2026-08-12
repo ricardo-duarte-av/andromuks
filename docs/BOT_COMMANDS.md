@@ -21,7 +21,7 @@ Divergences that matter, all reproduced deliberately:
 | — | `aliases: []string` on the command |
 | — | `fi.mau.tail_parameter` — one parameter swallows the rest of the line |
 | — | `fi.mau.default_value` per parameter |
-| optional-parameter order "not significant" | Optional non-tail parameters are **never bound positionally** — only via `--key=value` |
+| optional-parameter order "not significant" | Optional non-tail parameters are **never bound positionally** — only via `--key=value`. `--key value` does *not* bind a value: the `=` is trimmed but the space is left, so the value reads as empty |
 | arrays "may appear in any place" | A mid-list array needs `<a b c>` delimiters; an undelimited mid-list array takes exactly one item |
 | — | A bare `--flag` on a boolean-accepting parameter means `true` |
 | — | The prefix may carry the owner MXID: `/ban@bot:example.org …` |

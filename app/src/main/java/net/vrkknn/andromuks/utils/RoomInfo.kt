@@ -714,9 +714,9 @@ fun RoomInfoScreen(
 
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "RoomInfoScreen: Triggering opportunistic profile loading for ${senders.size} pinned event senders",
-                )
+                        "Andromuks",
+                        "RoomInfoScreen: Triggering opportunistic profile loading for ${senders.size} pinned event senders",
+                    )
                 }
                 senders.forEach { sender ->
                     if (!requestedPinnedSenders.contains(sender)) {
@@ -1066,9 +1066,9 @@ private fun loadPinnedEvents(pinnedIds: List<String>, roomId: String, appViewMod
 
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "loadPinnedEvents: Completed loading pinned events. Success: ${results.count { it.timelineEvent != null }}/${pinnedIds.size}",
-                    )
+                            "Andromuks",
+                            "loadPinnedEvents: Completed loading pinned events. Success: ${results.count { it.timelineEvent != null }}/${pinnedIds.size}",
+                        )
                     }
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(

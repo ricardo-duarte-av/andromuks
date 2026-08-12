@@ -25,24 +25,16 @@ class BotCommandParseTest {
 
     private val bot = "@bot:example.org"
 
-    private fun param(
-        key: String,
-        type: PrimitiveType = PrimitiveType.STRING,
-        optional: Boolean = false,
-    ) = BotCommandParameter(key, ParamSchema.Primitive(type), optional, "", null)
+    private fun param(key: String, type: PrimitiveType = PrimitiveType.STRING, optional: Boolean = false) =
+        BotCommandParameter(key, ParamSchema.Primitive(type), optional, "", null)
 
     private fun arrayParam(key: String, type: PrimitiveType = PrimitiveType.STRING, optional: Boolean = false) =
         BotCommandParameter(key, ParamSchema.ArrayOf(ParamSchema.Primitive(type)), optional, "", null)
 
-    private fun command(
-        name: String = "ban",
-        params: List<BotCommandParameter> = emptyList(),
-        aliases: List<String> = emptyList(),
-        tail: String? = null,
-    ) = BotCommand("!r:x", "key", bot, name, aliases, "", params, tail)
+    private fun command(name: String = "ban", params: List<BotCommandParameter> = emptyList(), aliases: List<String> = emptyList(), tail: String? = null) =
+        BotCommand("!r:x", "key", bot, name, aliases, "", params, tail)
 
-    private fun str(command: BotCommand, input: String, key: String): String? =
-        (command.parseArguments(input).arguments[key] as? ArgValue.Str)?.value
+    private fun str(command: BotCommand, input: String, key: String): String? = (command.parseArguments(input).arguments[key] as? ArgValue.Str)?.value
 
     // region parseQuoted
 
@@ -171,7 +163,18 @@ class BotCommandParseTest {
         assertNull(positional.arguments["reason"])
 
         assertEquals("spamming", str(cmd, "--reason=spamming alice", "reason"))
-        assertEquals("spamming", str(cmd, "--reason spamming alice", "reason"))
+    }
+
+    @Test
+    fun `a named argument binds a value only with an equals sign`() {
+        val cmd = command("ban", listOf(param("user"), param("reason", optional = true)))
+        // `--reason spamming` does NOT bind "spamming": the reference implementation trims the `=`
+        // but deliberately leaves the space, so parseQuoted reads an empty value and "spamming"
+        // falls through to the next positional parameter. Pinned because it is surprising, and
+        // because diverging would make us disagree with every bot parsing the body fallback.
+        val parsed = cmd.parseArguments("--reason spamming alice")
+        assertEquals(ArgValue.Str(""), parsed.arguments["reason"])
+        assertEquals(ArgValue.Str("spamming"), parsed.arguments["user"])
     }
 
     @Test

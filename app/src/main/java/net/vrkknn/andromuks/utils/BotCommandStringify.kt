@@ -49,9 +49,13 @@ internal fun ArgValue.RoomRef.toMatrixUri(): String = buildString {
 
 private fun singleArgumentToString(value: ArgValue): String = when (value) {
     is ArgValue.Str -> quoteCommandArg(value.value)
+
     is ArgValue.Num -> value.value.toString()
+
     is ArgValue.Bool -> value.value.toString()
+
     is ArgValue.RoomRef -> quoteCommandArg(value.toMatrixUri())
+
     // Nested arrays are rejected at parse time, so this is unreachable; render nothing rather than
     // emitting something that would not re-parse.
     is ArgValue.Arr -> ""

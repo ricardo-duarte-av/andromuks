@@ -22,7 +22,7 @@ import androidx.compose.ui.zIndex
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.BotCommandCache
 
-/**
+/*
  * MSC4391 bot commands in the composer — everything the three timeline screens share.
  *
  * RoomTimelineScreen, BubbleTimelineScreen and ThreadViewerScreen each carry their own copy of the
@@ -50,10 +50,7 @@ enum class BotCommandSendOutcome {
  * the argument sheet is open. Construct it with [rememberComposerCommandState].
  */
 @Stable
-class ComposerCommandState internal constructor(
-    private val appViewModel: AppViewModel,
-    private val roomId: String,
-) {
+class ComposerCommandState internal constructor(private val appViewModel: AppViewModel, private val roomId: String) {
     /**
      * Resolved, filtered commands for this room, refreshed by [rememberComposerCommandState].
      *
@@ -101,7 +98,7 @@ class ComposerCommandState internal constructor(
      * A command with parameters gets a trailing space so the user can type straight into the first
      * one; a command with none is complete as it stands.
      */
-    fun onBotCommandSelected(command: BotCommand): TextFieldValue {
+    fun onBotCommandSelect(command: BotCommand): TextFieldValue {
         val text = if (command.parameters.isEmpty()) "/${command.command}" else "/${command.command} "
         onDraftChanged(text, text.length)
         return TextFieldValue(text = text, selection = TextRange(text.length))
@@ -144,12 +141,7 @@ class ComposerCommandState internal constructor(
         return BotCommandSendOutcome.SENT
     }
 
-    internal fun send(
-        command: BotCommand,
-        arguments: Map<String, ArgValue>,
-        threadRootEventId: String?,
-        replyToEventId: String?,
-    ) {
+    internal fun send(command: BotCommand, arguments: Map<String, ArgValue>, threadRootEventId: String?, replyToEventId: String?) {
         appViewModel.botCommandCoordinator.sendBotCommand(
             roomId = roomId,
             command = command,
@@ -175,6 +167,10 @@ class ComposerCommandState internal constructor(
  * state is requested on mount when the room has never been indexed. `requestRoomState` de-duplicates
  * in-flight requests, so this is cheap even when the sweep is already covering the room.
  */
+// The AppViewModel is captured into a plain state holder here, not threaded onward through a
+// composable tree, so the hoisting this rule protects has already happened. Suppressed at the site
+// rather than added to the baseline so the reasoning stays visible.
+@Suppress("ViewModelForwarding")
 @Composable
 fun rememberComposerCommandState(appViewModel: AppViewModel, roomId: String): ComposerCommandState {
     val state = remember(roomId) { ComposerCommandState(appViewModel, roomId) }
@@ -200,15 +196,20 @@ fun rememberComposerCommandState(appViewModel: AppViewModel, roomId: String): Co
  * per-message-profile picker and the suggestion lists do. Only one is ever shown: while the sheet
  * is open it replaces the strip, so they never stack.
  *
- * @param onSent invoked after a command is sent from the sheet, so the screen can clear its draft.
+ * Takes [homeserverUrl]/[authToken] rather than the AppViewModel: forwarding a ViewModel through
+ * nested composables is what the compose-rules `ViewModelForwarding` check exists to prevent, and
+ * these two strings are all the overlay actually needs.
+ *
+ * @param onSend invoked after a command is sent from the sheet, so the screen can clear its draft.
  */
 @Composable
 fun BoxScope.ComposerBotCommandOverlays(
     state: ComposerCommandState,
-    appViewModel: AppViewModel,
+    homeserverUrl: String,
+    authToken: String,
     threadRootEventId: String?,
     replyToEventId: String?,
-    onSent: () -> Unit,
+    onSend: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val sheetCommand = state.sheetCommand
@@ -230,7 +231,7 @@ fun BoxScope.ComposerBotCommandOverlays(
                 onDismiss = { state.dismissSheet() },
                 onSubmit = { arguments ->
                     state.submitSheet(arguments)
-                    onSent()
+                    onSend()
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -242,8 +243,8 @@ fun BoxScope.ComposerBotCommandOverlays(
                 invocation = invocation,
                 botAvatarUrl = avatarUrl,
                 botDisplayName = displayName,
-                homeserverUrl = appViewModel.homeserverUrl,
-                authToken = appViewModel.authToken,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
                 onOpenSheet = { state.openSheet(threadRootEventId, replyToEventId) },
                 modifier = Modifier.zIndex(10f),
             )

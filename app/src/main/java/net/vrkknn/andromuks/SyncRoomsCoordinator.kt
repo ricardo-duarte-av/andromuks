@@ -106,9 +106,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
 
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: populateRoomMapFromCache - populated roomMap with ${cachedRooms.size} rooms from cache (new size: ${roomMap.size})",
-                    )
+                            "Andromuks",
+                            "AppViewModel: populateRoomMapFromCache - populated roomMap with ${cachedRooms.size} rooms from cache (new size: ${roomMap.size})",
+                        )
                     }
 
                     // CRITICAL: If we loaded rooms from cache, mark spaces as loaded
@@ -157,9 +157,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
 
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: populateSpacesFromCache - populated allSpaces with ${cachedSpaces.size} spaces from cache",
-                    )
+                            "Andromuks",
+                            "AppViewModel: populateSpacesFromCache - populated allSpaces with ${cachedSpaces.size} spaces from cache",
+                        )
                     }
 
                     // Also restore space_edges if available

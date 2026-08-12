@@ -254,12 +254,7 @@ private fun ParameterField(
 
 /** An editable list of items for an array parameter. */
 @Composable
-private fun ArrayParameterField(
-    parameter: BotCommandParameter,
-    items: SnapshotStateList<String>,
-    label: String,
-    modifier: Modifier = Modifier,
-) {
+private fun ArrayParameterField(parameter: BotCommandParameter, items: SnapshotStateList<String>, label: String, modifier: Modifier = Modifier) {
     val itemSchema = (parameter.schema as ParamSchema.ArrayOf).items
     Column(modifier = modifier.fillMaxWidth()) {
         Text(text = label, style = MaterialTheme.typography.bodyMedium)

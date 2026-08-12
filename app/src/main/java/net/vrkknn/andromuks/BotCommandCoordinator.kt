@@ -37,19 +37,17 @@ internal class BotCommandCoordinator(private val vm: AppViewModel) {
      * merges: a bot that removed a command has to lose it here too.
      */
     fun ingestFullState(roomId: String, events: JSONArray?) {
-        val parsed = mutableListOf<BotCommand>()
-        if (events != null) {
-            for (i in 0 until events.length()) {
-                val event = events.optJSONObject(i) ?: continue
-                if (!isBotCommandStateType(event.optString("type"))) continue
+        val parsed = (0 until (events?.length() ?: 0))
+            .mapNotNull { events?.optJSONObject(it) }
+            .filter { isBotCommandStateType(it.optString("type")) }
+            .mapNotNull { event ->
                 parseBotCommandDescription(
                     roomId = roomId,
                     stateKey = event.optString("state_key"),
                     sender = event.optString("sender").takeIf { it.isNotBlank() },
                     content = event.optJSONObject("content"),
-                )?.let { parsed.add(it) }
+                )
             }
-        }
         BotCommandCache.setRoomCommands(roomId, parsed)
     }
 
@@ -62,18 +60,18 @@ internal class BotCommandCoordinator(private val vm: AppViewModel) {
      * rather than simply skipping.
      */
     fun ingestLiveStateEvents(roomId: String, events: List<TimelineEvent>) {
-        for (event in events) {
-            val type = event.decryptedType ?: event.type
-            if (!isBotCommandStateType(type)) continue
-            val stateKey = event.stateKey ?: continue
-            val parsed = parseBotCommandDescription(
-                roomId = roomId,
-                stateKey = stateKey,
-                sender = event.sender.takeIf { it.isNotBlank() },
-                content = event.decrypted ?: event.content,
-            )
-            if (parsed != null) BotCommandCache.upsert(parsed) else BotCommandCache.remove(roomId, stateKey)
-        }
+        events
+            .filter { isBotCommandStateType(it.decryptedType ?: it.type) && it.stateKey != null }
+            .forEach { event ->
+                val stateKey = event.stateKey.orEmpty()
+                val parsed = parseBotCommandDescription(
+                    roomId = roomId,
+                    stateKey = stateKey,
+                    sender = event.sender.takeIf { it.isNotBlank() },
+                    content = event.decrypted ?: event.content,
+                )
+                if (parsed != null) BotCommandCache.upsert(parsed) else BotCommandCache.remove(roomId, stateKey)
+            }
     }
 
     /**
@@ -189,16 +187,16 @@ internal class BotCommandCoordinator(private val vm: AppViewModel) {
      * A command posted into a thread is never itself a reply to a message, so `is_falling_back` is
      * true: the `m.in_reply_to` inside is a fallback for non-threaded clients, not a real reply.
      */
-    private fun buildRelatesTo(roomId: String, threadRootEventId: String?, replyToEventId: String?): Map<String, Any>? =
-        when {
-            threadRootEventId != null -> threadRelatesTo(
-                threadRootEventId = threadRootEventId,
-                replyToEventId = replyToEventId
-                    ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId,
-                isFallback = true,
-            )
+    private fun buildRelatesTo(roomId: String, threadRootEventId: String?, replyToEventId: String?): Map<String, Any>? = when {
+        threadRootEventId != null -> threadRelatesTo(
+            threadRootEventId = threadRootEventId,
+            replyToEventId = replyToEventId
+                ?: vm.getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId,
+            isFallback = true,
+        )
 
-            replyToEventId != null -> mapOf("m.in_reply_to" to mapOf("event_id" to replyToEventId))
-            else -> null
-        }
+        replyToEventId != null -> mapOf("m.in_reply_to" to mapOf("event_id" to replyToEventId))
+
+        else -> null
+    }
 }

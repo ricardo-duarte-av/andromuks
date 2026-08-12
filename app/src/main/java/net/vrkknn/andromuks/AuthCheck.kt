@@ -331,9 +331,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
 
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AuthCheckScreen: WebSocket connection check - isPrimary: $isPrimary, isAlreadyConnected: $isAlreadyConnected",
-                )
+                        "Andromuks",
+                        "AuthCheckScreen: WebSocket connection check - isPrimary: $isPrimary, isAlreadyConnected: $isAlreadyConnected",
+                    )
                 }
 
                 if (isAlreadyConnected) {

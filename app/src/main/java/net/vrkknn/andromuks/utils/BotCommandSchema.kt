@@ -4,7 +4,7 @@ import androidx.compose.runtime.Immutable
 import org.json.JSONArray
 import org.json.JSONObject
 
-/**
+/*
  * MSC4391 "Simplified in-room bot commands" — the type schema and the command-description model.
  *
  * A bot advertises each of its commands as a state event whose content declares the command name,
@@ -47,8 +47,7 @@ private const val KEY_TAIL_PARAMETER = "fi.mau.tail_parameter"
 private const val KEY_DEFAULT_VALUE = "fi.mau.default_value"
 
 /** Whether [type] is a command-description state event in either prefix. */
-fun isBotCommandStateType(type: String?): Boolean =
-    type == BOT_COMMAND_STATE_TYPE || type == BOT_COMMAND_STATE_TYPE_STABLE
+fun isBotCommandStateType(type: String?): Boolean = type == BOT_COMMAND_STATE_TYPE || type == BOT_COMMAND_STATE_TYPE_STABLE
 
 /**
  * The predefined argument types.
@@ -125,7 +124,9 @@ fun ParamSchema.defaultValue(): ArgValue? = when (this) {
     }
 
     is ParamSchema.ArrayOf -> ArgValue.Arr(emptyList())
+
     is ParamSchema.Union -> variants.firstOrNull()?.defaultValue()
+
     is ParamSchema.Literal -> value
 }
 
@@ -190,13 +191,7 @@ data class BotCommand(
  * from the bot, so it defaults on; callers that hit a real bot getting the concatenation wrong can
  * turn it off at one call site rather than editing the parser.
  */
-fun parseBotCommandDescription(
-    roomId: String,
-    stateKey: String,
-    sender: String?,
-    content: JSONObject?,
-    verifyStateKey: Boolean = true,
-): BotCommand? {
+fun parseBotCommandDescription(roomId: String, stateKey: String, sender: String?, content: JSONObject?, verifyStateKey: Boolean = true): BotCommand? {
     if (content == null || content.length() == 0) return null
     if (sender.isNullOrBlank()) return null
 
@@ -320,12 +315,18 @@ fun parseParamSchema(json: JSONObject?, parent: String = ""): ParamSchema? {
  */
 internal fun argValueFromJson(value: Any?): ArgValue? = when (value) {
     is String -> ArgValue.Str(value)
+
     is Boolean -> ArgValue.Bool(value)
+
     is Int -> ArgValue.Num(value.toLong())
+
     is Long -> ArgValue.Num(value)
+
     // Canonical JSON has no floats, but a lenient encoder may still emit one; truncate like Go does.
     is Double -> ArgValue.Num(value.toLong())
+
     is JSONObject -> roomRefFromJson(value)
+
     is JSONArray -> ArgValue.Arr(
         (0 until value.length()).map { argValueFromJson(value.opt(it)) ?: return null },
     )
@@ -360,15 +361,16 @@ fun flattenExtensibleText(json: JSONObject?): String {
     val text = json.opt("m.text")
     if (text is String) return text
     if (text is JSONArray) {
-        var fallback: String? = null
-        for (i in 0 until text.length()) {
-            val entry = text.optJSONObject(i) ?: continue
-            val body = entry.optString("body").takeIf { it.isNotBlank() } ?: continue
-            val mimeType = entry.optString("mimetype").takeIf { it.isNotBlank() }
-            if (mimeType == null || mimeType == "text/plain") return body
-            if (fallback == null) fallback = body
-        }
-        if (fallback != null) return fallback
+        val representations = (0 until text.length())
+            .mapNotNull { text.optJSONObject(it) }
+            .mapNotNull { entry ->
+                val body = entry.optString("body").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                body to entry.optString("mimetype").takeIf { it.isNotBlank() }
+            }
+        // The plain-text representation wins; otherwise take whatever came first.
+        val plain = representations.firstOrNull { (_, mimeType) -> mimeType == null || mimeType == "text/plain" }
+        val chosen = plain ?: representations.firstOrNull()
+        if (chosen != null) return chosen.first
     }
     return json.optString("body")
 }

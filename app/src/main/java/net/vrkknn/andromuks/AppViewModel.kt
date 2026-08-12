@@ -2592,9 +2592,9 @@ class AppViewModel : ViewModel() {
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Updated global profile for $userId and cleaned up matching room-specific entries",
-            )
+                    "Andromuks",
+                    "AppViewModel: Updated global profile for $userId and cleaned up matching room-specific entries",
+                )
             }
         }
     }
@@ -4400,9 +4400,9 @@ class AppViewModel : ViewModel() {
 
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Background space edge processing - Created mock data for ${allRooms.size} rooms",
-                )
+                        "Andromuks",
+                        "AppViewModel: Background space edge processing - Created mock data for ${allRooms.size} rooms",
+                    )
                 }
 
                 // Process space edges in background (parsing is expensive)
@@ -7635,9 +7635,9 @@ class AppViewModel : ViewModel() {
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Sent paginate request for room: $roomId (${INITIAL_ROOM_PAGINATE_LIMIT} events) - awaiting response to rebuild timeline",
-        )
+                "Andromuks",
+                "AppViewModel: Sent paginate request for room: $roomId (${INITIAL_ROOM_PAGINATE_LIMIT} events) - awaiting response to rebuild timeline",
+            )
         }
         if (result == WebSocketResult.SUCCESS) {
             markInitialPaginate(roomId, "full_refresh")
@@ -8045,9 +8045,9 @@ class AppViewModel : ViewModel() {
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Sent per-room member state request with ID $requestId for $userId in room $roomId",
-        )
+                "Andromuks",
+                "AppViewModel: Sent per-room member state request with ID $requestId for $userId in room $roomId",
+            )
         }
     }
 
@@ -8102,9 +8102,9 @@ class AppViewModel : ViewModel() {
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Requesting profile updates for ${userIdList.size} users (senders + mentions + reply targets)",
-        )
+                "Andromuks",
+                "AppViewModel: Requesting profile updates for ${userIdList.size} users (senders + mentions + reply targets)",
+            )
         }
 
         val keysList = userIdList.map { userId ->
@@ -11410,9 +11410,9 @@ class AppViewModel : ViewModel() {
 
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'",
-                            )
+                                    "Andromuks",
+                                    "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'",
+                                )
                             }
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
@@ -12040,9 +12040,9 @@ class AppViewModel : ViewModel() {
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Rebuilt timeline after processing sync events for current room $roomId: before=$timelineCountBefore, after=$timelineCountAfter",
-            )
+                    "Andromuks",
+                    "AppViewModel: Rebuilt timeline after processing sync events for current room $roomId: before=$timelineCountBefore, after=$timelineCountAfter",
+                )
             }
 
             // Timeline is updated directly from sync_complete events via processSyncEventsArray()
@@ -12964,9 +12964,9 @@ class AppViewModel : ViewModel() {
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: ${if (pin) "Pinned" else "Unpinned"} event $eventId in room $roomId (${currentPinned.size} total pinned events)",
-        )
+                "Andromuks",
+                "AppViewModel: ${if (pin) "Pinned" else "Unpinned"} event $eventId in room $roomId (${currentPinned.size} total pinned events)",
+            )
         }
 
         // Request updated room state to refresh m.pinned_events and other room info
@@ -14374,9 +14374,9 @@ class AppViewModel : ViewModel() {
 
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Full user info progress - profile: $profileCompleted, encryption: $encryptionCompleted, mutualRooms: $mutualRoomsCompleted (expected: $expectedRequests, completed: $completedCount)",
-            )
+                    "Andromuks",
+                    "AppViewModel: Full user info progress - profile: $profileCompleted, encryption: $encryptionCompleted, mutualRooms: $mutualRoomsCompleted (expected: $expectedRequests, completed: $completedCount)",
+                )
             }
 
             if (completedCount >= expectedRequests && !hasError) {
@@ -14487,9 +14487,9 @@ class AppViewModel : ViewModel() {
 
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}, bio: ${bio != null}, arbitraryFields: ${profileData.arbitraryFields.size}",
-                )
+                        "Andromuks",
+                        "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone, pronouns: ${pronouns?.size ?: 0}, bio: ${bio != null}, arbitraryFields: ${profileData.arbitraryFields.size}",
+                    )
                 }
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Profile data is null for $userId")

@@ -169,9 +169,9 @@ object ProgressiveImageLoader {
 
             if (BuildConfig.DEBUG) {
                 Log.d(
-                TAG,
-                "Optimized image: ${originalSize / 1024}KB -> ${optimizedSize / 1024}KB (${compressionRatio.toInt()}% reduction)",
-            )
+                    TAG,
+                    "Optimized image: ${originalSize / 1024}KB -> ${optimizedSize / 1024}KB (${compressionRatio.toInt()}% reduction)",
+                )
             }
             optimizedFile
         } catch (e: Exception) {

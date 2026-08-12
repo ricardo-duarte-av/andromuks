@@ -1,6 +1,6 @@
 package net.vrkknn.andromuks.utils
 
-/**
+/*
  * MSC4391 bot commands — which of a room's advertised commands the composer may actually offer.
  *
  * Two filters, both required by the MSC and both applied at read time rather than at ingest so that
@@ -21,8 +21,7 @@ package net.vrkknn.andromuks.utils
  */
 
 /** Every name a built-in command answers to, lowercased and without the leading sigil. */
-private fun CommandDefinition.reservedNames(): List<String> =
-    (listOf(command) + aliases).map { it.removePrefix("/").lowercase() }
+private fun CommandDefinition.reservedNames(): List<String> = (listOf(command) + aliases).map { it.removePrefix("/").lowercase() }
 
 /**
  * Filters and orders a room's raw command descriptions for display.
@@ -32,11 +31,7 @@ private fun CommandDefinition.reservedNames(): List<String> =
  * the member list loads would make the feature look broken on a cold start. Callers pass a
  * predicate that returns true when membership is simply unknown.
  */
-fun resolveBotCommands(
-    raw: List<BotCommand>,
-    builtIns: List<CommandDefinition> = Commands.allCommands,
-    isJoined: (String) -> Boolean,
-): List<BotCommand> {
+fun resolveBotCommands(raw: List<BotCommand>, builtIns: List<CommandDefinition> = Commands.allCommands, isJoined: (String) -> Boolean): List<BotCommand> {
     val reserved = builtIns.flatMapTo(mutableSetOf()) { it.reservedNames() }
     return raw
         .filter { command ->
@@ -69,5 +64,4 @@ fun botCommandSuggestions(resolved: List<BotCommand>, query: String): List<BotCo
  * Command detection normally stops at the first space; a command like `rooms add` needs it to keep
  * going while the words typed so far are still a prefix of something real.
  */
-fun multiWordPrefixesOf(resolved: List<BotCommand>): Set<List<String>> =
-    resolved.map { it.words }.filterTo(mutableSetOf()) { it.size > 1 }
+fun multiWordPrefixesOf(resolved: List<BotCommand>): Set<List<String>> = resolved.map { it.words }.filterTo(mutableSetOf()) { it.size > 1 }

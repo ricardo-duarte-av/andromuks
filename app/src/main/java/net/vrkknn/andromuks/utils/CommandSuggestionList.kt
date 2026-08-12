@@ -187,7 +187,7 @@ fun CommandSuggestionList(
     onCommandSelected: (CommandDefinition) -> Unit,
     modifier: Modifier = Modifier,
     botCommands: List<BotCommand> = emptyList(),
-    onBotCommandSelected: (BotCommand) -> Unit = {},
+    onBotCommandSelect: (BotCommand) -> Unit = {},
     botProfileFor: (String) -> Pair<String?, String?> = { null to null },
     homeserverUrl: String = "",
     authToken: String = "",
@@ -266,7 +266,7 @@ fun CommandSuggestionList(
                     botDisplayName = displayName,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
-                    onClick = { onBotCommandSelected(command) },
+                    onClick = { onBotCommandSelect(command) },
                 )
             }
         }

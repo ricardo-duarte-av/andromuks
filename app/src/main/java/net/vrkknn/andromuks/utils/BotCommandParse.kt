@@ -9,8 +9,10 @@ import androidx.compose.runtime.Immutable
  * the same thing to us, to gomuks and to any bot that parses the `body` fallback, so the quirks
  * below are reproduced deliberately rather than "improved":
  *
- *  - **Named arguments** `--key=value` or `--key value` are consumed greedily before each positional
- *    slot, and a bare `--flag` on a boolean-accepting parameter means `true`.
+ *  - **Named arguments** `--key=value` are consumed greedily before each positional slot, and a
+ *    bare `--flag` on a boolean-accepting parameter means `true`. Note that `--key value` does
+ *    *not* bind the value: the reference implementation trims the `=` but leaves the space, so the
+ *    value reads as empty and the next token falls through to the following parameter.
  *  - **Optional non-tail parameters are never bound positionally.** They exist only as `--key`. This
  *    contradicts a plain reading of the MSC ("the position of parameters that are not required is
  *    not significant") but it is what the reference implementation does, and it is the only way an
@@ -51,12 +53,7 @@ sealed interface ArgValue {
      * information: [via] lists servers the room can be joined through.
      */
     @Immutable
-    data class RoomRef(
-        val type: PrimitiveType,
-        val id: String,
-        val via: List<String> = emptyList(),
-        val eventId: String? = null,
-    ) : ArgValue
+    data class RoomRef(val type: PrimitiveType, val id: String, val via: List<String> = emptyList(), val eventId: String? = null) : ArgValue
 
     @Immutable
     data class Arr(val items: List<ArgValue>) : ArgValue
@@ -70,9 +67,13 @@ sealed interface ArgValue {
  */
 fun ArgValue.toWireValue(): Any = when (this) {
     is ArgValue.Str -> value
+
     is ArgValue.Num -> value
+
     is ArgValue.Bool -> value
+
     is ArgValue.Arr -> items.map { it.toWireValue() }
+
     is ArgValue.RoomRef -> buildMap {
         put("type", type.wireName)
         put("id", id)
@@ -153,7 +154,10 @@ fun parseQuoted(input: String): Triple<String, String, Boolean> {
 
     var rest = input.substring(1)
     val buf = StringBuilder()
-    while (true) {
+    // Driven by a flag rather than `break` so the loop keeps exactly one exit besides the early
+    // return, which is what the reference implementation's control flow amounts to anyway.
+    var closed = false
+    while (!closed) {
         val quoteIdx = rest.indexOf('"')
         val untilQuote = if (quoteIdx == -1) rest else rest.substring(0, quoteIdx)
         val escapeIdx = untilQuote.indexOf('\\')
@@ -164,14 +168,14 @@ fun parseQuoted(input: String): Triple<String, String, Boolean> {
         } else if (quoteIdx >= 0) {
             buf.append(rest, 0, quoteIdx)
             rest = rest.substring(quoteIdx + 1)
-            break
+            closed = true
         } else if (buf.isEmpty()) {
             // Unterminated quote with no escapes: the whole remainder is the value.
             return Triple(rest, "", true)
         } else {
             buf.append(rest)
             rest = ""
-            break
+            closed = true
         }
     }
     return Triple(buf.toString(), rest.trimStart(' '), true)
@@ -194,11 +198,7 @@ private fun unwrapMarkdownLink(value: String): String {
  * Covers `https://matrix.to/#/…` and `matrix:…` in the shapes clients actually emit; anything else
  * simply fails to parse and the caller reports a type error.
  */
-private data class MatrixUri(
-    val first: String,
-    val second: String?,
-    val via: List<String>,
-)
+private data class MatrixUri(val first: String, val second: String?, val via: List<String>)
 
 private fun parseMatrixUri(raw: String): MatrixUri? {
     val value = unwrapMarkdownLink(raw.trim())
@@ -310,7 +310,9 @@ fun PrimitiveType.parseString(raw: String, ctx: CoercionContext = CoercionContex
             val fromUri = parseMatrixUri(value)?.first
             when {
                 isValidUserId(plain) -> ArgValue.Str(plain)
+
                 fromUri != null && isValidUserId(fromUri) -> ArgValue.Str(fromUri)
+
                 // Last resort: a display name that names exactly one joined member.
                 else -> ctx.resolveDisplayName(value)?.let { ArgValue.Str(it) }
             }
@@ -427,16 +429,14 @@ fun matchBotCommand(
  * behaviours it reproduces. Errors are collected per parameter rather than first-wins as in Go,
  * because the UI shows all of them at once.
  */
-fun BotCommand.parseArguments(
-    input: String,
-    cursorInArgs: Int = input.length,
-    ctx: CoercionContext = CoercionContext.EMPTY,
-): ParsedInvocation {
+fun BotCommand.parseArguments(input: String, cursorInArgs: Int = input.length, ctx: CoercionContext = CoercionContext.EMPTY): ParsedInvocation {
     val state = ArgumentParseState(input.trimStart(' '), ctx)
     val skipped = BooleanArray(parameters.size)
 
     for ((i, param) in parameters.withIndex()) {
         // Named arguments may appear anywhere; consume every one sitting at the front of the input.
+        // Only `--key=value` binds a value — the space in `--key value` is left in place on purpose,
+        // so parseQuoted reads an empty value (which is what makes a bare boolean flag mean true).
         while (state.remaining.startsWith(NAMED_PREFIX)) {
             val nameEnd = state.remaining.indexOfFirst { it == ' ' || it == '=' }
                 .takeIf { it >= 0 } ?: state.remaining.length
@@ -535,13 +535,7 @@ private class ArgumentParseState(input: String, private val ctx: CoercionContext
         arguments[param.key] = ArgValue.Arr(collector)
     }
 
-    private fun bindSingle(
-        param: BotCommandParameter,
-        origInput: String,
-        isLast: Boolean,
-        isTail: Boolean,
-        isNamed: Boolean,
-    ) {
+    private fun bindSingle(param: BotCommandParameter, origInput: String, isLast: Boolean, isTail: Boolean, isNamed: Boolean) {
         val (parsedToken, rest, wasQuoted) = parseQuoted(remaining)
         remaining = rest
         var raw = parsedToken

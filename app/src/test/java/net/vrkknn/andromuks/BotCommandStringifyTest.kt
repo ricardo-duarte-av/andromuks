@@ -21,14 +21,10 @@ import org.junit.Test
  */
 class BotCommandStringifyTest {
 
-    private fun param(
-        key: String,
-        schema: ParamSchema = ParamSchema.Primitive(PrimitiveType.STRING),
-        optional: Boolean = false,
-    ) = BotCommandParameter(key, schema, optional, "", null)
+    private fun param(key: String, schema: ParamSchema = ParamSchema.Primitive(PrimitiveType.STRING), optional: Boolean = false) =
+        BotCommandParameter(key, schema, optional, "", null)
 
-    private fun command(params: List<BotCommandParameter>) =
-        BotCommand("!r:x", "key", "@bot:example.org", "ban", emptyList(), "", params, null)
+    private fun command(params: List<BotCommandParameter>) = BotCommand("!r:x", "key", "@bot:example.org", "ban", emptyList(), "", params, null)
 
     @Test
     fun `plain arguments are rendered in declaration order`() {
@@ -99,8 +95,10 @@ class BotCommandStringifyTest {
             "matrix:roomid/room:example.org",
             cmd.stringifyArgs(mapOf("room" to ArgValue.RoomRef(PrimitiveType.ROOM_ID, "!room:example.org"))),
         )
+        // Not quoted: quoting triggers on space, backslash and the array delimiters only, and a
+        // matrix URI contains none of them.
         assertEquals(
-            "\"matrix:roomid/room:example.org?via=a.org&via=b.org\"",
+            "matrix:roomid/room:example.org?via=a.org&via=b.org",
             cmd.stringifyArgs(
                 mapOf(
                     "room" to ArgValue.RoomRef(

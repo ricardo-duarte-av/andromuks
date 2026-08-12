@@ -174,8 +174,8 @@ import net.vrkknn.andromuks.ui.theme.scaledColumnExit
 import net.vrkknn.andromuks.ui.theme.scaledTween
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.AvatarUtils
-import net.vrkknn.andromuks.utils.CodeViewer
 import net.vrkknn.andromuks.utils.BotCommandSendOutcome
+import net.vrkknn.andromuks.utils.CodeViewer
 import net.vrkknn.andromuks.utils.CommandSuggestionList
 import net.vrkknn.andromuks.utils.ComposerBotCommandOverlays
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
@@ -206,14 +206,14 @@ import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.utils.UrlPreviewCompositionBar
 import net.vrkknn.andromuks.utils.UrlPreviewController
 import net.vrkknn.andromuks.utils.VideoUploadUtils
+import net.vrkknn.andromuks.utils.detectCommandQuery
 import net.vrkknn.andromuks.utils.estimatedMenuBarHeight
 import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
-import net.vrkknn.andromuks.utils.detectCommandQuery
 import net.vrkknn.andromuks.utils.isBarePollCommand
-import net.vrkknn.andromuks.utils.rememberComposerCommandState
 import net.vrkknn.andromuks.utils.isPollSatelliteEvent
 import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.navigateToUserInfo
+import net.vrkknn.andromuks.utils.rememberComposerCommandState
 import net.vrkknn.andromuks.utils.rememberTimelineMenuInset
 import net.vrkknn.andromuks.utils.resolveDefaultPerMessageProfile
 import java.text.SimpleDateFormat
@@ -1677,7 +1677,6 @@ fun RoomTimelineScreen(
 
         return null
     }
-
 
     // Handle backspace deletion of custom emoji markdown
     fun handleCustomEmojiDeletion(oldValue: TextFieldValue, newValue: TextFieldValue): TextFieldValue {
@@ -5171,8 +5170,10 @@ fun RoomTimelineScreen(
                                                                 replyingToEvent = null
                                                                 return@KeyboardActions
                                                             }
+
                                                             // The argument sheet is now open; the draft stays put until it is submitted.
                                                             BotCommandSendOutcome.OPENED_SHEET -> return@KeyboardActions
+
                                                             BotCommandSendOutcome.NOT_A_BOT_COMMAND -> Unit
                                                         }
                                                         if (draft.trim().startsWith("/")) {
@@ -5309,8 +5310,10 @@ fun RoomTimelineScreen(
                                                     replyingToEvent = null
                                                     return@Button
                                                 }
+
                                                 // The argument sheet is now open; the draft stays put until it is submitted.
                                                 BotCommandSendOutcome.OPENED_SHEET -> return@Button
+
                                                 BotCommandSendOutcome.NOT_A_BOT_COMMAND -> Unit
                                             }
                                             if (draft.trim().startsWith("/")) {
@@ -5747,10 +5750,11 @@ fun RoomTimelineScreen(
                     // sheet once one is open. Anchored like the other composer overlays.
                     ComposerBotCommandOverlays(
                         state = composerCommands,
-                        appViewModel = appViewModel,
+                        homeserverUrl = appViewModel.homeserverUrl,
+                        authToken = appViewModel.authToken,
                         threadRootEventId = null,
                         replyToEventId = replyingToEvent?.eventId,
-                        onSent = {
+                        onSend = {
                             draft = ""
                             textFieldValue = TextFieldValue("")
                             replyingToEvent = null
@@ -5794,8 +5798,8 @@ fun RoomTimelineScreen(
                                 modifier = Modifier.zIndex(10f),
                                 // MSC4391: the room's bot commands, below the built-ins that shadow them.
                                 botCommands = composerCommands.botCommands,
-                                onBotCommandSelected = { botCommand ->
-                                    textFieldValue = composerCommands.onBotCommandSelected(botCommand)
+                                onBotCommandSelect = { botCommand ->
+                                    textFieldValue = composerCommands.onBotCommandSelect(botCommand)
                                     draft = textFieldValue.text
                                     showCommandSuggestionList = false
                                     commandQuery = ""

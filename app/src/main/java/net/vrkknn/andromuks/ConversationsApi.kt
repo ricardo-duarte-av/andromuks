@@ -545,9 +545,9 @@ class ConversationsApi(
 
                     if (BuildConfig.DEBUG) {
                         Log.d(
-                        TAG,
-                        "Loading conversation shortcut: $shortcutId (label: ${shortcut.shortLabel}, categories: ${shortcut.categories})",
-                    )
+                            TAG,
+                            "Loading conversation shortcut: $shortcutId (label: ${shortcut.shortLabel}, categories: ${shortcut.categories})",
+                        )
                     }
 
                     val roomId = shortcutId

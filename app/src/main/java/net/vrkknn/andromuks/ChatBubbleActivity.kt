@@ -126,9 +126,9 @@ class ChatBubbleActivity : ComponentActivity() {
 
                         if (BuildConfig.DEBUG) {
                             Log.d(
-                            "Andromuks",
-                            "ChatBubbleActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, bubbleMode: $bubbleMode, matrixUri: $matrixUri",
-                        )
+                                "Andromuks",
+                                "ChatBubbleActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, bubbleMode: $bubbleMode, matrixUri: $matrixUri",
+                            )
                         }
 
                         val extractedRoomId = if (directNavigation && roomId != null) {

@@ -85,5 +85,4 @@ fun botCommandStateKey(command: String, sender: String): String {
  * Callers drop the description on `false`. The comparison is exact: the encoding is fully specified,
  * so a mismatch means either a bug in the advertising bot or an attempt to squat on the key.
  */
-fun stateKeyMatches(stateKey: String, command: String, sender: String): Boolean =
-    stateKey == botCommandStateKey(command, sender)
+fun stateKeyMatches(stateKey: String, command: String, sender: String): Boolean = stateKey == botCommandStateKey(command, sender)
