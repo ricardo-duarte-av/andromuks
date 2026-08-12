@@ -362,7 +362,26 @@ class SyncIngestor(private val context: Context) {
                                 // we process it to ensure the cache starts and stays fresh (no message loss).
                                 val wasCached = cachedRoomIds.contains(roomId)
                                 val hasWidget = widgetRoomIds.contains(roomId)
-                                val hadEvents = processRoom(roomId, roomObj, isAppVisible, wasCached, hasWidget)
+                                // Isolated per room. This is a coroutineScope fan-out, so an escaping
+                                // throw cancels every sibling AND propagates out of ingestSyncComplete —
+                                // and because processSyncCompleteAtomic runs ingest and
+                                // SpaceRoomParser.parseSyncUpdate sequentially in the same withContext,
+                                // the room-LIST parse for this message would never run either. One
+                                // malformed room would cost the ~99 rooms the message carries, which is
+                                // the same blast radius as the "NaN" frame drop. Mirrors
+                                // SpaceRoomParser.parseRoomFromJson, which already returns null per room.
+                                val hadEvents = try {
+                                    processRoom(roomId, roomObj, isAppVisible, wasCached, hasWidget)
+                                } catch (e: kotlinx.coroutines.CancellationException) {
+                                    throw e
+                                } catch (e: Throwable) {
+                                    Log.e(TAG, "processRoom failed for $roomId — skipping this room only", e)
+                                    net.vrkknn.andromuks.ErrorReportingCoordinator.report(
+                                        e,
+                                        "SyncIngestor.processRoom failed",
+                                    )
+                                    false
+                                }
                                 Pair(roomId, hadEvents)
                             }
                         }
