@@ -116,6 +116,9 @@ object RoomListCache {
         // itself and hydrate back on the next cold start, for a room the account is no longer in.
         net.vrkknn.andromuks.utils.RoomStateStore.forgetRoom(roomId)
         net.vrkknn.andromuks.utils.RoomStateStore.deleteRoom(roomId)
+        // Same reasoning again for the room's advertised bot commands: they are scoped to a room
+        // this account is no longer in.
+        BotCommandCache.clearRoom(roomId)
     }
 
     /**

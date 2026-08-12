@@ -1492,6 +1492,9 @@ class AppViewModel : ViewModel() {
     /** Poll (MSC3381) aggregation and voting — see [PollCoordinator]. */
     internal val pollCoordinator by lazy { PollCoordinator(this) }
 
+    /** In-room bot commands (MSC4391) — see [BotCommandCoordinator]. */
+    internal val botCommandCoordinator by lazy { BotCommandCoordinator(this) }
+
     /** Outgoing messages (text, media, typing, notification FIFO) — see [MessageSendCoordinator]. */
     internal val messageSendCoordinator by lazy { MessageSendCoordinator(this) }
 
@@ -6919,6 +6922,7 @@ class AppViewModel : ViewModel() {
             net.vrkknn.andromuks.utils.RoomMetadataStore.clearAll()
             net.vrkknn.andromuks.utils.RoomStateStore.clearMemory()
             net.vrkknn.andromuks.utils.RoomStateStore.deleteAll()
+            BotCommandCache.clear()
 
             // Clear in-memory state
             currentRunId = ""
@@ -7225,6 +7229,10 @@ class AppViewModel : ViewModel() {
         if (roomId.isEmpty() || events.isEmpty()) {
             return
         }
+
+        // MSC4391 command descriptions, before the appContext guard below: indexing them needs no
+        // context, and this is the only live hook a bot registering a command mid-session has.
+        botCommandCoordinator.ingestLiveStateEvents(roomId, events)
 
         val context = appContext ?: run {
             android.util.Log.w("Andromuks", "AppViewModel: Cannot update room state for $roomId - appContext is null")
@@ -9808,6 +9816,11 @@ class AppViewModel : ViewModel() {
                 }
             }
         }
+
+        // Index MSC4391 bot command descriptions. Called unconditionally, including when the room
+        // advertises none: the cache replaces rather than merges, so this is also what clears the
+        // commands of a bot that has removed them or left. See BotCommandCache.
+        botCommandCoordinator.ingestFullState(roomId, events)
 
         // Detect active call from full state snapshot (get_room_state responses).
         // A room has an active call if any org.matrix.msc3401.call.member event has non-empty content.
