@@ -928,6 +928,12 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
      * every untouched room. Pending invites are excluded — they live in [PendingInvitesCache],
      * not in `data.rooms`.
      *
+     * MUST also only be called when the connection dropped no frames
+     * ([WebSocketService.skippedFrameCount] == 0). "Absent from the batch" and "in a frame the
+     * parse pipeline had to skip" are indistinguishable from here, and one skipped sync_complete
+     * carries ~99 rooms — so deleting on that evidence loses them from disk too, every cold start.
+     * The caller in [AppViewModel.onInitComplete] enforces both preconditions.
+     *
      * @param seenRoomIds every room id observed under `data.rooms` across the entire init batch.
      */
     suspend fun pruneStaleRoomsAfterClearState(seenRoomIds: Set<String>) {

@@ -835,6 +835,10 @@ fun connectToWebsocket(
     // dispatcher below can advance past it. See the comment on the parse catch block.
     val resultQueue = Channel<Pair<Int, JSONObject?>>(Channel.UNLIMITED)
     val seqCounter = AtomicInteger(0)
+    // Scoped to this pipeline: a skip on the previous connection says nothing about this one's
+    // batch, and the clear_state diff-prune reads this to decide whether the batch it just
+    // processed can be trusted as complete. See WebSocketService.skippedFrameCount.
+    WebSocketService.resetSkippedFrameCount()
 
     // PERFORMANCE: Use dynamic parallelism (launched once, but pull frequency adjusted)
     repeat(8) { workerIndex ->
@@ -894,12 +898,18 @@ fun connectToWebsocket(
                     if (toDispatch != null) {
                         dispatchParsedWebSocketMessage(toDispatch)
                     } else {
+                        // Recorded before logging so the count is already visible to anything the
+                        // log races with. This also disarms the clear_state diff-prune for the rest
+                        // of the connection: a lost frame means any batch we assemble is missing
+                        // whatever rooms it carried, and pruning on that would delete them for good.
+                        val skippedTotal = WebSocketService.recordSkippedFrame()
                         // Log.w, not Log.d: this is rare, and when it happens in the wild it is
                         // the only evidence that a frame was lost. It is also the line that
                         // proves the sequence advanced rather than stalling.
                         Log.w(
                             "Andromuks",
-                            "NetworkUtils: dispatcher skipping unparseable seq=$skipped — sequence continues (next=$nextExpected)",
+                            "NetworkUtils: dispatcher skipping unparseable seq=$skipped — sequence continues " +
+                                "(next=$nextExpected, skipped this connection=$skippedTotal)",
                         )
                     }
                 }

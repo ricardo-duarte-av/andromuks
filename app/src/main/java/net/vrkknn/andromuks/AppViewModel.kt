@@ -4078,8 +4078,26 @@ class AppViewModel : ViewModel() {
                 // clear_state, so reconcile it now against the complete batch — drop any cached
                 // room absent from the authoritative set. Only safe on a clear_state batch; an
                 // incremental batch's room set is a delta, not the full membership.
-                if (isClearStateBatch) {
+                //
+                // And only safe if we actually received the whole batch. The prune reads "absent
+                // from seenRoomIds" as "we were removed from this room" and deletes it from RAM,
+                // RoomListCache and the persisted RoomMetadataStore — but a frame the parse
+                // pipeline had to skip is equally absent, and one skipped sync_complete carries
+                // ~99 rooms. Deleting on that evidence is unrecoverable and re-runs on every cold
+                // start; keeping stale rooms is not. So a lost frame anywhere on this connection
+                // disarms the prune and we leave the cached list alone until a clean batch
+                // arrives. See WebSocketService.skippedFrameCount and the "NaN" displayname
+                // postmortem on kotlinxJsonElementToOrgJson.
+                val skippedFrames = net.vrkknn.andromuks.WebSocketService.skippedFrameCount()
+                if (isClearStateBatch && skippedFrames == 0) {
                     syncRoomsCoordinator.pruneStaleRoomsAfterClearState(seenRoomIds)
+                } else if (isClearStateBatch) {
+                    android.util.Log.w(
+                        "Andromuks",
+                        "clear_state diff-prune SKIPPED: $skippedFrames frame(s) were unparseable on this " +
+                            "connection, so the batch (seen=${seenRoomIds.size} rooms) is not authoritative — " +
+                            "keeping the cached room list rather than deleting rooms we may simply have missed",
+                    )
                 }
             }
 

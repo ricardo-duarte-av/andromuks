@@ -772,6 +772,31 @@ class WebSocketService : Service() {
             connectionEpoch.incrementAndGet()
         }
 
+        // Frames the parse pipeline could not convert, which the ordered dispatcher skipped to keep
+        // the sequence advancing (see the dispatcher in NetworkUtils.connectToWebsocket). Counted
+        // per connection and reset where the pipeline itself is created.
+        //
+        // This exists to make one specific inference unsafe. The clear_state diff-prune treats "a
+        // cached room that did not appear anywhere in the authoritative batch" as "we were removed
+        // from that room", and deletes it from RAM, RoomListCache and the persisted
+        // RoomMetadataStore. That inference is only sound if we actually SAW the whole batch — and a
+        // skipped frame means we did not. A single unparseable ~350 KB sync_complete carries ~99
+        // rooms, so the prune would turn one bad frame into ~99 permanently deleted rooms, which is
+        // exactly what a "NaN" displayname did before the converter was fixed. Non-zero here means
+        // the batch was incomplete: stale rooms are the correct failure mode, deleted ones are not.
+        private val skippedFrameCounter = java.util.concurrent.atomic.AtomicInteger(0)
+
+        /** Called where the parse pipeline is built, so the count covers exactly one connection. */
+        fun resetSkippedFrameCount() {
+            skippedFrameCounter.set(0)
+        }
+
+        /** @return the new total, for logging at the skip site. */
+        fun recordSkippedFrame(): Int = skippedFrameCounter.incrementAndGet()
+
+        /** Non-zero ⇒ this connection lost at least one frame; treat any batch as incomplete. */
+        fun skippedFrameCount(): Int = skippedFrameCounter.get()
+
         // Local-only routing ids for HTTP /exec responses (battery-saver mode). The /exec endpoint
         // ignores request_id entirely — it never goes on the wire (see ExecCommandCoordinator), so
         // the id only has to be unique against the WS allocator *within this process* to route the
