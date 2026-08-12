@@ -113,6 +113,7 @@ class RoomWidget : GlanceAppWidget() {
     private fun WidgetBody(snapshot: RoomWidgetSnapshot?, roomId: String?) {
         val context = LocalContext.current
         val visible = visibleMessages(snapshot?.messages.orEmpty())
+        val compact = isCompact()
 
         Column(
             modifier = GlanceModifier
@@ -120,11 +121,14 @@ class RoomWidget : GlanceAppWidget() {
                 .appWidgetBackground()
                 .background(GlanceTheme.colors.widgetBackground)
                 .cornerRadius(16.dp)
-                .padding(12.dp)
+                .padding(
+                    horizontal = 12.dp,
+                    vertical = (if (compact) COMPACT_ROOT_PADDING_DP else ROOT_PADDING_DP).dp,
+                )
                 .clickable(openRoomAction(context, roomId ?: snapshot?.roomId)),
         ) {
-            WidgetHeader(snapshot, roomId ?: snapshot?.roomId)
-            Spacer(GlanceModifier.size(8.dp))
+            WidgetHeader(snapshot, roomId ?: snapshot?.roomId, compact)
+            Spacer(GlanceModifier.size((if (compact) COMPACT_HEADER_GAP_DP else HEADER_GAP_DP).dp))
             when {
                 snapshot == null -> CenteredNotice("Tap to configure")
 
@@ -144,22 +148,25 @@ class RoomWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun WidgetHeader(snapshot: RoomWidgetSnapshot?, roomId: String?) {
+    private fun WidgetHeader(snapshot: RoomWidgetSnapshot?, roomId: String?, compact: Boolean) {
+        // Pinned, so the 48dp touch target cannot silently make the header taller than the budget
+        // [visibleMessages] was computed against.
+        val headerHeight = if (compact) COMPACT_HEADER_HEIGHT_DP else TAP_TARGET_DP
         Row(
-            modifier = GlanceModifier.fillMaxWidth(),
+            modifier = GlanceModifier.fillMaxWidth().height(headerHeight.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             val roomAvatar = remember(snapshot?.roomAvatarPath) {
                 snapshot?.roomAvatarPath?.let { decodeAvatarFile(it) }
             }
-            AvatarImage(bitmap = roomAvatar, sizeDp = 24)
+            AvatarImage(bitmap = roomAvatar, sizeDp = if (compact) 20 else 24)
             Spacer(GlanceModifier.width(8.dp))
             Text(
                 text = snapshot?.roomName?.takeIf { it.isNotBlank() } ?: "Andromuks",
                 maxLines = 1,
                 style = TextStyle(
                     color = GlanceTheme.colors.onSurface,
-                    fontSize = 15.sp,
+                    fontSize = if (compact) 13.sp else 15.sp,
                     fontWeight = FontWeight.Bold,
                 ),
                 modifier = GlanceModifier.defaultWeight(),
@@ -169,11 +176,11 @@ class RoomWidget : GlanceAppWidget() {
             // pixels, so the only honest feedback is showing that the tap was received.
             if (snapshot?.refreshing == true) {
                 Box(
-                    modifier = GlanceModifier.size(TAP_TARGET_DP.dp),
+                    modifier = GlanceModifier.width(TAP_TARGET_DP.dp).height(headerHeight.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator(
-                        modifier = GlanceModifier.size(20.dp),
+                        modifier = GlanceModifier.size(if (compact) 16.dp else 20.dp),
                         color = GlanceTheme.colors.onSurfaceVariant,
                     )
                 }
@@ -181,9 +188,13 @@ class RoomWidget : GlanceAppWidget() {
                 // The icon is 24dp but its touch target is 48dp — the Android minimum. At 24dp a
                 // near-miss landed on the root Column instead and silently opened the room, which
                 // reads as "the button does nothing".
+                //
+                // Compact keeps the full 48dp *width* and gives up only the height: a short widget
+                // has no vertical room to spare, and horizontal near-misses are the common ones.
                 Box(
                     modifier = GlanceModifier
-                        .size(TAP_TARGET_DP.dp)
+                        .width(TAP_TARGET_DP.dp)
+                        .height(headerHeight.dp)
                         .clickable(
                             actionRunCallback<RefreshWidgetAction>(
                                 // Prefer the binding over the snapshot: a widget whose first
@@ -201,7 +212,7 @@ class RoomWidget : GlanceAppWidget() {
                         provider = ImageProvider(R.drawable.ic_widget_refresh),
                         contentDescription = "Refresh",
                         colorFilter = androidx.glance.ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
-                        modifier = GlanceModifier.size(24.dp),
+                        modifier = GlanceModifier.size(if (compact) 20.dp else 24.dp),
                     )
                 }
             }
@@ -385,7 +396,8 @@ class RoomWidget : GlanceAppWidget() {
     @Composable
     private fun visibleMessages(all: List<WidgetMessage>): List<WidgetMessage> {
         if (all.isEmpty()) return emptyList()
-        val budget = (LocalSize.current.height.value - CHROME_HEIGHT_DP).coerceAtLeast(0f)
+        val chrome = if (isCompact()) COMPACT_CHROME_HEIGHT_DP else CHROME_HEIGHT_DP
+        val budget = (LocalSize.current.height.value - chrome).coerceAtLeast(0f)
 
         val picked = mutableListOf<WidgetMessage>() // newest first while building
         var used = 0f
@@ -403,6 +415,16 @@ class RoomWidget : GlanceAppWidget() {
         // say something rather than render an empty card.
         return picked.reversed()
     }
+
+    /**
+     * Whether to draw the short-widget chrome.
+     *
+     * At the full 80dp of chrome a 4x1 widget has less than one 44dp row of budget left, so its
+     * single message was drawn past the bottom edge and clipped. Compact trades header presence for
+     * the ~36dp that makes that row fit, and only at sizes where the trade is forced.
+     */
+    @Composable
+    private fun isCompact(): Boolean = LocalSize.current.height.value < COMPACT_THRESHOLD_DP
 
     /** The render-time rule [visibleMessages] budgets against: first row, or the sender changed. */
     private fun showsSender(messages: List<WidgetMessage>, index: Int): Boolean = index == 0 ||
@@ -440,13 +462,18 @@ class RoomWidget : GlanceAppWidget() {
         /** Android's minimum touch target. The refresh glyph is 24dp inside this. */
         private const val TAP_TARGET_DP = 48f
 
-        /**
-         * Everything above the message list: the root Column's 12dp top+bottom padding (24), the
-         * header row (whose tallest element is the refresh button's touch target) and the 8dp
-         * spacer under it.
-         */
+        private const val ROOT_PADDING_DP = 12f
+        private const val HEADER_GAP_DP = 8f
 
-        private const val CHROME_HEIGHT_DP = 24f + TAP_TARGET_DP + 8f
+        /**
+         * Everything above the message list: the root Column's top+bottom padding, the header row
+         * (whose tallest element is the refresh button's touch target) and the spacer under it.
+         *
+         * This must stay in step with what [WidgetBody] and [WidgetHeader] actually draw — it is
+         * the budget [visibleMessages] spends, and overstating the space available is precisely
+         * what renders a row past the bottom edge.
+         */
+        private const val CHROME_HEIGHT_DP = 2f * ROOT_PADDING_DP + TAP_TARGET_DP + HEADER_GAP_DP
 
         /**
          * A row that draws the sender: 3dp+3dp padding around `max(28dp avatar, 17dp name line +
@@ -456,6 +483,20 @@ class RoomWidget : GlanceAppWidget() {
 
         /** A continuation row: padding around a single 20dp body line, with no avatar and no name. */
         private const val CONTINUATION_ROW_HEIGHT_DP = 26f
+
+        /**
+         * Below this height the full chrome leaves no room for even one message row, so the compact
+         * header is used instead. 4x1 lands here on every launcher we have seen; 4x2 does not.
+         */
+        private const val COMPACT_THRESHOLD_DP = CHROME_HEIGHT_DP + SENDER_ROW_HEIGHT_DP
+
+        private const val COMPACT_ROOT_PADDING_DP = 6f
+        private const val COMPACT_HEADER_GAP_DP = 4f
+        private const val COMPACT_HEADER_HEIGHT_DP = 28f
+
+        /** [CHROME_HEIGHT_DP]'s counterpart for the compact header: 12 + 28 + 4 = 44dp. */
+        private const val COMPACT_CHROME_HEIGHT_DP =
+            2f * COMPACT_ROOT_PADDING_DP + COMPACT_HEADER_HEIGHT_DP + COMPACT_HEADER_GAP_DP
 
         /**
          * Ceiling on distinct avatar bitmaps in one update.

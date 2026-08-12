@@ -109,6 +109,18 @@ Two consequences worth keeping:
 The floor is 1, not 5. A floor above what actually fits is precisely what pushes content off the
 bottom edge.
 
+**The header shrinks below `COMPACT_THRESHOLD_DP`.** Full chrome is 80dp — 12dp root padding top and
+bottom, a header row as tall as the refresh button's 48dp touch target, and an 8dp spacer. At 4x1
+that leaves under 44dp, so the one message the widget could show was drawn past the bottom edge and
+clipped. `isCompact()` (height < chrome + one sender row) switches to 6dp padding, a 28dp header and
+a 4dp spacer — 44dp of chrome — which buys back exactly the row that was being lost. The refresh
+button keeps its full 48dp *width* in compact and gives up only height; horizontal near-misses are
+the ones that were actually reported. Header avatar, title and glyph step down with it.
+
+`CHROME_HEIGHT_DP` / `COMPACT_CHROME_HEIGHT_DP` are the budget `visibleMessages` spends, so they
+must stay in step with what `WidgetBody` and `WidgetHeader` actually draw — that is why the header
+row's height is now pinned rather than left to be dictated by its tallest child.
+
 `MAX_MESSAGE_LIMIT` is **30**, not a tidy 10: a full-screen widget showing one person talking fits
 ~28 continuation rows, and the original cap left most of that empty. What bounds it is the
 RemoteViews transaction, not the constant — see the bitmap budget below.
