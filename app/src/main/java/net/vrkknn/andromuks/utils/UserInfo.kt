@@ -1221,21 +1221,6 @@ fun UserInfoScreen(
                                 )
                             }
 
-                            // Gradient overlay for better avatar visibility
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        androidx.compose.ui.graphics.Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color.Transparent,
-                                                MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                            ),
-                                            startY = 100f,
-                                        ),
-                                    ),
-                            )
-
                             // Edit button for own profile (top-right corner)
                             if (isOwnProfile) {
                                 IconButton(
