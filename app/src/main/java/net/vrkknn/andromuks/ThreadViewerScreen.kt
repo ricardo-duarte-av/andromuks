@@ -1142,11 +1142,57 @@ fun ThreadViewerScreen(
             }
     }
 
-    // No auto-scroll-to-bottom effect: with reverseLayout the list starts at index 0 — the newest
-    // reply — and stays pinned there as replies arrive, so the bottom is the default resting place.
-    // The effect this replaces keyed on timelineItems.size and force-scrolled on every size change,
-    // which yanked you to the bottom whenever a reply landed while you were reading further up.
-    // Sending is still an unconditional "take me to the bottom" intent and scrolls explicitly.
+    // Sending is an unconditional "take me to the bottom" intent. It cannot be served by scrolling
+    // at send time, though: the local echo does not exist yet, so scrollToItem(0) lands on the
+    // message *before* the one being sent, and when the echo is then prepended at index 0 LazyList
+    // preserves the anchored item by its stable key — firstVisibleItemIndex becomes 1 and the new
+    // reply sits just below the viewport. That is why sends here appeared to not scroll at all.
+    //
+    // So sending only arms the intent, and the effect below consumes it on the next item-list
+    // change. Arming rather than force-scrolling on every size change is deliberate: the effect
+    // this replaces keyed on timelineItems.size and scrolled unconditionally, which yanked you to
+    // the bottom whenever someone else's reply landed while you were reading further up.
+    var pendingOutgoingSnap by remember { mutableStateOf(false) }
+
+    fun snapToBottomForOutgoing() {
+        pendingOutgoingSnap = true
+    }
+
+    // Identity of the newest rendered item — index 0 in the reversed list, i.e. the visual bottom.
+    // Keyed on this rather than on size so an echo swapped for the real event (same size, different
+    // key, usually a different height) still re-anchors.
+    val newestItemKey = timelineItems.lastOrNull()?.stableKey
+
+    LaunchedEffect(newestItemKey) {
+        if (!pendingOutgoingSnap || timelineItems.isEmpty()) {
+            return@LaunchedEffect
+        }
+        // Consume the intent up front so a failed send can't leave it armed — a latched flag would
+        // yank the reader to the bottom on every later reply, which is the regression this design
+        // exists to avoid.
+        pendingOutgoingSnap = false
+        // Launched outside this effect so the settle pass survives the restart that the next item
+        // change causes.
+        coroutineScope.launch {
+            // Unconditional — do not re-read firstVisibleItemIndex and skip on 0. This runs around
+            // the frame that applies the insertion, so that read is a coin flip between the
+            // pre-insert anchor (0) and the post-insert one (1). scrollToItem(0) is correct at
+            // either point: it forgets the last-known anchor key, so the next measure pass takes
+            // index 0 literally, and it is a no-op when already there.
+            listState.scrollToItem(0)
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "Andromuks",
+                    "ThreadViewerScreen: Re-anchored to bottom for outgoing reply (newest=$newestItemKey)",
+                )
+            }
+            // Settle pass: catches height that only materialises after the insertion frame — the
+            // echo being replaced by a taller server-rendered body, a URL preview or media
+            // resolving.
+            kotlinx.coroutines.delay(150)
+            listState.scrollToItem(0)
+        }
+    }
 
     // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
     // This prevents loading 15,000+ profiles upfront for large rooms
@@ -2254,6 +2300,15 @@ fun ThreadViewerScreen(
                                                             }
                                                         }
 
+                                                        // Sending means "put me at the bottom" —
+                                                        // except an edit, which must leave you
+                                                        // where the edited message is. Mirrors the
+                                                        // send button below; this path previously
+                                                        // did not scroll at all.
+                                                        if (editingEvent == null) {
+                                                            snapToBottomForOutgoing()
+                                                        }
+
                                                         when {
                                                             editingEvent != null -> {
                                                                 appViewModel.sendEdit(roomId, draft, editingEvent!!)
@@ -2413,10 +2468,11 @@ fun ThreadViewerScreen(
                                             // reverseLayout pins the bottom only while you are
                                             // already there; if you had scrolled up to reply,
                                             // nothing would bring you back to your own message.
+                                            // Arms the intent rather than scrolling now — the reply
+                                            // does not exist yet, so scrolling here would land on
+                                            // the message before it.
                                             if (!wasEdit) {
-                                                coroutineScope.launch {
-                                                    listState.animateScrollToItem(0)
-                                                }
+                                                snapToBottomForOutgoing()
                                             }
                                         }
                                     },
@@ -2569,6 +2625,7 @@ fun ThreadViewerScreen(
                             LocationPickerOverlay(
                                 onDismiss = { showLocationPickerOverlay = false },
                                 onSendLocation = { lat, lon, caption ->
+                                    snapToBottomForOutgoing()
                                     appViewModel.sendLocationMessage(
                                         roomId = roomId,
                                         latitude = lat,
@@ -2694,6 +2751,7 @@ fun ThreadViewerScreen(
                         threadRootEventId = threadRootEventId,
                         replyToEventId = replyingToEvent?.eventId,
                         onSend = {
+                            snapToBottomForOutgoing()
                             draft = ""
                             textFieldValue = TextFieldValue("")
                             replyingToEvent = null
@@ -2912,6 +2970,7 @@ fun ThreadViewerScreen(
                                 val mentionIds = replyingToEvent?.sender?.let { listOf(it) } ?: emptyList()
                                 val isFallback = replyTarget == null || replyingToEvent == null
 
+                                snapToBottomForOutgoing()
                                 appViewModel.sendStickerMessage(
                                     roomId = roomId,
                                     mxcUrl = sticker.mxcUrl,
@@ -2957,6 +3016,7 @@ fun ThreadViewerScreen(
                             onSend = { caption, compressOriginal ->
                                 // Close dialog immediately - upload will continue in background
                                 showMediaPreview = false
+                                snapToBottomForOutgoing()
 
                                 // Clear media selection state immediately so user can select new media
                                 val mediaUriToUpload = selectedMediaUri

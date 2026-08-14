@@ -1787,7 +1787,15 @@ fun BubbleTimelineScreen(
     // snapshotFlow below for why the position alone is not trustworthy.
     var userDraggedSinceSettle by remember { mutableStateOf(false) }
 
+    // Identity of the newest rendered item — index 0 in the reversed list, i.e. the visual bottom.
+    // The re-anchor effect below keys on this rather than on timelineItems.size so it also fires
+    // when a local echo is swapped for the real event: same size, different key, usually a
+    // different height.
+    val newestItemKey = timelineItems.lastOrNull()?.stableKey
+
     // Sending is an unconditional "take me to the bottom" intent — never a scroll-position question.
+    // The scroll here only covers the case where you were scrolled up when you hit send; the message
+    // itself does not exist yet, so landing on it is the job of the newestItemKey effect below.
     fun snapToBottomForOutgoing() {
         isAttachedToBottom = true
         userDraggedSinceSettle = false
@@ -1817,28 +1825,30 @@ fun BubbleTimelineScreen(
         }
     }
 
-    // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
-    // With reverseLayout, index 0 is bottom (newest message)
-    // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
-    // With reverseLayout, index 0 is bottom (newest message)
+    // Re-anchor to the visual bottom whenever the newest item changes while attached.
+    //
+    // This must scroll *unconditionally* — reading listState.firstVisibleItemIndex here and skipping
+    // when it is already 0 is what used to make sent messages land below the fold. LaunchedEffect
+    // bodies are dispatched around the frame that applies the insertion, so whether this reads the
+    // pre-insert anchor (still 0) or the post-insert one (remapped to 1, because item keys are
+    // stable and LazyList preserves the anchored item across a prepend) is a frame-timing coin
+    // flip. Losing that flip left the new message one row below the viewport with nothing to
+    // correct it. scrollToItem(0) is correct at either point in the frame and is a no-op when
+    // already there: it forgets the last-known anchor key, so the following measure pass takes
+    // index 0 literally. See the twin effect in RoomTimelineScreen.
+    //
     // CRITICAL: Skip during scroll restoration (pagination) to avoid jumping to bottom
-    LaunchedEffect(timelineItems.size, isAttachedToBottom) {
+    LaunchedEffect(newestItemKey, isAttachedToBottom) {
         if (pendingScrollRestoration) {
             return@LaunchedEffect // Don't scroll during pagination scroll restoration
         }
         if (timelineItems.isNotEmpty() && isAttachedToBottom && hasSetInitialScrollPosition) {
-            val currentFirstVisible = listState.firstVisibleItemIndex
-
-            // Only adjust if we're not already at bottom (index 0)
-            if (currentFirstVisible > 0) {
-                // Immediately adjust scroll position - happens in same frame as item addition
-                listState.scrollToItem(0)
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "BubbleTimelineScreen: Adjusted scroll position for new items (was at index=$currentFirstVisible, scrolled to 0) - reverseLayout",
-                    )
-                }
+            listState.scrollToItem(0)
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: Re-anchored to bottom for newest item $newestItemKey (items=${timelineItems.size})",
+                )
             }
         }
     }
@@ -2316,33 +2326,23 @@ fun BubbleTimelineScreen(
             return@LaunchedEffect
         }
 
-        // CRITICAL FIX: When attached and new messages arrive, verify we're actually at bottom
-        // With reverseLayout, firstVisibleItemIndex == 0 means at bottom
+        // Settle pass: the effect above already re-anchored in the insertion frame; this catches
+        // height that only materialises afterwards (media, previews, decrypted bodies resolving).
+        // Like that effect it scrolls unconditionally rather than re-reading firstVisibleItemIndex
+        // — the read is the unreliable part, and skipping on a stale 0 is what left sent messages
+        // below the fold. isAttachedToBottom is an effect key, so a finger arriving during the
+        // delay cancels this body before it can fight the user's drag.
         if (hasNewItems && isAttachedToBottom && lastEventId != null && lastEventId != lastKnownTimelineEventId) {
             // Wait a moment for layout to settle after new items are added
             kotlinx.coroutines.delay(100)
 
-            // Re-check conditions after delay
             if (listState.layoutInfo.totalItemsCount > 0 && timelineItems.isNotEmpty()) {
-                val currentFirstVisible = listState.firstVisibleItemIndex
-                val currentOffset = listState.firstVisibleItemScrollOffset
-                val actuallyAtBottom = currentFirstVisible == 0 && currentOffset < 100
-
-                if (!actuallyAtBottom) {
-                    // We're attached but not actually at bottom - scroll to bottom
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            "Andromuks",
-                            "BubbleTimelineScreen: Attached but not at bottom (firstVisible=$currentFirstVisible). animateScrollToItem to bottom (index=0).",
-                        )
-                    }
-                    coroutineScope.launch {
-                        // New-message scroll is a short hop — don't suppress images for it.
-                        listState.animateScrollToItem(0)
-                    }
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "Andromuks",
+                        "BubbleTimelineScreen: Settle re-anchor to bottom (newest=$lastEventId).",
+                    )
                 }
-            } else {
-                // Fallback: just scroll if we can't verify position
                 coroutineScope.launch {
                     // New-message scroll is a short hop — don't suppress images for it.
                     listState.animateScrollToItem(0)
@@ -4228,6 +4228,7 @@ fun BubbleTimelineScreen(
                         threadRootEventId = null,
                         replyToEventId = replyingToEvent?.eventId,
                         onSend = {
+                            snapToBottomForOutgoing()
                             draft = ""
                             textFieldValue = TextFieldValue("")
                             replyingToEvent = null
@@ -4691,6 +4692,7 @@ fun BubbleTimelineScreen(
                             LocationPickerOverlay(
                                 onDismiss = { showLocationPickerOverlay = false },
                                 onSendLocation = { lat, lon, caption ->
+                                    snapToBottomForOutgoing()
                                     appViewModel.sendLocationMessage(roomId, lat, lon, description = caption)
                                     showLocationPickerOverlay = false
                                 },
@@ -4875,6 +4877,7 @@ fun BubbleTimelineScreen(
                                 val height = sticker.info?.optInt("h", 0) ?: 0
                                 val body = sticker.body ?: sticker.name
 
+                                snapToBottomForOutgoing()
                                 appViewModel.sendStickerMessage(
                                     roomId = roomId,
                                     mxcUrl = sticker.mxcUrl,
@@ -4917,6 +4920,7 @@ fun BubbleTimelineScreen(
                             onSend = { caption, compressOriginal ->
                                 // Close dialog immediately - upload will continue in background
                                 showMediaPreview = false
+                                snapToBottomForOutgoing()
 
                                 // Clear media selection state immediately so user can select new media
                                 val mediaUriToUpload = selectedMediaUri

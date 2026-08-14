@@ -2340,7 +2340,15 @@ fun RoomTimelineScreen(
     // snapshotFlow below for why the position alone is not trustworthy.
     var userDraggedSinceSettle by remember { mutableStateOf(false) }
 
+    // Identity of the newest rendered item — index 0 in the reversed list, i.e. the visual bottom.
+    // The auto-scroll effects below key on this rather than on timelineItems.size so they also fire
+    // when a local echo is swapped for the real event: same size, different key, and usually a
+    // different height once the server content (edits, previews, decrypted media) lands.
+    val newestItemKey = timelineItems.lastOrNull()?.stableKey
+
     // Sending is an unconditional "take me to the bottom" intent — never a scroll-position question.
+    // The scroll here only covers the case where you were scrolled up when you hit send; the message
+    // itself does not exist yet, so landing on it is the job of the newestItemKey effect below.
     fun snapToBottomForOutgoing() {
         isAttachedToBottom = true
         userDraggedSinceSettle = false
@@ -2421,10 +2429,22 @@ fun RoomTimelineScreen(
         )
     }
 
-    // CRITICAL FIX: When new items are added while attached, adjust scroll position immediately
-    // With reverseLayout, index 0 is bottom (newest message)
+    // Re-anchor to the visual bottom whenever the newest item changes while attached.
+    //
+    // This must scroll *unconditionally* — reading listState.firstVisibleItemIndex here and skipping
+    // when it is already 0 is what used to make sent messages land below the fold. LaunchedEffect
+    // bodies are dispatched around the frame that applies the insertion, so whether this reads the
+    // pre-insert anchor (still 0) or the post-insert one (remapped to 1, because item keys are
+    // stable and LazyList preserves the anchored item across a prepend) is a frame-timing coin
+    // flip. Losing that flip skipped the scroll and left the new message one row below the viewport
+    // with nothing to correct it — most visibly on our own sends, and most often with a menu bar
+    // open, since the animated timelineMenuInset resizes the viewport across exactly those frames.
+    //
+    // scrollToItem(0) is correct at either point in the frame and is a no-op when already there:
+    // it forgets the last-known anchor key, so the following measure pass takes index 0 literally.
+    //
     // CRITICAL: Skip during scroll restoration (pagination) to avoid jumping to bottom
-    LaunchedEffect(timelineItems.size, isAttachedToBottom) {
+    LaunchedEffect(newestItemKey, isAttachedToBottom) {
         if (pendingScrollRestoration) {
             return@LaunchedEffect // Don't scroll during pagination scroll restoration
         }
@@ -2436,18 +2456,12 @@ fun RoomTimelineScreen(
             return@LaunchedEffect
         }
         if (timelineItems.isNotEmpty() && isAttachedToBottom && hasSetInitialScrollPosition) {
-            val currentFirstVisible = listState.firstVisibleItemIndex
-
-            // Only adjust if we're not already at bottom (index 0)
-            if (currentFirstVisible > 0) {
-                // Immediately adjust scroll position - happens in same frame as item addition
-                listState.scrollToItem(0)
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Adjusted scroll position for new items (was at index=$currentFirstVisible, scrolled to 0) - reverseLayout",
-                    )
-                }
+            listState.scrollToItem(0)
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Re-anchored to bottom for newest item $newestItemKey (items=${timelineItems.size}) - reverseLayout",
+                )
             }
         }
     }
@@ -2794,61 +2808,36 @@ fun RoomTimelineScreen(
     // CRITICAL: Skip auto-scroll during keyboard transitions to prevent scroll position loss
     // CRITICAL: Skip during scroll restoration (pagination) to avoid jumping to bottom
     // PERFORMANCE: Use isKeyboardOpen derived state instead of imeBottom to reduce recomposition
-    LaunchedEffect(timelineItems.size, isAttachedToBottom, isKeyboardOpen) {
+    LaunchedEffect(newestItemKey, isAttachedToBottom, isKeyboardOpen) {
         if (pendingScrollRestoration) {
             return@LaunchedEffect // Don't scroll during pagination scroll restoration
         }
         if (!hasInitialSnapCompleted || !hasLoadedInitialBatch) {
             return@LaunchedEffect
         }
-
-        if (timelineItems.isEmpty() || listState.layoutInfo.totalItemsCount == 0) {
+        if (!isAttachedToBottom || timelineItems.isEmpty()) {
             return@LaunchedEffect
         }
 
-        if (isKeyboardOpen && isAttachedToBottom) {
-            // Keyboard is open and we're attached - just scroll to bottom for new messages
-            // With reverseLayout, index 0 is bottom
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Keyboard open, attached to bottom, new message arrived. Scrolling to bottom (index=0)",
-                )
-            }
-            coroutineScope.launch {
-                // Small delay to let message render
-                kotlinx.coroutines.delay(50)
-                listState.scrollToItem(0)
-            }
-            return@LaunchedEffect // Skip the position check below when keyboard is open
+        // Settle delay, then re-anchor. The effect above already scrolled in the insertion frame;
+        // this second pass catches height that only materialises afterwards — a row that grows once
+        // its media, URL preview or decrypted body resolves, or the animated timelineMenuInset
+        // resizing the viewport while a menu bar opens or closes.
+        //
+        // Like the effect above this scrolls unconditionally rather than re-reading
+        // firstVisibleItemIndex: the read is the unreliable part. isAttachedToBottom is an effect
+        // key, so a finger arriving during the delay flips it false and cancels this body before it
+        // can fight the user's drag.
+        kotlinx.coroutines.delay(if (isKeyboardOpen) 50 else 100)
+        if (listState.layoutInfo.totalItemsCount == 0) {
+            return@LaunchedEffect
         }
-
-        // CRITICAL: Only check scroll position when keyboard is CLOSED
-        // With reverseLayout, firstVisibleItemIndex == 0 means at bottom
-        if (!isKeyboardOpen && isAttachedToBottom && timelineItems.isNotEmpty()) {
-            // Wait a moment for layout to settle after new items are added
-            kotlinx.coroutines.delay(100)
-
-            // Re-check conditions after delay
-            if (listState.layoutInfo.totalItemsCount > 0 && timelineItems.isNotEmpty()) {
-                val currentFirstVisible = listState.firstVisibleItemIndex
-                val currentOffset = listState.firstVisibleItemScrollOffset
-                // Match attachment tolerance (index==0 && offset<100) to avoid scroll fighting
-                val actuallyAtBottom = currentFirstVisible == 0 && currentOffset < 100
-
-                if (!actuallyAtBottom) {
-                    // We're attached but not actually at bottom - scroll to bottom
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Keyboard closed, attached to bottom but not at bottom (firstVisible=$currentFirstVisible). Auto-scrolling to show new items.",
-                        )
-                    }
-                    coroutineScope.launch {
-                        listState.scrollToItem(0)
-                    }
-                }
-            }
+        listState.scrollToItem(0)
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Settle re-anchor to bottom (keyboardOpen=$isKeyboardOpen, newest=$newestItemKey)",
+            )
         }
     }
 
@@ -5468,6 +5457,7 @@ fun RoomTimelineScreen(
                             LocationPickerOverlay(
                                 onDismiss = { showLocationPickerOverlay = false },
                                 onSendLocation = { lat, lon, caption ->
+                                    snapToBottomForOutgoing()
                                     appViewModel.sendLocationMessage(roomId, lat, lon, description = caption)
                                     showLocationPickerOverlay = false
                                 },
@@ -5755,6 +5745,7 @@ fun RoomTimelineScreen(
                         threadRootEventId = null,
                         replyToEventId = replyingToEvent?.eventId,
                         onSend = {
+                            snapToBottomForOutgoing()
                             draft = ""
                             textFieldValue = TextFieldValue("")
                             replyingToEvent = null
@@ -6034,6 +6025,7 @@ fun RoomTimelineScreen(
                                 val height = sticker.info?.optInt("h", 0) ?: 0
                                 val body = sticker.body ?: sticker.name
 
+                                snapToBottomForOutgoing()
                                 appViewModel.sendStickerMessage(
                                     roomId = roomId,
                                     mxcUrl = sticker.mxcUrl,
@@ -6061,6 +6053,7 @@ fun RoomTimelineScreen(
                             onDismiss = { selectedMediaItems = null },
                             onSendAll = { list ->
                                 selectedMediaItems = null
+                                snapToBottomForOutgoing()
                                 coroutineScope.launch {
                                     // Local helper for uploads with retry
                                     suspend fun <T> performUpload(type: String, uploadBlock: suspend () -> T?): T? {
@@ -6247,6 +6240,7 @@ fun RoomTimelineScreen(
                             onSend = { caption, compressOriginal ->
                                 // Close dialog immediately - upload will continue in background
                                 showMediaPreview = false
+                                snapToBottomForOutgoing()
 
                                 // Clear media selection state immediately so user can select new media
                                 val mediaUriToUpload = selectedMediaUri
