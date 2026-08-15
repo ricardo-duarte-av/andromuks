@@ -47,6 +47,12 @@ fun AvatarImage(
     displayName: String? = null,
     isVisible: Boolean = true, // AVATAR LOADING OPTIMIZATION: Lazy loading control
     capAvatarSize: Boolean = false, // Caps the requested pixel size at 256px for list/timeline avatars (formerly also selected the now-removed CircleAvatarCache file:// path)
+    // Requests the original media instead of the backend's `?thumbnail=avatar` re-encode. That
+    // re-encode flattens animated GIF/WebP avatars to a single frame, so any surface that should
+    // animate must opt in here. Off by default: list and timeline avatars stay on the small
+    // static thumbnail, otherwise every visible animated avatar would decode and run its own
+    // frame loop.
+    useOriginalMedia: Boolean = false,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -65,9 +71,11 @@ fun AvatarImage(
     // When mxcUrl is null we leave the URL null and render the native Text fallback (colored circle
     // + initial) — lighter than decoding an identical-looking SVG (no CPU raster, no per-avatar
     // bitmap), while the glyph renders from the framework's shared GPU atlas over a solid fill.
-    var avatarUrl by remember(mxcUrl, effectiveUserId) {
+    var avatarUrl by remember(mxcUrl, effectiveUserId, useOriginalMedia) {
         if (mxcUrl == null) {
             mutableStateOf(null as String?)
+        } else if (useOriginalMedia) {
+            mutableStateOf(AvatarUtils.getFullImageUrl(context, mxcUrl, homeserverUrl))
         } else {
             mutableStateOf(AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl))
         }
@@ -166,7 +174,7 @@ fun AvatarImage(
     // crossfade(200) softens the swap from fallback-letter → bitmap; the swap itself is
     // unavoidable (Coil dispatches the request when AsyncImage composes), but a 200ms
     // fade makes it read as an intentional transition rather than a pop.
-    val imageRequest = remember(currentAvatarUrl, targetPixelSize, mxcUrl) {
+    val imageRequest = remember(currentAvatarUrl, targetPixelSize, mxcUrl, useOriginalMedia) {
         currentAvatarUrl?.let { url ->
             ImageRequest.Builder(context)
                 .data(url)
@@ -181,8 +189,16 @@ fun AvatarImage(
                     // cache (Coil stores each size as its own bitmap).
                     if (mxcUrl != null) {
                         // targetPixelSize is an Int (square px). Suffix it so two render
-                        // sizes for the same mxc URL keep separate cache entries.
-                        val key = "$mxcUrl@$targetPixelSize"
+                        // sizes for the same mxc URL keep separate cache entries. The
+                        // `orig` marker is part of the key too: the original media and the
+                        // backend's avatar thumbnail are different bytes for the same mxc,
+                        // and without it a cached thumbnail would satisfy (and re-flatten)
+                        // an original request at the same pixel size.
+                        val key = if (useOriginalMedia) {
+                            "$mxcUrl@$targetPixelSize@orig"
+                        } else {
+                            "$mxcUrl@$targetPixelSize"
+                        }
                         memoryCacheKey(key)
                         diskCacheKey(key)
                     }

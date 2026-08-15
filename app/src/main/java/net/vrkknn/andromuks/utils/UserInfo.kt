@@ -1313,6 +1313,9 @@ fun UserInfoScreen(
                                                 size = 120.dp,
                                                 userId = userId,
                                                 displayName = displayNameForAvatar,
+                                                // Original media, not `?thumbnail=avatar`: the
+                                                // backend re-encode drops GIF animation.
+                                                useOriginalMedia = true,
                                                 modifier = Modifier.sharedElement(
                                                     rememberSharedContentState(key = sharedAvatarKey),
                                                     animatedVisibilityScope = animatedVisibilityScope,
@@ -1333,6 +1336,7 @@ fun UserInfoScreen(
                                             size = 120.dp,
                                             userId = userId,
                                             displayName = displayNameForAvatar,
+                                            useOriginalMedia = true,
                                         )
                                     }
                                 }
@@ -1414,6 +1418,9 @@ fun UserInfoScreen(
                                     size = 120.dp,
                                     userId = userId,
                                     displayName = displayNameForAvatar,
+                                    // Original media, not `?thumbnail=avatar`: the backend
+                                    // re-encode drops GIF animation.
+                                    useOriginalMedia = true,
                                     modifier = Modifier.sharedElement(
                                         rememberSharedContentState(key = sharedAvatarKey),
                                         animatedVisibilityScope = animatedVisibilityScope,
@@ -1447,6 +1454,7 @@ fun UserInfoScreen(
                                 size = 120.dp,
                                 userId = userId,
                                 displayName = displayNameForAvatar,
+                                useOriginalMedia = true,
                             )
                         }
 
