@@ -1445,7 +1445,17 @@ fun BubbleTimelineScreen(
             }
         }
 
-        enhancedMap
+        // Apply the Matrix-ID fallback AFTER the injection above, not before. getMemberMapWithFallback
+        // already ran it over the room's own members, but currentUserProfile is spliced in here — so a
+        // blank own display name (the "" sentinel: profile fetched, no name configured) used to render
+        // as an empty sender label on your own messages.
+        enhancedMap.mapValues { (userId, profile) ->
+            val fallbackName = userId.removePrefix("@").substringBefore(":")
+            MemberProfile(
+                displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: fallbackName,
+                avatarUrl = profile.avatarUrl,
+            )
+        }
     }
 
     // List state and auto-scroll to bottom when data loads/changes
@@ -3245,12 +3255,22 @@ fun BubbleTimelineScreen(
                         }
 
                         // 4. Typing notification area (stacks naturally above text box)
+                        // Hoist getTypingUsersForRoom behind remember keyed on the observable
+                        // typingUsers field. It reads typingUsersMap, a plain map, so calling it
+                        // inline subscribed this composable to nothing — the typing indicator only
+                        // updated when something else happened to recompose the subtree. Reuse the
+                        // already-hoisted memberMap too, instead of calling getMemberMap(roomId)
+                        // inline on every parent recomposition (it falls back to
+                        // RoomTimelineCache.getCachedEvents() for non-current rooms).
+                        val typingUsersForRoom = remember(roomId, appViewModel.typingUsers) {
+                            appViewModel.getTypingUsersForRoom(roomId)
+                        }
                         TypingNotificationArea(
-                            typingUsers = appViewModel.getTypingUsersForRoom(roomId),
+                            typingUsers = typingUsersForRoom,
                             roomId = roomId,
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
-                            userProfileCache = appViewModel.getMemberMap(roomId),
+                            userProfileCache = memberMap,
                             appViewModel = appViewModel,
                         )
 
