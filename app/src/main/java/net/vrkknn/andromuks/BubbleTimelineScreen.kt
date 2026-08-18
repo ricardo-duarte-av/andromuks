@@ -1766,7 +1766,7 @@ fun BubbleTimelineScreen(
     var lastKnownTimelineEventId by remember { mutableStateOf<String?>(null) }
     var hasCompletedInitialLayout by remember { mutableStateOf(false) }
     var pendingInitialScroll by remember { mutableStateOf(true) }
-    var hasMarkedAsRead by remember(roomId) { mutableStateOf(false) }
+
     // UNIFIED OPEN PATH (mirrors RoomTimelineScreen): the notification's target event is a passive
     // highlight, NOT a scroll target. The normal bottom-scroll effect owns landing at the bottom for
     // every open. This used to scroll, and did it wrongly: `targetIndex` indexes `timelineItems`
@@ -1776,12 +1776,11 @@ fun BubbleTimelineScreen(
     //
     // Keying on `timelineItems` (reference) re-checks on each rebuild, so a later paginate merge
     // that brings the event into the window still highlights it.
-
     LaunchedEffect(
         pendingNotificationJumpEventId,
         timelineItems,
-        appViewModel.isContentVisible,
         readinessCheckComplete,
+        appViewModel.isContentVisible,
     ) {
         val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
         // Defer the highlight (and its auto-clear timer) until the content is actually visible.
@@ -1804,9 +1803,9 @@ fun BubbleTimelineScreen(
                     "BubbleTimelineScreen: Highlighting notification target event=$targetEventId in place (no scroll)",
                 )
             }
+        }
         // Not (yet) loaded: leave pendingNotificationJumpEventId set so a subsequent timeline
         // rebuild can still highlight it. remember(roomId) resets it on room change.
-        }
     }
 
     // A finger on the list is the only thing that expresses "I want to leave the bottom" — see the
@@ -2325,29 +2324,12 @@ fun BubbleTimelineScreen(
     // Auto-scroll after each individual message bubble animation completes
     // This ensures we scroll after each message is rendered, not just when all animations finish
 
-    // Mark room as read when initial load completes and last message is rendered
-    // CRITICAL: Only depend on hasInitialSnapCompleted and roomId - NOT timelineItems.size
-    // Including timelineItems.size causes the effect to restart on every timeline change,
-    // leading to hundreds of duplicate mark_read commands
-    LaunchedEffect(hasInitialSnapCompleted, roomId) {
-        if (hasInitialSnapCompleted && !hasMarkedAsRead && timelineItems.isNotEmpty()) {
-            // Get the last event ID from the timeline (find last Event, not DateDivider)
-            val lastEvent = timelineItems.lastOrNull() as? BubbleTimelineItem.Event
-                ?: timelineItems.reversed().firstOrNull { it is BubbleTimelineItem.Event } as? BubbleTimelineItem.Event
-            val lastEventId = lastEvent?.event?.eventId
-
-            if (lastEventId != null) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "BubbleTimelineScreen: Marking room $roomId as read with last event: $lastEventId",
-                    )
-                }
-                appViewModel.markRoomAsRead(roomId, lastEventId)
-                hasMarkedAsRead = true
-            }
-        }
-    }
+    // NOTE: markRoomAsRead is handled by navigateToRoomWithCache (and, for later arrivals, by the
+    // sync ingest path in AppViewModel), so this screen must not call it. This used to mark read
+    // here with the last *rendered* item, which is the anti-pattern those paths explicitly avoid:
+    // they target latestRowidEventId, because a rendered-last target can sit behind genuinely newer
+    // non-rendered events (e.g. com.beeper.message_send_status) and leave the room unread
+    // server-side — or regress m.fully_read below where the coordinator just put it.
 
     LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll, isLoading) {
         if (pendingInitialScroll && readinessCheckComplete && timelineItems.isNotEmpty() &&
@@ -2382,7 +2364,6 @@ fun BubbleTimelineScreen(
         lastInitialScrollSize = 0
         highlightedEventId = null
         highlightRequestId = 0
-        hasMarkedAsRead = false // Reset mark as read state when room changes
         appViewModel.promoteToPrimaryIfNeeded("bubble_timeline_$roomId")
 
         // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded
