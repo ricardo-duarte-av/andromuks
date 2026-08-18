@@ -3482,12 +3482,11 @@ fun BubbleTimelineScreen(
                                         val customEmojiPacks = appViewModel.customEmojiPacks
                                         val mentionAndEmojiTransformation = remember(colorScheme, customEmojiPacks) {
                                             VisualTransformation { text ->
-                                                val mentionRegex = Regex(
-                                                    """\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""",
-                                                )
-                                                // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
-                                                val customEmojiRegex =
-                                                    Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+                                                // Patterns are top-level vals: the transformation itself is remembered, but its
+                                                // lambda runs on every filter() call — i.e. every keystroke — and these were
+                                                // being compiled each time.
+                                                val mentionRegex = COMPOSER_MENTION_REGEX
+                                                val customEmojiRegex = COMPOSER_CUSTOM_EMOJI_REGEX
 
                                                 val annotatedString = buildAnnotatedString {
                                                     var lastIndex = 0

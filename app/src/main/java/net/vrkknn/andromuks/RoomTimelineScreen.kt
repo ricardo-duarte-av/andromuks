@@ -350,11 +350,11 @@ private val dateFormatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault
 
 // Composer VisualTransformation patterns. Compiled once — the transformation is remembered, but
 // its lambda runs per filter() call, i.e. on every keystroke.
-private val COMPOSER_MENTION_REGEX =
+internal val COMPOSER_MENTION_REGEX =
     Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
 
 // Custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
-private val COMPOSER_CUSTOM_EMOJI_REGEX =
+internal val COMPOSER_CUSTOM_EMOJI_REGEX =
     Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
 
 /** Format timestamp to date string (dd / MM / yyyy) */
