@@ -191,7 +191,6 @@ import net.vrkknn.andromuks.utils.detectCommandQuery
 import net.vrkknn.andromuks.utils.estimatedMenuBarHeight
 import net.vrkknn.andromuks.utils.isBarePerMessageProfileCommand
 import net.vrkknn.andromuks.utils.isBarePollCommand
-import net.vrkknn.andromuks.utils.isPollSatelliteEvent
 import net.vrkknn.andromuks.utils.isReactionEvent
 import net.vrkknn.andromuks.utils.rememberComposerCommandState
 import net.vrkknn.andromuks.utils.rememberTimelineMenuInset
@@ -245,115 +244,6 @@ private data class BubblePaginateSnapshot(
     val isTimelineLoading: Boolean,
     val hasMore: Boolean,
 )
-
-/** PERFORMANCE: Helper function to process timeline events in background */
-suspend fun bubbleProcessTimelineEvents(
-    timelineEvents: List<TimelineEvent>,
-    allowedEventTypes: Set<String>,
-    showHiddenEvents: Boolean = false,
-): List<TimelineEvent> = withContext(Dispatchers.Default) {
-    if (BuildConfig.DEBUG) {
-        Log.d(
-            "Andromuks",
-            "BubbleTimelineScreen: Background processing ${timelineEvents.size} timeline events",
-        )
-    }
-
-    // Debug: Log event types in timeline
-    val eventTypes = timelineEvents.groupBy { it.type }
-    if (BuildConfig.DEBUG) {
-        Log.d(
-            "Andromuks",
-            "BubbleTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(
-                ", ",
-            )}",
-        )
-    }
-
-    val filteredEvents = timelineEvents.filter { event ->
-        // Special events with timeline_rowid = -1 are context events for replies, not to be rendered directly
-        if (event.timelineRowid == -1L) return@filter false
-        // Redaction events are always hidden
-        if (event.type == "m.room.redaction") return@filter false
-        // Poll responses/ends are satellites of a poll bubble, never rows — same rule as redactions,
-        // and unconditional for the same reason. Checked structurally rather than via the whitelist:
-        // in an E2EE room they arrive as "m.room.encrypted", which IS whitelisted. Mirror of the
-        // same drop in processTimelineEvents (RoomTimelineScreen.kt).
-        if (isPollSatelliteEvent(event)) return@filter false
-        if (showHiddenEvents) return@filter true
-        // Filter out org.matrix.msc4075.* events (call notifications)
-        if (event.type.startsWith("org.matrix.msc4075.") ||
-            event.decryptedType?.startsWith("org.matrix.msc4075.") == true
-        ) {
-            return@filter false
-        }
-        // Filter out Element Call reaction events and call membership state events
-        if (event.type == "io.element.call.reaction" ||
-            event.decryptedType == "io.element.call.reaction" ||
-            event.type == "org.matrix.msc3401.call.member" ||
-            event.decryptedType == "org.matrix.msc3401.call.member"
-        ) {
-            return@filter false
-        }
-        // Only allow events in the whitelist
-        allowedEventTypes.contains(event.type)
-    }
-    if (BuildConfig.DEBUG) {
-        Log.d(
-            "Andromuks",
-            "BubbleTimelineScreen: After type filtering: ${filteredEvents.size} events",
-        )
-    }
-
-    // PERFORMANCE: Optimize edit filtering by creating a lookup set
-    val editedEventIds = filteredEvents.filter { event ->
-        if (event.type != "m.room.message") return@filter false
-        event.relationType == "m.replace" ||
-            event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-    }.mapNotNull { event ->
-        event.content?.optJSONObject("m.relates_to")?.optString("event_id")?.takeIf { it.isNotBlank() }
-            ?: event.relatesTo?.takeIf { event.relationType == "m.replace" && it.isNotBlank() }
-    }.toSet()
-
-    // Filter out superseded events using the lookup set for O(1) performance
-    val eventsWithoutSuperseded = filteredEvents.filter { event ->
-        if (event.type == "m.room.message") {
-            val isSuperseded = editedEventIds.contains(event.eventId)
-            if (isSuperseded) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        "Andromuks",
-                        "BubbleTimelineScreen: Filtering out edited event: ${event.eventId}",
-                    )
-                }
-            }
-            !isSuperseded
-        } else {
-            true // Keep non-message events
-        }
-    }
-
-    if (BuildConfig.DEBUG) {
-        Log.d(
-            "Andromuks",
-            "BubbleTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events",
-        )
-    }
-
-    // Sort by timeline_rowid (server order) while ensuring pending echoes (~ prefixed IDs)
-    // sort last. Chronicled backfilled events (negative rowid, lower=older) sort first.
-    val sorted = eventsWithoutSuperseded.sortedWith(
-        compareBy(
-            { it.eventId.startsWith("~") },
-            { it.timelineRowid },
-            { it.timestamp },
-            { it.eventId },
-        ),
-    )
-    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Final sorted events: ${sorted.size} events")
-
-    sorted
-}
 
 /** Floating room list for room mentions */
 @Composable
@@ -1388,19 +1278,28 @@ fun BubbleTimelineScreen(
     // PERFORMANCE: Use background processing for heavy filtering and sorting operations
     var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
     val showHiddenEvents = appViewModel.resolveShowHiddenEvents(roomId)
+    val showMembershipEvents = appViewModel.resolveShowMembershipEvents(roomId)
 
-    // Process timeline events in background when dependencies change
-    LaunchedEffect(timelineEvents, showHiddenEvents) {
+    // Process timeline events in background when dependencies change.
+    //
+    // This deliberately calls RoomTimelineScreen's processTimelineEvents rather than carrying a
+    // bubble-local copy. The copy had drifted into inverted edit semantics (it dropped the original
+    // and kept the m.replace event, which TimelineEventItem refuses to render) and never learned
+    // about show_membership_events. Since the receipt-flattening anchor set is derived from
+    // sortedEvents, any filter divergence also silently misplaces read-receipt avatars — see
+    // docs/RECEIPTS.md. One filter, one set of rules, for every timeline surface.
+    LaunchedEffect(timelineEvents, showHiddenEvents, showMembershipEvents) {
         if (BuildConfig.DEBUG) {
             Log.d(
                 "Andromuks",
                 "BubbleTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, roomId=$roomId",
             )
         }
-        sortedEvents = bubbleProcessTimelineEvents(
+        sortedEvents = processTimelineEvents(
             timelineEvents = timelineEvents,
             allowedEventTypes = allowedEventTypes,
             showHiddenEvents = showHiddenEvents,
+            showMembershipEvents = showMembershipEvents,
         )
     }
 
