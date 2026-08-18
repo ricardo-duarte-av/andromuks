@@ -540,7 +540,9 @@ fun MentionMemberList(
                 username.contains(query, ignoreCase = true) ||
                 userId.contains(query, ignoreCase = true)
         }.entries.sortedBy { (userId, profile) ->
-            profile.displayName ?: userId
+            // Treat the blank "" sentinel (profile fetched, no name configured) as absent, or those
+            // members sort ahead of everyone with a real name.
+            profile.displayName?.takeIf { it.isNotBlank() } ?: userId
         }
     }
 
@@ -588,7 +590,7 @@ fun MentionMemberList(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        if (profile.displayName != null) {
+                        if (!profile.displayName.isNullOrBlank()) {
                             Text(
                                 text = userId,
                                 style = MaterialTheme.typography.bodySmall,
