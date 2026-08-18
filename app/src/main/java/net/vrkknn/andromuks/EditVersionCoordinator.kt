@@ -304,32 +304,26 @@ internal class EditVersionCoordinator(private val vm: AppViewModel) {
     }
 
     fun mergeEditContent(originalEvent: TimelineEvent, editEvent: TimelineEvent): TimelineEvent {
-        val mergedContent = JSONObject(originalEvent.content.toString())
-
         val newContent = when {
             editEvent.type == "m.room.encrypted" -> editEvent.decrypted?.optJSONObject("m.new_content")
             editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.new_content")
             else -> null
         }
         if (newContent != null) {
-            val mergedDecrypted = JSONObject(newContent.toString())
+            val mergedDecrypted = mergedEditedContent(originalEvent.decrypted, newContent)
 
             val finalContent = if (originalEvent.type == "m.room.message") {
-                // Copy all fields from m.new_content so that a msgtype change (e.g. m.notice →
-                // m.image after a failed-decryption re-send) carries over url, info, filename,
-                // formatted_body, etc. — not just body/msgtype. Fields absent from m.new_content
-                // (e.g. m.relates_to) are preserved from the original event.
-                val updatedContent = JSONObject(originalEvent.content.toString())
-                newContent.keys().forEach { key -> updatedContent.put(key, newContent.get(key)) }
-                updatedContent
+                mergedEditedContent(originalEvent.content, newContent)
             } else {
-                mergedContent
+                originalEvent.content?.let { JSONObject(it.toString()) }
             }
 
             return originalEvent.copy(
                 content = finalContent,
                 decrypted = mergedDecrypted,
-                localContent = editEvent.localContent ?: originalEvent.localContent,
+                // Not `?: originalEvent.localContent`: the pre-edit sanitized_html describes content
+                // this edit just replaced, and falling back to it resurrects it as an HTML caption.
+                localContent = editEvent.localContent,
                 redactedBy = originalEvent.redactedBy,
             )
         }
@@ -686,4 +680,35 @@ internal class EditVersionCoordinator(private val vm: AppViewModel) {
             }
         }
     }
+}
+
+/**
+ * Keys carried over from the pre-edit content when `m.new_content` omits them.
+ *
+ * Per MSC2676 `m.new_content` *is* the complete replacement content, so [mergedEditedContent] starts
+ * from it and everything absent is deliberately cleared. Only keys that are not part of the replaced
+ * message content — and that an edit therefore never carries — survive:
+ *  - `m.relates_to`: the reply relation (`m.in_reply_to`), which `m.new_content` never repeats.
+ *  - `reactions`: the aggregated bucket [TimelineEvent.fromJson] stuffs into `content`.
+ */
+private val EDIT_PRESERVED_CONTENT_KEYS = arrayOf("m.relates_to", "reactions")
+
+/**
+ * Applies an edit's `m.new_content` as a **replacement** of [original], not an overlay.
+ *
+ * An overlay can only add or replace keys, never remove one, so a bridged `m.notice` → `m.image` edit
+ * left the notice's `format`/`formatted_body` standing on the image content. `format ==
+ * "org.matrix.custom.html"` then made the renderer prefer that stale `formatted_body` over the
+ * edit's own `body`, drawing the pre-edit text as the image caption (issue #29).
+ */
+internal fun mergedEditedContent(original: JSONObject?, newContent: JSONObject): JSONObject {
+    val merged = JSONObject(newContent.toString())
+    if (original != null) {
+        for (key in EDIT_PRESERVED_CONTENT_KEYS) {
+            if (!merged.has(key) && original.has(key)) {
+                merged.put(key, original.get(key))
+            }
+        }
+    }
+    return merged
 }

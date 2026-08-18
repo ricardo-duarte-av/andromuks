@@ -1019,7 +1019,10 @@ private fun RoomMessageContent(
             }
         }
         val editFormatRaw = newContent?.optString("format", "") ?: ""
-        val editFormat = if (editFormatRaw.isBlank()) format else editFormatRaw
+        // No fallback to the pre-edit `format` when the edit supplies its own content: a blank
+        // `format` there means plain text, and inheriting "org.matrix.custom.html" would make the
+        // block below read the pre-edit `formatted_body` (issue #29).
+        val editFormat = if (newContent != null) editFormatRaw else format
         val editMsgType = newContent?.optString("msgtype", "") ?: msgType
 
         if (BuildConfig.DEBUG) {
@@ -2875,8 +2878,8 @@ private fun EncryptedMessageContent(
         // Resolve the format for the final (possibly edited) content
         val finalFormat = if (editedBy != null && !isRedacted) {
             val newContent = (editedBy.decrypted ?: editedBy.content)?.optJSONObject("m.new_content")
-            val editFormatRaw = newContent?.optString("format", "") ?: ""
-            if (editFormatRaw.isBlank()) format else editFormatRaw
+            // See the plaintext twin: the edit's own (possibly blank) format wins outright.
+            if (newContent != null) newContent.optString("format", "") else format
         } else {
             format
         }
@@ -3022,14 +3025,17 @@ private fun EncryptedMessageContent(
             }
 
             // For encrypted messages, the URL may live in file.url rather than a top-level url.
+            // Mirrors the plaintext path: prefer the edit event's localContent so a stale
+            // orig_local_content is not used for the caption.
+            val effectiveLocalContent = editedBy?.localContent ?: event.localContent
             val singleMedia = parseMediaMessage(
                 content = decrypted,
                 body = body,
-                localContent = event.localContent,
+                localContent = effectiveLocalContent,
             )
             // A gallery has no top-level url, so it only reaches here when the single-media parse came
             // up empty. A one-item gallery renders as a plain image, caption and all.
-            val gallery = if (singleMedia == null) parseGalleryMessage(decrypted, event.localContent) else null
+            val gallery = if (singleMedia == null) parseGalleryMessage(decrypted, effectiveLocalContent) else null
             // See the plaintext path above: an undisplayable item stays in the mosaic renderer.
             val singleGalleryItem = gallery
                 ?.takeIf { it.items.size == 1 && it.otherAttachmentCount == 0 }
