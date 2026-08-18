@@ -59,14 +59,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mood
@@ -74,7 +69,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.VideoCall
-import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
@@ -103,6 +97,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -658,6 +653,8 @@ fun BubbleTimelineScreen(
     // Attachment menu state
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var showLocationPickerOverlay by remember { mutableStateOf(false) }
+    var showCameraOverlay by rememberSaveable { mutableStateOf(false) }
+    var showVideoOverlay by rememberSaveable { mutableStateOf(false) }
     var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
 
@@ -2752,6 +2749,10 @@ fun BubbleTimelineScreen(
             // Dismiss the picker, not the whole bubble — Back used to fall straight through to
             // onCloseBubble() here and throw away the pinned location.
             showLocationPickerOverlay = false
+        } else if (showCameraOverlay) {
+            showCameraOverlay = false
+        } else if (showVideoOverlay) {
+            showVideoOverlay = false
         } else if (showAttachmentMenu) {
             // Close attachment menu if open
             showAttachmentMenu = false
@@ -4523,302 +4524,53 @@ fun BubbleTimelineScreen(
                         }
                     }
 
-                    // Attachment menu overlay - horizontal floating action bar above footer
-                    AnimatedVisibility(
+                    // Attachment action bar (shared, slides above the footer). See utils/AttachmentMenu.kt.
+                    // This was ~300 hand-rolled lines duplicating the same tiles and animation
+                    // specs, with camera capture stubbed out behind a Toast. The shared component
+                    // also owns the CAMERA permission gate internally.
+                    net.vrkknn.andromuks.utils.AttachmentMenuBar(
                         visible = showAttachmentMenu,
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth(),
-                        enter = fadeIn(initialAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
-                        exit = fadeOut(targetAlpha = 1f, animationSpec = tween(durationMillis = scaledTweenMs(120))),
-                    ) {
-                        val attachmentBarSlideOffsetPx = transition.animateFloat(
-                            transitionSpec = {
-                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                    // ENTER: slide in first
-                                    tween(durationMillis = scaledTweenMs(120))
-                                } else {
-                                    // EXIT: wait for buttons to fade out, then slide down
-                                    tween(durationMillis = scaledTweenMs(120), delayMillis = scaledTweenMs(500))
-                                }
-                            },
-                            label = "attachmentBarSlideOffset",
-                        ) { state ->
-                            if (state == EnterExitState.Visible) 0f else with(density) { 56.dp.toPx() }
-                        }
-                        val attachmentButtonsAlpha = transition.animateFloat(
-                            transitionSpec = {
-                                if (initialState == EnterExitState.PreEnter && targetState == EnterExitState.Visible) {
-                                    // ENTER: buttons fade in after bar has slid in
-                                    tween(durationMillis = scaledTweenMs(500), delayMillis = scaledTweenMs(120))
-                                } else {
-                                    // EXIT: buttons fade out immediately
-                                    tween(durationMillis = scaledTweenMs(500))
-                                }
-                            },
-                            label = "attachmentButtonsAlpha",
-                        ) { state ->
-                            if (state == EnterExitState.Visible) 1f else 0f
-                        }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .graphicsLayer {
-                                    // Position menu right above footer (footer height = buttonHeight + 24.dp padding)
-                                    translationY = -with(
-                                        density,
-                                    ) { (buttonHeight + 24.dp).toPx() } + attachmentBarSlideOffsetPx.value
-                                }
-                                .navigationBarsPadding()
-                                .imePadding()
-                                .onSizeChanged { menuBarHeightPx = it.height }
-                                .zIndex(5f), // Ensure it's above other content
-                        ) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.surface,
-                                tonalElevation = 0.dp,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    // Files option
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                            shape = RoundedCornerShape(16.dp),
-                                            tonalElevation = 1.dp,
-                                            modifier = Modifier
-                                                .size(56.dp),
-                                        ) {
-                                            IconButton(
-                                                onClick = {
-                                                    showAttachmentMenu = false
-                                                    // SAF document picker — per-URI read grant, no permission needed.
-                                                    filePickerLauncher.launch("*/*")
-                                                },
-                                                modifier = Modifier.fillMaxSize(),
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Folder,
-                                                    contentDescription = "Files",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "File",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
+                        buttonHeight = buttonHeight,
+                        onDismiss = { showAttachmentMenu = false },
+                        onPickImageVideo = {
+                            mediaPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                            )
+                        },
+                        onPickAudio = { audioPickerLauncher.launch("audio/*") },
+                        onPickFile = { filePickerLauncher.launch("*/*") },
+                        onOpenPhotoCamera = { showCameraOverlay = true },
+                        onOpenVideoCamera = { showVideoOverlay = true },
+                        onPickLocation = { showLocationPickerOverlay = true },
+                        onHeightChange = { menuBarHeightPx = it },
+                    )
 
-                                    // Audio option
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                            shape = RoundedCornerShape(16.dp),
-                                            tonalElevation = 1.dp,
-                                            modifier = Modifier
-                                                .size(56.dp),
-                                        ) {
-                                            IconButton(
-                                                onClick = {
-                                                    showAttachmentMenu = false
-                                                    // SAF picker — per-URI read grant, no permission needed.
-                                                    audioPickerLauncher.launch("audio/*")
-                                                },
-                                                modifier = Modifier.fillMaxSize(),
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.AudioFile,
-                                                    contentDescription = "Audio",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "Audio",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
+                    // In-app camera + video capture overlays (shared, full-frame). They own all
+                    // CameraX state internally; we only toggle visibility and feed captures into the
+                    // media-preview pipeline. See utils/AttachmentMenu.kt.
+                    net.vrkknn.andromuks.utils.InAppCameraOverlay(
+                        visible = showCameraOverlay,
+                        onDismiss = { showCameraOverlay = false },
+                        onCaptured = { uri, isVideo ->
+                            selectedMediaUri = uri
+                            selectedMediaIsVideo = isVideo
+                            selectedAudioUri = null
+                            selectedFileUri = null
+                            showMediaPreview = true
+                        },
+                    )
 
-                                    // Image/Video option
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                            shape = RoundedCornerShape(16.dp),
-                                            tonalElevation = 1.dp,
-                                            modifier = Modifier
-                                                .size(56.dp),
-                                        ) {
-                                            IconButton(
-                                                onClick = {
-                                                    showAttachmentMenu = false
-                                                    // Android Photo Picker — no permission, consistent Photo/Album sheet.
-                                                    mediaPickerLauncher.launch(
-                                                        PickVisualMediaRequest(
-                                                            ActivityResultContracts.PickVisualMedia.ImageAndVideo,
-                                                        ),
-                                                    )
-                                                },
-                                                modifier = Modifier.fillMaxSize(),
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Image,
-                                                    contentDescription = "Images & Videos",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "Image/Video",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                        )
-                                    }
-
-                                    // Photo option
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                            shape = RoundedCornerShape(16.dp),
-                                            tonalElevation = 1.dp,
-                                            modifier = Modifier
-                                                .size(56.dp),
-                                        ) {
-                                            IconButton(
-                                                onClick = {
-                                                    showAttachmentMenu = false
-                                                    // Camera capture opens a fullscreen camera activity, which Android
-                                                    // refuses to launch inside the constrained chat-bubble window
-                                                    // ("Camera can't use split screen"). Button kept for menu parity
-                                                    // with RoomTimelineScreen, but blocked here.
-                                                    android.widget.Toast.makeText(
-                                                        context,
-                                                        "Android cannot use camera in Chat Bubbles",
-                                                        android.widget.Toast.LENGTH_SHORT,
-                                                    ).show()
-                                                },
-                                                modifier = Modifier.fillMaxSize(),
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.CameraAlt,
-                                                    contentDescription = "Photo",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "Photo",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-
-                                    // Video option
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                            shape = RoundedCornerShape(16.dp),
-                                            tonalElevation = 1.dp,
-                                            modifier = Modifier
-                                                .size(56.dp),
-                                        ) {
-                                            IconButton(
-                                                onClick = {
-                                                    showAttachmentMenu = false
-                                                    // See Photo button above — camera capture can't run in a bubble window.
-                                                    android.widget.Toast.makeText(
-                                                        context,
-                                                        "Android cannot use camera in Chat Bubbles",
-                                                        android.widget.Toast.LENGTH_SHORT,
-                                                    ).show()
-                                                },
-                                                modifier = Modifier.fillMaxSize(),
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Videocam,
-                                                    contentDescription = "Video",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "Video",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-
-                                    // Location option
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.weight(1f),
-                                    ) {
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                            shape = RoundedCornerShape(16.dp),
-                                            tonalElevation = 1.dp,
-                                            modifier = Modifier.size(56.dp),
-                                        ) {
-                                            IconButton(
-                                                onClick = {
-                                                    showAttachmentMenu = false
-                                                    showLocationPickerOverlay = true
-                                                },
-                                                modifier = Modifier.fillMaxSize(),
-                                            ) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.LocationOn,
-                                                    contentDescription = "Location",
-                                                    tint = MaterialTheme.colorScheme.primary,
-                                                    modifier = Modifier.alpha(attachmentButtonsAlpha.value),
-                                                )
-                                            }
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "Location",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    net.vrkknn.andromuks.utils.InAppVideoOverlay(
+                        visible = showVideoOverlay,
+                        onDismiss = { showVideoOverlay = false },
+                        onCaptured = { uri, isVideo ->
+                            selectedMediaUri = uri
+                            selectedMediaIsVideo = isVideo
+                            selectedAudioUri = null
+                            selectedFileUri = null
+                            showMediaPreview = true
+                        },
+                    )
 
                     // Location picker overlay
                     if (showLocationPickerOverlay) {
