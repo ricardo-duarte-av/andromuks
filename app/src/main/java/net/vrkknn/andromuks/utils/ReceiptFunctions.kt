@@ -152,6 +152,67 @@ object ReceiptFunctions {
     }
 
     /**
+     * Merges one room's cached receipts (from [net.vrkknn.andromuks.ReadReceiptCache]) into that
+     * room's live maps, preserving the one-receipt-per-user-per-room invariant.
+     *
+     * This is the only receipt write path a **secondary** ViewModel has — bubbles and
+     * `ShortcutActivity` never run the sync_complete receipt processing themselves, they reload from
+     * the replicated singleton cache on every `RoomListSingletonReplicated`. So an eviction missed
+     * here is not a rare edge: it strands the user's avatar on the previous message on every single
+     * receipt movement, which is the "receipt copied instead of moved" bug in docs/RECEIPTS.md.
+     *
+     * A user is always *moved*, never merely added: before placing them on an event we drop them
+     * from wherever [userIndex] says they currently sit, then re-point the index. Users already
+     * present on the target event are left alone (their receipt is identical), so this is idempotent.
+     *
+     * Pure by design — no ViewModel state, no Compose, no Android — so the invariant is unit-testable
+     * (see `ReceiptMergeTest`). Mutates [roomReceiptsMap] and [userIndex] in place.
+     *
+     * @param roomReceiptsMap This room's live eventId → receipts map
+     * @param userIndex This room's live inverted index (userId → eventId)
+     * @param cachedForRoom The cache snapshot for this room (eventId → receipts)
+     * @return Event IDs that gained at least one receipt, in iteration order. Empty means no change.
+     */
+    fun mergeCachedReceiptsIntoRoom(
+        roomReceiptsMap: MutableMap<String, MutableList<ReadReceipt>>,
+        userIndex: MutableMap<String, String>,
+        cachedForRoom: Map<String, List<ReadReceipt>>,
+    ): List<String> {
+        val changedEventIds = mutableListOf<String>()
+
+        for ((eventId, cachedList) in cachedForRoom) {
+            if (cachedList.isEmpty()) continue
+
+            val existing = roomReceiptsMap[eventId]
+            val existingUserIds = existing?.mapTo(HashSet()) { it.userId } ?: emptySet<String>()
+            val arriving = cachedList.filter { it.userId !in existingUserIds }
+            if (arriving.isEmpty()) continue
+
+            // Evict before placing — see the kdoc.
+            for (receipt in arriving) {
+                val oldEventId = userIndex[receipt.userId]
+                if (oldEventId != null && oldEventId != eventId) {
+                    val oldList = roomReceiptsMap[oldEventId]
+                    oldList?.removeAll { it.userId == receipt.userId }
+                    if (oldList != null && oldList.isEmpty()) roomReceiptsMap.remove(oldEventId)
+                }
+                userIndex[receipt.userId] = eventId
+            }
+
+            // Re-read: evicting above can have removed this event's (empty) entry.
+            val target = roomReceiptsMap[eventId]
+            if (target == null) {
+                roomReceiptsMap[eventId] = arriving.toMutableList()
+            } else {
+                target.addAll(arriving)
+            }
+            changedEventIds.add(eventId)
+        }
+
+        return changedEventIds
+    }
+
+    /**
      * Gets read receipts for a specific event.
      * 
      * @param eventId The event ID to get receipts for

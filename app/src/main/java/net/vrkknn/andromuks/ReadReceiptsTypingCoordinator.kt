@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.utils.ReceiptFunctions
 /**
  * Typing indicators and read receipts for [AppViewModel].
  */
@@ -75,47 +76,32 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                         val roomReceiptsMap = readReceipts.getOrPut(roomId) { mutableMapOf() }
                         val roomUserIndex = readReceiptsIndex.getOrPut(roomId) { mutableMapOf() }
 
-                        cachedForRoom.forEach { (eventId, cachedList) ->
-                            if (cachedList.isEmpty()) return@forEach
-                            val existing = roomReceiptsMap[eventId]
-                            if (existing == null || existing.isEmpty()) {
-                                roomReceiptsMap[eventId] = cachedList.toMutableList()
-                                cachedList.forEach { r -> roomUserIndex[r.userId] = eventId }
-                                hasChanges = true
-                                if (BuildConfig.DEBUG) {
-                                    android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: populateReadReceiptsFromCache - added ${cachedList.size} receipts for $eventId in $roomId",
-                                    )
-                                }
-                            } else {
-                                val existingUserIds = existing.map { it.userId }.toSet()
-                                val newReceipts = cachedList.filter { it.userId !in existingUserIds }
-                                if (newReceipts.isNotEmpty()) {
-                                    // evict these users from any other event in this room (index lookup)
-                                    newReceipts.forEach { r ->
-                                        val oldEventId = roomUserIndex[r.userId]
-                                        if (oldEventId != null && oldEventId != eventId) {
-                                            val oldList = roomReceiptsMap[oldEventId]
-                                            oldList?.removeAll { it.userId == r.userId }
-                                            if (oldList != null && oldList.isEmpty()) roomReceiptsMap.remove(oldEventId)
-                                        }
-                                        roomUserIndex[r.userId] = eventId
-                                    }
-                                    roomReceiptsMap[eventId] = (existing + newReceipts).toMutableList()
-                                    hasChanges = true
+                        // The merge (including the evict-then-place that keeps one receipt per user
+                        // per room) lives in ReceiptFunctions so it can be unit-tested without a
+                        // ViewModel — see ReceiptMergeTest. This is the ONLY receipt write path a
+                        // secondary VM (bubble, ShortcutActivity) has, so a missed eviction here
+                        // strands the avatar on the previous message on every receipt movement.
+                        val changedEventIds = ReceiptFunctions.mergeCachedReceiptsIntoRoom(
+                            roomReceiptsMap = roomReceiptsMap,
+                            userIndex = roomUserIndex,
+                            cachedForRoom = cachedForRoom,
+                        )
 
-                                    val targetMessageId = bridgeStatusEventToMessageId[eventId] ?: eventId
-                                    if (messageBridgeSendStatus.containsKey(targetMessageId)) {
-                                        updateBridgeStatus(targetMessageId, "delivered")
-                                    }
-                                    if (BuildConfig.DEBUG) {
-                                        android.util.Log.d(
-                                            "Andromuks",
-                                            "AppViewModel: populateReadReceiptsFromCache - merged ${newReceipts.size} receipts for $eventId in $roomId",
-                                        )
-                                    }
+                        if (changedEventIds.isNotEmpty()) {
+                            hasChanges = true
+                            // A receipt landing on a bridge status event means the bridge confirmed
+                            // delivery of the message that event references.
+                            changedEventIds.forEach { eventId ->
+                                val targetMessageId = bridgeStatusEventToMessageId[eventId] ?: eventId
+                                if (messageBridgeSendStatus.containsKey(targetMessageId)) {
+                                    updateBridgeStatus(targetMessageId, "delivered")
                                 }
+                            }
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: populateReadReceiptsFromCache - merged receipts for ${changedEventIds.size} event(s) in $roomId",
+                                )
                             }
                         }
                     }

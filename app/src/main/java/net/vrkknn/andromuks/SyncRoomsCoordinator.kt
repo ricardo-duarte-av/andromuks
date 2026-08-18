@@ -1159,8 +1159,12 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                             displaced.forEach { r ->
                                 if (target.none { it.userId == r.userId }) {
                                     target.add(r.copy(eventId = originalMessageId))
-                                    roomIndex[r.userId] = originalMessageId
                                 }
+                                // Outside the dedup guard: the receipt has already been removed
+                                // from statusEventId either way, so leaving the index pointing at
+                                // that now-deleted event would make the user's *next* move fail to
+                                // evict them from here — the accumulation bug in another guise.
+                                roomIndex[r.userId] = originalMessageId
                             }
                             updateBridgeStatus(originalMessageId, "delivered")
                             didRemap = true
@@ -1303,8 +1307,10 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                                             displaced.forEach { r ->
                                                 if (target.none { it.userId == r.userId }) {
                                                     target.add(r.copy(eventId = originalMessageId))
-                                                    roomUserIndex[r.userId] = originalMessageId
                                                 }
+                                                // Outside the dedup guard — see the identical note
+                                                // on the post-sync remap above.
+                                                roomUserIndex[r.userId] = originalMessageId
                                             }
                                             remapped = true
                                             updateBridgeStatus(originalMessageId, "delivered")

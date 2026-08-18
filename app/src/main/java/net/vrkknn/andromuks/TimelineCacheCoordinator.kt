@@ -2583,6 +2583,24 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                                                                 )
                                                             }
                                                         } else {
+                                                            // Evict each user from wherever they
+                                                            // currently sit before placing them
+                                                            // here. Paginate is authoritative for
+                                                            // the events it returns but never says
+                                                            // "remove user from Y", so cross-event
+                                                            // dedup is this write path's job (see
+                                                            // docs/RECEIPTS.md) — without it the
+                                                            // same avatar renders on two bubbles.
+                                                            receipts.forEach { r ->
+                                                                val oldEventId = roomUserIndex[r.userId]
+                                                                if (oldEventId != null && oldEventId != eventId) {
+                                                                    val oldList = roomReceiptsMap[oldEventId]
+                                                                    oldList?.removeAll { it.userId == r.userId }
+                                                                    if (oldList != null && oldList.isEmpty()) {
+                                                                        roomReceiptsMap.remove(oldEventId)
+                                                                    }
+                                                                }
+                                                            }
                                                             roomReceiptsMap[eventId] = receipts
                                                             // Rebuild inverted index entries for this event
                                                             receipts.forEach { r -> roomUserIndex[r.userId] = eventId }
