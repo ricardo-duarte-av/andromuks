@@ -3504,59 +3504,14 @@ fun BubbleTimelineScreen(
                                                 } else {
                                                     showCommandSuggestionList = false
 
-                                                    // Detect mentions
-                                                    val mentionResult = detectMention(
-                                                        replacedValue.text,
-                                                        replacedValue.selection.start,
-                                                    )
-                                                    if (mentionResult != null) {
-                                                        val (query, startIndex) = mentionResult
-                                                        mentionQuery = query
-                                                        mentionStartIndex = startIndex
+                                                    // Strict else-chain, mirroring RoomTimelineScreen:
+                                                    // command → room → mention → emoji, at most one
+                                                    // list visible. These used to run as three
+                                                    // independent ifs, so `@ali :smi` or a `#alias`
+                                                    // typed inside a mention stacked two or three
+                                                    // popups on the same bottom-start anchor.
 
-                                                        // CRITICAL FIX: Load cached members immediately, then request fresh data
-                                                        if (!isWaitingForFullMemberList && !showMentionList) {
-                                                            // Check if we already have members in memory cache
-                                                            val memberMap = appViewModel.getMemberMap(roomId)
-                                                            if (memberMap.isEmpty() || memberMap.size < 10) {
-                                                                // Profiles are loaded opportunistically when rendering events
-                                                                // Request full member list to populate cache
-                                                                // Request fresh data from server (will update when it arrives)
-                                                                if (BuildConfig.DEBUG) {
-                                                                    Log.d(
-                                                                        "Andromuks",
-                                                                        "BubbleTimelineScreen: @ detected, requesting fresh member list for room $roomId",
-                                                                    )
-                                                                }
-                                                                isWaitingForFullMemberList = true
-                                                                lastMemberUpdateCounterBeforeMention =
-                                                                    appViewModel.memberUpdateCounter
-                                                                appViewModel.requestFullMemberList(roomId)
-                                                            } else {
-                                                                // We already have members in memory, show list immediately
-                                                                showMentionList = true
-                                                            }
-                                                        }
-                                                    } else {
-                                                        showMentionList = false
-                                                        isWaitingForFullMemberList = false
-                                                    }
-
-                                                    // Detect emoji shortcodes ( :shortname )
-                                                    val emojiResult = detectEmojiShortcode(
-                                                        replacedValue.text,
-                                                        replacedValue.selection.start,
-                                                    )
-                                                    if (emojiResult != null) {
-                                                        val (query, startIndex) = emojiResult
-                                                        emojiQuery = query
-                                                        emojiStartIndex = startIndex
-                                                        showEmojiSuggestionList = true
-                                                    } else {
-                                                        showEmojiSuggestionList = false
-                                                    }
-
-                                                    // Detect room mentions ( #roomalias )
+                                                    // Detect room mentions ( #roomalias ) - check before mentions/emojis
                                                     val roomResult = detectRoomMention(
                                                         replacedValue.text,
                                                         replacedValue.selection.start,
@@ -3566,8 +3521,65 @@ fun BubbleTimelineScreen(
                                                         roomQuery = query
                                                         roomStartIndex = startIndex
                                                         showRoomSuggestionList = true
+                                                        // Hide other suggestion lists when room mention is active
+                                                        showMentionList = false
+                                                        showEmojiSuggestionList = false
                                                     } else {
                                                         showRoomSuggestionList = false
+
+                                                        // Detect mentions
+                                                        val mentionResult = detectMention(
+                                                            replacedValue.text,
+                                                            replacedValue.selection.start,
+                                                        )
+                                                        if (mentionResult != null) {
+                                                            val (query, startIndex) = mentionResult
+                                                            mentionQuery = query
+                                                            mentionStartIndex = startIndex
+
+                                                            // CRITICAL FIX: Load cached members immediately, then request fresh data
+                                                            if (!isWaitingForFullMemberList && !showMentionList) {
+                                                                // Check if we already have members in memory cache
+                                                                val memberMap = appViewModel.getMemberMap(roomId)
+                                                                if (memberMap.isEmpty() || memberMap.size < 10) {
+                                                                    // Profiles are loaded opportunistically when rendering events
+                                                                    // Request full member list to populate cache
+                                                                    // Request fresh data from server (will update when it arrives)
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                            "Andromuks",
+                                                                            "BubbleTimelineScreen: @ detected, requesting fresh member list for room $roomId",
+                                                                        )
+                                                                    }
+                                                                    isWaitingForFullMemberList = true
+                                                                    lastMemberUpdateCounterBeforeMention =
+                                                                        appViewModel.memberUpdateCounter
+                                                                    appViewModel.requestFullMemberList(roomId)
+                                                                } else {
+                                                                    // We already have members in memory, show list immediately
+                                                                    showMentionList = true
+                                                                }
+                                                            }
+                                                            // Hide other suggestion lists when mention is active
+                                                            showEmojiSuggestionList = false
+                                                        } else {
+                                                            showMentionList = false
+                                                            isWaitingForFullMemberList = false
+
+                                                            // Detect emoji shortcodes ( :shortname )
+                                                            val emojiResult = detectEmojiShortcode(
+                                                                replacedValue.text,
+                                                                replacedValue.selection.start,
+                                                            )
+                                                            if (emojiResult != null) {
+                                                                val (query, startIndex) = emojiResult
+                                                                emojiQuery = query
+                                                                emojiStartIndex = startIndex
+                                                                showEmojiSuggestionList = true
+                                                            } else {
+                                                                showEmojiSuggestionList = false
+                                                            }
+                                                        }
                                                     }
                                                 }
                                             },
