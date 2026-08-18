@@ -71,6 +71,9 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.SyncProblem
+import androidx.compose.material.icons.filled.VideoCall
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
@@ -2783,6 +2786,8 @@ fun BubbleTimelineScreen(
                                 appViewModel.setAutoPaginationEnabled(false, "bubble_manual_refresh_ui_$roomId")
                                 appViewModel.fullRefreshRoomTimeline(roomId)
                             },
+                            syncStatusType = appViewModel.syncStatusType,
+                            callActiveInRoom = appViewModel.activeCallRooms.contains(roomId),
                         )
 
                         if (appViewModel.notificationActionInProgress) {
@@ -5372,6 +5377,11 @@ fun BubbleRoomHeader(
     onCloseBubble: () -> Unit = {},
     onMinimizeBubble: () -> Unit = {},
     onRefreshClick: () -> Unit = {},
+    // gomuks↔homeserver sync health: "ok" | "waiting" | "erroring" | "permanently-failed".
+    syncStatusType: String = "ok",
+    // A call is live in this room. Shown as a passive badge — joining needs the fullscreen
+    // WebView, which a bubble window cannot host.
+    callActiveInRoom: Boolean = false,
 ) {
     // Debug logging
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BubbleRoomHeader: roomState = $roomState")
@@ -5480,6 +5490,68 @@ fun BubbleRoomHeader(
                         imageVector = Icons.Filled.CloudOff,
                         contentDescription = "No server connection",
                         tint = MaterialTheme.colorScheme.error.copy(alpha = offlineAlpha),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                // gomuks↔homeserver sync health, distinct from the socket health above: the socket
+                // can be up (no CloudOff) while gomuks' upstream sync is stalled, and messages then
+                // silently stop arriving with no signal at all. Mirrors RoomTimelineScreen.
+                AnimatedVisibility(
+                    visible = syncStatusType == "waiting" || syncStatusType == "erroring",
+                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
+                ) {
+                    val syncPulse = rememberInfiniteTransition(label = "bubble_sync_status_pulse")
+                    val syncAlpha by syncPulse.animateFloat(
+                        initialValue = 0.5f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1000, easing = FastOutSlowInEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "bubble_sync_status_alpha",
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.Sync,
+                        contentDescription = "Server sync degraded",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = syncAlpha),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                AnimatedVisibility(
+                    visible = syncStatusType == "permanently-failed",
+                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.SyncProblem,
+                        contentDescription = "Server sync failed",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+                // Passive "a call is running here" badge. Deliberately not a button: joining opens
+                // a fullscreen WebView, which a bubble window cannot host. "Open in app" (next to
+                // this) is the way in.
+                AnimatedVisibility(
+                    visible = callActiveInRoom,
+                    enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
+                    exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
+                ) {
+                    val callPulse = rememberInfiniteTransition(label = "bubble_call_pulse")
+                    val callPulseAlpha by callPulse.animateFloat(
+                        initialValue = 1f,
+                        targetValue = 0.35f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(700),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                        label = "bubble_call_pulse_alpha",
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.VideoCall,
+                        contentDescription = "Call in progress — open in app to join",
+                        tint = MaterialTheme.colorScheme.primary.copy(alpha = callPulseAlpha),
                         modifier = Modifier.size(20.dp),
                     )
                 }
