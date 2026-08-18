@@ -1478,6 +1478,39 @@ fun BubbleTimelineScreen(
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
 
+    // Land on an event in this room: scroll + highlight when it is in the loaded window, else hand
+    // off to EventContextScreen. Hoisted (as in RoomTimelineScreen) so reply jumps and same-room
+    // permalinks share one implementation instead of drifting apart.
+    val jumpToLocalEvent: (String) -> Unit = { eventId ->
+        // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
+        val indexInOriginal = timelineItems.indexOfFirst { item ->
+            when (item) {
+                is BubbleTimelineItem.Event -> item.event.eventId == eventId
+                is BubbleTimelineItem.DateDivider -> false
+            }
+        }
+        if (indexInOriginal >= 0) {
+            // Convert to reversed index: if item is at index N in original, it's at (lastIndex - N) in reversed
+            val lastIndex = timelineItems.lastIndex
+            val reversedIndex = lastIndex - indexInOriginal
+            // Save current position so Back can return here
+            jumpBackStack.addLast(
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset,
+            )
+            coroutineScope.launch {
+                listState.scrollToItem(reversedIndex)
+                highlightedEventId = eventId
+                highlightRequestId++
+            }
+        } else {
+            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+            val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
+            pendingEventContextScrollRestore =
+                listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            navController.navigate("event_context/$encodedRoomId/$encodedEventId")
+        }
+    }
+
     // True only during programmatic animated scrolls (FAB, keyboard, etc.).
     var isAnimatedScrolling by remember { mutableStateOf(false) }
 
@@ -3026,37 +3059,9 @@ fun BubbleTimelineScreen(
                                                             absorbedReceiptEventIds = item.absorbedReceiptEventIds,
                                                             appViewModel = appViewModel,
                                                             onScrollToMessage = { eventId ->
-                                                                // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
-                                                                val indexInOriginal = timelineItems.indexOfFirst { item ->
-                                                                    when (item) {
-                                                                        is BubbleTimelineItem.Event -> item.event.eventId == eventId
-                                                                        is BubbleTimelineItem.DateDivider -> false
-                                                                    }
-                                                                }
-                                                                if (indexInOriginal >= 0) {
-                                                                    // Convert to reversed index: if item is at index N in original, it's at (lastIndex - N) in reversed
-                                                                    val lastIndex = timelineItems.lastIndex
-                                                                    val reversedIndex = lastIndex - indexInOriginal
-                                                                    // Save current position so Back can return here
-                                                                    jumpBackStack.addLast(
-                                                                        listState.firstVisibleItemIndex to
-                                                                            listState.firstVisibleItemScrollOffset,
-                                                                    )
-                                                                    coroutineScope.launch {
-                                                                        listState.scrollToItem(reversedIndex)
-                                                                        highlightedEventId = eventId
-                                                                        highlightRequestId++
-                                                                    }
-                                                                } else {
-                                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-                                                                    val encodedEventId = java.net.URLEncoder.encode(eventId, "UTF-8")
-                                                                    pendingEventContextScrollRestore =
-                                                                        listState.firstVisibleItemIndex to
-                                                                        listState.firstVisibleItemScrollOffset
-                                                                    navController.navigate(
-                                                                        "event_context/$encodedRoomId/$encodedEventId",
-                                                                    )
-                                                                }
+                                                                // Reply-jump: scroll+highlight if in the loaded window, else EventContextScreen.
+                                                                // Shares jumpToLocalEvent with the same-room permalink path below.
+                                                                jumpToLocalEvent(eventId)
                                                             },
                                                             onReply = { event -> replyingToEvent = event },
                                                             onReact = { event ->
@@ -3083,7 +3088,7 @@ fun BubbleTimelineScreen(
                                                                     android.widget.Toast.LENGTH_SHORT,
                                                                 ).show()
                                                             },
-                                                            onRoomLinkClick = { roomLink ->
+                                                            onRoomLinkClick = roomLinkClick@{ roomLink ->
                                                                 if (BuildConfig.DEBUG) {
                                                                     Log.d(
                                                                         "Andromuks",
@@ -3114,6 +3119,21 @@ fun BubbleTimelineScreen(
                                                                 }
 
                                                                 val enhancedRoomLink = roomLink.copy(viaServers = enhancedViaServers)
+
+                                                                val jumpEventId = enhancedRoomLink.eventId
+                                                                if (jumpEventId != null && enhancedRoomLink.roomIdOrAlias == roomId) {
+                                                                    // Permalink into the room we're already reading — jump in place.
+                                                                    // This used to fall through and renavigate via room_list, tearing
+                                                                    // the bubble timeline down and rebuilding it to land back here.
+                                                                    if (BuildConfig.DEBUG) {
+                                                                        Log.d(
+                                                                            "Andromuks",
+                                                                            "BubbleTimelineScreen: Same-room event permalink, jumping to $jumpEventId",
+                                                                        )
+                                                                    }
+                                                                    jumpToLocalEvent(jumpEventId)
+                                                                    return@roomLinkClick
+                                                                }
 
                                                                 // If it's a room ID, check if we're already joined
                                                                 val existingRoom = if (enhancedRoomLink.roomIdOrAlias.startsWith("!")) {
