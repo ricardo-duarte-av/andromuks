@@ -2526,9 +2526,26 @@ fun BubbleTimelineScreen(
         highlightRequestId = 0
         appViewModel.promoteToPrimaryIfNeeded("bubble_timeline_$roomId")
 
+        // BatterySaver resume / linger: if the WS was down, bypass cache fast paths and paginate
+        // fresh. Without this a bubble reopened after a disconnect happily reuses stale cached
+        // events and never notices what it missed.
+        appViewModel.consumePendingForceFreshPaginate()
+        if (!appViewModel.isWebSocketConnected()) {
+            appViewModel.markForceFreshPaginateAfterWsDown()
+            RoomTimelineCache.markAllStale()
+        }
+        // A paginate for this room deferred while the WebSocket was down and still waiting to be
+        // reissued. Must be OR'd into mustFetchFreshTimeline: the deferred attempt left
+        // isTimelineLoading true, which the isAlreadyLoaded guard would read as "already in
+        // progress". See the fuller note on the same block in RoomTimelineScreen.
+        val hasDeferredPaginate = appViewModel.claimDeferredPaginate(roomId)
+        val mustFetchFreshTimeline = appViewModel.needsFreshTimelinePaginate() || hasDeferredPaginate
+
         // PERFORMANCE FIX: Only call navigateToRoomWithCache if room isn't already loaded
         // RoomListScreen already calls it when user clicks, so we skip duplicate processing
-        val isAlreadyLoaded = appViewModel.currentRoomId == roomId && appViewModel.timelineEvents.isNotEmpty()
+        val isAlreadyLoaded = appViewModel.currentRoomId == roomId &&
+            !mustFetchFreshTimeline &&
+            appViewModel.timelineEvents.isNotEmpty()
         if (!isAlreadyLoaded) {
             if (BuildConfig.DEBUG) {
                 Log.d(
@@ -2537,6 +2554,14 @@ fun BubbleTimelineScreen(
                 )
             }
             appViewModel.navigateToRoomWithCache(roomId)
+        } else if (mustFetchFreshTimeline) {
+            if (BuildConfig.DEBUG) {
+                Log.d(
+                    "Andromuks",
+                    "BubbleTimelineScreen: WS was down — forcing requestRoomTimeline for $roomId",
+                )
+            }
+            appViewModel.requestRoomTimeline(roomId)
         } else {
             if (BuildConfig.DEBUG) {
                 Log.d(
