@@ -1767,38 +1767,45 @@ fun BubbleTimelineScreen(
     var hasCompletedInitialLayout by remember { mutableStateOf(false) }
     var pendingInitialScroll by remember { mutableStateOf(true) }
     var hasMarkedAsRead by remember(roomId) { mutableStateOf(false) }
+    // UNIFIED OPEN PATH (mirrors RoomTimelineScreen): the notification's target event is a passive
+    // highlight, NOT a scroll target. The normal bottom-scroll effect owns landing at the bottom for
+    // every open. This used to scroll, and did it wrongly: `targetIndex` indexes `timelineItems`
+    // (oldest-first) but listState renders `reversedBubbleItems`, so without the `lastIndex - index`
+    // conversion every jump landed at the mirror-image position — and `isAttachedToBottom` was
+    // derived from the same unconverted index, so attachment was set backwards too.
+    //
+    // Keying on `timelineItems` (reference) re-checks on each rebuild, so a later paginate merge
+    // that brings the event into the window still highlights it.
 
     LaunchedEffect(
         pendingNotificationJumpEventId,
         timelineItems,
+        appViewModel.isContentVisible,
         readinessCheckComplete,
     ) {
         val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
-        if (!readinessCheckComplete || timelineItems.isEmpty()) {
+        // Defer the highlight (and its auto-clear timer) until the content is actually visible.
+        // Opened from a notification under the biometric lock, the timeline composes beneath the
+        // lock overlay; firing the pulse now would burn most of it before the user unlocks.
+        // pendingNotificationJumpEventId is left set, so this re-runs once unlocked.
+        if (!readinessCheckComplete || timelineItems.isEmpty() || !appViewModel.isContentVisible) {
             return@LaunchedEffect
         }
-        val targetIndex = timelineItems.indexOfFirst { item ->
+        val isLoaded = timelineItems.any { item ->
             (item as? BubbleTimelineItem.Event)?.event?.eventId == targetEventId
         }
-        if (targetIndex >= 0) {
-            listState.scrollToItem(targetIndex)
-            isAttachedToBottom = targetIndex >= timelineItems.lastIndex - 1
-            hasInitialSnapCompleted = true
-            pendingInitialScroll = false
+        if (isLoaded) {
             highlightedEventId = targetEventId
             highlightRequestId++
             pendingNotificationJumpEventId = null
             if (BuildConfig.DEBUG) {
                 Log.d(
                     "Andromuks",
-                    "BubbleTimelineScreen: Jumped to notification target event=$targetEventId at index=$targetIndex",
+                    "BubbleTimelineScreen: Highlighting notification target event=$targetEventId in place (no scroll)",
                 )
             }
-        } else if (BuildConfig.DEBUG) {
-            Log.d(
-                "Andromuks",
-                "BubbleTimelineScreen: Pending notification target $targetEventId not yet in timeline (size=${timelineItems.size})",
-            )
+        // Not (yet) loaded: leave pendingNotificationJumpEventId set so a subsequent timeline
+        // rebuild can still highlight it. remember(roomId) resets it on room change.
         }
     }
 
@@ -2154,22 +2161,19 @@ fun BubbleTimelineScreen(
         }
     }
 
-    // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
+    // Auto-scroll to bottom only when attached (initial load or new messages while at bottom).
+    // This owns landing at the bottom for EVERY open, including notification taps — the highlight
+    // effect above no longer scrolls, so there is nothing here to suppress or race against.
     LaunchedEffect(
         timelineItems,
         isLoading,
         appViewModel.isPaginating,
-        pendingNotificationJumpEventId,
     ) {
         if (BuildConfig.DEBUG) {
             Log.d(
                 "Andromuks",
                 "BubbleTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, hasInitialSnapCompleted: $hasInitialSnapCompleted",
             )
-        }
-
-        if (pendingNotificationJumpEventId != null) {
-            return@LaunchedEffect
         }
 
         if (isLoading || timelineItems.isEmpty()) {
