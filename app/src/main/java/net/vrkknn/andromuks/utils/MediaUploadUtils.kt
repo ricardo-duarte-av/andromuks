@@ -213,7 +213,12 @@ object MediaUploadUtils {
                 }
             } ?: Triple(0, 0, ExifInterface.ORIENTATION_NORMAL)
 
-            val needsProcessing = compressOriginal || exifOrientation != ExifInterface.ORIENTATION_NORMAL
+            // Re-encoding runs the image through BitmapFactory + JPEG, which keeps only the first
+            // frame. Never do that to an animated format, whatever the caller asked for — GIF/WebP
+            // carry no EXIF orientation either, so there is nothing to correct.
+            val isAnimatedFormat = mimeType == "image/gif" || mimeType == "image/webp"
+            val needsProcessing = !isAnimatedFormat &&
+                (compressOriginal || exifOrientation != ExifInterface.ORIENTATION_NORMAL)
 
             val maxThumbDim = 800
             val inSampleSize = calculateInSampleSize(width, height, maxThumbDim, maxThumbDim)

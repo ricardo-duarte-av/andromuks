@@ -8421,10 +8421,11 @@ class AppViewModel : ViewModel() {
         thumbnailHeight: Int? = null,
         thumbnailMimeType: String? = null,
         thumbnailSize: Long? = null,
+        isAnimated: Boolean = false,
     ) = messageSendCoordinator.sendMediaMessage(
         roomId, mxcUrl, filename, mimeType, width, height, size, blurHash, caption, msgType,
         threadRootEventId, replyToEventId, isThreadFallback, mentions,
-        thumbnailUrl, thumbnailWidth, thumbnailHeight, thumbnailMimeType, thumbnailSize,
+        thumbnailUrl, thumbnailWidth, thumbnailHeight, thumbnailMimeType, thumbnailSize, isAnimated,
     )
 
     /**
@@ -8448,10 +8449,11 @@ class AppViewModel : ViewModel() {
         thumbnailHeight: Int? = null,
         thumbnailMimeType: String? = null,
         thumbnailSize: Long? = null,
+        isAnimated: Boolean = false,
     ) = messageSendCoordinator.sendImageMessage(
         roomId, mxcUrl, width, height, size, mimeType, blurHash, caption,
         threadRootEventId, replyToEventId, isThreadFallback, mentions,
-        thumbnailUrl, thumbnailWidth, thumbnailHeight, thumbnailMimeType, thumbnailSize,
+        thumbnailUrl, thumbnailWidth, thumbnailHeight, thumbnailMimeType, thumbnailSize, isAnimated,
     )
 
     /**

@@ -610,6 +610,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         thumbnailHeight: Int? = null,
         thumbnailMimeType: String? = null,
         thumbnailSize: Long? = null,
+        isAnimated: Boolean = false,
     ) {
         if (BuildConfig.DEBUG) {
             android.util.Log.d(
@@ -635,6 +636,12 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             "h" to height,
             "size" to size,
         )
+
+        // MSC4230: tells receiving clients (ours included, see utils/MediaFunctions.kt) to render
+        // the original rather than the static first-frame thumbnail we always generate.
+        if (isAnimated) {
+            infoMap["is_animated"] = true
+        }
 
         if (thumbnailUrl != null) {
             infoMap["thumbnail_url"] = thumbnailUrl
@@ -703,6 +710,7 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
         thumbnailHeight: Int? = null,
         thumbnailMimeType: String? = null,
         thumbnailSize: Long? = null,
+        isAnimated: Boolean = false,
     ) {
         val filename = mxcUrl.substringAfterLast("/").let { mediaId ->
             val extension = when {
@@ -735,6 +743,9 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
             thumbnailHeight = thumbnailHeight,
             thumbnailMimeType = thumbnailMimeType,
             thumbnailSize = thumbnailSize,
+            // A GIF is animated by definition; other formats (animated WebP/APNG) can only be
+            // flagged by the caller, since the mimetype alone does not say.
+            isAnimated = isAnimated || mimeType.startsWith("image/gif"),
         )
     }
 
