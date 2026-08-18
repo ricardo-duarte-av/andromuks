@@ -4,5 +4,7 @@
     <cache-path name="media_cache" path="media_cache/" />
     <!-- Intelligent media cache directory for notification images and other media -->
     <cache-path name="intelligent_media_cache" path="intelligent_media_cache/" />
+    <!-- GIFs / stickers committed by the soft keyboard, copied out of the IME's temporary grant -->
+    <cache-path name="rich_content" path="rich_content/" />
 </paths>
 

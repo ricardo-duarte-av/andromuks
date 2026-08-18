@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -55,6 +56,7 @@ fun CustomBubbleTextField(
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     colors: TextFieldColors = TextFieldDefaults.colors(),
     onHeightChanged: ((Int) -> Unit)? = null,
+    onReceiveRichContent: (suspend (Uri, String) -> Unit)? = null,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
 
@@ -63,13 +65,10 @@ fun CustomBubbleTextField(
     val contentColor = LocalContentColor.current
     val adaptiveTextStyle = textStyle.copy(color = contentColor)
 
-    Box(
-        modifier = modifier
-            .heightIn(min = (minLines * 20).dp, max = (maxLines * 20).dp)
-            .onGloballyPositioned { coordinates ->
-                onHeightChanged?.invoke(coordinates.size.height)
-            },
-    ) {
+    // Declaring the field once and emitting it through either branch below keeps the keyboard's
+    // rich-content support opt-in: only a caller that passes onReceiveRichContent advertises
+    // GIF/sticker MIME types to the IME. See utils/RichContentInput.kt.
+    val textField: @Composable () -> Unit = {
         BasicTextField(
             value = value,
             onValueChange = onValueChange,
@@ -117,5 +116,19 @@ fun CustomBubbleTextField(
                 }
             },
         )
+    }
+
+    Box(
+        modifier = modifier
+            .heightIn(min = (minLines * 20).dp, max = (maxLines * 20).dp)
+            .onGloballyPositioned { coordinates ->
+                onHeightChanged?.invoke(coordinates.size.height)
+            },
+    ) {
+        if (onReceiveRichContent != null) {
+            RichContentTextInput(onReceiveContent = onReceiveRichContent, content = textField)
+        } else {
+            textField()
+        }
     }
 }

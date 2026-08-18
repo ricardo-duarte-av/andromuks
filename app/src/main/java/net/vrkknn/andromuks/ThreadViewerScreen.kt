@@ -151,6 +151,7 @@ import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.rememberComposerCommandState
 import net.vrkknn.andromuks.utils.rememberTimelineMenuInset
 import net.vrkknn.andromuks.utils.resolveDefaultPerMessageProfile
+import net.vrkknn.andromuks.utils.uploadAndSendRichContent
 import kotlin.math.min
 
 /** Floating room list for room mentions */
@@ -2346,6 +2347,24 @@ fun ThreadViewerScreen(
                                                 },
                                             ),
                                             visualTransformation = mentionAndEmojiTransformation,
+                                            // GIFs / stickers committed by the soft keyboard (issue #30). These send
+                                            // straight away — there is no preview step — but they still inherit the
+                                            // reply target the way the attachment picker does.
+                                            onReceiveRichContent = { contentUri, contentMime ->
+                                                val replyTarget = replyingToEvent
+                                                replyingToEvent = null
+                                                uploadAndSendRichContent(
+                                                    context = context,
+                                                    appViewModel = appViewModel,
+                                                    roomId = roomId,
+                                                    homeserverUrl = homeserverUrl,
+                                                    authToken = authToken,
+                                                    uri = contentUri,
+                                                    mimeType = contentMime,
+                                                    threadRootEventId = threadRootEventId,
+                                                    replyToEventId = replyTarget?.eventId,
+                                                )
+                                            },
                                         )
                                     }
                                 }
