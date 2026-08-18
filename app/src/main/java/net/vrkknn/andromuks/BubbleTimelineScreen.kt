@@ -592,9 +592,13 @@ fun BubbleTimelineScreen(
         )
     }
 
+    // Track batch processing state (Catching up)
+    val isProcessingBatch by appViewModel.isProcessingSyncBatch.collectAsState()
+    val processingBatchSize by appViewModel.processingBatchSize.collectAsState()
+
     // Messages typed while the WebSocket is down are buffered and sent on reconnect,
-    // so only gate the input on permission, not on connectivity.
-    val isInputEnabled = canSendMessage
+    // so we no longer gate the input on connectivity — only on permission and batch-catch-up.
+    val isInputEnabled = canSendMessage && !isProcessingBatch
 
     if (BuildConfig.DEBUG) {
         Log.d(
@@ -3741,6 +3745,14 @@ fun BubbleTimelineScreen(
                                                     text = when {
                                                         !canSendMessage -> "You don't have permission to send messages"
 
+                                                        isProcessingBatch -> if (processingBatchSize >
+                                                            0
+                                                        ) {
+                                                            "Rushing $processingBatchSize messages..."
+                                                        } else {
+                                                            "Rushing messages..."
+                                                        }
+
                                                         else -> {
                                                             val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
                                                             if (networkName != null && networkName.isNotBlank()) {
@@ -3823,7 +3835,10 @@ fun BubbleTimelineScreen(
                                                     if (!isInputEnabled) {
                                                         android.widget.Toast.makeText(
                                                             context,
-                                                            "You don't have permission to send messages",
+                                                            when {
+                                                                isProcessingBatch -> "Catching up on messages..."
+                                                                else -> "You don't have permission to send messages"
+                                                            },
                                                             android.widget.Toast.LENGTH_SHORT,
                                                         ).show()
                                                         return@KeyboardActions
@@ -3965,7 +3980,10 @@ fun BubbleTimelineScreen(
                                         if (!isInputEnabled) {
                                             android.widget.Toast.makeText(
                                                 context,
-                                                "You don't have permission to send messages",
+                                                when {
+                                                    isProcessingBatch -> "Catching up on messages..."
+                                                    else -> "You don't have permission to send messages"
+                                                },
                                                 android.widget.Toast.LENGTH_SHORT,
                                             ).show()
                                             return@Button
