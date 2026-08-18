@@ -339,8 +339,8 @@
     <ID>PropertyName:AppViewModel.kt:AppViewModel$private val RESTART_COOLDOWN_MS = 5000L // 5 seconds minimum between restarts</ID>
     <ID>PropertyName:AppViewModel.kt:AppViewModel.Companion$// Initial paginate limit when opening a room to fetch events from server // Used when cache is empty or to fetch newer events when cache has data // 100 events: gives enough rendered events above viewport that auto-pagination // doesn't fire immediately on room open (many events are filtered out post-fetch). @JvmStatic var INITIAL_ROOM_PAGINATE_LIMIT = 100</ID>
     <ID>PropertyName:BubbleTimelineScreen.kt:val MAX_REFILL_ROUNDS = 20 // safety valve against a backend that keeps advancing with no real yield</ID>
-    <ID>PropertyName:BubbleTimelineScreen.kt:val REFILL_TARGET = 180 // keep fetching until at least this many sit above the viewport</ID>
-    <ID>PropertyName:BubbleTimelineScreen.kt:val REFILL_TRIGGER = 60 // start refilling when this few items remain above the viewport</ID>
+    <ID>PropertyName:BubbleTimelineScreen.kt:val REFILL_TARGET = 50 // keep fetching until at least this many renderable items sit above the viewport</ID>
+    <ID>PropertyName:BubbleTimelineScreen.kt:val REFILL_TRIGGER = 10 // start refilling when this few renderable items remain above the viewport</ID>
     <ID>PropertyName:RoomTimelineCache.kt:RoomTimelineCache$// RAM-based cache management: Maximum memory usage for timeline cache (in MB) // LRU eviction will purge entire rooms when this threshold is exceeded // Default: 100MB (conservative to prevent OOM, can be adjusted) private var MAX_CACHE_MEMORY_MB = 100L // Configurable variable</ID>
     <ID>PropertyName:RoomTimelineScreen.kt:val MAX_REFILL_ROUNDS = 20 // safety valve against a backend that keeps advancing with no real yield</ID>
     <ID>PropertyName:RoomTimelineScreen.kt:val REFILL_TARGET = 50 // keep fetching until at least this many renderable items sit above the viewport</ID>
@@ -446,8 +446,8 @@
     <ID>VariableNaming:AppViewModel.kt:AppViewModel$private val PROFILE_REQUEST_THROTTLE_MS = 5000L // Skip if requested within last 5 seconds</ID>
     <ID>VariableNaming:AppViewModel.kt:AppViewModel$private val RESTART_COOLDOWN_MS = 5000L // 5 seconds minimum between restarts</ID>
     <ID>VariableNaming:BubbleTimelineScreen.kt:val MAX_REFILL_ROUNDS = 20 // safety valve against a backend that keeps advancing with no real yield</ID>
-    <ID>VariableNaming:BubbleTimelineScreen.kt:val REFILL_TARGET = 180 // keep fetching until at least this many sit above the viewport</ID>
-    <ID>VariableNaming:BubbleTimelineScreen.kt:val REFILL_TRIGGER = 60 // start refilling when this few items remain above the viewport</ID>
+    <ID>VariableNaming:BubbleTimelineScreen.kt:val REFILL_TARGET = 50 // keep fetching until at least this many renderable items sit above the viewport</ID>
+    <ID>VariableNaming:BubbleTimelineScreen.kt:val REFILL_TRIGGER = 10 // start refilling when this few renderable items remain above the viewport</ID>
     <ID>VariableNaming:RoomTimelineScreen.kt:val MAX_REFILL_ROUNDS = 20 // safety valve against a backend that keeps advancing with no real yield</ID>
     <ID>VariableNaming:RoomTimelineScreen.kt:val REFILL_TARGET = 50 // keep fetching until at least this many renderable items sit above the viewport</ID>
     <ID>VariableNaming:RoomTimelineScreen.kt:val REFILL_TRIGGER = 10 // start refilling when this few renderable items remain above the viewport</ID>

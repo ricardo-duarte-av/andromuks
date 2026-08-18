@@ -323,7 +323,7 @@ private data class PaginateSnapshot(
  * to keep going", so the user is never left staring at a blank list with no explanation.
  */
 @Composable
-private fun TimelineEmptyState(isSearching: Boolean, canLoadMore: Boolean, onLoadMore: () -> Unit, modifier: Modifier = Modifier) {
+internal fun TimelineEmptyState(isSearching: Boolean, canLoadMore: Boolean, onLoadMore: () -> Unit, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,

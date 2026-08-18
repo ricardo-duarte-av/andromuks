@@ -1877,11 +1877,11 @@ fun BubbleTimelineScreen(
     // round cap is hit). It reuses the same anchor-capture and scroll-restoration path as
     // pull-to-refresh. Mirror of the auto-paginate effect in RoomTimelineScreen.kt.
     //
-    // Why a target (hysteresis) instead of a single "<= 60" fetch: a duplicate-heavy paginate
-    // response (most events already cached) adds only a handful of *renderable* items, which
-    // would nudge itemsAbove just past 60 and end the chain after one low-yield round. The user
-    // can then out-scroll the pager and hit the literal top, where each subsequent round still
-    // yields little. Refilling to a deeper target rebuilds a real buffer underneath the user.
+    // Why a target (hysteresis) instead of a single "<= REFILL_TRIGGER" fetch: a duplicate-heavy
+    // paginate response (most events already cached) adds only a handful of *renderable* items,
+    // which would nudge itemsAbove just past the trigger and end the chain after one low-yield
+    // round. The user can then out-scroll the pager and hit the literal top, where each subsequent
+    // round still yields little. Refilling to a deeper target rebuilds a real buffer underneath.
     //
     // isPaginating and pendingScrollRestoration are in the snapshot so the chain re-checks both
     // when a paginate batch finishes (isPaginating: true→false) and when its scroll restoration
@@ -1889,8 +1889,8 @@ fun BubbleTimelineScreen(
     // distinctUntilChanged would otherwise suppress the re-emission and stall the chain.
     // The total > 0 guard is dropped for the same reason: total == 0 with hasMoreMessages == true
     // is exactly the case we need to paginate through.
-    val REFILL_TRIGGER = 60 // start refilling when this few items remain above the viewport
-    val REFILL_TARGET = 180 // keep fetching until at least this many sit above the viewport
+    val REFILL_TRIGGER = 10 // start refilling when this few renderable items remain above the viewport
+    val REFILL_TARGET = 50 // keep fetching until at least this many renderable items sit above the viewport
     val MAX_REFILL_ROUNDS = 20 // safety valve against a backend that keeps advancing with no real yield
     // A burst armed from an empty timeline is filling the screen, not building a scroll buffer.
     // Chasing REFILL_TARGET there costs ~10 extra round-trips on a sparse room and holds the
@@ -1946,6 +1946,7 @@ fun BubbleTimelineScreen(
                     isRefillingBuffer = true
                     refillRoundCount = 0
                     armedFromEmpty = total == 0
+                    refillStalled = false
                 }
                 // Exit conditions: target reached, history exhausted, or safety cap hit.
                 val activeTarget = if (armedFromEmpty) initialFillTarget else REFILL_TARGET
@@ -1970,7 +1971,12 @@ fun BubbleTimelineScreen(
                     !snap.pendingScrollRestoration &&
                     !snap.isPaginating &&
                     !snap.isTimelineLoading &&
-                    snap.hasMore
+                    snap.hasMore &&
+                    // Guard against stale composition while the bubble is being torn down or the
+                    // app navigates elsewhere: this screen can briefly stay composed with its
+                    // timelineItems transiently at 0, and would then fire an auto-paginate for the
+                    // wrong room, wasting a request slot the current room needs.
+                    roomId == appViewModel.currentRoomId
                 ) {
                     val roundLimit = when {
                         barrenRoundStreak >= 2 -> 500
@@ -2402,6 +2408,12 @@ fun BubbleTimelineScreen(
             )
         }
         if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Loading timeline for room: $roomId")
+        // Set currentRoomId for every open path, as RoomTimelineScreen does. This screen used to
+        // rely entirely on navigateToRoomWithCache for it — but the isAlreadyLoaded check above
+        // skips that call, and currentRoomId is cleared when the app backgrounds. Every guard in
+        // this file that reads `currentRoomId == roomId` (the refresh trigger, the timelineEvents
+        // effect, the profile prefetch, the auto-paginate) silently went dead in that state.
+        appViewModel.setCurrentRoomIdForTimeline(roomId)
         if (appViewModel.isAppVisible) {
             appViewModel.markTimelineForeground(roomId)
         }
@@ -2763,7 +2775,22 @@ fun BubbleTimelineScreen(
                                     },
                                 ),
                         ) {
-                            if (!readinessCheckComplete || isLoading) {
+                            // Show the full-screen loader only when there is nothing to render yet.
+                            // A bare isLoading=true must NOT wipe an already-populated timeline: on
+                            // a warm re-open the cached events stay on screen while a background
+                            // paginate merges newer ones, and isTimelineLoading is briefly true
+                            // during that rebuild. Unmounting the list there also collapses
+                            // listState.layoutInfo to zero items, which feeds total == 0 straight
+                            // back into the auto-paginate arm condition above.
+                            //
+                            // hasInitialSnapCompleted is ANDed with isLoading rather than ORed into
+                            // the condition: once the first batch has landed the loader must release
+                            // even at zero renderable items, so a room whose whole window is hidden
+                            // membership events doesn't spin forever.
+                            val shouldShowLoading = !readinessCheckComplete ||
+                                (timelineItems.isEmpty() && isLoading && !hasInitialSnapCompleted)
+
+                            if (shouldShowLoading) {
                                 Box(
                                     modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.Center,
@@ -2804,6 +2831,22 @@ fun BubbleTimelineScreen(
                                 }
                                 // clipToBounds ensures the date pill slides from behind the header rather than over it
                                 Box(modifier = Modifier.fillMaxSize().clipToBounds()) {
+                                    // Nothing renderable in the loaded window: say so rather than
+                                    // showing a blank list forever when a refill burst hits the
+                                    // safety cap. The LazyColumn stays composed beneath this (it
+                                    // renders nothing anyway) so the auto-paginate effect keeps
+                                    // observing listState. Shared with RoomTimelineScreen.
+                                    if (timelineItems.isEmpty()) {
+                                        TimelineEmptyState(
+                                            isSearching = isRefillingBuffer || appViewModel.isPaginating,
+                                            canLoadMore = appViewModel.hasMoreMessages,
+                                            onLoadMore = {
+                                                refillStalled = false
+                                                appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 500)
+                                            },
+                                            modifier = Modifier.fillMaxSize(),
+                                        )
+                                    }
                                     // Oldest visible item is at the highest index in the reversed list (top of screen)
                                     val reversedBubbleItems = remember(timelineItems) { timelineItems.reversed() }
                                     val oldestVisibleDateBubble by remember(reversedBubbleItems) {
