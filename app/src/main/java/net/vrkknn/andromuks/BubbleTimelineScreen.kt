@@ -2630,6 +2630,10 @@ fun BubbleTimelineScreen(
         if (messageMenuConfig != null) {
             // Close message menu if open
             messageMenuConfig = null
+        } else if (showLocationPickerOverlay) {
+            // Dismiss the picker, not the whole bubble — Back used to fall straight through to
+            // onCloseBubble() here and throw away the pinned location.
+            showLocationPickerOverlay = false
         } else if (showAttachmentMenu) {
             // Close attachment menu if open
             showAttachmentMenu = false
