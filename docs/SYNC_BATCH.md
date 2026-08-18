@@ -10,7 +10,7 @@ Batches `sync_complete` messages while the app is backgrounded and flushes them 
 - `timelineRefreshTrigger` in `AppViewModel` is incremented twice on foreground:
   1. Immediately, to show the cached state.
   2. After the batch flush, to pick up the just-merged events.
-- `RoomTimelineScreen` watches `timelineRefreshTrigger` with **a single `LaunchedEffect`** that calls `requestRoomTimeline()` and then unconditionally updates `lastKnownRefreshTrigger`. Do not split this into two effects with the same key — the second would race to update the tracker before the first can act on it.
+- `RoomTimelineScreen` and `BubbleTimelineScreen` each watch `timelineRefreshTrigger` with **a single `LaunchedEffect`** that calls `requestRoomTimeline()` and then unconditionally updates `lastKnownRefreshTrigger`. Do not split this into two effects with the same key — the second would race to update the tracker before the first can act on it. The update must also stay *outside* the refresh condition: a trigger arriving while the guard is closed would otherwise leave the tracker stale, and this trigger is incremented twice per foreground.
 
 ## BatterySaver-mode bypass
 

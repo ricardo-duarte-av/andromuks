@@ -71,13 +71,26 @@ Paginate is considered authoritative for the events it returns. A user appearing
 - On VM `init` (readReceipts is empty — straightforward add from cache).
 - On `RoomListSingletonReplicated` (for secondary/bubble VMs — readReceipts may already be populated from a prior cache load, so stale positions must be evicted before adding).
 
-## Known Bug Fixed: Receipt Accumulation
+## Receipt Accumulation — the invariant every write path must uphold
 
-**Symptom:** A user's read receipt avatar appeared on multiple message bubbles simultaneously instead of moving.
+**Symptom:** A user's read receipt avatar appears on multiple message bubbles simultaneously instead of moving.
 
-**Root cause:** `populateReadReceiptsFromCache` was a pure additive merge. It checked "is this user already on THIS event?" but never removed them from other events. When the cache was refreshed (user X moved from $eventOld → $eventNew via sync_complete), a subsequent call to `populateReadReceiptsFromCache` (e.g. from `RoomListSingletonReplicated`) would add user X to $eventNew while leaving them stranded on $eventOld.
+**Rule:** every path that *places* a receipt must first *evict* that user from wherever they currently sit, using the per-room inverted index (`readReceiptsIndex`, `roomId → userId → eventId`). Placing without evicting is what strands the old avatar. There is no path for which "the user cannot already be somewhere else" is safe to assume.
 
-**Fix (in `ReadReceiptsTypingCoordinator.populateReadReceiptsFromCache`):** Before placing any receipt from the cache onto an event, call `evictUserFromOtherEvents` which scans all other entries in `readReceipts` and removes the user (same-room check: `existing.roomId.isBlank() || existing.roomId == receipt.roomId`). This mirrors the dedup logic in `processReadReceiptsFromSyncComplete`.
+The write paths, and where each does it:
+
+| Path | Location |
+|---|---|
+| sync_complete | `ReceiptFunctions.processReadReceiptsFromSyncComplete` — evicts via `userIndex` |
+| cache merge (secondary VMs) | `ReceiptFunctions.mergeCachedReceiptsIntoRoom`, called from `ReadReceiptsTypingCoordinator.populateReadReceiptsFromCache` |
+| paginate (authoritative) | `TimelineCacheCoordinator` — paginate never says "remove user from Y", so the dedup is this path's own job |
+| bridge remap | `SyncRoomsCoordinator` (both the in-sync and post-sync remaps) — the index write must sit **outside** the per-user dedup guard, or a deduped remap leaves the index pointing at a deleted status event and the *next* move fails to evict |
+
+**This has regressed twice.** It was first fixed by adding `evictUserFromOtherEvents` to both branches of the cache merge. `ebe80e77` ("partition ReadReceiptCache by room; add O(1) inverted index") then replaced that helper with index-based eviction in only *one* of the two branches, and the bug came back.
+
+It came back **bubble-only**, which is what makes it easy to miss: `populateReadReceiptsFromCache` is the only receipt write path a **secondary** ViewModel has. Bubbles and `ShortcutActivity` never process sync receipts themselves — they reload from the replicated singleton cache on every `RoomListSingletonReplicated`, i.e. on every sync. The primary VM calls the same function once at `init`, when its map is still empty, so it never accumulates and the bug is invisible in the main app.
+
+The merge is therefore a pure function with no ViewModel state, so the invariant is unit-tested directly — see `ReceiptMergeTest`. Add a case there for any new write path.
 
 ## Bridge Receipt Remapping
 

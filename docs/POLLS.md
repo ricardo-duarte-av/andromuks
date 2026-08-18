@@ -53,10 +53,13 @@ to be fixed:
   because `m.room.encrypted` is whitelisted. They are dropped structurally via
   `isPollSatelliteEvent`, next to the unconditional redaction drop, rather than by type.
 
-> **There are two render filters, not one.** `processTimelineEvents` (RoomTimelineScreen) is shared
-> by the room timeline *and* the thread viewer, but `BubbleTimelineScreen` carries its own
-> near-duplicate `bubbleProcessTimelineEvents`. Any structural filter rule has to be added to both.
-> Likewise `allowedEventTypes` is declared separately in all three screens.
+> **One render filter, three whitelists.** `processTimelineEvents` (RoomTimelineScreen) is now shared
+> by the room timeline, the thread viewer *and* the chat bubble — `BubbleTimelineScreen` used to carry
+> a near-duplicate `bubbleProcessTimelineEvents`, which had silently drifted into inverted edit
+> semantics and never learned about `show_membership_events`. Do not reintroduce a per-screen copy:
+> the receipt-flattening anchor set is derived from the filter's output, so a filter divergence
+> misplaces read-receipt avatars too (see docs/RECEIPTS.md). `allowedEventTypes` is still declared
+> separately in each screen.
 
 ## Aggregation rules
 
