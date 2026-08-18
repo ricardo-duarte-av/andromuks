@@ -4812,11 +4812,20 @@ fun BubbleTimelineScreen(
                                 val fileUriToUpload = selectedFileUri
                                 val isVideoToUpload = selectedMediaIsVideo
 
+                                // Capture the reply target (if any) so the uploaded media is sent as a
+                                // reply to the selected message — mirrors the text-reply thread handling
+                                // and RoomTimelineScreen. Without this the attachment went out as a
+                                // standalone message and the reply preview stayed stuck open.
+                                val replyTargetEvent = replyingToEvent
+                                val replyThreadRootEventId = replyTargetEvent?.getThreadInfo()?.threadRootEventId
+                                val replyToEventId = replyTargetEvent?.eventId
+
                                 // Clear state immediately
                                 selectedMediaUri = null
                                 selectedAudioUri = null
                                 selectedFileUri = null
                                 selectedMediaIsVideo = false
+                                replyingToEvent = null
 
                                 // Upload and send in background
                                 coroutineScope.launch {
@@ -4885,6 +4894,10 @@ fun BubbleTimelineScreen(
                                                         thumbnailHeight = videoResult.thumbnailHeight,
                                                         thumbnailSize = videoResult.thumbnailSize,
                                                         caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = replyThreadRootEventId,
+                                                        replyToEventId = replyToEventId,
+                                                        // A real reply, not a thread anchor.
+                                                        isThreadFallback = false,
                                                     )
                                                 } else {
                                                     Log.e(
@@ -4930,6 +4943,10 @@ fun BubbleTimelineScreen(
                                                         size = audioResult.size,
                                                         mimeType = audioResult.mimeType,
                                                         caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = replyThreadRootEventId,
+                                                        replyToEventId = replyToEventId,
+                                                        // A real reply, not a thread anchor.
+                                                        isThreadFallback = false,
                                                     )
                                                 } else {
                                                     Log.e(
@@ -4974,6 +4991,10 @@ fun BubbleTimelineScreen(
                                                         size = fileResult.size,
                                                         mimeType = fileResult.mimeType,
                                                         caption = caption.takeIf { it.isNotBlank() },
+                                                        threadRootEventId = replyThreadRootEventId,
+                                                        replyToEventId = replyToEventId,
+                                                        // A real reply, not a thread anchor.
+                                                        isThreadFallback = false,
                                                     )
                                                 } else {
                                                     Log.e(
@@ -5026,6 +5047,10 @@ fun BubbleTimelineScreen(
                                                         thumbnailHeight = uploadResult.thumbnailHeight,
                                                         thumbnailMimeType = uploadResult.thumbnailMimeType,
                                                         thumbnailSize = uploadResult.thumbnailSize,
+                                                        threadRootEventId = replyThreadRootEventId,
+                                                        replyToEventId = replyToEventId,
+                                                        // A real reply, not a thread anchor.
+                                                        isThreadFallback = false,
                                                     )
                                                 } else {
                                                     Log.e(
