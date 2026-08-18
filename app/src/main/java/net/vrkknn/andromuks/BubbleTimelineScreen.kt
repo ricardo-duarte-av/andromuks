@@ -2456,8 +2456,8 @@ fun BubbleTimelineScreen(
         isInitialLoadComplete = true
     }
 
-    // Refresh timeline when app resumes (to show new events received while suspended)
-    // Only refresh if initial load is complete (not during initial room opening)
+    // Refresh timeline when app resumes (to show new events received while suspended) or after a
+    // batch flush. Only fires after initial load is complete.
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
         if (appViewModel.timelineRefreshTrigger > 0 &&
             appViewModel.currentRoomId == roomId &&
@@ -2470,9 +2470,47 @@ fun BubbleTimelineScreen(
                     "BubbleTimelineScreen: App resumed, refreshing timeline for room: $roomId",
                 )
             }
-            // Don't reset state flags - this is just a refresh, not a new room load
-            appViewModel.requestRoomTimeline(roomId, useLruCache = false)
-            lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
+            // Don't reset state flags - this is just a refresh, not a new room load.
+            // Serve from the LRU cache when possible: a resume used to force a full network
+            // round trip here on every foreground.
+            appViewModel.requestRoomTimeline(roomId)
+        }
+        // Always sync the tracker so the next increment is detectable regardless of whether the
+        // refresh condition was met. The batch flush increments this twice on foreground (see
+        // docs/SYNC_BATCH.md); leaving it stale inside the `if` means a trigger that arrived while
+        // the guard was closed is compared against a long-obsolete value.
+        lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
+    }
+
+    // Recover after a reconnect. Nothing in this screen observed the connection: a socket death
+    // while a bubble was open produced a CloudOff icon in the header and no other change, so a
+    // stuck "Room loading…" or a dead spinner sat there with no way out but the refresh button.
+    //
+    // Keyed on rpcRetryGeneration, NOT SyncRepository.connectionState — that counter bumps exactly
+    // once per "socket up AND command gate open" transition, whereas connectionState flips through
+    // Connecting/Ready repeatedly on a weak link. See docs/RPC_RESILIENCE.md.
+    var lastSeenRetryGeneration by remember(roomId) { mutableIntStateOf(appViewModel.rpcRetryGeneration) }
+    LaunchedEffect(appViewModel.rpcRetryGeneration) {
+        val generation = appViewModel.rpcRetryGeneration
+        if (generation == lastSeenRetryGeneration) return@LaunchedEffect // first composition, not a reconnect
+        lastSeenRetryGeneration = generation
+        if (appViewModel.currentRoomId != roomId || !isInitialLoadComplete) return@LaunchedEffect
+
+        // Anything captured against the dead connection is meaningless now.
+        isRefreshingPull = false
+        pendingScrollRestoration = false
+        highestVisibleIndexBeforePagination = null
+        expectedTimelineSizeBeforePagination = null
+        // The member-list wait is only ever ended by a memberUpdateCounter bump, i.e. by the
+        // response. Nothing bumps it when the request dies with the socket, so without this the
+        // @-mention list stays dead for the life of the screen.
+        isWaitingForFullMemberList = false
+
+        // Only re-ask when actually stuck: drainDeferredRoomPaginates already reissues the room-open
+        // paginate for rooms that had one in flight.
+        if (appViewModel.timelineEvents.isEmpty() || appViewModel.isTimelineLoading) {
+            Log.i("Andromuks", "BubbleTimelineScreen: backend reachable again — re-requesting timeline for $roomId")
+            appViewModel.requestRoomTimeline(roomId)
         }
     }
 
@@ -2484,11 +2522,19 @@ fun BubbleTimelineScreen(
                     if (BuildConfig.DEBUG) {
                         Log.d(
                             "Andromuks",
-                            "BubbleTimelineScreen: Received FOREGROUND_REFRESH broadcast, refreshing timeline UI from cache for room: $roomId",
+                            "BubbleTimelineScreen: Received FOREGROUND_REFRESH broadcast, restoring timeline from cache for room: $roomId",
                         )
                     }
-                    // Lightweight timeline refresh from cached data (no network requests)
-                    appViewModel.refreshTimelineUI()
+                    // Restore straight from the LRU cache instead of bumping
+                    // timelineRefreshTrigger, which sent this screen down the resume path and out
+                    // to the network on every app foreground.
+                    //
+                    // Guard: only restore if this screen's room is still the current room. Without
+                    // it, a FOREGROUND_REFRESH racing a pending navigation elsewhere repopulates
+                    // eventChainMap with this room's data.
+                    if (appViewModel.currentRoomId == roomId) {
+                        appViewModel.restoreFromLruCache(roomId)
+                    }
                 }
             }
         }
