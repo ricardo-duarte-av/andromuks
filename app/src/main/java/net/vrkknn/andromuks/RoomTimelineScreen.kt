@@ -272,7 +272,7 @@ sealed class TimelineItem {
  * comes back for this room open — the divider extinguishes and the jump-to-unread FAB retires.
  * Observable, because it gates both the FAB and the divider's own rendering.
  */
-private class ReadMarkerDecision {
+internal class ReadMarkerDecision {
     var decided = false
     var anchorEventId: String? = null
     var consumed by mutableStateOf(false)
@@ -283,16 +283,16 @@ private class ReadMarkerDecision {
  * Guards a fast fling that whips it through the viewport in a couple of frames from silently
  * burning the bookmark.
  */
-private const val READ_MARKER_DWELL_MS = 350L
+internal const val READ_MARKER_DWELL_MS = 350L
 
 /** Flare duration: the divider brightens past its resting look before it starts to die. */
-private const val READ_MARKER_FLARE_MS = 320
+internal const val READ_MARKER_FLARE_MS = 320
 
 /** Extinguish duration: the long, slow decay from the flare peak down to nothing. */
-private const val READ_MARKER_EXTINGUISH_MS = 5000
+internal const val READ_MARKER_EXTINGUISH_MS = 5000
 
 /** Peak of the flare, as a multiple of the divider's resting intensity. */
-private const val READ_MARKER_FLARE_PEAK = 1.4f
+internal const val READ_MARKER_FLARE_PEAK = 1.4f
 
 /**
  * Snapshot of the values the auto-paginate effect reacts to. pendingScrollRestoration is

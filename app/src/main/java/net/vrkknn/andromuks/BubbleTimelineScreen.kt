@@ -12,6 +12,8 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -62,6 +64,7 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mood
@@ -154,6 +157,7 @@ import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.ui.theme.scaledColumnEnter
 import net.vrkknn.andromuks.ui.theme.scaledColumnExit
+import net.vrkknn.andromuks.ui.theme.scaledTween
 import net.vrkknn.andromuks.ui.theme.scaledTweenMs
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.BotCommandSendOutcome
@@ -222,6 +226,13 @@ sealed class BubbleTimelineItem {
     // crash the list. See TimelineItem.DateDivider in RoomTimelineScreen.kt.
     data class DateDivider(val date: String, val anchorEventId: String) : BubbleTimelineItem() {
         override val stableKey: String get() = "date_${date}_$anchorEventId"
+    }
+
+    // The "new messages" divider, drawn immediately above the first event that follows the
+    // m.fully_read marker that was in effect when the room was opened. anchorEventId is the
+    // unread event it precedes, which keeps the LazyColumn key stable and unique.
+    data class ReadMarker(val anchorEventId: String) : BubbleTimelineItem() {
+        override val stableKey: String get() = "readmarker_$anchorEventId"
     }
 }
 
@@ -1331,6 +1342,14 @@ fun BubbleTimelineScreen(
         }
     }
 
+    // Snapshot the m.fully_read marker once when the room opens, so the divider is positioned
+    // against where reading left off rather than chasing the marker as it advances.
+    val fullyReadMarkerEventId = remember(roomId) { RoomAccountDataCache.getFullyReadEventId(roomId) }
+
+    // Decided once per room open (see ReadMarkerDecision). Survives produceState recomputes so a
+    // later sent/received event can't flip a "caught up on entry" room into showing the divider.
+    val readMarkerDecision = remember(roomId) { ReadMarkerDecision() }
+
     // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags.
     // Use produceState to offload this heavy computation (iterating thousands of events) to a background thread.
     // reactionUpdateCounter keys this because the receipt-flattening walk below splices in cached
@@ -1338,6 +1357,7 @@ fun BubbleTimelineScreen(
     val timelineItems by produceState<List<BubbleTimelineItem>>(
         initialValue = emptyList(),
         sortedEvents,
+        fullyReadMarkerEventId,
         appViewModel.reactionUpdateCounter,
     ) {
         value = withContext(Dispatchers.Default) {
@@ -1379,6 +1399,27 @@ fun BubbleTimelineScreen(
                 }
             }
 
+            // Read-marker placement, mirroring RoomTimelineScreen. Look up the read-up-to event in
+            // the *unfiltered* timeline so the divider can still be positioned when that event is
+            // itself hidden or redacted and thus absent from sortedEvents; the divider then goes in
+            // just before the first rendered event that sorts after it, i.e. exactly where the
+            // hidden event would have sat. If the marker event isn't loaded at all it stays null
+            // and no divider shows until pagination brings it in.
+            val fullyReadEvent = fullyReadMarkerEventId?.let { id ->
+                timelineEvents.firstOrNull { it.eventId == id }
+            }
+            // Latch the decision the first time we have both a non-empty timeline and the fully-read
+            // event loaded. Once decided the anchor is frozen — events arriving after entry never
+            // re-open it.
+            if (!readMarkerDecision.decided && sortedEvents.isNotEmpty() && fullyReadEvent != null) {
+                readMarkerDecision.anchorEventId = sortedEvents
+                    .firstOrNull { timelineOrder.compare(it, fullyReadEvent) > 0 }
+                    ?.eventId
+                readMarkerDecision.decided = true
+            }
+            val readMarkerAnchorId = readMarkerDecision.anchorEventId
+            var readMarkerInserted = false
+
             val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
             for (event in sortedEvents) {
                 if (isReactionEvent(event)) {
@@ -1394,6 +1435,17 @@ fun BubbleTimelineScreen(
                     items.add(BubbleTimelineItem.DateDivider(eventDate, event.eventId))
                     lastDate = eventDate
                     // Date divider breaks consecutive grouping
+                    previousEvent = null
+                }
+
+                // Unread divider: render it only above the anchor frozen at room open. If the room
+                // was entered caught up, readMarkerAnchorId is null and the divider never appears —
+                // even after we send/receive events that sort after the fully-read marker.
+                if (!readMarkerInserted && readMarkerAnchorId != null && event.eventId == readMarkerAnchorId) {
+                    items.add(BubbleTimelineItem.ReadMarker(event.eventId))
+                    readMarkerInserted = true
+                    // The marker breaks consecutive grouping so the first unread message
+                    // renders its sender header/avatar.
                     previousEvent = null
                 }
 
@@ -1430,6 +1482,15 @@ fun BubbleTimelineScreen(
         }
     }
     var lastInitialScrollSize by remember(roomId) { mutableIntStateOf(0) }
+
+    // Hoisted here rather than computed at the FAB so the consume effect and the FAB share one
+    // scan — this walks the whole item list on every rebuild and does not want doing twice.
+    val unreadMarkerIndex = remember(timelineItems) {
+        timelineItems.indexOfFirst { it is BubbleTimelineItem.ReadMarker }
+    }
+    val readMarkerKey = remember(timelineItems, unreadMarkerIndex) {
+        (timelineItems.getOrNull(unreadMarkerIndex) as? BubbleTimelineItem.ReadMarker)?.stableKey
+    }
 
     // Get member map that observes memberUpdateCounter and includes global cache fallback for TimelineEventItem profile updates
     val baseMemberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
@@ -1483,7 +1544,7 @@ fun BubbleTimelineScreen(
         val indexInOriginal = timelineItems.indexOfFirst { item ->
             when (item) {
                 is BubbleTimelineItem.Event -> item.event.eventId == eventId
-                is BubbleTimelineItem.DateDivider -> false
+                is BubbleTimelineItem.DateDivider, is BubbleTimelineItem.ReadMarker -> false
             }
         }
         if (indexInOriginal >= 0) {
@@ -1506,6 +1567,42 @@ fun BubbleTimelineScreen(
                 listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
             navController.navigate("event_context/$encodedRoomId/$encodedEventId")
         }
+    }
+
+    // Consume-on-sight for the "New messages" divider. The divider marks where reading left off, so
+    // seeing it is spending it: once the row has been on screen for READ_MARKER_DWELL_MS it flares,
+    // extinguishes over READ_MARKER_EXTINGUISH_MS, and is gone for the rest of this room open — the
+    // jump-to-unread FAB retires at the same moment. Covers both ways of reaching it (tapping the
+    // FAB and simply scrolling up), because both mean the same thing.
+    //
+    // The animation value lives here, not in UnreadMarker: the LazyColumn disposes the row whenever
+    // it leaves the viewport, and the decay has to keep running across that.
+    val readMarkerIntensity = remember(roomId) { Animatable(1f) }
+    LaunchedEffect(roomId, readMarkerKey) {
+        val markerKey = readMarkerKey ?: return@LaunchedEffect
+        if (readMarkerDecision.consumed) return@LaunchedEffect
+
+        // Wait for the row to be *continuously* visible for the dwell: a fling that flicks it
+        // through the viewport in two frames must not burn the bookmark unseen.
+        val isMarkerVisible = { listState.layoutInfo.visibleItemsInfo.any { it.key == markerKey } }
+        while (true) {
+            snapshotFlow { isMarkerVisible() }.filter { it }.first()
+            kotlinx.coroutines.delay(READ_MARKER_DWELL_MS)
+            if (isMarkerVisible()) break
+        }
+
+        // Latch before animating so the FAB disappears as the flare starts, not 5s later.
+        readMarkerDecision.consumed = true
+        readMarkerIntensity.animateTo(
+            READ_MARKER_FLARE_PEAK,
+            animationSpec = scaledTween(READ_MARKER_FLARE_MS, easing = FastOutSlowInEasing),
+        )
+        readMarkerIntensity.animateTo(
+            0f,
+            // Accelerating (slow out of the peak, steep at the end): the line holds its glow long
+            // enough to be read, then drops away.
+            animationSpec = scaledTween(READ_MARKER_EXTINGUISH_MS, easing = FastOutLinearInEasing),
+        )
     }
 
     // True only during programmatic animated scrolls (FAB, keyboard, etc.).
@@ -3011,6 +3108,7 @@ fun BubbleTimelineScreen(
                                             contentType = { _, item ->
                                                 when (item) {
                                                     is BubbleTimelineItem.DateDivider -> "date"
+                                                    is BubbleTimelineItem.ReadMarker -> "marker"
                                                     is BubbleTimelineItem.Event -> "event"
                                                 }
                                             },
@@ -3018,6 +3116,10 @@ fun BubbleTimelineScreen(
                                             when (item) {
                                                 is BubbleTimelineItem.DateDivider -> {
                                                     BubbleDateDivider(item.date)
+                                                }
+
+                                                is BubbleTimelineItem.ReadMarker -> {
+                                                    UnreadMarker(intensity = readMarkerIntensity.value)
                                                 }
 
                                                 is BubbleTimelineItem.Event -> {
@@ -4249,6 +4351,40 @@ fun BubbleTimelineScreen(
                             Icon(
                                 imageVector = Icons.Filled.KeyboardArrowDown,
                                 contentDescription = "Scroll to bottom",
+                            )
+                        }
+                    }
+
+                    // Jump-to-unread FAB: shown only when pinned to the bottom (the same clause that
+                    // hides the scroll-down FAB) AND a "New messages" divider is present above and
+                    // still unspent, so the two are mutually exclusive and never overlap. Once the
+                    // divider has been seen it is consumed and this does not come back for the rest
+                    // of the room open — after the jump there is, by definition, nothing left to
+                    // jump to.
+                    if (isAttachedToBottom && unreadMarkerIndex >= 0 && !readMarkerDecision.consumed) {
+                        val fabBottomPadding = 60.dp + timelineMenuInset
+                        FloatingActionButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    // timelineItems is oldest-first; the LazyColumn renders it reversed.
+                                    val reversedIndex = (timelineItems.lastIndex - unreadMarkerIndex).coerceAtLeast(0)
+                                    listState.animateScrollToItem(reversedIndex)
+                                    isAttachedToBottom = false
+                                }
+                            },
+                            modifier =
+                            Modifier.align(Alignment.BottomEnd)
+                                .padding(
+                                    end = 16.dp,
+                                    bottom = fabBottomPadding,
+                                )
+                                .navigationBarsPadding(),
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.KeyboardArrowUp,
+                                contentDescription = "Jump to unread",
                             )
                         }
                     }
