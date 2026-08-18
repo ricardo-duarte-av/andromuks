@@ -4238,6 +4238,7 @@ fun BubbleTimelineScreen(
                                     bottom = 60.dp, // Closer to text input
                                 )
                                 .navigationBarsPadding()
+                                .imePadding()
                                 .zIndex(9f),
                         ) {
                             EmojiSuggestionList(
@@ -4402,6 +4403,7 @@ fun BubbleTimelineScreen(
                                     bottom = 60.dp, // Closer to text input
                                 )
                                 .navigationBarsPadding()
+                                .imePadding()
                                 .zIndex(9f),
                         ) {
                             BubbleRoomSuggestionList(
@@ -4817,7 +4819,8 @@ fun BubbleTimelineScreen(
                                     start = 72.dp, // Align with text input (attach button width + spacing)
                                     bottom = 60.dp, // Closer to text input
                                 )
-                                .navigationBarsPadding(),
+                                .navigationBarsPadding()
+                                .imePadding(),
                         ) {
                             BubbleMentionMemberList(
                                 members = roomMembers,
