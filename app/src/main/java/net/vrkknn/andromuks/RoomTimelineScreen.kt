@@ -3172,6 +3172,34 @@ fun RoomTimelineScreen(
         }
     }
 
+    // First half of the return-scroll restore: get the position in place on the very first measure
+    // pass that has items, so the bottom is never drawn.
+    //
+    // Seeding rememberLazyListState is not enough on its own. The LazyColumn stays composed while
+    // timelineItems is still empty (see the TimelineEmptyState comment at the call site), and a
+    // measure pass over an empty list writes its result back into the state — which resets the
+    // seeded index to 0. By the time the first batch lands, the request is gone and the list
+    // measures at the bottom. This is also why the framework's own rememberSaveable restore of
+    // listState, which NavHost performs for this back-stack entry, never had a chance either.
+    //
+    // requestScrollToItem rather than scrollToItem: it parks the position for the *next* measure
+    // pass instead of animating/settling afterwards, so it applies within the same frame the items
+    // first appear in. The correction effect below still runs; this one only removes the flash.
+    LaunchedEffect(roomId) {
+        val target = savedReturnScroll ?: return@LaunchedEffect
+        snapshotFlow { timelineItems.size }.first { it > 0 }
+        val maxIndex = (timelineItems.size - 1).coerceAtLeast(0)
+        val targetIndex = target.first.coerceIn(0, maxIndex)
+        listState.requestScrollToItem(targetIndex, target.second)
+        isAttachedToBottom = targetIndex == 0
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Return-scroll requested at index=$targetIndex offset=${target.second} on first non-empty measure",
+            )
+        }
+    }
+
     // Re-assert the scroll position saved by saveTimelineReturnScroll() before navigating to a screen
     // that disposes this one (UserInfo, RoomInfo, Mentions, Search, ...), so back-navigation returns
     // the user to where they were reading instead of the bottom of the timeline.
@@ -3201,7 +3229,9 @@ fun RoomTimelineScreen(
         if (timelineItems.isEmpty() || isLoading || appViewModel.isPaginating) {
             return@LaunchedEffect
         }
-        // Let any initial snap already in flight finish before overriding it.
+        // Let any initial snap already in flight finish before overriding it. The position is
+        // normally already correct by now — the effect above applied it on the first measure with
+        // items — so this settles at the same place and nothing moves.
         kotlinx.coroutines.delay(150)
         val maxIndex = (timelineItems.size - 1).coerceAtLeast(0)
         val targetIndex = target.first.coerceIn(0, maxIndex)
