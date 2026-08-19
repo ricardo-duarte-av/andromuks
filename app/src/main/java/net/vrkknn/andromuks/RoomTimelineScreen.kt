@@ -2063,8 +2063,28 @@ fun RoomTimelineScreen(
         }
     }
 
-    // List state and auto-scroll to bottom when data loads/changes
-    val listState = rememberLazyListState()
+    // Non-null only when this composition is a *return* from a screen opened out of this timeline
+    // (UserInfo, RoomInfo, Mentions, Search, ...) rather than a fresh room open — the outgoing
+    // composition wrote it via saveTimelineReturnScroll() just before navigating. It is read (and
+    // removed) once, here at composition, so every scroll effect below agrees on the same answer
+    // for the whole return: three separate effects race to snap a freshly composed timeline to the
+    // bottom and any of them can win, so a branch inside only one of them is not enough. They all
+    // stand down while returnScrollPending is true, exactly as they do for threadReturnScrollEventId,
+    // and the dedicated restore effect further down has the last word.
+    val savedReturnScroll = remember(roomId) { appViewModel.timelineReturnScroll.remove(roomId) }
+    var returnScrollPending by remember(roomId) { mutableStateOf(savedReturnScroll != null) }
+
+    // List state and auto-scroll to bottom when data loads/changes.
+    // On a return, the saved position is seeded into the state at construction rather than scrolled
+    // to afterwards: LazyListState holds a requested index until the items exist and applies it on
+    // the first layout that can satisfy it (the same mechanism that restores scroll across process
+    // death), so the list is never laid out at the bottom first. Without this the user sees the
+    // timeline paint at the bottom and then jump back up. The restore effect further down still
+    // runs as a correction for the case where the item list changed shape while we were away.
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = savedReturnScroll?.first ?: 0,
+        initialFirstVisibleItemScrollOffset = savedReturnScroll?.second ?: 0,
+    )
 
     // True only during programmatic animated scrolls (FAB, keyboard, etc.).
     // Used by LocalIsScrollingFast so that image loading is suspended only during those scrolls,
@@ -2088,17 +2108,6 @@ fun RoomTimelineScreen(
         appViewModel.timelineReturnScroll[roomId] =
             listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
     }
-
-    // Non-null only when this composition is a *return* from a screen opened out of this timeline
-    // (UserInfo, RoomInfo, Mentions, Search, ...) rather than a fresh room open — the outgoing
-    // composition wrote it via saveTimelineReturnScroll() just before navigating. It is read (and
-    // removed) once, here at composition, so every scroll effect below agrees on the same answer
-    // for the whole return: three separate effects race to snap a freshly composed timeline to the
-    // bottom and any of them can win, so a branch inside only one of them is not enough. They all
-    // stand down while returnScrollPending is true, exactly as they do for threadReturnScrollEventId,
-    // and the dedicated restore effect further down has the last word.
-    val savedReturnScroll = remember(roomId) { appViewModel.timelineReturnScroll.remove(roomId) }
-    var returnScrollPending by remember(roomId) { mutableStateOf(savedReturnScroll != null) }
 
     // A bare "/poll" opens the full-screen poll maker. The draft is cleared first so returning from
     // the maker (sent or cancelled) doesn't leave the command text sitting in the composer, and so
@@ -3163,9 +3172,15 @@ fun RoomTimelineScreen(
         }
     }
 
-    // Restore the scroll position saved by saveTimelineReturnScroll() before navigating to a screen
+    // Re-assert the scroll position saved by saveTimelineReturnScroll() before navigating to a screen
     // that disposes this one (UserInfo, RoomInfo, Mentions, Search, ...), so back-navigation returns
     // the user to where they were reading instead of the bottom of the timeline.
+    //
+    // The position is already seeded into listState at construction, so in the common case this
+    // effect lands on the position the list is holding and changes nothing visible. It stays because
+    // that seeding is a *request* against an index: if the item list changed shape while we were away
+    // (pagination, a redaction collapsing rows) the seeded index can resolve short, and because
+    // releasing returnScrollPending is what lets the bottom-snap effects resume normal duty.
     //
     // This is its own effect rather than a branch of the initial-scroll effect above because the
     // competing bottom-snaps run from coroutineScope.launch bodies with their own delays —
