@@ -2089,6 +2089,17 @@ fun RoomTimelineScreen(
             listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
     }
 
+    // Non-null only when this composition is a *return* from a screen opened out of this timeline
+    // (UserInfo, RoomInfo, Mentions, Search, ...) rather than a fresh room open — the outgoing
+    // composition wrote it via saveTimelineReturnScroll() just before navigating. It is read (and
+    // removed) once, here at composition, so every scroll effect below agrees on the same answer
+    // for the whole return: three separate effects race to snap a freshly composed timeline to the
+    // bottom and any of them can win, so a branch inside only one of them is not enough. They all
+    // stand down while returnScrollPending is true, exactly as they do for threadReturnScrollEventId,
+    // and the dedicated restore effect further down has the last word.
+    val savedReturnScroll = remember(roomId) { appViewModel.timelineReturnScroll.remove(roomId) }
+    var returnScrollPending by remember(roomId) { mutableStateOf(savedReturnScroll != null) }
+
     // A bare "/poll" opens the full-screen poll maker. The draft is cleared first so returning from
     // the maker (sent or cancelled) doesn't leave the command text sitting in the composer, and so
     // the command suggestion list doesn't stay open behind the new screen.
@@ -2098,6 +2109,7 @@ fun RoomTimelineScreen(
             draft = ""
             textFieldValue = TextFieldValue("")
             showCommandSuggestionList = false
+            saveTimelineReturnScroll()
             navController.navigate("poll_maker/$roomId")
         }
     }
@@ -2335,8 +2347,10 @@ fun RoomTimelineScreen(
         isRefreshingPull = false
     }
 
-    // Track if user is "attached" to the bottom (sticky scroll)
-    var isAttachedToBottom by remember { mutableStateOf(true) }
+    // Track if user is "attached" to the bottom (sticky scroll).
+    // Seeded false when returning to a saved scroll position: the sticky-bottom effects key on
+    // this, so starting attached would drag the timeline to the bottom before the restore lands.
+    var isAttachedToBottom by remember { mutableStateOf(savedReturnScroll == null) }
 
     // Set by a finger on the list, cleared the next time we settle at the bottom. This is what
     // makes detaching a *user intent* rather than a scroll-position reading — see the attachment
@@ -2370,6 +2384,8 @@ fun RoomTimelineScreen(
             if (threadReturnEventId != null) {
                 // Returning from thread viewer — don't scroll to bottom here; the main
                 // initial-scroll LaunchedEffect below will handle positioning.
+            } else if (returnScrollPending) {
+                // Returning from UserInfo/RoomInfo/etc. — the restore effect owns the position.
             } else {
                 // With reverseLayout, index 0 is the bottom (newest message)
                 listState.scrollToItem(0)
@@ -2456,6 +2472,10 @@ fun RoomTimelineScreen(
         // directly — it's still non-null at this point because the initial-scroll effect
         // hasn't cleared it yet.
         if (appViewModel.threadReturnScrollEventId != null) {
+            return@LaunchedEffect
+        }
+        // Same reasoning for a return to a saved scroll position: the restore effect owns it.
+        if (returnScrollPending) {
             return@LaunchedEffect
         }
         if (timelineItems.isNotEmpty() && isAttachedToBottom && hasSetInitialScrollPosition) {
@@ -3061,30 +3081,21 @@ fun RoomTimelineScreen(
                             )
                         }
                     }
-                } else {
-                    // Returning from UserInfo/RoomInfo? Restore the exact scroll position captured
-                    // before navigating there instead of snapping to the bottom. Both capture and
-                    // restore use listState's reversed-layout coordinates, so no conversion is needed.
-                    val returnScroll = appViewModel.timelineReturnScroll.remove(roomId)
-                    if (returnScroll != null) {
-                        // Suppress competing scroll effects while we restore (same guard the thread
-                        // return path uses above).
-                        pendingScrollRestoration = true
-                        val maxIndex = (timelineItems.size - 1).coerceAtLeast(0)
-                        val targetIndex = returnScroll.first.coerceIn(0, maxIndex)
-                        listState.scrollToItem(targetIndex, returnScroll.second)
-                        isAttachedToBottom = targetIndex == 0
-                        if (BuildConfig.DEBUG) {
-                            Log.d(
-                                "Andromuks",
-                                "RoomTimelineScreen: ✅ Restored scroll to index=$targetIndex offset=${returnScroll.second} after returning from UserInfo/RoomInfo",
-                            )
-                        }
-                    } else {
-                        // Normal initial load — scroll to bottom (newest message)
-                        listState.scrollToItem(0)
-                        isAttachedToBottom = true
+                } else if (returnScrollPending) {
+                    // Returning from UserInfo/RoomInfo/Mentions/Search — the dedicated restore
+                    // effect below owns the position; snapping to the bottom here would undo it.
+                    // The bookkeeping after this branch still runs, so the initial load is
+                    // considered settled either way.
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "Andromuks",
+                            "RoomTimelineScreen: Initial snap deferred to return-scroll restore",
+                        )
                     }
+                } else {
+                    // Normal initial load — scroll to bottom (newest message)
+                    listState.scrollToItem(0)
+                    isAttachedToBottom = true
                 }
                 hasInitialSnapCompleted = true
                 hasLoadedInitialBatch = true
@@ -3152,6 +3163,65 @@ fun RoomTimelineScreen(
         }
     }
 
+    // Restore the scroll position saved by saveTimelineReturnScroll() before navigating to a screen
+    // that disposes this one (UserInfo, RoomInfo, Mentions, Search, ...), so back-navigation returns
+    // the user to where they were reading instead of the bottom of the timeline.
+    //
+    // This is its own effect rather than a branch of the initial-scroll effect above because the
+    // competing bottom-snaps run from coroutineScope.launch bodies with their own delays —
+    // declaration order alone does not decide who lands last. Those effects all stand down while
+    // returnScrollPending is true, and this one has the final word once the first batch has settled.
+    // Both capture and restore use listState's reversed-layout coordinates, so no conversion is needed.
+    LaunchedEffect(roomId, timelineItems, isLoading, appViewModel.isPaginating) {
+        if (!returnScrollPending) {
+            return@LaunchedEffect
+        }
+        val target = savedReturnScroll
+        if (target == null) {
+            returnScrollPending = false
+            return@LaunchedEffect
+        }
+        // Wait for a renderable, settled first batch: restoring against a half-built list would
+        // address rows that are about to move.
+        if (timelineItems.isEmpty() || isLoading || appViewModel.isPaginating) {
+            return@LaunchedEffect
+        }
+        // Let any initial snap already in flight finish before overriding it.
+        kotlinx.coroutines.delay(150)
+        val maxIndex = (timelineItems.size - 1).coerceAtLeast(0)
+        val targetIndex = target.first.coerceIn(0, maxIndex)
+        listState.scrollToItem(targetIndex, target.second)
+        isAttachedToBottom = targetIndex == 0
+        hasSetInitialScrollPosition = true
+        hasInitialSnapCompleted = true
+        hasLoadedInitialBatch = true
+        pendingInitialScroll = false
+        returnScrollPending = false
+        if (BuildConfig.DEBUG) {
+            Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: ✅ Restored scroll to index=$targetIndex offset=${target.second} after returning from a screen opened out of the timeline",
+            )
+        }
+    }
+
+    // Safety valve: returnScrollPending suppresses every scroll-to-bottom effect, so it must never
+    // outlive a timeline that refuses to settle (an endless paginate, a room that loads nothing).
+    // Give up after a few seconds and hand control back to the normal initial-scroll effects.
+    LaunchedEffect(roomId) {
+        if (!returnScrollPending) {
+            return@LaunchedEffect
+        }
+        kotlinx.coroutines.delay(5000)
+        if (returnScrollPending) {
+            returnScrollPending = false
+            Log.w(
+                "Andromuks",
+                "RoomTimelineScreen: Return-scroll restore timed out for $roomId - releasing scroll effects",
+            )
+        }
+    }
+
     // NOTE: markRoomAsRead is handled by navigateToRoomWithCache, so we don't need to call it here
     // This prevents duplicate mark_read calls and race conditions
 
@@ -3161,8 +3231,11 @@ fun RoomTimelineScreen(
         ) {
             coroutineScope.launch {
                 // Skip bottom-scroll if the main initial-scroll effect is already handling
-                // thread-return restoration (it sets pendingScrollRestoration before suspending).
-                if (!pendingScrollRestoration) {
+                // thread-return restoration (it sets pendingScrollRestoration before suspending),
+                // or if we are returning to a saved scroll position (the restore effect owns it).
+                // The flag bookkeeping below still runs either way — the loader gate and the
+                // auto-paginate chain depend on it.
+                if (!pendingScrollRestoration && !returnScrollPending) {
                     // With reverseLayout, index 0 is bottom
                     listState.scrollToItem(0)
                     isAttachedToBottom = true
@@ -3693,7 +3766,10 @@ fun RoomTimelineScreen(
         } else {
             val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
             val encodedEventId = java.net.URLEncoder.encode(targetEventId, "UTF-8")
+            // Two restores, one position: pendingEventContextScrollRestore covers a composition
+            // that survives the round trip, saveTimelineReturnScroll() the one that is disposed.
             pendingEventContextScrollRestore = listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+            saveTimelineReturnScroll()
             navController.navigate("event_context/$encodedRoomId/$encodedEventId")
         }
     }
@@ -3958,6 +4034,7 @@ fun RoomTimelineScreen(
                             },
                             onNotificationsClick = {
                                 val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                saveTimelineReturnScroll()
                                 navController.navigate("mentions?roomId=$encodedRoomId")
                             },
                             onCallClick = {
@@ -3983,6 +4060,7 @@ fun RoomTimelineScreen(
                             },
                             onSearchClick = {
                                 val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                saveTimelineReturnScroll()
                                 navController.navigate("search?roomId=$encodedRoomId")
                             },
                         )
