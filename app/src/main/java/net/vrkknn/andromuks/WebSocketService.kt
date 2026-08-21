@@ -4808,6 +4808,10 @@ class WebSocketService : Service() {
         wasRestarted = false // Will be set in onStartCommand() if needed
 
         instance = this
+        // The repository's sync pipeline dismisses notifications for rooms the backend reports as
+        // read, which needs a Context. This service owns the socket that feeds it, so setting it
+        // here guarantees the context is in place before any sync_complete can arrive.
+        SyncRepository.appContext = applicationContext
         createNotificationChannel()
 
         // CRITICAL: Restore last_received_request_id from SharedPreferences to RAM on service start

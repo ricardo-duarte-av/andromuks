@@ -62,14 +62,20 @@ class FCMService : FirebaseMessagingService() {
         // Rooms where the user just replied via the inline notification action.
         // Dismiss FCMs arriving within this window are ignored because they are
         // the automatic mark-read triggered by our own reply, not a true remote dismissal.
-        private const val REPLY_DISMISS_PROTECTION_MS = 5_000L
+        internal const val REPLY_DISMISS_PROTECTION_MS = 5_000L
         private val replyProtectionWindows = ConcurrentHashMap<String, Long>()
 
         fun markRoomReplied(roomId: String) {
             replyProtectionWindows[roomId] = System.currentTimeMillis()
         }
 
-        private fun isReplyProtected(roomId: String): Boolean {
+        /**
+         * Internal rather than private because [NotificationSyncReconciler] applies the same
+         * dismissals from `sync_complete`. Without this check the socket path would collapse the
+         * notification the user just replied from — the exact thing the window exists to prevent —
+         * on whichever sync carries the mark-read our own reply triggered.
+         */
+        internal fun isReplyProtected(roomId: String): Boolean {
             val ts = replyProtectionWindows[roomId] ?: return false
             return if (System.currentTimeMillis() - ts < REPLY_DISMISS_PROTECTION_MS) {
                 true

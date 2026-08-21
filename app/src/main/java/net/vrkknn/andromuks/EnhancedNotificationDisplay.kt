@@ -82,6 +82,21 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         // showEnhancedNotification; the worker calls upgradeMessageToImage() which is
         // independently thread-safe via synchronized.
         internal val roomMessageCache = ConcurrentHashMap<String, ArrayDeque<MessagingStyle.Message>>()
+
+        /**
+         * Rooms this process believes currently have a notification posted. Derived from
+         * [roomMessageCache], which is populated on every post and cleared by
+         * [dismissRoomNotification] — so it tracks posted state without a binder round-trip to
+         * `NotificationManager.activeNotifications`.
+         *
+         * Used by [NotificationSyncReconciler] to keep its unread-is-zero arm from considering the
+         * overwhelming majority of rooms, which are simply idle and already read.
+         */
+        fun roomsWithPostedNotifications(): Set<String> = roomMessageCache.entries
+            .asSequence()
+            .filter { it.value.isNotEmpty() }
+            .map { it.key }
+            .toSet()
         internal const val MAX_CACHED_MESSAGES_PER_ROOM = 5
 
         /**

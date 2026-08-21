@@ -86,6 +86,15 @@ data class ViewModelEntry(val viewModel: WeakReference<AppViewModel>, @Volatile 
 
 object SyncRepository {
 
+    /**
+     * Application context, set by [WebSocketService] when it starts. The service owns the socket
+     * that feeds this repository, so it is always present by the time a `sync_complete` can arrive.
+     * Only used by the notification-dismissal pass in [processSyncCompletePipeline], which is
+     * skipped when this is null.
+     */
+    @Volatile
+    internal var appContext: Context? = null
+
     private const val TAG = "SyncRepository"
 
     private val registryLock = Any()
@@ -96,8 +105,14 @@ object SyncRepository {
 
     /**
      * Single ordered consumer for [sync_complete]: one ingest/parse/apply per server message (not per attached VM).
+     *
+     * [dismissApplied] is mutable state on purpose. A payload that arrives with no ViewModel
+     * attached is buffered in [noVmBuffer] and re-enqueued through the same pipeline on drain — the
+     * *same instance*, so the flag rides along and the notification-dismissal pass runs exactly
+     * once per payload. Running it twice would re-stamp the dismiss tombstone with a later
+     * timestamp, which could then suppress a legitimately newer notification.
      */
-    private data class PendingSyncComplete(val jsonString: String, val hint: IncomingWebSocketHint)
+    private data class PendingSyncComplete(val jsonString: String, val hint: IncomingWebSocketHint, var dismissApplied: Boolean = false)
 
     private val syncCompleteChannel = Channel<PendingSyncComplete>(Channel.UNLIMITED)
     private val syncPipelineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(1))
@@ -260,6 +275,25 @@ object SyncRepository {
             return
         }
         val json = JSONObject(msg.jsonString)
+
+        // Notification dismissal runs HERE, before the ViewModel is resolved, and deliberately not
+        // in any of the per-room consumers downstream: SyncBatchProcessor can hold a backgrounded
+        // always-on sync for up to five minutes, the receipt loop skips rooms that are not cached or
+        // open, and a UI-less always-on session has no ViewModel at all (the payload goes straight
+        // into noVmBuffer below). This is the one point every sync_complete passes through exactly
+        // once, with no ViewModel required. See NotificationSyncReconciler.
+        if (!msg.dismissApplied) {
+            msg.dismissApplied = true
+            appContext?.let { ctx ->
+                try {
+                    NotificationSyncReconciler.reconcile(ctx, json)
+                } catch (e: Exception) {
+                    // A malformed payload must cost us a dismissal, never the sync itself.
+                    Log.e(TAG, "sync_complete: notification reconciliation failed", e)
+                }
+            }
+        }
+
         if (msg.hint == IncomingWebSocketHint.SYNC_COMPLETE_AFTER_RESUME) {
             withContext(Dispatchers.Main) {
                 getAttachedViewModels().forEach { vm ->
