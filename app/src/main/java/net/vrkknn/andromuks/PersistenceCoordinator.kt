@@ -13,6 +13,13 @@ import java.util.ConcurrentModificationException
  */
 internal class PersistenceCoordinator(private val vm: AppViewModel) {
 
+    /**
+     * The receipt type a replayed `mark_read` must use. Retries used to fall back to
+     * `markRoomAsReadInternal`'s `m.read` default, which published a public receipt for a user who
+     * had read receipts turned off — see the note in `markRoomAsRead`.
+     */
+    private fun resolvedReceiptType(roomId: String): String = if (vm.resolveSendReadReceipts(roomId)) "m.read" else "m.read.private"
+
     fun addPendingOperation(operation: AppViewModel.PendingWebSocketOperation, saveToStorage: Boolean = false): Boolean = with(
         vm,
     ) {
@@ -334,7 +341,11 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                         "AppViewModel: Retrying markRoomAsRead for room $roomId (attempt ${operation.retryCount + 1})",
                                     )
                                 }
-                                readReceiptsTypingCoordinator.markRoomAsReadInternal(roomId, eventId)
+                                readReceiptsTypingCoordinator.markRoomAsReadInternal(
+                                    roomId,
+                                    eventId,
+                                    resolvedReceiptType(roomId),
+                                )
                             }
                         }
 
@@ -523,7 +534,11 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                         val roomId = operation.data["roomId"] as? String
                         val eventId = operation.data["eventId"] as? String
                         if (roomId != null && eventId != null) {
-                            readReceiptsTypingCoordinator.markRoomAsReadInternal(roomId, eventId)
+                            readReceiptsTypingCoordinator.markRoomAsReadInternal(
+                                roomId,
+                                eventId,
+                                resolvedReceiptType(roomId),
+                            )
                         }
                     }
 

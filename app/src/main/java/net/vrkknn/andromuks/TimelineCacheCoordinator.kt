@@ -526,7 +526,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                     // must not mark the status event read while a genuinely-unread earlier message would
                     // be skipped over.
                     if (newestReal != null && newestReal.sender == currentUserId) {
-                        val target = cached.maxByOrNull { it.timestamp } ?: newestStatus
+                        // By rowid, not timestamp — origin_server_ts is non-monotonic on bridged
+                        // events, and a timestamp-max target here could land behind a receipt we
+                        // had already advanced past. Same ordering authority as every other
+                        // mark_read target (see latestRowidEventId).
+                        val target = cached.maxByOrNull { it.timelineRowid } ?: newestStatus
                         if (target.eventId.isNotBlank()) {
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
