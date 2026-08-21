@@ -131,3 +131,56 @@ Up to 3 avatars are shown; a `+N` chip appears for the remainder.
 ## Threading
 
 All writes to `readReceipts` are guarded by `synchronized(readReceiptsLock)`. Paginate applies its changes on the main thread (inside `withContext(Dispatchers.Main)`) after computing the diff on a background thread. Sync_complete processes receipts on whatever coroutine the sync pipeline runs on, also inside the lock.
+
+## Our Own Read Position (`mark_read`)
+
+Opening a room auto-issues `mark_read` for its newest event. The target and the decision to send are
+governed by three invariants, all learned from a room whose unread badge could not be cleared no
+matter how many times it was opened.
+
+### 1. The read position is monotonic in `timelineRowid`
+
+`timelineRowid` is gomuks' insertion order and the only ordering authority for a receipt target —
+`origin_server_ts` is spoofable, arbitrary on bridged events, and non-monotonic. Every auto-mark path
+picks its target with `TimelineCacheCoordinator.latestRowidEventId`, and `decideMarkRead`
+(`MarkReadDecision.kt`) rejects any candidate whose rowid is known to be **lower** than the last
+position we sent for that room. A rowid of `MarkReadTarget.ROWID_UNKNOWN` (0) means the event wasn't
+in the timeline cache; nothing can be concluded about it, so it is allowed through.
+
+Historically several paths supplied timestamp-ordered targets and could rewind the receipt behind a
+newer one — leaving the room unread server-side with no way for the room-open path to notice. Those
+are gone; if you add a new `mark_read` caller, take its target by rowid.
+
+Notification actions (`markRoomAsReadFromNotification`) carry the event that *fired* the
+notification, which for a multi-message notification is not the room's newest event. They resolve to
+the newer of that event and the newest event we hold, and they participate in the same last-sent
+position, so a notification action and an open-room mark cannot rewind each other.
+
+### 2. A repeat is only redundant while the room is confirmed read
+
+`AppViewModel.lastMarkReadSent` (roomId → `MarkReadTarget`) exists to avoid re-sending the same
+position. It used to suppress **every** repeat unconditionally and was never invalidated, so a single
+receipt that didn't take wedged the room as unread for the rest of the process: re-opening it cleared
+the badge in `roomMap` and sent nothing at all. `decideMarkRead` now suppresses a repeat only when
+`AppViewModel.isRoomConfirmedRead(roomId)` — i.e. while the backend agrees the room is read. If the
+backend still reports unread, re-opening the room re-sends.
+
+### 3. `RoomListCache` is untouched server truth; `locallyReadRooms` reconciles it
+
+`optimisticallyClearUnreadCounts` clears `unreadCount`/`highlightCount` in `roomMap`, `allRooms` and
+`spaceList` — deliberately **not** in `RoomListCache`, which mirrors the backend's counts verbatim
+and is therefore what answers "does the server still think this room is unread?" for invariant 2.
+
+`AppViewModel.locallyReadRooms` bridges the two: the optimistic clear adds the room,
+`SyncRoomsCoordinator.reconcileLocallyReadFlag` removes it the moment a parsed sync reports
+`unread_messages`/`unread_highlights` > 0. `populateRoomMapFromCache` strips the counts for rooms in
+that set — without it, the cache copies pre-read counts straight back into `roomMap` and the badge
+reappears on the next entry into `RoomListScreen` (once per back-navigation out of the room).
+
+### Diagnosing
+
+Every send and every suppression writes an `Androlog("ReadReceipts", …)` line with room, event,
+rowid, receipt type and — for a suppression — the reason (`rewind` / `duplicate`). See
+[ANDROLOG.md](ANDROLOG.md); those survive R8 and are readable from the in-app viewer. The
+backgrounded-app gate is intentionally **not** logged there: it fires on every sync batch while
+backgrounded and would flood the 200-entry ring.
