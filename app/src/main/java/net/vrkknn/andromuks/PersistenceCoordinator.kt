@@ -375,14 +375,15 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                         val eventId = data["event_id"] as? String
                                         if (roomId != null && eventId != null) {
                                             val lastSent = lastMarkReadSent[roomId]
-                                            if (lastSent == eventId) {
+                                            if (lastSent?.eventId == eventId && isRoomConfirmedRead(roomId)) {
                                                 android.util.Log.w(
                                                     "Andromuks",
                                                     "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId",
                                                 )
                                                 return@forEachIndexed
                                             }
-                                            lastMarkReadSent[roomId] = eventId
+                                            lastMarkReadSent[roomId] =
+                                                readReceiptsTypingCoordinator.buildMarkReadTarget(roomId, eventId)
                                         }
                                     }
                                     val newRequestId = WebSocketService.allocateRequestId()
@@ -565,14 +566,15 @@ internal class PersistenceCoordinator(private val vm: AppViewModel) {
                                 val eventId = data["event_id"] as? String
                                 if (roomId != null && eventId != null) {
                                     val lastSent = lastMarkReadSent[roomId]
-                                    if (lastSent == eventId) {
+                                    if (lastSent?.eventId == eventId && isRoomConfirmedRead(roomId)) {
                                         android.util.Log.w(
                                             "Andromuks",
                                             "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId",
                                         )
                                         return@forEach
                                     }
-                                    lastMarkReadSent[roomId] = eventId
+                                    lastMarkReadSent[roomId] =
+                                        readReceiptsTypingCoordinator.buildMarkReadTarget(roomId, eventId)
                                 }
                             }
                             val newRequestId = WebSocketService.allocateRequestId()

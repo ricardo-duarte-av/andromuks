@@ -120,6 +120,20 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    /**
+     * Resolve [eventId] to a [MarkReadTarget], looking its timeline rowid up in the room's cached
+     * events. Events we don't hold (notification actions, the RoomListCache fallbacks) get
+     * [MarkReadTarget.ROWID_UNKNOWN], which [decideMarkRead] treats as "can't reason about it".
+     */
+    internal fun buildMarkReadTarget(roomId: String, eventId: String): MarkReadTarget {
+        val rowid = RoomTimelineCache.getCachedEvents(roomId)
+            ?.firstOrNull { it.eventId == eventId }
+            ?.timelineRowid
+            ?.takeIf { it > MarkReadTarget.ROWID_UNKNOWN }
+            ?: MarkReadTarget.ROWID_UNKNOWN
+        return MarkReadTarget(eventId, rowid)
+    }
+
     fun markRoomAsRead(roomId: String, eventId: String) {
         with(vm) {
             if (BuildConfig.DEBUG) {
@@ -148,19 +162,23 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
                 return
             }
 
-            val lastSentEventId = lastMarkReadSent[roomId]
-            if (lastSentEventId == eventId) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Skipping duplicate mark_read for room $roomId with event $eventId (already sent)",
+            val candidate = buildMarkReadTarget(roomId, eventId)
+            when (val decision = decideMarkRead(candidate, lastMarkReadSent[roomId], isRoomConfirmedRead(roomId))) {
+                is MarkReadDecision.Suppress -> {
+                    Androlog(
+                        "ReadReceipts",
+                        "mark_read suppressed (${decision.reason}) room=$roomId event=$eventId " +
+                            "rowid=${candidate.timelineRowid} last=${lastMarkReadSent[roomId]?.eventId}",
                     )
+                    // A rewind must not clear the badge either: the backend's position stays where
+                    // it is, so the room really is still unread.
+                    if (decision.reason != "rewind") optimisticallyClearUnreadCounts(roomId)
+                    return
                 }
-                optimisticallyClearUnreadCounts(roomId)
-                return
+
+                is MarkReadDecision.Send -> lastMarkReadSent[roomId] = decision.target
             }
 
-            lastMarkReadSent[roomId] = eventId
             optimisticallyClearUnreadCounts(roomId)
 
             // When public read receipts are disabled we still advance the marker, but privately.
@@ -170,6 +188,10 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
             // m.fully_read forever — see resolveSendReadReceipts().
             val receiptType = if (resolveSendReadReceipts(roomId)) "m.read" else "m.read.private"
 
+            Androlog(
+                "ReadReceipts",
+                "mark_read sent room=$roomId event=$eventId rowid=${candidate.timelineRowid} type=$receiptType",
+            )
             val result = markRoomAsReadInternal(roomId, eventId, receiptType)
 
             if (result != WebSocketResult.SUCCESS) {
@@ -192,13 +214,48 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    /**
+     * Pick the mark-read target for a notification action: the newer of the notification's own
+     * event and the newest event we hold for the room, compared by timeline rowid. Falls back to
+     * the supplied event whenever either side's position is unknown.
+     */
+    private fun resolveNotificationMarkReadTarget(roomId: String, suppliedEventId: String): MarkReadTarget {
+        val supplied = buildMarkReadTarget(roomId, suppliedEventId)
+        if (supplied.timelineRowid <= MarkReadTarget.ROWID_UNKNOWN) return supplied
+        val newestCached = RoomTimelineCache.getCachedEvents(roomId)
+            ?.maxByOrNull { it.timelineRowid }
+            ?.takeIf { it.timelineRowid > supplied.timelineRowid && it.eventId.isNotBlank() }
+            ?: return supplied
+        return MarkReadTarget(newestCached.eventId, newestCached.timelineRowid)
+    }
+
     fun markRoomAsReadFromNotification(roomId: String, eventId: String, onComplete: (() -> Unit)? = null) {
         with(vm) {
             // If the caller didn't supply an event_id (e.g. old notification or reply update),
             // fall back to the latest known event for this room so the receipt is meaningful.
-            val resolvedEventId = eventId.ifBlank {
+            val suppliedEventId = eventId.ifBlank {
                 RoomListCache.getLatestEventId(roomId) ?: eventId
             }
+            // A notification carries the event that *fired* it, which for a multi-message
+            // notification is not the room's newest event. Advancing only that far leaves the room
+            // unread server-side. When we hold both events, take the newer one by rowid; when we
+            // don't hold the supplied event we can't compare, so use it as given.
+            val resolvedTarget = resolveNotificationMarkReadTarget(roomId, suppliedEventId)
+            val resolvedEventId = resolvedTarget.eventId
+            // Participate in the shared last-sent position so a notification action can neither
+            // rewind behind an open-room mark nor be rewound by one.
+            val previousTarget = lastMarkReadSent[roomId]
+            val decision = decideMarkRead(resolvedTarget, previousTarget, roomConfirmedRead = false)
+            if (decision is MarkReadDecision.Suppress) {
+                Androlog(
+                    "ReadReceipts",
+                    "mark_read (notification) suppressed (${decision.reason}) room=$roomId " +
+                        "event=$resolvedEventId rowid=${resolvedTarget.timelineRowid} last=${previousTarget?.eventId}",
+                )
+                onComplete?.invoke()
+                return
+            }
+            lastMarkReadSent[roomId] = resolvedTarget
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",

@@ -5845,9 +5845,27 @@ class AppViewModel : ViewModel() {
     internal val relatedEventsRequests = mutableMapOf<Int, Pair<String, String>>()
     internal val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
 
-    // Track last sent mark_read command per room to prevent duplicates
-    // Key: roomId, Value: eventId that was last sent
-    internal val lastMarkReadSent = mutableMapOf<String, String>() // roomId -> eventId
+    // Track the last mark_read position sent per room, so a later command can neither repeat it
+    // needlessly nor rewind behind it. See decideMarkRead in MarkReadDecision.kt.
+    internal val lastMarkReadSent = mutableMapOf<String, MarkReadTarget>() // roomId -> position
+
+    // Rooms whose unread counts we cleared optimistically and which no sync has contradicted since.
+    // RoomListCache stays the untouched server-truth mirror of unread counts; this set is what
+    // reconciles it with the local clear, both for the mark_read duplicate guard and for
+    // populateRoomMapFromCache (which would otherwise copy the pre-read counts back into roomMap).
+    internal val locallyReadRooms = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>(),
+    )
+
+    /**
+     * Whether the room is known to be read: either we cleared it and no sync has said otherwise
+     * since, or the backend's own counts (mirrored untouched into [RoomListCache]) say it is read.
+     */
+    internal fun isRoomConfirmedRead(roomId: String): Boolean {
+        if (locallyReadRooms.contains(roomId)) return true
+        val cached = RoomListCache.getRoom(roomId) ?: return false
+        return (cached.unreadCount ?: 0) <= 0 && (cached.highlightCount ?: 0) <= 0
+    }
 
     // roomId → eventId → list of read receipts (per-room partitioning)
     internal val readReceipts = mutableMapOf<String, MutableMap<String, MutableList<ReadReceipt>>>()
