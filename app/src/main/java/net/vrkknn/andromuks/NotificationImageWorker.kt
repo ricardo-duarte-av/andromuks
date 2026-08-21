@@ -91,6 +91,9 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
         private const val KEY_FETCH_EVENT = "fetch_event"
         private const val KEY_MESSAGE_RECEIVED_AT = "message_received_at"
 
+        /** Max event ids sent to `get_receipts` in one read-state check. See buildReceiptCandidates. */
+        private const val RECEIPT_CANDIDATE_LIMIT = 20
+
         /**
          * Enqueue a Phase-2 update for the given notification. Every media parameter is optional —
          * pass only what was actually deferred:
@@ -247,16 +250,54 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
         //    the notification kind and, for image/video messages, use the event's thumbnail (the
         //    poster frame for a video) over the full-size payload image. Fetched for every
         //    notification with an eventId now.
-        val eventJson: JSONObject? = if (fetchEvent && eventId != null) {
-            try {
-                fetchEventJson(roomId, eventId)
-            } catch (e: Exception) {
-                Log.w(TAG, "get_event failed for room $roomId", e)
-                null
+        //    The server-side read check rides along in parallel — it is a second /exec round-trip on
+        //    a job that is already making one, and doing it here (rather than just before the
+        //    re-post) means a room that turns out to be read costs us no media downloads at all.
+        val (eventJson, readVerified) = coroutineScope {
+            val eventDeferred = async {
+                if (fetchEvent && eventId != null) {
+                    try {
+                        fetchEventJson(roomId, eventId)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "get_event failed for room $roomId", e)
+                        null
+                    }
+                } else {
+                    null
+                }
             }
-        } else {
-            null
+            val readDeferred = async {
+                try {
+                    verifyRoomRead(roomId, eventId, messageTimestamp)
+                } catch (e: Exception) {
+                    Log.w(TAG, "get_receipts read-state check failed for room $roomId", e)
+                    null
+                }
+            }
+            eventDeferred.await() to readDeferred.await()
         }
+
+        // Server says we have already read this conversation, and yet the notification is still up:
+        // either gomuks never sent a dismiss for it, or the dismiss is stuck behind Doze at normal
+        // FCM priority, or we are in battery-saver mode with no socket to hear it on. Take the
+        // notification down ourselves rather than merely declining to re-post — going through
+        // dismissRoomNotification records the tombstone and clears the cached MessagingStyle, so an
+        // already-read message cannot replay in this room's next notification either.
+        if (readVerified == true) {
+            val cancelledId = EnhancedNotificationDisplay.dismissRoomNotification(
+                applicationContext,
+                roomId,
+                reason = "exec read-state verification",
+            )
+            EnhancedNotificationDisplay.refreshGroupSummary(applicationContext, justCancelledId = cancelledId)
+            Androlog(
+                "Notifications",
+                "Room $roomId: notification dismissed by /exec read-state check — server says read, no dismiss push arrived. eventId=$eventId",
+            )
+            if (BuildConfig.DEBUG) Log.d(TAG, "Dismissed $roomId via /exec read-state verification")
+            return Result.success()
+        }
+
         val notifKind = classifyKind(imageUrl, eventJson)
         Log.d(TAG, "Handling room $roomId notification: type=$notifKind (eventId=$eventId)")
         // Diagnostic: if we fetched an event but couldn't read a msgtype, dump what get_event gave
@@ -867,6 +908,88 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
             connectTimeout(15, TimeUnit.SECONDS)
             readTimeout(45, TimeUnit.SECONDS)
         }
+    }
+
+    /**
+     * Ask gomuks whether *we* have read [roomId] up to [eventId], over `/exec get_receipts`.
+     *
+     * Three-valued on purpose:
+     *  - `true`  — our own `m.read` / `m.read.private` receipt sits on one of the candidate events,
+     *              so the conversation is read and the notification must come down.
+     *  - `false` — the server answered and no such receipt exists.
+     *  - `null`  — the call failed, credentials are missing, or there was nothing to ask about.
+     *
+     * **Never suppress on null.** A failed check must leave the notification exactly as it would
+     * have been without this feature.
+     *
+     * ## Why this exists at all
+     *
+     * It is the only read signal that survives the two cases the FCM dismiss and the socket
+     * reconciliation both miss:
+     *  - **battery-saver mode**, where the WebSocket is torn down, so `NotificationSyncReconciler`
+     *    never runs and FCM is the sole delivery path;
+     *  - **a dismiss gomuks never sent** — its dismiss is gated on the room's *pre-update* unread
+     *    notification count being non-zero, and upstream's own TODO concedes that count is sometimes
+     *    already zero when the read receipt lands. Also the dismiss-before-message ordering edge in
+     *    docs/NOTIFICATIONS.md, which carries no timestamp to order against.
+     *
+     * See GOMUKS_UPSTREAM_ISSUES.md at the repo root.
+     *
+     * ## Why a candidate set rather than one event id
+     *
+     * A receipt lands on one specific event. If the user read *past* our notified event, the receipt
+     * is on a later one and asking about ours alone returns nothing. So we also ask about every
+     * cached event in the room at or after our own. In battery-saver mode
+     * `FCMService.hydrateTimelineCacheFromNotification` paginates the room over /exec on every
+     * notification, so that cache is warm exactly when this path needs it. The residual
+     * false-negative (the read receipt sits on an event we have never cached) degrades to today's
+     * behaviour — a lingering notification — rather than a lost one.
+     */
+    private suspend fun verifyRoomRead(roomId: String, eventId: String?, messageTimestamp: Long): Boolean? {
+        if (eventId.isNullOrBlank()) return null
+        val prefs = applicationContext.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        val selfUserId = prefs.getString("current_user_id", "")?.takeIf { it.isNotBlank() } ?: return null
+        val creds = ExecApi.readCredentials(applicationContext)
+        if (!creds.isValid()) return null
+
+        val candidates = buildReceiptCandidates(roomId, eventId, messageTimestamp)
+        val receipts = withContext(Dispatchers.IO) {
+            ExecApi.getReceipts(creds, roomId, candidates)
+        } ?: return null
+
+        return receipts.keys().asSequence().any { key ->
+            val arr = receipts.optJSONArray(key)
+            (0 until (arr?.length() ?: 0)).any { i -> isOwnReadReceipt(arr?.optJSONObject(i), selfUserId) }
+        }
+    }
+
+    /** True when [receipt] is our own read receipt (public or private). */
+    private fun isOwnReadReceipt(receipt: JSONObject?, selfUserId: String): Boolean {
+        if (receipt == null || receipt.optString("user_id") != selfUserId) return false
+        val type = receipt.optString("receipt_type")
+        return type == "m.read" || type == "m.read.private"
+    }
+
+    /**
+     * [eventId] plus every cached event in [roomId] at or after [messageTimestamp], newest first,
+     * capped so the request body stays small. The notified event is always first so it is never the
+     * one the cap drops.
+     */
+    private fun buildReceiptCandidates(roomId: String, eventId: String, messageTimestamp: Long): List<String> {
+        val extras = try {
+            RoomTimelineCache.getCachedEventsForNotification(roomId)
+                .orEmpty()
+                .asSequence()
+                .filter { it.timestamp >= messageTimestamp && it.eventId != eventId }
+                .sortedByDescending { it.timestamp }
+                .map { it.eventId }
+                .take(RECEIPT_CANDIDATE_LIMIT - 1)
+                .toList()
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read cached events for receipt check in $roomId", e)
+            emptyList()
+        }
+        return listOf(eventId) + extras
     }
 
     /** Fetch the full event over the HTTP `/_gomuks/exec/get_event` endpoint, or null. */

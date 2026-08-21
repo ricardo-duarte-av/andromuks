@@ -356,6 +356,27 @@ object ExecApi {
     }
 
     /**
+     * Read receipts for [eventIds] in [roomId], as `{ "<event_id>": [ {user_id, receipt_type, …} ] }`,
+     * or null if the call failed. Read-only, so no idempotency envelope. Blocking — must be called
+     * off the main thread.
+     *
+     * Used by [net.vrkknn.andromuks.NotificationImageWorker] to check server-side read state before
+     * it re-posts a notification, which is the only dismissal signal that survives battery-saver
+     * mode (no WebSocket) and a dismiss push that gomuks never sent.
+     */
+    fun getReceipts(creds: Credentials, roomId: String, eventIds: List<String>): JSONObject? {
+        if (eventIds.isEmpty()) return null
+        val body = JSONObject().apply {
+            put("room_id", roomId)
+            put("event_ids", org.json.JSONArray(eventIds))
+        }
+        return when (val r = execRaw(creds, "get_receipts", body)) {
+            is ExecResult.Success -> r.data as? JSONObject
+            else -> null
+        }
+    }
+
+    /**
      * Mute a room by putting an empty-actions room-scoped push rule, the same shape
      * `PushRulesCoordinator.setRoomNotificationLevel(MUTE)` sends over the WebSocket. Blocking —
      * must be called off the main thread. Returns true on success.

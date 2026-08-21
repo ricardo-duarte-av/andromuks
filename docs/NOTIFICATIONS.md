@@ -196,6 +196,45 @@ deterministically rather than by loop order. An `Androlog` line records the shap
 A payload with neither array falls through to `handleLegacyNotification` (flat key/value parsing,
 kept for older backends).
 
+### Three dismissal signals, not one
+
+The dismiss FCM is **not** a reliable channel, and the gaps are upstream — see
+[GOMUKS_UPSTREAM_ISSUES.md](../GOMUKS_UPSTREAM_ISSUES.md) for the pinned source references. In short:
+gomuks only emits a dismiss when the room's *pre-update* unread-notification count was non-zero (its
+own TODO concedes that count is sometimes already zero, in which case **no dismiss is emitted at
+all**); dismisses are capped at ten per sync with the remainder discarded; and a dismiss-only payload
+carries no `Sound`, so it ships at normal FCM priority and Doze defers it.
+
+So a room's notification comes down from any of three independent signals:
+
+| Signal | Path | Covers |
+|---|---|---|
+| Dismiss FCM | `FCMService.handleDismissNotification` | the happy path |
+| `sync_complete` | `NotificationSyncReconciler`, called from `SyncRepository.processSyncCompletePipeline` | dismisses capped, Doze-delayed, or never emitted — **always-on mode only** (needs the socket) |
+| Server read state | `NotificationImageWorker.verifyRoomRead` over `/exec get_receipts` | battery-saver mode, and the dismiss-before-message ordering edge below |
+
+`NotificationSyncReconciler` hooks into the sync pipeline **before** the ViewModel is resolved,
+deliberately. Every per-room consumer downstream is unsuitable: `SyncBatchProcessor` holds a
+backgrounded always-on sync for up to five minutes before flushing, `SyncRoomsCoordinator`'s receipt
+loop skips rooms that are neither cached nor open, and a UI-less always-on session has no ViewModel
+at all (the payload sits in `noVmBuffer`). `processSyncCompletePipeline` is the one point every
+`sync_complete` passes through exactly once with no ViewModel required. `PendingSyncComplete`
+carries a `dismissApplied` flag so a payload replayed out of `noVmBuffer` does not re-stamp the
+tombstone with a later timestamp.
+
+It selects a room when `dismiss_notifications` is true, **or** when the room already has a
+notification posted and the sync reports every unread counter at zero with no new `notifications`
+array. That second arm is what recovers the "gomuks never emitted a dismiss" case. It then applies
+exactly the same guards as the FCM path — bubble open and reply-protection window both defer rather
+than cancel, via `NotificationDismissTracker.deferDismiss`.
+
+`verifyRoomRead` runs in parallel with the worker's existing `get_event` fetch, so it costs one extra
+round-trip on a job that is already making one, and it runs early enough that a room that turns out
+to be read costs no media downloads. It is **three-valued** — true / false / null-for-inconclusive —
+and never suppresses on null, so a failed check leaves behaviour exactly as it was. When it comes
+back true it does not merely decline to re-post: it takes the notification down through
+`dismissRoomNotification`, which is what actually recovers a dismiss the backend never sent.
+
 ### Dismiss handling
 
 `handleDismissNotification` cancels active notifications for a room when the backend signals the
@@ -254,7 +293,17 @@ Additional effects:
 - **The worker re-post re-checks active state *and* the tombstone under the lock** (not only at start-of-run). Besides killing resurrection, the tombstone arm stops a stale worker from clobbering a *newer* notification that re-posted during its download window.
 - **Androlog.** The dismiss subsystem previously had no `Androlog` (invisible in release). It now logs each outcome under the `Notifications` category: `dismissed (active…)`, `dismiss recorded (… in-flight guard)`, `post suppressed…`, `worker re-post skipped…`.
 
-**The one unsolved edge — dismiss-before-message.** If a dismiss FCM is *delivered before* the message it follows, the directional compare (`dismissTime > messageReceivedAt`) declines to suppress and the notification lingers. This is unsolvable locally because the dismiss payload carries nothing to order it against the message. It is also rare: the message is **high-priority** FCM (delivered immediately, bypasses Doze) while the dismiss is **normal-priority** (deferred) — so ordering normally favours the message. It only inverts if FCM downgrades the message to normal under high-priority quota pressure (e.g. a very bursty DM) and then reorders it past the dismiss. The failure mode is a lingering notification — strictly less-bad than a lost one — so it is accepted rather than fixed. The order-independent fix would be reconciliation against gomuks read state via `/exec` (the message carries `event_rowid`, and the worker already round-trips per notification), or a backend change adding a read-up-to reference to `PushDismiss`.
+**The tombstone is persisted.** `dismissedAt` and the `deferred` set are mirrored into
+`AndromuksAppPrefs` and hydrated lazily on first use in a new process, and the TTL is 30 minutes.
+Both used to be RAM-only with a 60 s TTL, which was shorter than the worst-case latency of the very
+reader that depends on them: `NotificationImageWorker` retries on a 15/30/60 s backoff and is
+additionally deferrable by WorkManager quota and Doze, so it could reach its re-post long after the
+tombstone had aged out — leaving `activeNotifications` (documented as stale on some OEMs) as the only
+guard. Process death was worse: a worker resuming after FCMService died saw an empty map and no
+deferrals at all. `NotificationDismissTracker.attach(context)` is called from
+`dismissRoomNotification`, `drainDeferred` and the top of `doWork`.
+
+**The one unsolved edge — dismiss-before-message.** If a dismiss FCM is *delivered before* the message it follows, the directional compare (`dismissTime > messageReceivedAt`) declines to suppress and the notification lingers. This is unsolvable locally because the dismiss payload carries nothing to order it against the message. It is also rare: the message is **high-priority** FCM (delivered immediately, bypasses Doze) while the dismiss is **normal-priority** (deferred) — so ordering normally favours the message. It only inverts if FCM downgrades the message to normal under high-priority quota pressure (e.g. a very bursty DM) and then reorders it past the dismiss. The failure mode is a lingering notification — strictly less-bad than a lost one — so it is accepted rather than fixed. This is now handled: `NotificationImageWorker.verifyRoomRead` reconciles against gomuks read state via `/exec get_receipts` (see the table above), which is order-independent because it asks the server rather than inferring from push arrival order. The residual gap is a read receipt sitting on an event outside the candidate set the worker asks about — which degrades to a lingering notification, not a lost one. A backend change adding a read-up-to reference to `PushDismiss` would still be the cleaner fix; see [GOMUKS_UPSTREAM_ISSUES.md](../GOMUKS_UPSTREAM_ISSUES.md).
 
 ## Notification actions
 
