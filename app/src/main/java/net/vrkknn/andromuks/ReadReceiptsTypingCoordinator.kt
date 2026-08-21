@@ -394,6 +394,12 @@ internal class ReadReceiptsTypingCoordinator(private val vm: AppViewModel) {
 
     fun optimisticallyClearUnreadCounts(roomId: String) {
         with(vm) {
+            // Remember that we cleared this room. RoomListCache deliberately keeps the backend's
+            // counts untouched (it is what tells us whether the backend still disagrees), so this
+            // flag is what stops populateRoomMapFromCache copying the pre-read counts back into
+            // roomMap. SyncRoomsCoordinator drops it again the moment a sync reports unread > 0.
+            locallyReadRooms.add(roomId)
+
             val existingRoom = roomMap[roomId]
             if (existingRoom != null &&
                 (

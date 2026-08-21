@@ -89,6 +89,15 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    /**
+     * Drop [AppViewModel.locallyReadRooms] membership as soon as the backend contradicts our
+     * optimistic clear. [room] must be the freshly parsed, server-truth item — not the merged one.
+     */
+    private fun reconcileLocallyReadFlag(room: RoomItem) {
+        val serverSaysUnread = (room.unreadCount ?: 0) > 0 || (room.highlightCount ?: 0) > 0
+        if (serverSaysUnread) vm.locallyReadRooms.remove(room.id)
+    }
+
     fun populateRoomMapFromCache() {
         with(vm) {
             try {
@@ -101,8 +110,24 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
 
                 val cachedRooms = RoomListCache.getAllRooms()
                 if (cachedRooms.isNotEmpty()) {
-                    // Populate roomMap with rooms from singleton cache
-                    roomMap.putAll(cachedRooms)
+                    // Populate roomMap with rooms from singleton cache.
+                    // RoomListCache mirrors the backend's unread counts verbatim, so a room we
+                    // already marked read locally would get its badge copied straight back here —
+                    // once per entry into RoomListScreen, which made an optimistic clear look like
+                    // it never happened. Strip the counts for those rooms.
+                    roomMap.putAll(
+                        if (locallyReadRooms.isEmpty()) {
+                            cachedRooms
+                        } else {
+                            cachedRooms.mapValues { (roomId, room) ->
+                                if (locallyReadRooms.contains(roomId)) {
+                                    room.copy(unreadCount = null, highlightCount = null)
+                                } else {
+                                    room
+                                }
+                            }
+                        },
+                    )
 
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
@@ -1491,6 +1516,7 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             val dirtyRooms = ArrayList<RoomItem>(syncResult.updatedRooms.size + syncResult.newRooms.size)
             // Update existing rooms
             syncResult.updatedRooms.forEach { room ->
+                reconcileLocallyReadFlag(room)
                 val existingRoom = roomMap[room.id]
                 // When this delta carried an m.tag for the room, room.isFavourite/isLowPriority are
                 // the complete truth (including a REMOVAL made on another client while we were
@@ -1664,6 +1690,7 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             // Not all 588 rooms - only rooms that were just added
             // Add new rooms
             syncResult.newRooms.forEach { room ->
+                reconcileLocallyReadFlag(room)
                 // Preserve preview/sender from roomMap if the incoming room has none.
                 // This matters when a batch covers a clear_state: the updatedRooms loop above
                 // may have already stored a preserved entry for this room (from pre-clear-state

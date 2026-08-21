@@ -808,14 +808,20 @@ fun RoomListScreen(
         val initialSnapshot = appViewModel.getCurrentRoomSection()
         val initialRoomCount = initialSnapshot.rooms.size
         val cacheRoomCount = net.vrkknn.andromuks.RoomListCache.getRoomCount()
+        // Compare like with like: getCurrentRoomSection() returns one TAB's rooms, so testing it
+        // against the whole cache was true on nearly every entry here (including every back
+        // navigation out of a room) and re-ran the recovery path constantly. The question this
+        // guard is actually asking is whether roomMap itself is short — its documented cause is
+        // notification/shortcut navigation landing in a fresh AppViewModel.
+        val roomMapCount = appViewModel.roomMap.size
 
-        if (initialRoomCount < cacheRoomCount && cacheRoomCount > 1) {
+        if (roomMapCount < cacheRoomCount && cacheRoomCount > 1) {
             // Suspicious - roomMap has fewer rooms than cache, likely from notification/shortcut navigation
             // Load rooms from singleton cache to populate roomMap
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "RoomListScreen: RoomMap has $initialRoomCount rooms but cache has $cacheRoomCount rooms (likely from notification/shortcut navigation), loading from singleton cache",
+                    "RoomListScreen: RoomMap has $roomMapCount rooms but cache has $cacheRoomCount rooms (likely from notification/shortcut navigation), loading from singleton cache",
                 )
             }
             appViewModel.populateRoomMapFromCache()
@@ -835,7 +841,7 @@ fun RoomListScreen(
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "RoomListScreen: Using existing roomMap with $initialRoomCount rooms (cache has $cacheRoomCount rooms)",
+                    "RoomListScreen: Using existing roomMap with $roomMapCount rooms ($initialRoomCount in this section, cache has $cacheRoomCount rooms)",
                 )
             }
         }
