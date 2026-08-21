@@ -1019,10 +1019,19 @@ private fun RoomMessageContent(
             }
         }
         val editFormatRaw = newContent?.optString("format", "") ?: ""
+        // The edit's own sanitized_html (never the original's) is markup gomuks produced for this
+        // revision — including autolinked URLs a plaintext edit gained. It makes the result HTML
+        // even when the edit content carries no `format`, which is how a plaintext edit that adds
+        // a URL rendered as dead text.
+        val editSanitizedHtml = editedBy.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
         // No fallback to the pre-edit `format` when the edit supplies its own content: a blank
         // `format` there means plain text, and inheriting "org.matrix.custom.html" would make the
         // block below read the pre-edit `formatted_body` (issue #29).
-        val editFormat = if (newContent != null) editFormatRaw else format
+        val editFormat = when {
+            editSanitizedHtml != null -> "org.matrix.custom.html"
+            newContent != null -> editFormatRaw
+            else -> format
+        }
         val editMsgType = newContent?.optString("msgtype", "") ?: msgType
 
         if (BuildConfig.DEBUG) {
@@ -1035,7 +1044,7 @@ private fun RoomMessageContent(
         // For HTML messages, prefer sanitized_html from localContent if available, otherwise formatted_body
         val editBody = if (editFormat == "org.matrix.custom.html") {
             // Check localContent first (sanitized_html), then formatted_body, then body
-            val sanitized = editedBy.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+            val sanitized = editSanitizedHtml
             val formatted = newContent?.optString("formatted_body", "")?.takeIf { it.isNotBlank() }
             val result = sanitized ?: formatted ?: body
             if (BuildConfig.DEBUG) {
@@ -2846,6 +2855,10 @@ private fun EncryptedMessageContent(
                 null
             }
 
+        // The edit's own sanitized_html carries the markup gomuks produced for this revision —
+        // including URLs autolinked by an edit whose content is plain text. See the plaintext twin.
+        val editSanitizedHtml = editedBy?.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+
         // Use edit content if this message is being edited, or show deletion message if redacted
         val finalBody =
             if (isRedacted) {
@@ -2855,18 +2868,11 @@ private fun EncryptedMessageContent(
                     event.redactionTimestamp,
                     userProfileCache,
                 )
-            } else if (editedBy != null && editedBy.decrypted != null) {
-                val newContent = editedBy.decrypted.optJSONObject("m.new_content")
-                val editFormat = newContent?.optString("format", "")
-                if (editFormat == "org.matrix.custom.html") {
-                    newContent.optString("formatted_body", "") ?: ""
-                } else {
-                    newContent?.optString("body", "") ?: ""
-                }
-            } else if (editedBy != null && editedBy.content != null) {
-                val newContent = editedBy.content.optJSONObject("m.new_content")
-                val editFormat = newContent?.optString("format", "")
-                if (editFormat == "org.matrix.custom.html") {
+            } else if (editedBy != null && (editedBy.decrypted != null || editedBy.content != null)) {
+                val newContent = (editedBy.decrypted ?: editedBy.content)?.optJSONObject("m.new_content")
+                if (editSanitizedHtml != null) {
+                    editSanitizedHtml
+                } else if (newContent?.optString("format", "") == "org.matrix.custom.html") {
                     newContent.optString("formatted_body", "") ?: ""
                 } else {
                     newContent?.optString("body", "") ?: ""
@@ -2878,8 +2884,13 @@ private fun EncryptedMessageContent(
         // Resolve the format for the final (possibly edited) content
         val finalFormat = if (editedBy != null && !isRedacted) {
             val newContent = (editedBy.decrypted ?: editedBy.content)?.optJSONObject("m.new_content")
-            // See the plaintext twin: the edit's own (possibly blank) format wins outright.
-            if (newContent != null) newContent.optString("format", "") else format
+            // See the plaintext twin: the edit's own sanitized_html makes the result HTML even when
+            // the edit content carries no `format`; otherwise that (possibly blank) format wins.
+            when {
+                editSanitizedHtml != null -> "org.matrix.custom.html"
+                newContent != null -> newContent.optString("format", "")
+                else -> format
+            }
         } else {
             format
         }
