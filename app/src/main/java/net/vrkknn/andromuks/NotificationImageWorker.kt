@@ -219,6 +219,12 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
 
         if (BuildConfig.DEBUG) Log.d(TAG, "Starting media update for room $roomId")
 
+        // Hydrate the dismiss tombstones before any guard reads them. WorkManager can run this job
+        // in a process that FCMService no longer inhabits, where the in-memory map is empty; the
+        // persisted mirror is the only thing standing between a stale worker and a resurrected
+        // notification. See NotificationDismissTracker's "why the state is persisted" note.
+        NotificationDismissTracker.attach(applicationContext)
+
         // 1. Bail if the notification was dismissed / marked read before we ran.
         val notifId = roomId.hashCode()
         val systemNm = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

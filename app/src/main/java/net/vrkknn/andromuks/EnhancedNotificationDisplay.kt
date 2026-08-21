@@ -214,6 +214,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         fun dismissRoomNotification(context: Context, roomId: String, reason: String): Int {
             // Must match the posting id: roomId.hashCode(), no abs().
             val notifID = roomId.hashCode()
+            // Give the tracker a context before it records: the tombstone is mirrored to prefs so a
+            // worker that resumes minutes later (or in a fresh process) still sees this dismiss.
+            NotificationDismissTracker.attach(context)
             synchronized(NotificationDismissTracker.lockFor(roomId)) {
                 NotificationDismissTracker.recordDismiss(roomId)
                 clearRoomMessageCache(roomId)
