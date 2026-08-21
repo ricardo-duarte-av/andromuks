@@ -191,7 +191,8 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Power levels parsing and `canPin` | [docs/POWER_LEVELS.md](docs/POWER_LEVELS.md) |
 | User profile architecture (two caches, resolution order, "do we have it?" sentinel, rendering fallback, UserInfoScreen bypass) | [docs/USER_PROFILES.md](docs/USER_PROFILES.md) |
 | Read receipts invariants and update paths | [docs/RECEIPTS.md](docs/RECEIPTS.md) |
-| Push notifications (FCM, two-phase images, image auth token, People/Conversation widget tile updates) | [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md) |
+| Push notifications (FCM, two-phase images, image auth token, three dismissal signals, People/Conversation widget tile updates) | [docs/NOTIFICATIONS.md](docs/NOTIFICATIONS.md) |
+| Gomuks backend limitations we work around (dismiss push gaps, priority, caps) | [GOMUKS_UPSTREAM_ISSUES.md](GOMUKS_UPSTREAM_ISSUES.md) |
 | Home-screen room widget (Glance, snapshot rendering, trigger matrix, the `SyncIngestor` widget gate) | [docs/WIDGET.md](docs/WIDGET.md) |
 | Secure credentials at rest, silent re-auth on token expiry, biometric lock | [docs/CREDENTIALS_REAUTH.md](docs/CREDENTIALS_REAUTH.md) |
 | Bridge support (detection, tab, badges, per-message profiles) | [docs/bridges.md](docs/bridges.md) |
