@@ -1707,6 +1707,24 @@ private fun collectPlainText(node: HtmlNode, builder: StringBuilder) {
 }
 
 /**
+ * Turn a numeric character reference's value into the text it denotes, or null when the reference
+ * is not a character at all and should be left in the source as literal text.
+ *
+ * Uses [Character.toChars] rather than `Int.toChar()`: the latter truncates to 16 bits, so every
+ * astral codepoint decoded to garbage — `&#128512;` (128512 = U+1F600 😀) came out as U+F600, a
+ * private-use glyph. Anything above U+FFFF was affected, which is most emoji.
+ *
+ * Out-of-range values and lone surrogates are refused; a surrogate on its own would produce an
+ * unpaired char that breaks string handling downstream.
+ */
+private fun decodeCodePoint(code: Int?): String? {
+    if (code == null) return null
+    if (code < Character.MIN_CODE_POINT || code > Character.MAX_CODE_POINT) return null
+    if (code in 0xD800..0xDFFF) return null
+    return String(Character.toChars(code))
+}
+
+/**
  * Decode HTML entities in a string
  */
 fun decodeHtmlEntities(html: String): String {
@@ -1714,21 +1732,11 @@ fun decodeHtmlEntities(html: String): String {
 
     // Decode numeric character references (&#xxx; and &#xHH;)
     result = result.replace(Regex("&#(\\d+);")) { matchResult ->
-        val code = matchResult.groupValues[1].toIntOrNull()
-        if (code != null) {
-            code.toChar().toString()
-        } else {
-            matchResult.value
-        }
+        decodeCodePoint(matchResult.groupValues[1].toIntOrNull()) ?: matchResult.value
     }
 
     result = result.replace(Regex("&#[xX]([0-9a-fA-F]+);")) { matchResult ->
-        val code = matchResult.groupValues[1].toIntOrNull(16)
-        if (code != null) {
-            code.toChar().toString()
-        } else {
-            matchResult.value
-        }
+        decodeCodePoint(matchResult.groupValues[1].toIntOrNull(16)) ?: matchResult.value
     }
 
     // Decode named character entities (most common ones)
