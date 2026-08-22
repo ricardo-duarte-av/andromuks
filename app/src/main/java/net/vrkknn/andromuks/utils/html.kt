@@ -103,11 +103,15 @@ private const val EMOJI_ONLY_FONT_SCALE = 2
 private val LINK_STYLE = SpanStyle(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
 private val MONOSPACE_STYLE = SpanStyle(fontFamily = FontFamily.Monospace)
 
-private class SpoilerRenderContext(private val states: SnapshotStateMap<String, Boolean>) {
+/**
+ * Per-message spoiler bookkeeping. `internal` rather than private because it appears in
+ * [renderHtmlNodes]' signature, which is what lets the golden tests cover the spoiler branches.
+ */
+internal class SpoilerRenderContext(private val states: SnapshotStateMap<String, Boolean>) {
     private var counter = 0
     private val usedIds = mutableSetOf<String>()
 
-    fun start() {
+    internal fun start() {
         counter = 0
         usedIds.clear()
     }
@@ -125,20 +129,20 @@ private class SpoilerRenderContext(private val states: SnapshotStateMap<String, 
      *
      * With it gone, `states` holds only spoilers the user has actually toggled.
      */
-    fun nextId(): String {
+    internal fun nextId(): String {
         val id = "spoiler_$counter"
         counter++
         usedIds.add(id)
         return id
     }
 
-    fun isRevealed(id: String): Boolean = states[id] == true
+    internal fun isRevealed(id: String): Boolean = states[id] == true
 
-    fun toggle(id: String) {
+    internal fun toggle(id: String) {
         states[id] = !(states[id] ?: false)
     }
 
-    fun cleanup() {
+    internal fun cleanup() {
         val iterator = states.keys.iterator()
         while (iterator.hasNext()) {
             val key = iterator.next()
@@ -2132,9 +2136,10 @@ fun HtmlMessageText(
     // stopped *writing* to that map (see SpoilerRenderContext.nextId).
     //
     // Keys are the walk's complete non-snapshot capture set: the node list and the text colour.
-    // Verified by inspection — the builder body references nothing else from the enclosing scope
-    // except spoilerContext and the four inline maps, all of which are themselves remembered and
-    // therefore stable. Adding a capture without adding its key here renders stale content.
+    // Verified by inspection — the derived block hands renderHtmlNodes nothing else from the
+    // enclosing scope except spoilerContext and the four inline maps, all of which are themselves
+    // remembered and therefore stable. Adding a capture without adding its key here renders stale
+    // content.
     //
     // NOTE this helps in-place recomposition only. Scrolling an item off and back builds a fresh
     // composition with empty remember slots; that case is covered by HtmlParser.parseCached.
@@ -2149,90 +2154,15 @@ fun HtmlMessageText(
                     inlineMatrixUsers.clear()
                     inlineMatrixRooms.clear()
                     inlineCodeBlocks.clear()
-                    buildAnnotatedString {
-                        var i = 0
-                        var previousWasLineBreak = false
-                        while (i < nonTableNodes.size) {
-                            val node = nonTableNodes[i]
-
-                            // Single spoiler span without reason
-                            if (node is HtmlNode.Tag && node.name == "span") {
-                                val classAttr = node.attributes["class"] ?: ""
-                                if (classAttr.contains("hicli-spoiler") && node.children.isNotEmpty()) {
-                                    appendSpoilerNodes(
-                                        nodes = node.children,
-                                        baseStyle = SpanStyle(color = color),
-                                        inlineImages = inlineImages,
-                                        inlineMatrixUsers = inlineMatrixUsers,
-                                        inlineMatrixRooms = inlineMatrixRooms,
-                                        spoilerContext = spoilerContext,
-                                        reason = null,
-                                        inlineCodeBlocks = inlineCodeBlocks,
-                                    )
-                                    previousWasLineBreak = false
-                                    i++
-                                    continue
-                                }
-                            }
-
-                            // Reason + spoiler pattern
-                            if (i + 1 < nonTableNodes.size) {
-                                val spoilerData = extractSpoilerData(listOf(node, nonTableNodes[i + 1]))
-                                if (spoilerData != null) {
-                                    val (reason, contentNodes) = spoilerData
-                                    if (contentNodes.isNotEmpty()) {
-                                        appendSpoilerNodes(
-                                            nodes = contentNodes,
-                                            baseStyle = SpanStyle(color = color),
-                                            inlineImages = inlineImages,
-                                            inlineMatrixUsers = inlineMatrixUsers,
-                                            inlineMatrixRooms = inlineMatrixRooms,
-                                            spoilerContext = spoilerContext,
-                                            reason = reason,
-                                            inlineCodeBlocks = inlineCodeBlocks,
-                                        )
-                                        previousWasLineBreak = false
-                                        i += 2
-                                        continue
-                                    }
-                                }
-                            }
-
-                            // Track if previous node was a line break to trim leading whitespace from following text
-                            val wasLineBreak = previousWasLineBreak
-                            appendHtmlNode(
-                                node = node,
-                                baseStyle = SpanStyle(color = color),
-                                inlineImages = inlineImages,
-                                inlineMatrixUsers = inlineMatrixUsers,
-                                inlineMatrixRooms = inlineMatrixRooms,
-                                spoilerContext = spoilerContext,
-                                previousWasLineBreak = wasLineBreak,
-                                inlineCodeBlocks = inlineCodeBlocks,
-                            )
-                            previousWasLineBreak = node is HtmlNode.LineBreak
-
-                            // Add an extra blank line between consecutive paragraphs (<p>/<div>),
-                            // but do not insert it before other block elements (like <blockquote>).
-                            if (node is HtmlNode.Tag && node.name in setOf("p", "div")) {
-                                var j = i + 1
-                                while (j < nonTableNodes.size) {
-                                    val nextNode = nonTableNodes[j]
-                                    if (nextNode is HtmlNode.Text && nextNode.content.trim().isEmpty()) {
-                                        j++
-                                        continue
-                                    }
-                                    break
-                                }
-                                val nextNonWhitespace = nonTableNodes.getOrNull(j)
-                                if (nextNonWhitespace is HtmlNode.Tag && nextNonWhitespace.name in setOf("p", "div")) {
-                                    append("\n")
-                                }
-                            }
-
-                            i++
-                        }
-                    }
+                    renderHtmlNodes(
+                        nodes = nonTableNodes,
+                        baseStyle = SpanStyle(color = color),
+                        inlineImages = inlineImages,
+                        inlineMatrixUsers = inlineMatrixUsers,
+                        inlineMatrixRooms = inlineMatrixRooms,
+                        spoilerContext = spoilerContext,
+                        inlineCodeBlocks = inlineCodeBlocks,
+                    )
                 } catch (e: Exception) {
                     Log.e("Andromuks", "HtmlMessageText: Failed to render HTML", e)
                     AnnotatedString("")
@@ -2240,17 +2170,9 @@ fun HtmlMessageText(
             }
         }
     }
-    val annotatedString =
-        if (sanitizedHtml != null && renderedString.text.endsWith("\n")) {
-            // Avoid leaving trailing blank lines caused by block-level rendering (e.g. <p>).
-            var end = renderedString.length
-            while (end > 0 && renderedString.text[end - 1] == '\n') {
-                end--
-            }
-            renderedString.subSequence(0, end)
-        } else {
-            renderedString
-        }
+    // The trailing-newline trim that used to live here moved into renderHtmlNodes, so every caller
+    // of the walk gets it. The plain-text branch above is deliberately left untrimmed, as before.
+    val annotatedString = renderedString
     val density = LocalDensity.current
     val chipTextStyle = MaterialTheme.typography.labelLarge
     val bodyTextStyle = MaterialTheme.typography.bodyMedium
@@ -3523,49 +3445,131 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
 }
 
 /**
- * Render HTML content to AnnotatedString for simple display (profile bios, etc.)
- * This is a simplified version that doesn't handle inline images from network,
- * Matrix user chips, or other complex features - just basic text formatting.
+ * The HTML render walk: a parsed [HtmlNode] list in, the display string out.
+ *
+ * This is the **only** walk. It used to be inlined in [HtmlMessageText]'s `derivedStateOf`, with a
+ * simplified near-copy (`renderHtmlToAnnotatedString`) living at the bottom of this file for
+ * "simple display" — which nothing called, and which had quietly drifted: it skipped the blank
+ * line between consecutive paragraphs and trimmed one trailing newline where the message path
+ * trimmed all of them. Two walks meant every fix to the block bookkeeping had to be made twice, or
+ * silently wasn't.
+ *
+ * Being a plain function rather than composable body is what lets the golden tests drive the real
+ * message path with no Compose runtime — see HtmlRenderGoldenTest.
+ *
+ * Callers own the four inline-content maps and clear them before each render: the walk fills them
+ * with the placeholders the caller must then supply as `inlineContent`. [spoilerContext] and
+ * [inlineCodeBlocks] are nullable because a caller that cannot host the interaction — no tap
+ * target for a spoiler, no viewer for a full code listing — passes null and gets the content
+ * rendered plainly instead.
+ *
+ * Exceptions propagate. [HtmlMessageText] catches them and falls back to an empty string rather
+ * than taking down the timeline row; a test wants to see the failure.
  */
-fun renderHtmlToAnnotatedString(htmlContent: String, baseColor: Color = Color.Unspecified): AnnotatedString {
-    return try {
-        // Parse raw markup; the parser decodes entities at leaf text nodes.
-        val nodes = HtmlParser.parse(htmlContent)
+internal fun renderHtmlNodes(
+    nodes: List<HtmlNode>,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData> = mutableMapOf(),
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip> = mutableMapOf(),
+    inlineMatrixRooms: MutableMap<String, InlineMatrixRoomChip> = mutableMapOf(),
+    spoilerContext: SpoilerRenderContext? = null,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
+): AnnotatedString {
+    val rendered = buildAnnotatedString {
+        var i = 0
+        var previousWasLineBreak = false
+        while (i < nodes.size) {
+            val node = nodes[i]
 
-        if (nodes.isEmpty()) {
-            return AnnotatedString(decodeHtmlEntities(htmlContent))
-        }
+            // A spoiler span carrying no reason, and the reason+content span pair gomuks emits,
+            // are both recognised at this level only — appendHtmlNode sees one node at a time and
+            // cannot pair siblings. Without somewhere to store the revealed/hidden state there is
+            // nothing to toggle, so with a null context these fall through and render plainly.
+            if (spoilerContext != null) {
+                if (node is HtmlNode.Tag && node.name == "span") {
+                    val classAttr = node.attributes["class"] ?: ""
+                    if (classAttr.contains("hicli-spoiler") && node.children.isNotEmpty()) {
+                        appendSpoilerNodes(
+                            nodes = node.children,
+                            baseStyle = baseStyle,
+                            inlineImages = inlineImages,
+                            inlineMatrixUsers = inlineMatrixUsers,
+                            inlineMatrixRooms = inlineMatrixRooms,
+                            spoilerContext = spoilerContext,
+                            reason = null,
+                            inlineCodeBlocks = inlineCodeBlocks,
+                        )
+                        previousWasLineBreak = false
+                        i++
+                        continue
+                    }
+                }
 
-        buildAnnotatedString {
-            val inlineImages = mutableMapOf<String, InlineImageData>()
-            val inlineMatrixUsers = mutableMapOf<String, InlineMatrixUserChip>()
-            val inlineMatrixRooms = mutableMapOf<String, InlineMatrixRoomChip>()
-            var previousWasLineBreak = false
-
-            nodes.forEach { node ->
-                appendHtmlNode(
-                    node = node,
-                    baseStyle = SpanStyle(color = baseColor),
-                    inlineImages = inlineImages,
-                    inlineMatrixUsers = inlineMatrixUsers,
-                    inlineMatrixRooms = inlineMatrixRooms,
-                    spoilerContext = null,
-                    hideContent = false,
-                    previousWasLineBreak = previousWasLineBreak,
-                    inlineCodeBlocks = null,
-                )
-                previousWasLineBreak = node is HtmlNode.LineBreak
+                if (i + 1 < nodes.size) {
+                    val spoilerData = extractSpoilerData(listOf(node, nodes[i + 1]))
+                    if (spoilerData != null) {
+                        val (reason, contentNodes) = spoilerData
+                        if (contentNodes.isNotEmpty()) {
+                            appendSpoilerNodes(
+                                nodes = contentNodes,
+                                baseStyle = baseStyle,
+                                inlineImages = inlineImages,
+                                inlineMatrixUsers = inlineMatrixUsers,
+                                inlineMatrixRooms = inlineMatrixRooms,
+                                spoilerContext = spoilerContext,
+                                reason = reason,
+                                inlineCodeBlocks = inlineCodeBlocks,
+                            )
+                            previousWasLineBreak = false
+                            i += 2
+                            continue
+                        }
+                    }
+                }
             }
-        }.let { annotatedString ->
-            // Trim trailing newline if present
-            if (annotatedString.text.endsWith("\n")) {
-                annotatedString.subSequence(0, annotatedString.length - 1)
-            } else {
-                annotatedString
+
+            // Track if previous node was a line break to trim leading whitespace from following text
+            appendHtmlNode(
+                node = node,
+                baseStyle = baseStyle,
+                inlineImages = inlineImages,
+                inlineMatrixUsers = inlineMatrixUsers,
+                inlineMatrixRooms = inlineMatrixRooms,
+                spoilerContext = spoilerContext,
+                previousWasLineBreak = previousWasLineBreak,
+                inlineCodeBlocks = inlineCodeBlocks,
+            )
+            previousWasLineBreak = node is HtmlNode.LineBreak
+
+            // Add an extra blank line between consecutive paragraphs (<p>/<div>),
+            // but do not insert it before other block elements (like <blockquote>).
+            if (node is HtmlNode.Tag && node.name in BLOCK_PARAGRAPH_TAGS) {
+                var j = i + 1
+                while (j < nodes.size) {
+                    val nextNode = nodes[j]
+                    if (nextNode is HtmlNode.Text && nextNode.content.trim().isEmpty()) {
+                        j++
+                        continue
+                    }
+                    break
+                }
+                val nextNonWhitespace = nodes.getOrNull(j)
+                if (nextNonWhitespace is HtmlNode.Tag && nextNonWhitespace.name in BLOCK_PARAGRAPH_TAGS) {
+                    append("\n")
+                }
             }
+
+            i++
         }
-    } catch (e: Exception) {
-        Log.e("Andromuks", "renderHtmlToAnnotatedString: Error rendering HTML", e)
-        AnnotatedString(htmlContent)
     }
+
+    // Block-level rendering closes every line it opens, so the last one leaves a trailing newline
+    // that would show as a blank line under the message.
+    var end = rendered.length
+    while (end > 0 && rendered.text[end - 1] == '\n') {
+        end--
+    }
+    return if (end == rendered.length) rendered else rendered.subSequence(0, end)
 }
+
+private val BLOCK_PARAGRAPH_TAGS = setOf("p", "div")

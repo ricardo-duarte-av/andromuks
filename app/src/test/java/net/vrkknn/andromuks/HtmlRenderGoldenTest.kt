@@ -1,12 +1,17 @@
 package net.vrkknn.andromuks
 
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
-import net.vrkknn.andromuks.utils.renderHtmlToAnnotatedString
+import net.vrkknn.andromuks.utils.HtmlParser
+import net.vrkknn.andromuks.utils.InlineCodeBlockPreview
+import net.vrkknn.andromuks.utils.SpoilerRenderContext
+import net.vrkknn.andromuks.utils.renderHtmlNodes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -33,23 +38,19 @@ import org.junit.Test
  * defects was a stray or missing `\n`, and a test that trimmed or normalised whitespace would have
  * passed against all four.
  *
- * **Which render path this is.** [renderHtmlToAnnotatedString] drives the same node walk that
- * `HtmlMessageText` does, but it is a plain function, so it runs here with no Compose runtime. Two
- * deliberate divergences from the message path are worth knowing when reading a golden below:
+ * **Which render path this is.** [renderHtmlNodes] is the walk `HtmlMessageText` itself calls —
+ * there is no second implementation to drift from. It is a plain function rather than a composable
+ * body, so it runs here with no Compose runtime, and the only thing the composable adds on top is
+ * hosting the inline content these goldens assert was registered.
  *
- *  1. It passes `spoilerContext = null` and `inlineCodeBlocks = null`, so spoilers render
- *     unwrapped and `<pre><code>` takes the preformatted path rather than the tappable preview.
- *  2. It does not insert the extra blank line `HtmlMessageText` puts between consecutive `<p>`,
- *     and it trims one trailing newline where the message path trims all of them.
- *
- * Folding the two walks into one shared function is the follow-up that would close that gap; these
- * goldens are what makes doing it safe.
+ * `spoilerContext` and `inlineCodeBlocks` are the two arguments a caller may pass as null when it
+ * has nowhere to host the interaction; both settings are covered below.
  */
 class HtmlRenderGoldenTest {
 
-    private fun render(html: String): String = renderHtmlToAnnotatedString(html, Color.Unspecified).text
+    private fun rendered(html: String): AnnotatedString = renderHtmlNodes(HtmlParser.parse(html), SpanStyle(color = Color.Unspecified))
 
-    private fun rendered(html: String): AnnotatedString = renderHtmlToAnnotatedString(html, Color.Unspecified)
+    private fun render(html: String): String = rendered(html).text
 
     /** The substring a span covers, for asserting that styling landed on the right characters. */
     private fun AnnotatedString.styled(predicate: (AnnotatedString.Range<androidx.compose.ui.text.SpanStyle>) -> Boolean): List<String> =
@@ -141,9 +142,10 @@ class HtmlRenderGoldenTest {
     }
 
     @Test
-    fun `consecutive paragraphs are separated by a single newline on this path`() {
-        // See the class doc: the message path adds one more blank line between <p> siblings.
-        assertEquals("one\ntwo", render("<p>one</p><p>two</p>"))
+    fun `consecutive paragraphs are separated by a blank line`() {
+        assertEquals("one\n\ntwo", render("<p>one</p><p>two</p>"))
+        // Only between paragraph siblings — a block of another kind gets the single break.
+        assertEquals("one\n│ q", render("<p>one</p><blockquote>q</blockquote>"))
     }
 
     @Test
@@ -211,6 +213,85 @@ class HtmlRenderGoldenTest {
 
         assertEquals("use foo() now", out.text)
         assertEquals(listOf("foo()"), out.styled { it.item.fontFamily == FontFamily.Monospace })
+    }
+
+    // ---------------------------------------------------------------- spoilers and code blocks
+
+    @Test
+    fun `an unrevealed spoiler is masked to the same length as its text`() {
+        val nodes = HtmlParser.parse("<span data-mx-spoiler>secret</span>")
+        val context = SpoilerRenderContext(mutableStateMapOf())
+
+        val out = renderHtmlNodes(nodes, SpanStyle(color = Color.Unspecified), spoilerContext = context)
+
+        assertEquals("secret".length, out.text.length)
+        assertEquals("<****>", out.text)
+        // The annotation is what makes the run tappable in the message path.
+        assertTrue(out.getStringAnnotations("SPOILER", 0, out.length).isNotEmpty())
+    }
+
+    @Test
+    fun `a revealed spoiler shows its text`() {
+        val nodes = HtmlParser.parse("<span data-mx-spoiler>secret</span>")
+        val states = mutableStateMapOf("spoiler_0" to true)
+
+        val out = renderHtmlNodes(nodes, SpanStyle(color = Color.Unspecified), spoilerContext = SpoilerRenderContext(states))
+
+        assertEquals("secret", out.text)
+    }
+
+    @Test
+    fun `without a spoiler context the content renders plainly`() {
+        // A caller with nowhere to host the tap passes null; the text must still be readable
+        // rather than stuck masked forever.
+        assertEquals("secret", render("<span data-mx-spoiler>secret</span>"))
+    }
+
+    @Test
+    fun `a long code block is truncated to a preview that keeps the full source`() {
+        val code = (1..12).joinToString("\n") { "line$it" }
+        val previews = mutableMapOf<String, InlineCodeBlockPreview>()
+
+        val out = renderHtmlNodes(
+            HtmlParser.parse("<pre><code>$code</code></pre>"),
+            SpanStyle(color = Color.Unspecified),
+            inlineCodeBlocks = previews,
+        )
+
+        assertTrue(out.text.startsWith("line1\nline2"))
+        assertTrue(out.text.contains("... (4 more lines, tap to view full code)"))
+        assertEquals(1, previews.size)
+        val preview = previews.values.single()
+        assertEquals(12, preview.totalLines)
+        assertEquals(code, preview.fullCode)
+        assertTrue(out.getStringAnnotations("CODE_BLOCK", 0, out.length).isNotEmpty())
+    }
+
+    @Test
+    fun `without a code block map the source renders in full as preformatted text`() {
+        val code = (1..12).joinToString("\n") { "line$it" }
+
+        assertEquals(code, render("<pre><code>$code</code></pre>"))
+    }
+
+    // ---------------------------------------------------------------- inline content registration
+
+    @Test
+    fun `an inline image registers a placeholder rather than emitting its source`() {
+        val images = mutableMapOf<String, net.vrkknn.andromuks.utils.InlineImageData>()
+
+        val out = renderHtmlNodes(
+            HtmlParser.parse("""a <img src="mxc://x.example/abc" alt=":cat:" height="32"> b"""),
+            SpanStyle(color = Color.Unspecified),
+            inlineImages = images,
+        )
+
+        assertEquals(1, images.size)
+        assertEquals("mxc://x.example/abc", images.values.single().src)
+        assertEquals(32, images.values.single().declaredHeight)
+        // The placeholder is a zero-width space; the mxc URI must never reach the text.
+        assertTrue(out.text.contains("\u200B"))
+        assertTrue(!out.text.contains("mxc://"))
     }
 
     @Test
