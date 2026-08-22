@@ -1011,6 +1011,11 @@ private fun AnnotatedString.Builder.appendBlockQuote(
         }
     }
 
+    // Whether the current output line already carries the quote prefix. A <br> opens a prefixed
+    // line and the content that follows must fill *that* line; without this the text branch below
+    // opened a second one, and "one<br/>two" rendered as three lines with an empty "│" between.
+    var lineOpen = false
+
     // A leading/trailing <br> inside the quote would open a prefixed line with nothing on it.
     tag.children.trimEdgeLineBreaks().forEach { child ->
         when (child) {
@@ -1019,10 +1024,11 @@ private fun AnnotatedString.Builder.appendBlockQuote(
             is HtmlNode.Tag -> {
                 when (child.name) {
                     "p", "div" -> {
-                        if (length > 0 && !endsWithNewline()) append("\n")
-                        withStyle(prefixStyle) { append(prefixText) }
+                        if (!lineOpen && length > 0 && !endsWithNewline()) append("\n")
+                        if (!lineOpen) withStyle(prefixStyle) { append(prefixText) }
                         appendQuoteLineContent(child.children.trimEdgeLineBreaks())
                         if (!endsWithNewline()) append("\n")
+                        lineOpen = false
                     }
 
                     "blockquote" -> {
@@ -1037,6 +1043,7 @@ private fun AnnotatedString.Builder.appendBlockQuote(
                             inlineCodeBlocks = inlineCodeBlocks,
                             quoteDepth = quoteDepth + 1,
                         )
+                        lineOpen = false
                     }
 
                     else -> {
@@ -1052,6 +1059,7 @@ private fun AnnotatedString.Builder.appendBlockQuote(
                             hideContent = hideContent,
                             inlineCodeBlocks = inlineCodeBlocks,
                         )
+                        lineOpen = false
                     }
                 }
             }
@@ -1061,8 +1069,8 @@ private fun AnnotatedString.Builder.appendBlockQuote(
             is HtmlNode.Text -> {
                 val trimmed = child.content.trim()
                 if (trimmed.isNotEmpty()) {
-                    if (length > 0 && !endsWithNewline()) append("\n")
-                    withStyle(prefixStyle) { append(prefixText) }
+                    if (!lineOpen && length > 0 && !endsWithNewline()) append("\n")
+                    if (!lineOpen) withStyle(prefixStyle) { append(prefixText) }
                     appendHtmlNode(
                         node = child,
                         baseStyle = baseStyle,
@@ -1075,13 +1083,16 @@ private fun AnnotatedString.Builder.appendBlockQuote(
                         inlineCodeBlocks = inlineCodeBlocks,
                     )
                     if (!endsWithNewline()) append("\n")
+                    lineOpen = false
                 }
             }
 
             is HtmlNode.LineBreak -> {
-                // If the quote has a raw line break, mirror it with a new prefixed line.
-                append("\n")
+                // Mirror the break with a new prefixed line. If a prefixed line is already open
+                // and empty, close it first so the break shows as a blank quoted line.
+                if (lineOpen || (length > 0 && !endsWithNewline())) append("\n")
                 withStyle(prefixStyle) { append(prefixText) }
+                lineOpen = true
             }
         }
     }
