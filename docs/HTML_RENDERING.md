@@ -4,6 +4,65 @@
 
 `HtmlMessageText` is the main composable for rendering Matrix `formatted_body` HTML. It parses HTML into a tree of `HtmlNode` via `HtmlParser`, builds an `AnnotatedString` from non-table nodes, and renders it in a `Text()` with custom gesture handling for links, spoilers, and code blocks.
 
+## The Render Walk (`renderHtmlNodes`)
+
+`renderHtmlNodes(nodes, baseStyle, …)` turns the parsed node list into the `AnnotatedString`.
+There is exactly **one** walk, and `HtmlMessageText` calls it — if you are fixing how markup
+renders, this is the only place to fix it.
+
+It has not always been that way. The walk used to be inlined in `HtmlMessageText`'s
+`derivedStateOf`, with a simplified near-copy (`renderHtmlToAnnotatedString`) at the bottom of the
+file "for simple display (profile bios, etc.)". Nothing called the copy — bios go through
+`HtmlBodyText`, which delegates to `HtmlMessageText` like everything else — and it had drifted:
+it skipped the blank line between consecutive `<p>` and trimmed one trailing newline where the
+message path trimmed all of them. Two walks meant every fix to the block bookkeeping had to be
+made twice, or silently wasn't. **Do not add a second one.** A caller that needs less should pass
+less, which is what the nullable arguments are for:
+
+- `spoilerContext == null` — no state to store revealed/hidden in, so spoiler markup renders
+  plainly rather than staying masked with no way to toggle it.
+- `inlineCodeBlocks == null` — no viewer to open a full listing in, so `<pre><code>` renders as
+  preformatted text instead of a tappable 8-line preview.
+
+Callers own the four inline-content maps and clear them before each render; the walk fills them
+with the placeholders the caller then supplies as `inlineContent`. Exceptions propagate —
+`HtmlMessageText` catches them so a bad message cannot take down a timeline row, but a test sees
+the failure.
+
+### Line bookkeeping
+
+Nearly every rendering bug this file has had was a stray or missing `\n`, so the conventions are
+worth stating:
+
+- A block appender that opens a line guards with `length > 0 && !endsWithNewline()` — **never** a
+  bare `!endsWithNewline()`, which is false at length 0 and so opens the message with a blank
+  line. Missing that guard is what made a leading `<blockquote>`, `<ul>` and `<ol>` each emit a
+  blank first line.
+- `appendBlockQuote` prefixes every quoted line with `│ ` (one per nesting level) and tracks
+  `lineOpen` — whether the current output line already carries that prefix. A `<br>` opens a
+  prefixed line and the content after it must fill *that* line; without the flag the text branch
+  opened a second one and `one<br/>two` rendered as three lines with an empty `│` between them.
+  Leading and trailing `<br>` children are dropped by `trimEdgeLineBreaks()`, since gomuks emits
+  `<blockquote>text<br/></blockquote>` for a one-line markdown quote and that trailing break would
+  otherwise leave a dangling `│` of its own.
+- The trailing-newline trim lives inside `renderHtmlNodes`, so every caller gets it. Block
+  rendering closes every line it opens, so the last one always leaves a newline behind.
+- `endsWithWhitespace()` and `endsWithNewline()` both read `toAnnotatedString().text`.
+  `AnnotatedString.Builder` does **not** override `toString()`, so calling it inspects
+  `…Builder@36916eb0` — `endsWithWhitespace` did exactly that for a long time, answered false for
+  every input, and put two spaces after every mention pill.
+
+### Golden tests
+
+`HtmlRenderGoldenTest` drives `renderHtmlNodes` directly. It is a plain function rather than a
+composable body, so the real message path runs in a JVM unit test with no Compose runtime — that
+is a reason to keep it one, not an incidental detail.
+
+Assertions are on the **exact string, newlines included**. Four shipped defects were found by
+writing that file, and every one of them was a whitespace difference that a test normalising
+whitespace would have passed straight over. `HtmlParserTest` covers the parse; it cannot catch any
+of this.
+
 ## Table Rendering
 
 `<table>` nodes are extracted from the parsed tree before the `AnnotatedString` is built (`tableNodes` / `nonTableNodes` split). Each table is rendered as a tappable `HtmlTablePreviewCard` (shows row/column count + column header preview).
