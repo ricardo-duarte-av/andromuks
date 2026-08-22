@@ -3269,9 +3269,19 @@ private fun InlineImage(
     }
 }
 
+/**
+ * Whether the text built so far ends in whitespace.
+ *
+ * Reads `toAnnotatedString().text`, the way [endsWithNewline] does. It used to read `toString()` —
+ * which [AnnotatedString.Builder] does not override, so it inspected `...Builder@36916eb0` and the
+ * last character was a hex digit. The answer was therefore *always* false, and the two callers
+ * that use it to avoid doubling a space (the mention and room pills in [appendAnchor]) both
+ * appended a space that was already there, then failed to trim the leading space off the text
+ * node after them — rendering "hi @lda  bye" with two spaces after every pill.
+ */
 private fun AnnotatedString.Builder.endsWithWhitespace(): Boolean {
     if (length == 0) return false
-    return toString().last().isWhitespace()
+    return toAnnotatedString().text.last().isWhitespace()
 }
 
 /**
