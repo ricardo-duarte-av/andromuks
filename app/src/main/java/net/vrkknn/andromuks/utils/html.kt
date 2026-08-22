@@ -337,6 +337,24 @@ object HtmlParser {
 }
 
 /**
+ * Drop leading and trailing `<br>` children from a node list.
+ *
+ * Only the edges: an interior break is a real line separator and must survive. gomuks emits
+ * `<blockquote>text<br/></blockquote>` for a one-line markdown quote, and [appendBlockQuote]
+ * answers every [HtmlNode.LineBreak] by opening a fresh prefixed line ("│ "). At the end of the
+ * quote that line never receives any content, so the message rendered with a dangling "│" of its
+ * own. It is not a trailing newline either, so the end-of-render trim in [HtmlMessageText] cannot
+ * clean it up afterwards.
+ */
+internal fun List<HtmlNode>.trimEdgeLineBreaks(): List<HtmlNode> {
+    var start = 0
+    var end = size
+    while (start < end && this[start] is HtmlNode.LineBreak) start++
+    while (end > start && this[end - 1] is HtmlNode.LineBreak) end--
+    return if (start == 0 && end == size) this else subList(start, end)
+}
+
+/**
  * Data class for inline images
  */
 data class InlineImageData(
@@ -993,16 +1011,17 @@ private fun AnnotatedString.Builder.appendBlockQuote(
         }
     }
 
-    tag.children.forEach { child ->
+    // A leading/trailing <br> inside the quote would open a prefixed line with nothing on it.
+    tag.children.trimEdgeLineBreaks().forEach { child ->
         when (child) {
             // Most Matrix quote payloads are structured as <blockquote><p>... (nested) ...</blockquote>
             // Render each <p> / <div> as one quoted "line".
             is HtmlNode.Tag -> {
                 when (child.name) {
                     "p", "div" -> {
-                        if (!endsWithNewline()) append("\n")
+                        if (length > 0 && !endsWithNewline()) append("\n")
                         withStyle(prefixStyle) { append(prefixText) }
-                        appendQuoteLineContent(child.children)
+                        appendQuoteLineContent(child.children.trimEdgeLineBreaks())
                         if (!endsWithNewline()) append("\n")
                     }
 
@@ -1042,7 +1061,7 @@ private fun AnnotatedString.Builder.appendBlockQuote(
             is HtmlNode.Text -> {
                 val trimmed = child.content.trim()
                 if (trimmed.isNotEmpty()) {
-                    if (!endsWithNewline()) append("\n")
+                    if (length > 0 && !endsWithNewline()) append("\n")
                     withStyle(prefixStyle) { append(prefixText) }
                     appendHtmlNode(
                         node = child,
