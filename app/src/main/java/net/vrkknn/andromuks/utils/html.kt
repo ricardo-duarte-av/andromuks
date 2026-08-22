@@ -1108,7 +1108,9 @@ private fun AnnotatedString.Builder.appendUnorderedList(
     hideContent: Boolean = false,
     inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
-    append("\n")
+    // Separate the list from whatever precedes it, but never open the message with a
+    // blank line — the same guard every other block appender here carries.
+    if (length > 0 && !endsWithNewline()) append("\n")
     tag.children.forEach { child ->
         if (child is HtmlNode.Tag && child.name == "li") {
             append("• ")
@@ -1166,7 +1168,9 @@ private fun AnnotatedString.Builder.appendOrderedList(
     hideContent: Boolean = false,
     inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null,
 ) {
-    append("\n")
+    // Separate the list from whatever precedes it, but never open the message with a
+    // blank line — the same guard every other block appender here carries.
+    if (length > 0 && !endsWithNewline()) append("\n")
     var index = 1
     tag.children.forEach { child ->
         if (child is HtmlNode.Tag && child.name == "li") {
