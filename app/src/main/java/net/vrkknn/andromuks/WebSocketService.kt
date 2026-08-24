@@ -39,11 +39,32 @@ import org.json.JSONObject
 class WebSocketService : Service() {
 
     /**
-     * Coroutines tied to this service instance only. Cancelled in [onDestroy] so jobs cannot
-     * outlive the service or run against a recycled instance after Android restarts the service.
+     * Coroutines tied to this service instance only. Cancelled in [stopService] / [onDestroy] so
+     * jobs cannot outlive the service or run against a recycled instance after Android restarts it.
+     *
+     * **`var`, not `val`, and that is load-bearing.** [stopService] cancels the scope and then calls
+     * `stopSelf()`, which is asynchronous — and Android *cancels the pending stop* if a start command
+     * arrives first. The same instance is then handed the new intent with a permanently cancelled
+     * scope, and since everything that dials, pings or monitors is `serviceScope.launch { … }`, every
+     * one of them becomes a silent no-op: `connectWebSocket` returns without connecting, without
+     * logging, forever. The connection could not be recovered for the life of the process — only
+     * swiping the app away fixed it. [rearmServiceScopeIfNeeded] rebuilds the scope in
+     * [onStartCommand] so a revived instance behaves exactly like a fresh one.
      */
-    private val serviceJob = SupervisorJob()
-    private val serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
+    @Volatile private var serviceJob = SupervisorJob()
+
+    @Volatile private var serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
+
+    /**
+     * Rebuild [serviceScope] if a previous [stopService] cancelled it. Returns true when it had to,
+     * i.e. when this instance was revived from a stop that Android never completed.
+     */
+    private fun rearmServiceScopeIfNeeded(): Boolean {
+        if (serviceScope.isActive) return false
+        serviceJob = SupervisorJob()
+        serviceScope = CoroutineScope(serviceJob + Dispatchers.IO)
+        return true
+    }
 
     companion object {
         private const val NOTIFICATION_ID = 1001
@@ -191,10 +212,13 @@ class WebSocketService : Service() {
         }
 
         /**
-         * Scope for work that must be tied to the running [WebSocketService] instance.
-         * Falls back to [AndromuksApplication.applicationScope] briefly if the service is not running.
+         * Scope for service-owned work. Falls back to the application scope when there is no
+         * instance *or* when the instance's scope is already cancelled — during the window between
+         * [stopService] and `onDestroy` a caller would otherwise launch into a dead scope and vanish
+         * without a trace. See the `serviceScope` docs.
          */
-        fun getServiceScope(): CoroutineScope = instance?.serviceScope ?: AndromuksApplication.applicationScope
+        fun getServiceScope(): CoroutineScope = instance?.serviceScope?.takeIf { it.isActive }
+            ?: AndromuksApplication.applicationScope
 
         /**
          * Check if the WebSocketService is currently running
@@ -4880,6 +4904,19 @@ class WebSocketService : Service() {
         if (intent?.action == ACTION_HEARTBEAT_ALARM) {
             handleHeartbeatAlarm()
             return START_STICKY
+        }
+
+        // Revived-instance recovery. stopSelf() is asynchronous and Android cancels the pending stop
+        // when a start command arrives first, so this can be the same instance whose scope
+        // stopService() already cancelled — with its monitoring loops dead. Re-arm before anything
+        // else touches serviceScope. See the serviceScope docs for the wedge this prevents.
+        if (rearmServiceScopeIfNeeded()) {
+            android.util.Log.w(
+                "WebSocketService",
+                "onStartCommand: revived a stopping service instance — re-armed serviceScope and monitoring",
+            )
+            startUnifiedMonitoring()
+            startNetworkMonitoring()
         }
 
         // CRITICAL FIX: Check battery optimization status and warn if enabled
