@@ -874,7 +874,7 @@ class WebSocketService : Service() {
         }
 
         /**
-         * Schedule the batterySaver-mode background-linger timer. After [lingerMs] the
+         * Schedule the batterySaver-mode linger timer. After [lingerMs] of **wall-clock** time the
          * service flips the user-disconnected flag and stops itself.
          *
          * Runs on [serviceScope] (not the caller's ViewModelScope) so the timer
@@ -882,58 +882,86 @@ class WebSocketService : Service() {
          * swiping the app away. The previous implementation tied the delay() to
          * viewModelScope, so a swipe-to-close within ~1s cancelled the linger and
          * the service stayed up forever.
+         *
+         * **The deadline is [SystemClock.elapsedRealtime]-based, and that is load-bearing.**
+         * `delay()` schedules against `System.nanoTime()` (CLOCK_MONOTONIC), which does not advance
+         * while the device is suspended. A bare `delay(15_000)` armed at screen-off therefore only
+         * counted the crumbs of CPU time our own Doze-throttled heartbeat alarm bought us — the
+         * countdown could take hours of wall time, or effectively complete only when the user picked
+         * the phone up. Two failures came out of that: the socket, ping loop and wake alarms the mode
+         * exists to stop stayed alive all night, and the teardown then landed *at unlock*, racing the
+         * resume path that had just decided the connection was healthy. Re-arming the delay until the
+         * elapsed-realtime deadline passes makes the wait honest; the short wake lock on the
+         * screen-off path makes it prompt.
+         *
+         * @param screenOff this linger was armed by ACTION_SCREEN_OFF rather than by the app being
+         *   backgrounded. Two consequences: a partial wake lock is held for the window so the teardown
+         *   actually runs while the user is away instead of being deferred to the next unlock, and the
+         *   screen is re-checked at expiry — coming back on inside the grace window is exactly the
+         *   "accidental lock" case the window exists to forgive. The app-backgrounded trigger needs
+         *   neither: the screen is on the whole time by definition, and so is the CPU.
          */
-        fun scheduleBatterySaverLinger(lingerMs: Long = BATTERY_SAVER_LINGER_MS_DEFAULT) {
+        fun scheduleBatterySaverLinger(lingerMs: Long = BATTERY_SAVER_LINGER_MS_DEFAULT, screenOff: Boolean = false) {
             val svc = instance ?: return
             svc.batterySaverLingerJob?.cancel()
+            if (screenOff) svc.acquireLingerWakeLock(lingerMs + WAKE_LOCK_LINGER_MARGIN_MS)
             svc.batterySaverLingerJob = svc.serviceScope.launch {
-                kotlinx.coroutines.delay(lingerMs)
-                // Re-check after the delay: a chat bubble may have been opened during
-                // the linger window (state C → A/B). Without this guard, the linger
-                // races cancelBatterySaverLinger and can still tear down the WebSocket out
-                // from under a bubble that's currently rendering — leaving the user
-                // staring at a frozen UI with no live updates.
-                if (BubbleTracker.anyBubbleOpen()) {
-                    if (BuildConfig.DEBUG) {
+                try {
+                    val deadline = android.os.SystemClock.elapsedRealtime() + lingerMs
+                    var remaining = lingerMs
+                    while (remaining > 0) {
+                        kotlinx.coroutines.delay(remaining)
+                        remaining = deadline - android.os.SystemClock.elapsedRealtime()
+                    }
+                    // Re-check every "someone is still using this" condition after the wait. The
+                    // window can be arbitrarily long in wall-clock terms (device suspend), and the
+                    // body past this point has no suspension point, so cancelBatterySaverLinger()
+                    // cannot stop a teardown that has already started. Without these guards the
+                    // linger races the resume path and tears the socket down out from under a live
+                    // session — a frozen UI with a permanent offline indicator and no re-dial owed.
+                    val skipReason = svc.lingerSkipReason(abortIfScreenOn = screenOff)
+                    if (skipReason != null) {
                         android.util.Log.i(
                             "WebSocketService",
-                            "BatterySaver linger fired but bubble is open — keeping service alive",
+                            "BatterySaver linger fired but $skipReason — keeping service alive",
                         )
+                        return@launch
                     }
-                    return@launch
-                }
-                val ctx = svc.applicationContext
-                if (BuildConfig.DEBUG) {
+                    val ctx = svc.applicationContext
                     android.util.Log.i(
                         "WebSocketService",
-                        "BatterySaver linger expired — stopping service",
+                        "BatterySaver linger expired (${lingerMs}ms, screenOff=$screenOff) — stopping service",
                     )
+                    // Flag the next room open to paginate fresh instead of trusting a cache that
+                    // may predate this disconnect. The cache itself is kept — paginate on open
+                    // will merge/replace via the normal response handlers.
+                    // Per-room equivalent (step 2): flag every cached room stale now, regardless of
+                    // whether a VM is attached — RoomTimelineCache is process-global.
+                    RoomTimelineCache.markAllStale()
+                    val primaryVm = SyncRepository.getPrimaryViewModelId()
+                        ?.let { SyncRepository.getViewModel(it) }
+                        ?: SyncRepository.getAttachedViewModels().firstOrNull()
+                    if (primaryVm != null) {
+                        primaryVm.markForceFreshPaginateAfterWsDown()
+                    } else {
+                        setForceFreshTimelinePaginatePending(ctx, true)
+                    }
+                    setBatterySaverUserDisconnected(ctx, true)
+                    // Suspend the periodic health-check worker so it doesn't wake the app
+                    // every 15 minutes while the user is intentionally disconnected.
+                    // It is rescheduled when the app returns to the foreground.
+                    WebSocketHealthCheckWorker.cancel(ctx)
+                    svc.stopService()
+                } finally {
+                    // Also runs on cancellation (cancelBatterySaverLinger) — the lock must never
+                    // outlive the wait it was taken for.
+                    if (screenOff) svc.releaseLingerWakeLock()
                 }
-                // Flag the next room open to paginate fresh instead of trusting a cache that
-                // may predate this disconnect. The cache itself is kept — paginate on open
-                // will merge/replace via the normal response handlers.
-                // Per-room equivalent (step 2): flag every cached room stale now, regardless of
-                // whether a VM is attached — RoomTimelineCache is process-global.
-                RoomTimelineCache.markAllStale()
-                val primaryVm = SyncRepository.getPrimaryViewModelId()
-                    ?.let { SyncRepository.getViewModel(it) }
-                    ?: SyncRepository.getAttachedViewModels().firstOrNull()
-                if (primaryVm != null) {
-                    primaryVm.markForceFreshPaginateAfterWsDown()
-                } else {
-                    setForceFreshTimelinePaginatePending(ctx, true)
-                }
-                setBatterySaverUserDisconnected(ctx, true)
-                // Suspend the periodic health-check worker so it doesn't wake the app
-                // every 15 minutes while the user is intentionally disconnected.
-                // It is rescheduled when the app returns to the foreground.
-                WebSocketHealthCheckWorker.cancel(ctx)
-                svc.stopService()
             }
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "WebSocketService",
-                    "BatterySaver linger scheduled (${lingerMs}ms)",
+                    "BatterySaver linger scheduled (${lingerMs}ms, screenOff=$screenOff)",
                 )
             }
         }
@@ -953,6 +981,17 @@ class WebSocketService : Service() {
         }
 
         private const val BATTERY_SAVER_LINGER_MS_DEFAULT = 15_000L
+
+        /**
+         * Grace window for the screen-off teardown. The 15s app-switch linger has no meaning once
+         * the screen is off — the user cannot come back without turning it on, which produces
+         * ACTION_SCREEN_ON → unlock → onResume → re-dial. All the wait buys is the accidental-lock
+         * case (pocket, mis-hit power button), which 3s covers.
+         */
+        private const val BATTERY_SAVER_SCREEN_OFF_LINGER_MS = 3_000L
+
+        /** Slack on the linger wake lock so it always outlives the wait it guards. */
+        private const val WAKE_LOCK_LINGER_MARGIN_MS = 5_000L
 
         /**
          * Set callback for sending WebSocket commands
@@ -3158,6 +3197,12 @@ class WebSocketService : Service() {
                 Intent.ACTION_SCREEN_OFF -> {
                     isScreenOn = false
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Screen turned OFF")
+                    // Battery-saver mode: screen off is the real "the user is done with us" signal,
+                    // and it is the one the 15s background linger handles worst — see the
+                    // elapsed-realtime note on scheduleBatterySaverLinger. Tear down on a short
+                    // grace instead, while the user is definitely away, rather than letting a
+                    // monotonic countdown complete at the next unlock.
+                    onScreenOffInBatterySaverMode()
                 }
             }
         }
@@ -3271,6 +3316,10 @@ class WebSocketService : Service() {
     // The foreground service notification is sufficient to prevent Android from killing the process
     // Only heartbeatWakeLock remains for short-duration operations (heartbeat alarm processing)
     private var heartbeatWakeLock: PowerManager.WakeLock? = null
+
+    // Held only for the battery-saver linger window so the teardown runs while the user is away
+    // rather than being deferred to the next unlock (see scheduleBatterySaverLinger).
+    private var lingerWakeLock: PowerManager.WakeLock? = null
 
     // RUSH TO HEALTHY: Fixed ping interval - no adaptive logic needed
     // Ping/pong failures are handled by immediate retry and dropping after 3 failures
@@ -5808,6 +5857,76 @@ class WebSocketService : Service() {
             }
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Failed to cancel heartbeat alarm", e)
+        }
+    }
+
+    /**
+     * Battery-saver teardown trigger for ACTION_SCREEN_OFF.
+     *
+     * Bubbles and active calls are exempt and stay exempt: a bubble icon on screen is active user
+     * interest ([BubbleTracker.anyBubbleOpen]), and dropping the socket under a joined call
+     * ([CallTracker.anyCallActive]) would kill the call's signalling. Both are re-checked at expiry
+     * too, since either can start during the grace window.
+     */
+    private fun onScreenOffInBatterySaverMode() {
+        val batterySaver = try {
+            getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                .getBoolean("use_battery_saver_mode", false)
+        } catch (e: Exception) {
+            android.util.Log.w("WebSocketService", "Screen-off teardown: could not read battery-saver pref", e)
+            false
+        }
+        if (!batterySaver) return
+        if (BubbleTracker.anyBubbleOpen() || CallTracker.anyCallActive()) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "WebSocketService",
+                    "Screen off but a bubble or call is active — keeping WebSocket up",
+                )
+            }
+            return
+        }
+        android.util.Log.i(
+            "WebSocketService",
+            "Screen off in battery-saver mode — tearing down in ${BATTERY_SAVER_SCREEN_OFF_LINGER_MS}ms",
+        )
+        scheduleBatterySaverLinger(lingerMs = BATTERY_SAVER_SCREEN_OFF_LINGER_MS, screenOff = true)
+    }
+
+    /**
+     * Why the linger must not tear down, or null when teardown should proceed.
+     *
+     * Evaluated *after* the wait, which can span an arbitrary amount of wall-clock time, and from a
+     * body that cannot be cancelled once it starts — so this is the only thing standing between a
+     * stale timer and a socket ripped out from under a live session.
+     */
+    private fun lingerSkipReason(abortIfScreenOn: Boolean): String? = when {
+        BubbleTracker.anyBubbleOpen() -> "a bubble is open"
+        CallTracker.anyCallActive() -> "a call is active"
+        abortIfScreenOn && isScreenOn -> "the screen came back on"
+        anySurfaceVisible(applicationContext) -> "the app is visible again"
+        else -> null
+    }
+
+    private fun acquireLingerWakeLock(timeoutMs: Long) {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            lingerWakeLock?.let { if (it.isHeld) it.release() }
+            lingerWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Andromuks:BatterySaverLinger").apply {
+                acquire(timeoutMs)
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Linger wake lock acquired (${timeoutMs}ms)")
+        } catch (e: Exception) {
+            android.util.Log.w("WebSocketService", "Failed to acquire linger wake lock", e)
+        }
+    }
+
+    private fun releaseLingerWakeLock() {
+        try {
+            lingerWakeLock?.let { if (it.isHeld) it.release() }
+            lingerWakeLock = null
+        } catch (e: Exception) {
+            android.util.Log.w("WebSocketService", "Failed to release linger wake lock", e)
         }
     }
 

@@ -205,12 +205,46 @@ The app supports two connection modes, controlled by the `useBatterySaverMode` s
 ### BatterySaver (battery saver)
 
 - WebSocket is closed ~15 s after the last UI surface backgrounds (`scheduleBatterySaverLinger(BATTERY_SAVER_LINGER_MS_DEFAULT = 15_000L)`). The 15 s linger gives the user a grace window to switch back without paying for a fresh handshake.
+- **Screen-off is a separate, shorter trigger.** `ACTION_SCREEN_OFF` (the service's own `screenStateReceiver`) arms the same linger with `BATTERY_SAVER_SCREEN_OFF_LINGER_MS = 3_000L` and `screenOff = true`. The 15 s app-switch grace has no meaning once the screen is off — the user cannot come back without turning it on, which produces `ACTION_SCREEN_ON` → unlock → `onResume` → re-dial. All the wait buys there is the accidental lock (pocket, mis-hit power button), which 3 s covers. See "The linger must count wall-clock time" below for why leaving this to the 15 s timer was actively harmful.
 - A chat bubble being open extends the lifetime: `scheduleBatterySaverLinger` re-checks `BubbleTracker.anyBubbleOpen()` at expiry and skips teardown if any bubble is alive. `cancelBatterySaverLinger` is called whenever a surface (main activity or bubble) becomes visible.
 - Notification reply and mark-as-read while disconnected are routed through the gomuks backend's official one-off command endpoint `POST <homeserver>/_gomuks/exec/{command}` (`ExecApi.sendMessage` → `send_message`, `ExecApi.markRead` → `mark_read`); the raw JSON body is the command's `data`, identical to the WebSocket frame's `data`, authed with the same `gomuks_auth` cookie. FCM provides push delivery, so no socket is needed in steady-state.
 - Other state-updating commands take the same `/exec` route while disconnected via `ExecCommandCoordinator`, which allocates a synthetic `request_id`, registers it in the same request-tracking map(s) the WS path uses, and feeds the parsed body back through `handleResponse`/`handleError` (the `/exec` body is byte-identical to a WS `response` frame's `data`, so no handler changes are needed): `paginate` (timeline-cache hydration on FCM wake-up, `paginateViaExec`) and `get_specific_room_state` (on-demand user-profile fetch — `flushProfileBatch` falls back to `/exec` when the socket is down; see [USER_PROFILES.md](USER_PROFILES.md#when-get_specific_room_state-is-requested)).
 - **No batching:** `SyncBatchProcessor.batterySaverModeEnabled = true` makes `processSyncComplete` always take the immediate path, even while backgrounded. Within the 15 s linger window every arriving `sync_complete` is applied straight to the caches; no `batchJob` is ever scheduled, so there is no future wakeup queued against a socket that is about to die. Any sync the user missed while disconnected is re-delivered on the next connect — a **catchup sync** (compact delta via `last_server_ts`; see [Catchup Sync](#catchup-sync-fast-reconnect-whenever-the-process-survived) below), falling back to a full `clear_state=true` sync when no `last_server_ts` has been recorded (a killed process) — not a replay of the missed stream.
 - At linger expiry the service flips `PREF_BATTERY_SAVER_USER_DISCONNECTED` and either calls `primaryVm.markForceFreshPaginateAfterWsDown()` (if a VM is attached) or sets `PREF_FORCE_FRESH_TIMELINE_PAGINATE` (consumed by the next VM open via `consumeForceFreshTimelinePaginatePending`). The next room open then bypasses the timeline cache fast path and paginates fresh, so a stale snapshot from before the disconnect cannot leak into the UI.
 - On foreground resume, `onAppBecameVisible` clears `PREF_BATTERY_SAVER_USER_DISCONNECTED`, reschedules `WebSocketHealthCheckWorker`, and runs the same `pingNowWithWatchdog` re-dial that the always-on path uses.
+
+### The linger must count wall-clock time (and re-check its guards)
+
+`delay()` schedules against `System.nanoTime()` (CLOCK_MONOTONIC), which **does not advance while the
+device is suspended**. A bare `delay(15_000)` armed at screen-off therefore only counted the crumbs of
+CPU time our own heartbeat alarm bought us — and that alarm is `setExactAndAllowWhileIdle`, which Doze
+throttles to roughly one firing per 9–15 minutes. The countdown could take hours of wall time, or
+effectively complete only when the user picked the phone up. Two failures, both reported as one bug
+("sleep with a room open, unlock, permanent offline indicator"):
+
+1. **The mode stopped saving battery.** The socket, the 45 s ping loop and the wake alarms that
+   battery-saver exists to stop all stayed alive overnight, burning the Doze exact-alarm quota to keep
+   a connection the user had explicitly asked us to drop.
+2. **The teardown landed at unlock.** "Linger expires" and "user unlocks" became the *same event*,
+   which is why it reproduced every time rather than occasionally. `cancelBatterySaverLinger()` on
+   resume cannot help: the body past the `delay` has no suspension point, so a teardown that has
+   already started runs to completion — after `onAppBecameVisible`'s `pingNowWithWatchdog()` had
+   already seen a healthy socket and skipped its re-dial branch. Nothing re-dialled afterwards (the
+   `AppNavigation` watchdog only covers the first 2.5 s after RESUMED), so the socket stayed down.
+
+The fix is three-part and each part is load-bearing:
+
+- **Deadline in `SystemClock.elapsedRealtime()`**, re-arming `delay` until it passes. The wait can no
+  longer complete early in wall-clock terms.
+- **A partial wake lock for the screen-off window** (`acquireLingerWakeLock`, released in a `finally`
+  so cancellation cannot leak it). Three seconds of CPU is nothing next to holding the socket open all
+  night, and it makes the teardown happen *while the user is away* rather than at the next unlock.
+- **`lingerSkipReason()` re-checked at expiry**, not just the old bubble check: a bubble open, a call
+  active (`CallTracker` — the service has no ViewModel, so per-VM call state is invisible to it), the
+  screen back on (screen-off trigger only), or any surface visible again. This is the last line of
+  defence against a stale timer tearing down a live session, and it must stay exhaustive.
+
+Bubbles and active calls remain exempt from teardown entirely, at arm time and at expiry.
 
 The setting can be toggled at runtime. The lifecycle change takes effect on the next background/foreground transition; no service restart is forced. No connectivity probe is needed when enabling battery-saver mode — `/_gomuks/exec` is served by the main gomuks backend, which is reachable whenever the homeserver is.
 
