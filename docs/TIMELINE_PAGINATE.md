@@ -90,6 +90,25 @@ negative, user pull-to-paginate ids are positive. Without that gate a failed bac
 consumes the epoch of a probe that is still alive, and that probe's terminal merge then never clears
 `mightBeStale`.
 
+### The Same Probe Runs on Battery-Saver Resume (Room Already Open)
+
+`sendAnchoredFreshnessProbe(roomId, blankTimelineWhileProbing)` is shared by the two entry points that
+face the same question — *the socket was down, is this cached tail still the truth?*
+
+| Caller | `blankTimelineWhileProbing` | Why |
+|---|---|---|
+| `navigateToRoomWithCache` (opening the room) | `true` | Nothing is on screen yet and the cached tail may sit below a silent gap, so the user sees the loading state and then a verified timeline — never the unverified tail. |
+| `onAppBecameVisible` (room already open) | `false` | Those events are already on screen and have been read; blanking them mid-session is a gratuitous flash. The terminal merge appends when contiguous, the reseed replaces the window on a gap — either way the screen converges. |
+
+**Why the resume call is needed at all:** the socket coming back does not make the open room correct.
+The teardown flagged every cache `mightBeStale` (`markAllStale`), and an arbitrary number of events may
+have arrived while we were down. Nothing else covered this: the room-open path never runs (we never
+navigated), and `RoomTimelineScreen`'s `rpcRetryGeneration` effect only re-requests when the timeline is
+*empty* or still loading — so a stale-but-populated room sat there looking fine and never refreshed. The
+user came back to yesterday's timeline with no way out but leaving and re-entering the room.
+
+The probe rides `/exec`, so the resume fires it in parallel with the re-dial rather than after it.
+
 ### Duplicate Anchored Probes Corrupt the Cache
 
 A single room open invokes the open path **twice** — the `RoomListScreen` tap and `RoomTimelineScreen`'s

@@ -7564,6 +7564,13 @@ class AppViewModel : ViewModel() {
     fun requestRoomTimeline(roomId: String, useLruCache: Boolean = true) = timelineCacheCoordinator.requestRoomTimeline(roomId, useLruCache)
 
     /**
+     * Fire the anchored freshness probe for a cache flagged stale by an intentional WebSocket drop.
+     * Returns true when a probe is in flight. See [TimelineCacheCoordinator.sendAnchoredFreshnessProbe].
+     */
+    fun sendAnchoredFreshnessProbe(roomId: String, blankTimelineWhileProbing: Boolean): Boolean =
+        timelineCacheCoordinator.sendAnchoredFreshnessProbe(roomId, blankTimelineWhileProbing)
+
+    /**
      * Fully refreshes the room timeline by resetting in-memory state and fetching a clean snapshot.
      * Steps:
      * 1. Marks the room as the current timeline so downstream handlers know which room is active

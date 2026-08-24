@@ -254,6 +254,66 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
     }
 
     /**
+     * Fire the anchored freshness probe for a cache flagged [RoomTimelineCache.isMightBeStale] by an
+     * intentional WebSocket drop, and report whether the caller should now wait for its response
+     * instead of rendering.
+     *
+     * Shared by the two entry points that face the same question — "the socket was down, is this
+     * cached tail still the truth?":
+     *  - [NavigationCoordinator.navigateToRoomWithCache], opening the room ([blankTimelineWhileProbing]
+     *    true: nothing is on screen yet, and the cached tail may sit below a silent gap, so the user
+     *    sees the loading state until the probe or its reseed builds a verified timeline).
+     *  - the battery-saver resume path, where the room is *already open* ([blankTimelineWhileProbing]
+     *    false: those events are already on screen and have been read, so blanking them mid-session
+     *    would be a gratuitous flash. The probe's terminal merge appends when contiguous, and its
+     *    reseed replaces the window when it finds a gap — either way the screen converges).
+     *
+     * Deliberately over `/exec`: the probe is useful before the socket is back up, so a resume can
+     * fire it in parallel with the re-dial rather than after it.
+     *
+     * @return true when a probe is in flight (fired here, or already running for this room).
+     */
+    fun sendAnchoredFreshnessProbe(roomId: String, blankTimelineWhileProbing: Boolean): Boolean {
+        with(vm) {
+            if (!RoomTimelineCache.isMightBeStale(roomId)) return false
+            // Dedup for the whole probe → reseed → terminal-merge lifecycle: two probes produce two
+            // GAP verdicts, and the loser's reseed wipes the cache the winner just refilled.
+            if (freshnessProbePendingEpoch.containsKey(roomId)) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "TimelineCacheCoordinator: freshness probe already in flight for $roomId — skipping duplicate",
+                    )
+                }
+                return true
+            }
+            val anchorEventId = RoomTimelineCache.staleAnchorFor(roomId)
+            freshnessProbePendingEpoch[roomId] = RoomTimelineCache.staleEpochFor(roomId)
+            if (blankTimelineWhileProbing) {
+                timelineEvents = emptyList()
+            }
+            android.util.Log.i(
+                "Andromuks",
+                "TimelineCacheCoordinator: cache might be stale — freshness probe for $roomId " +
+                    "(anchor=$anchorEventId, blanking=$blankTimelineWhileProbing)",
+            )
+            if (anchorEventId != null) {
+                paginateViaExec(
+                    roomId,
+                    maxTimelineId = 0L,
+                    limit = AppViewModel.FRESHNESS_PROBE_LIMIT,
+                    freshnessProbeAnchor = anchorEventId,
+                )
+            } else {
+                // No anchor (cache had no events at the drop) — nothing to verify against, so
+                // reseed directly with a full window.
+                paginateViaExec(roomId, maxTimelineId = 0L, limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT)
+            }
+            return true
+        }
+    }
+
+    /**
      * Warm-open freshness probe: a single-event (limit=1, max_timeline_id=0) paginate whose response
      * is handled by [AppViewModel.handleFreshnessCheckResponse]. That compares the server's newest
      * timeline_rowid to our cached newest; equal ⇒ cache is fresh and the full paginate is skipped,

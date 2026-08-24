@@ -417,51 +417,9 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
                         // anchor absent ⇒ gap, purge and reseed with a full INITIAL_ROOM_PAGINATE_LIMIT
                         // window. Either way the user only ever sees the loading indicator then the
                         // final, correct timeline — never the stale tail.
-                        if (RoomTimelineCache.isMightBeStale(roomId)) {
-                            // Dedup, for the same reason sendFreshnessProbe dedups on
-                            // freshnessCheckRequests: one room open invokes this twice — the
-                            // RoomListScreen tap and RoomTimelineScreen's mount effect, whose
-                            // isAlreadyLoaded guard is defeated by the forceFreshPaginateAfterWsDown
-                            // that a batterySaver resume always sets. Two probes race two GAP verdicts,
-                            // and the loser's clearTimelineEventsForReseed lands AFTER the winner's
-                            // reseed has already refilled the cache — wiping it again. The pending-epoch
-                            // entry covers the whole probe → reseed → terminal-merge lifecycle (the
-                            // merge removes it, as does the error path), so it is the in-flight signal.
-                            if (freshnessProbePendingEpoch.containsKey(roomId)) {
-                                android.util.Log.d(
-                                    "Andromuks",
-                                    "🔵 navigateToRoomWithCache: freshness probe already in flight for $roomId — skipping duplicate",
-                                )
-                                return@launch
-                            }
-                            val anchorEventId = RoomTimelineCache.staleAnchorFor(roomId)
-                            freshnessProbePendingEpoch[roomId] = RoomTimelineCache.staleEpochFor(roomId)
-                            // isTimelineLoading was set true at navigation start; leave it true and
-                            // blank any prior room's events so the user sees the loading state until
-                            // the probe (or its reseed) builds the verified timeline — never the
-                            // unverified cached tail. (This launch runs on the Main dispatcher, same
-                            // as the cache-miss timelineEvents reset below.)
-                            timelineEvents = emptyList()
-                            android.util.Log.d(
-                                "Andromuks",
-                                "🔵 navigateToRoomWithCache: cache flagged might-be-stale — firing freshness probe (limit=${AppViewModel.FRESHNESS_PROBE_LIMIT}, anchor=$anchorEventId) for $roomId BEFORE rendering",
-                            )
-                            if (anchorEventId != null) {
-                                paginateViaExec(
-                                    roomId,
-                                    maxTimelineId = 0L,
-                                    limit = AppViewModel.FRESHNESS_PROBE_LIMIT,
-                                    freshnessProbeAnchor = anchorEventId,
-                                )
-                            } else {
-                                // No anchor (cache had no events at the drop) — nothing to verify
-                                // against, so reseed directly with a full window.
-                                paginateViaExec(
-                                    roomId,
-                                    maxTimelineId = 0L,
-                                    limit = AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT,
-                                )
-                            }
+                        // (The probe body is shared with the battery-saver resume path — see
+                        // TimelineCacheCoordinator.sendAnchoredFreshnessProbe.)
+                        if (sendAnchoredFreshnessProbe(roomId, blankTimelineWhileProbing = true)) {
                             return@launch
                         }
 

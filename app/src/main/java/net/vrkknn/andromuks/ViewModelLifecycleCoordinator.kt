@@ -321,6 +321,24 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                 }
             }
 
+            // Re-verify the room the user is looking at, exactly as opening it would.
+            //
+            // The socket being back does not make the open room's timeline correct: the teardown
+            // flagged every cache mightBeStale (markAllStale), and while we were down an arbitrary
+            // number of events may have arrived — the cached tail can now sit below a silent gap.
+            // Nothing else covers this case: the room-open path never runs (we never navigated), and
+            // RoomTimelineScreen's reconnect effect only re-requests when the timeline is *empty* or
+            // still loading, so a stale-but-populated room would sit there looking fine and never
+            // refresh. So the user came back to yesterday's timeline with no way out but re-entering
+            // the room.
+            //
+            // The probe rides /exec, so it does not wait on the re-dial above: contiguous ⇒ merge the
+            // few newer events, gap ⇒ purge and reseed a full window. Blanking is off — those events
+            // are already on screen and read; the merge/reseed converges without a flash.
+            if (currentRoomId.isNotEmpty()) {
+                sendAnchoredFreshnessProbe(currentRoomId, blankTimelineWhileProbing = false)
+            }
+
             // BATTERY OPTIMIZATION: Rush process pending rooms and receipts that were deferred when
             // backgrounded
             // CRITICAL: Set processing flag to prevent RoomListScreen from showing stale data
