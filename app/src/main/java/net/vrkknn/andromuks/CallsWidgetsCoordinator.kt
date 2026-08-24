@@ -89,6 +89,8 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
 
     fun setCallActive(active: Boolean) = with(vm) {
         callActiveInternal = active
+        // Mirror into the process-global tracker the WebSocketService consults (see CallTracker).
+        if (active) CallTracker.onCallStarted(callActiveRoomId) else CallTracker.onCallEnded(callActiveRoomId)
     }
 
     fun isCallActive(): Boolean = vm.callActiveInternal
@@ -107,6 +109,7 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
     fun startCall(roomId: String) = with(vm) {
         callActiveRoomId = roomId
         callActiveInternal = true
+        CallTracker.onCallStarted(roomId)
         callMiniPipActive = false
         callReadyForPipInternal = false
         callPersistentWebView = null
@@ -134,6 +137,7 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
     }
 
     fun endCall() = with(vm) {
+        CallTracker.onCallEnded(callActiveRoomId)
         callActiveInternal = false
         callReadyForPipInternal = false
         callMiniPipActive = false
