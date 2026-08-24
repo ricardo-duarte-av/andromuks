@@ -15,9 +15,18 @@ on:
 # commit share one group. Releasing means pushing master first, then the `vX.Y.Z` tag on the same
 # commit; the tag run then cancels the now-redundant master run, so a release builds once (via the
 # tag) instead of twice. Normal pushes each have a unique SHA and are unaffected.
+#
+# `cancel-in-progress` is TAG-ONLY, and that is load-bearing. With it unconditionally true, the two
+# runs for a release commit raced: whichever GitHub queued second cancelled the other, and on v1.1.40
+# it went the wrong way — the master run killed the tag run 3s in, taking `verify-tag`, `play` and
+# `release` with it, so the release silently never published. (v1.1.37-39 survived on luck alone.)
+# Making only tag runs cancel makes the outcome deterministic in both orders:
+#   master in progress, tag queued  → tag cancels master, tag builds        (the intended saving)
+#   tag in progress, master queued  → master waits, tag finishes and ships  (redundant branch build)
+# The tag run always survives, which is the property that matters: it is the only one that publishes.
 concurrency:
   group: build-${{ github.sha }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref_type == 'tag' }}
 
 # Least privilege by default; the two jobs that publish assets opt into `contents: write`.
 permissions:
