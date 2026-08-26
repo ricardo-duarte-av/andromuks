@@ -1390,7 +1390,13 @@ private fun buildPlainTextAnnotatedString(text: String, linkStyle: SpanStyle): A
     }
 }
 
-private fun buildPlainTextAnnotatedStringWithCode(text: String, linkStyle: SpanStyle, codeStyle: SpanStyle): AnnotatedString {
+/**
+ * Renders a message that has no `formatted_body`, honouring markdown code fences.
+ *
+ * Internal rather than private so `HtmlRenderGoldenTest` can assert on its exact newlines — the
+ * blank-line bookkeeping here is the same class of bug the HTML walk keeps having.
+ */
+internal fun buildPlainTextAnnotatedStringWithCode(text: String, linkStyle: SpanStyle, codeStyle: SpanStyle): AnnotatedString {
     if (text.isEmpty()) return AnnotatedString("")
     return buildAnnotatedString {
         var inCodeBlock = false
@@ -1409,19 +1415,44 @@ private fun buildPlainTextAnnotatedStringWithCode(text: String, linkStyle: SpanS
         }
 
         fun appendBlankLine(allowDuplicate: Boolean) {
+            // Nothing has been written yet, so there is no line to separate from: a blank line
+            // here would only indent the message by one.
+            if (!hasOutputLine) return
             if (!allowDuplicate && lastOutputWasBlank) return
             appendLine(AnnotatedString(""), isBlank = true)
+        }
+
+        // Code-fence contents are buffered rather than appended line by line, so the blank lines a
+        // sender pads the fence with can be dropped. matrix-hookshot's default webhook formatter
+        // writes "```json\n\n<json>\n\n```", which would otherwise open the block with a blank
+        // line and close it with another.
+        val pendingCode = mutableListOf<String>()
+
+        fun flushCodeBlock() {
+            while (pendingCode.isNotEmpty() && pendingCode.first().isBlank()) pendingCode.removeAt(0)
+            while (pendingCode.isNotEmpty() && pendingCode.last().isBlank()) pendingCode.removeAt(pendingCode.size - 1)
+            for (codeLine in pendingCode) {
+                appendLine(AnnotatedString(codeLine), isBlank = false)
+                if (codeLine.isNotEmpty()) {
+                    addStyle(codeStyle, length - codeLine.length, length)
+                }
+            }
+            pendingCode.clear()
         }
 
         val lines = text.split('\n')
         for (line in lines) {
             if (line.trimStart().startsWith("```")) {
-                if (!inCodeBlock) {
-                    appendBlankLine(allowDuplicate = false)
-                } else {
-                    appendBlankLine(allowDuplicate = false)
+                if (inCodeBlock) {
+                    flushCodeBlock()
                 }
+                appendBlankLine(allowDuplicate = false)
                 inCodeBlock = !inCodeBlock
+                continue
+            }
+
+            if (inCodeBlock) {
+                pendingCode.add(line)
                 continue
             }
 
@@ -1430,13 +1461,12 @@ private fun buildPlainTextAnnotatedStringWithCode(text: String, linkStyle: SpanS
                 continue
             }
 
-            if (inCodeBlock) {
-                appendLine(AnnotatedString(line), isBlank = false)
-                addStyle(codeStyle, length - line.length, length)
-            } else {
-                val annotatedLine = buildPlainTextAnnotatedString(line, linkStyle)
-                appendLine(annotatedLine, isBlank = false)
-            }
+            val annotatedLine = buildPlainTextAnnotatedString(line, linkStyle)
+            appendLine(annotatedLine, isBlank = false)
+        }
+        // An unterminated fence still has to render its contents.
+        if (inCodeBlock) {
+            flushCodeBlock()
         }
     }
 }

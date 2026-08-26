@@ -76,6 +76,13 @@ writing that file, and every one of them was a whitespace difference that a test
 whitespace would have passed straight over. `HtmlParserTest` covers the parse; it cannot catch any
 of this.
 
+It also covers `buildPlainTextAnnotatedStringWithCode`, the no-`formatted_body` path, which is
+`internal` rather than private for exactly that reason. Its fences buffer their contents instead of
+appending line by line, so blank lines padding a fence (hookshot's plain body is
+``"…\n\n```json\n\n<json>\n\n```"``) are trimmed at the edges while blank lines *inside* the code
+survive. A message that opens with a fence no longer starts on a blank line, and an unterminated
+fence still flushes what it collected.
+
 ## Table Rendering
 
 `<table>` nodes are extracted from the parsed tree before the `AnnotatedString` is built (`tableNodes` / `nonTableNodes` split). Each table is rendered as a tappable `HtmlTablePreviewCard` (shows row/column count + column header preview).

@@ -11,6 +11,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import net.vrkknn.andromuks.utils.HtmlParser
 import net.vrkknn.andromuks.utils.InlineCodeBlockPreview
 import net.vrkknn.andromuks.utils.SpoilerRenderContext
+import net.vrkknn.andromuks.utils.buildPlainTextAnnotatedStringWithCode
 import net.vrkknn.andromuks.utils.renderHtmlNodes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -55,6 +56,9 @@ class HtmlRenderGoldenTest {
     /** [rendered] passes no code-block map, so `<pre><code>` falls back to preformatted text. */
     private fun renderWithCodeBlocks(html: String): AnnotatedString =
         renderHtmlNodes(HtmlParser.parse(html), SpanStyle(color = Color.Unspecified), inlineCodeBlocks = mutableMapOf())
+
+    private fun plain(text: String): AnnotatedString =
+        buildPlainTextAnnotatedStringWithCode(text, SpanStyle(color = Color.Unspecified), SpanStyle(fontFamily = FontFamily.Monospace))
 
     /** The substring a span covers, for asserting that styling landed on the right characters. */
     private fun AnnotatedString.styled(predicate: (AnnotatedString.Range<androidx.compose.ui.text.SpanStyle>) -> Boolean): List<String> =
@@ -343,6 +347,35 @@ class HtmlRenderGoldenTest {
     @Test
     fun `a paragraph hidden with display none contributes nothing`() {
         assertEquals("a\n\nb", render("<p>a</p><p style=\"display: none\">hidden</p><p>b</p>"))
+    }
+
+    // ---------------------------------------------------------------- plain-text code fences
+
+    /**
+     * The `formatted_body`-less counterpart of the case above: hookshot's plain body is
+     * `"Received webhook data:\n\n```json\n\n<json>\n\n```"`, and the blank lines padding the
+     * fence used to survive as blank output lines inside the code block.
+     */
+    @Test
+    fun `blank lines padding a code fence are dropped`() {
+        val out = plain("Received webhook data:\n\n```json\n\n{\n  \"a\": 1\n}\n\n```")
+
+        assertEquals("Received webhook data:\n\n{\n  \"a\": 1\n}\n", out.text)
+    }
+
+    @Test
+    fun `blank lines inside a code fence are kept`() {
+        assertEquals("one\n\nthree", plain("```\none\n\nthree\n```").text.trimEnd('\n'))
+    }
+
+    @Test
+    fun `a message opening with a code fence does not start on a blank line`() {
+        assertEquals("code", plain("```\ncode\n```").text.trimEnd('\n'))
+    }
+
+    @Test
+    fun `an unterminated code fence still renders its contents`() {
+        assertEquals("intro\n\ncode", plain("intro\n```\ncode").text.trimEnd('\n'))
     }
 
     @Test
