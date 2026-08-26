@@ -52,6 +52,10 @@ class HtmlRenderGoldenTest {
 
     private fun render(html: String): String = rendered(html).text
 
+    /** [rendered] passes no code-block map, so `<pre><code>` falls back to preformatted text. */
+    private fun renderWithCodeBlocks(html: String): AnnotatedString =
+        renderHtmlNodes(HtmlParser.parse(html), SpanStyle(color = Color.Unspecified), inlineCodeBlocks = mutableMapOf())
+
     /** The substring a span covers, for asserting that styling landed on the right characters. */
     private fun AnnotatedString.styled(predicate: (AnnotatedString.Range<androidx.compose.ui.text.SpanStyle>) -> Boolean): List<String> =
         spanStyles.filter(predicate).map { text.substring(it.start, it.end) }
@@ -292,6 +296,53 @@ class HtmlRenderGoldenTest {
         // The placeholder is a zero-width space; the mxc URI must never reach the text.
         assertTrue(out.text.contains("\u200B"))
         assertTrue(!out.text.contains("mxc://"))
+    }
+
+    // ---------------------------------------------------------------- empty blocks
+
+    /**
+     * A `<pre>` is not allowed inside a `<p>`, so `HtmlParser` closes the paragraph implicitly the
+     * way a browser does — leaving an empty `<p></p>` on each side of the block. That shape ships
+     * from matrix-hookshot's default webhook formatter, which emits exactly
+     * `<p>Received webhook data:</p><p><pre><code…>…</code></pre></p>`, and each empty paragraph
+     * used to open a line of its own on top of the consecutive-paragraph blank line: three
+     * newlines between the sentence and the JSON where the well-formed markup gives one.
+     */
+    @Test
+    fun `a paragraph wrapping a code block renders as if the markup were well formed`() {
+        val json = "{\n  \"status\": \"firing\"\n}"
+        val wrapped = "<p>Received webhook data:</p><p><pre><code class=\"language-json\">$json</code></pre></p>"
+        val wellFormed = "<p>Received webhook data:</p><pre><code class=\"language-json\">$json</code></pre>"
+
+        assertEquals("Received webhook data:\n$json", renderWithCodeBlocks(wrapped).text)
+        assertEquals(renderWithCodeBlocks(wellFormed).text, renderWithCodeBlocks(wrapped).text)
+    }
+
+    @Test
+    fun `an empty paragraph between two paragraphs does not add a line`() {
+        assertEquals("a\n\nb", render("<p>a</p><p></p><p>b</p>"))
+        assertEquals("a\n\nb", render("<p>a</p><p>   </p><p>b</p>"))
+        assertEquals(render("<p>a</p><p>b</p>"), render("<p>a</p><p></p><p>b</p>"))
+    }
+
+    @Test
+    fun `an empty paragraph leading or trailing the message contributes nothing`() {
+        assertEquals("a", render("<p></p><p>a</p>"))
+        assertEquals("a", render("<p>a</p><p></p>"))
+    }
+
+    @Test
+    fun `a paragraph holding only a line break or an image still renders`() {
+        // Emptiness is about output, not children: <br> and <img> put something on the line even
+        // with nothing inside them. The <br> paragraph keeps both of its separators and adds its
+        // own break between them — a lot of blank lines, but the sender asked for every one.
+        assertEquals("a\n\n\n\n\nb", render("<p>a</p><p><br></p><p>b</p>"))
+        assertTrue(render("<p>a</p><p><img src=\"mxc://x.example/abc\"></p><p>b</p>").contains("\u200B"))
+    }
+
+    @Test
+    fun `a paragraph hidden with display none contributes nothing`() {
+        assertEquals("a\n\nb", render("<p>a</p><p style=\"display: none\">hidden</p><p>b</p>"))
     }
 
     @Test

@@ -682,15 +682,23 @@ private fun AnnotatedString.Builder.appendHtmlTag(
             inlineCodeBlocks,
         )
 
-        "p", "div" -> appendBlock(
-            tag,
-            styledBase,
-            inlineImages,
-            inlineMatrixUsers,
-            inlineMatrixRooms,
-            spoilerContext,
-            inlineCodeBlocks,
-        )
+        "p", "div" -> {
+            // An empty paragraph renders nothing, so it must not open a line of its own.
+            // Senders do emit them: a `<pre>` inside a `<p>` is invalid HTML, and closing the
+            // paragraph implicitly (as HtmlParser does, like every browser) leaves an empty
+            // `<p></p>` on each side of the block.
+            if (rendersVisibleContent(tag)) {
+                appendBlock(
+                    tag,
+                    styledBase,
+                    inlineImages,
+                    inlineMatrixUsers,
+                    inlineMatrixRooms,
+                    spoilerContext,
+                    inlineCodeBlocks,
+                )
+            }
+        }
 
         "blockquote" -> appendBlockQuote(
             tag,
@@ -876,6 +884,36 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
         hideContent,
         inlineCodeBlocks = inlineCodeBlocks,
     )
+}
+
+/**
+ * Tags that put something on screen even with no children — so a block containing only these is
+ * not empty.
+ */
+private val SELF_RENDERING_TAGS = setOf("br", "img", "hr", "hicli-math")
+
+/**
+ * Whether [node] would put anything into the output.
+ *
+ * Used to drop empty `<p>`/`<div>` blocks before they open a line. Mirrors the two skip rules
+ * `appendHtmlTag` applies for real: `display: none` renders nothing, and neither does a subtree
+ * whose only text is whitespace. Whitespace-only text is insignificant here because the text
+ * branch collapses and drops it (see [appendHtmlNode]).
+ */
+private fun rendersVisibleContent(node: HtmlNode): Boolean = when (node) {
+    is HtmlNode.Text -> node.content.isNotBlank()
+
+    is HtmlNode.LineBreak -> true
+
+    is HtmlNode.Tag -> {
+        val styleAttr = node.attributes["style"]?.lowercase() ?: ""
+        val hidden = styleAttr.contains("display") && styleAttr.contains("none")
+        when {
+            hidden -> false
+            node.name in SELF_RENDERING_TAGS -> true
+            else -> node.children.any { rendersVisibleContent(it) }
+        }
+    }
 }
 
 private fun AnnotatedString.Builder.appendBlock(
@@ -3543,11 +3581,17 @@ internal fun renderHtmlNodes(
 
             // Add an extra blank line between consecutive paragraphs (<p>/<div>),
             // but do not insert it before other block elements (like <blockquote>).
-            if (node is HtmlNode.Tag && node.name in BLOCK_PARAGRAPH_TAGS) {
+            if (node is HtmlNode.Tag && node.name in BLOCK_PARAGRAPH_TAGS && rendersVisibleContent(node)) {
                 var j = i + 1
                 while (j < nodes.size) {
                     val nextNode = nodes[j]
                     if (nextNode is HtmlNode.Text && nextNode.content.trim().isEmpty()) {
+                        j++
+                        continue
+                    }
+                    // An empty <p>/<div> is dropped by appendHtmlTag rather than rendered, so it
+                    // must not stand between two paragraphs and swallow their separating line.
+                    if (nextNode is HtmlNode.Tag && nextNode.name in BLOCK_PARAGRAPH_TAGS && !rendersVisibleContent(nextNode)) {
                         j++
                         continue
                     }

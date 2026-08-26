@@ -45,6 +45,19 @@ worth stating:
   Leading and trailing `<br>` children are dropped by `trimEdgeLineBreaks()`, since gomuks emits
   `<blockquote>text<br/></blockquote>` for a one-line markdown quote and that trailing break would
   otherwise leave a dangling `│` of its own.
+- An empty `<p>`/`<div>` is **dropped**, not rendered — `appendHtmlTag` skips it when
+  `rendersVisibleContent` says its subtree puts nothing on screen, and the consecutive-paragraph
+  lookahead skips over it too so `<p>a</p><p></p><p>b</p>` keeps exactly one blank line rather
+  than losing its separator to the empty block. Emptiness is decided by *output*, not by having
+  children: `<br>`, `<img>`, `<hr>` and `<hicli-math>` render on their own, and a `display: none`
+  subtree renders nothing however much text it holds.
+
+  This matters because senders really do emit empty paragraphs. `<pre>` is not allowed inside
+  `<p>`, so `HtmlParser` closes the paragraph implicitly the way browsers do, leaving an empty
+  `<p></p>` on each side of the block — and matrix-hookshot's default webhook formatter emits
+  exactly `<p>…</p><p><pre><code>…</code></pre></p>`. Each empty paragraph used to open a line of
+  its own on top of the paragraph separator, putting three newlines between the sentence and the
+  code where the well-formed markup gives one.
 - The trailing-newline trim lives inside `renderHtmlNodes`, so every caller gets it. Block
   rendering closes every line it opens, so the last one always leaves a newline behind.
 - `endsWithWhitespace()` and `endsWithNewline()` both read `toAnnotatedString().text`.
