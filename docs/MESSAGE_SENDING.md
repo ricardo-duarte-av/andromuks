@@ -173,7 +173,7 @@ The `send` is always processed first (the placeholder is inserted synchronously)
 **Correlation.** The `response` echoes our `request_id`, which is the only frame that bridges our send to the backend's `transaction_id` (`send_complete`/`sync_complete` carry the txId but not our request_id). `handleMessageResponse` (messageRequests path) and `handleOutgoingRequestResponse` (the mentions `sendMessage` overload) both call `localEchoCoordinator.onResponse(requestId, txId)`.
 
 **Failure triggers (three):**
-1. **No `response`** within `RESPONSE_TIMEOUT_MS` (20 s) — the backend never received the send. (The `response` is fast even in E2EE; encryption latency lives in `send_complete`.)
+1. **No `response`** within `RESPONSE_TIMEOUT_MS` (20 s) — the backend never received the send. (The `response` is fast even in E2EE; encryption latency lives in `send_complete`.) An `error` **response**, by contrast, fails the bubble immediately with the server's reason via `LocalEchoCoordinator.onErrorResponse`. That path used to be skipped entirely — the echo hookup was gated on `!isError` — which leaked the `requestToLocalId` entry and left the bubble in *Sending* until the watchdog relabelled it with a misleading "No response from server".
 2. **`send_complete` with a Matrix-server error** (e.g. event too large) — handled by `processSendCompleteEvent`. **No `sync_complete` follows in this case**, because the event was never committed.
 3. **Backstop** `CONFIRM_BACKSTOP_MS` (90 s) after `Sent` — covers a dropped `send_complete` *error* frame; generous so E2EE's slower confirmation never trips it falsely. Layer 2 (below) makes it almost never fire.
 
@@ -245,7 +245,7 @@ before the flush is awaited) rendered it at the oldest end. See
 
 | File | Role |
 |------|------|
-| `LocalEchoCoordinator.kt` | Send-time placeholders + `Sending→Sent→Confirmed/Failed` state machine, response/confirm watchdog timers; `onResponse` race guard evicts the echo when the confirmed event already arrived (response-processed-last); `supersedeOldestOutstanding` hides a placeholder whose confirmed event beat its `response` |
+| `LocalEchoCoordinator.kt` | Send-time placeholders + `Sending→Sent→Confirmed/Failed` state machine, response/confirm watchdog timers; `onResponse` race guard evicts the echo when the confirmed event already arrived (response-processed-last); `supersedeOldestOutstanding` hides a placeholder whose confirmed event beat its `response`; `onErrorResponse` fails a bubble immediately on an error response |
 | `PersistenceCoordinator.kt` | Layer 1: drops timed-out `command_send_message` instead of re-sending (non-idempotent) |
 | `MessageSendCoordinator.kt` | Inserts the placeholder for every send variant (`textContent`/`insertMediaEcho` helpers); `buildMediaRelatesTo` builds reply/thread `relates_to` shared by sends and echoes |
 | `AppViewModel.kt` | `pendingEchoMap` declaration; `handleMessageResponse` / `handleOutgoingRequestResponse` (upgrade Sending→Sent, legacy echo fallback); `processSendCompleteEvent` (eviction/failure + watchdog cancel); `dismissPendingEcho` |

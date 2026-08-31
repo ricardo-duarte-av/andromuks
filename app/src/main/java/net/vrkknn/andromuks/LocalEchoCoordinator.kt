@@ -240,6 +240,24 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
         return !lc.optBoolean(LOCAL_SUPERSEDED) && lc.optString("send_error").isBlank()
     }
 
+    /**
+     * The `response` for [requestId] came back as an error: the backend rejected the send outright,
+     * so there will be no `send_complete` and no `sync_complete`. Release the request mapping and
+     * fail the placeholder immediately with [reason].
+     *
+     * This path used to be skipped entirely (the caller gated the whole echo hookup on
+     * `!isError`), which leaked the [requestToLocalId] entry and left the bubble sitting in
+     * *Sending* until the 20 s watchdog relabelled it with a misleading "No response from server".
+     */
+    fun onErrorResponse(requestId: Int, reason: String) {
+        val localId = requestToLocalId.remove(requestId) ?: return
+        val entry = vm.eventChainMap[localId] ?: return
+        val bubble = entry.ourBubble ?: return
+        watchdogJobs.remove(localId)?.cancel()
+        if (bubble.localContent?.optString("send_error")?.isNotBlank() == true) return
+        markFailed(localId, reason, bubble.roomId)
+    }
+
     /** Stop watching a placeholder once it's resolved elsewhere (confirmed / evicted / failed). */
     fun cancel(localId: String?) {
         if (localId == null) return

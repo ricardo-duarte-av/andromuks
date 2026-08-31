@@ -10277,26 +10277,36 @@ class AppViewModel : ViewModel() {
         // upgrade it Sending → Sent (LocalEchoCoordinator). Fallback (no send-time placeholder, e.g.
         // notification quick-reply or a send issued while another room was open): create the echo
         // here from the response data, as before.
-        if (data is JSONObject && !isError) {
+        if (data is JSONObject) {
             try {
                 val echoTxId = data.optString("transaction_id").takeIf { it.isNotBlank() }
-                val upgraded = localEchoCoordinator.onResponse(requestId, echoTxId)
-                if (!upgraded && roomId == currentRoomId) {
-                    val echoEvent = TimelineEvent.fromJson(data)
-                    if (echoTxId != null && echoEvent.eventId.startsWith("~") &&
-                        (
-                            echoEvent.type == "m.room.message" || echoEvent.type == "m.room.encrypted" ||
-                                echoEvent.type == "m.sticker"
-                            )
-                    ) {
-                        addNewEventToChain(echoEvent) // eventChainMap first
-                        pendingEchoMap[echoTxId] = echoEvent.eventId // then pendingEchoMap
-                        buildTimelineFromChain(expectedRoomId = roomId)
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d(
-                                "Andromuks",
-                                "AppViewModel: Pending echo inserted for txId=$echoTxId eventId=${echoEvent.eventId}",
-                            )
+                // An error response must still reach the coordinator. This whole block used to be
+                // gated on !isError, which leaked the request's requestToLocalId entry and left the
+                // placeholder stuck in Sending until the 20 s watchdog mislabelled it "No response
+                // from server". Route it to onErrorResponse instead, so the bubble fails at once
+                // with the real reason.
+                if (isError) {
+                    val reason = data.optString("error").takeIf { it.isNotBlank() } ?: "Send rejected"
+                    localEchoCoordinator.onErrorResponse(requestId, reason)
+                } else {
+                    val upgraded = localEchoCoordinator.onResponse(requestId, echoTxId)
+                    if (!upgraded && roomId == currentRoomId) {
+                        val echoEvent = TimelineEvent.fromJson(data)
+                        if (echoTxId != null && echoEvent.eventId.startsWith("~") &&
+                            (
+                                echoEvent.type == "m.room.message" || echoEvent.type == "m.room.encrypted" ||
+                                    echoEvent.type == "m.sticker"
+                                )
+                        ) {
+                            addNewEventToChain(echoEvent) // eventChainMap first
+                            pendingEchoMap[echoTxId] = echoEvent.eventId // then pendingEchoMap
+                            buildTimelineFromChain(expectedRoomId = roomId)
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: Pending echo inserted for txId=$echoTxId eventId=${echoEvent.eventId}",
+                                )
+                            }
                         }
                     }
                 }
