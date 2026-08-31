@@ -12231,6 +12231,7 @@ class AppViewModel : ViewModel() {
             var redactionCount = 0
             var processedCount = 0
             var errorCount = 0
+            var supersededCount = 0
 
             // Now process all non-redaction events with the populated map
             for ((eventId, entry) in eventChainSnapshot) {
@@ -12241,6 +12242,14 @@ class AppViewModel : ViewModel() {
                         "Andromuks",
                         "buildTimelineFromChain: Entry $eventId has null ourBubble - skipping",
                     )
+                    continue
+                }
+                // Skip a placeholder hidden because its confirmed event arrived before we could
+                // link them (LocalEchoCoordinator.supersedeOldestOutstanding). It stays in the
+                // chain so onResponse can still evict it by transaction_id; it just must not
+                // render alongside the message it stands in for.
+                if (ourBubble.localContent?.optBoolean(LocalEchoCoordinator.LOCAL_SUPERSEDED) == true) {
+                    supersededCount++
                     continue
                 }
                 // Skip redaction events (both encrypted and non-encrypted) - they're used to build redactionMap only
@@ -12343,6 +12352,7 @@ class AppViewModel : ViewModel() {
                     "Andromuks",
                     "buildTimelineFromChain: Processed $processedCount events from $totalEntries entries " +
                         "(nullBubble=$nullBubbleCount, redactions=$redactionCount, errors=$errorCount, " +
+                        "superseded=$supersededCount, " +
                         "timelineEvents.size=${timelineEvents.size})",
                 )
             }

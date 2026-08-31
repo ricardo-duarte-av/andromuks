@@ -60,6 +60,18 @@ and how to read the numbers: [RPC_RESILIENCE.md](RPC_RESILIENCE.md#reading-the-i
 | `RpcResilienceCoordinator.settle` | A request succeeded only on a later attempt (first attempt could not be answered). |
 | `RpcResilienceCoordinator.dispatch` | A request exhausted its attempt budget. |
 
+### `"LocalEcho"`
+
+The send-placeholder reconciliation race. Both entries concern the window where a confirmed event is
+processed before the `response` that would link it to its placeholder — see
+[MESSAGE_SENDING.md](MESSAGE_SENDING.md#race-condition--sync_complete-arrives-before-response-transient-duplicate).
+Release-visible because the race only reproduces in the field.
+
+| Location | What it logs |
+|---|---|
+| `LocalEchoCoordinator.supersedeOldestOutstanding` | A confirmed own-message event arrived whose `transaction_id` could not be resolved, so a placeholder was hidden on spec. Notes the request id and how many sends were in flight. A hide with no matching eviction line after it means the guess was wrong and the placeholder should have reappeared as Failed. |
+| `LocalEchoCoordinator.onResponse` — eviction guard | The `response` landed after the confirmed event and evicted the placeholder by `transaction_id`. This is the line that closes a supersede: seeing them paired is the fix working. |
+
 ### `"Notifications"`
 
 | Location | What it logs |

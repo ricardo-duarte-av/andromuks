@@ -98,6 +98,47 @@ Write order matters (race-condition guard): `eventChainMap` is written **before*
 
 **Fix (applied in `RoomTimelineScreen.kt` and `BubbleTimelineScreen.kt` `stableKey`)**: Changed from `transactionId ?: ... ?: eventId` to simply `eventId`. Since `eventId` is unique per event, duplicate `LazyColumn` keys are structurally impossible even if both a `~` echo and its `$` confirmation are transiently present in the list.
 
+### Race condition — `sync_complete` arrives before `response` (transient duplicate)
+
+The echo is inserted at send time knowing only its `request_id`. Eviction, in both consumers, is
+keyed on `transaction_id` via `pendingEchoMap` — and the **only** producer of that map is
+`LocalEchoCoordinator.onResponse`. So when a confirmed event is processed before `response`, nothing
+links it to the placeholder and **both render**: the real message plus a pending bubble for it.
+
+The four frames form a *chain*, not a mesh, with `response` as the cut vertex:
+
+```
+request_id ──[response]── transaction_id ──[send_complete]── event_id
+     │                                   └─[sync_complete]─┘
+     └─ all the echo knows at send time
+```
+
+Every path from `request_id` to `transaction_id`/`event_id` runs through `response`. Until it lands
+there is provably nothing to link with — not the `~hicli-…` pending id, not the `rowid`, both of
+which `response` is also the first to reveal. Confirmed against the gomuks RPC spec:
+`transaction_id` is the only correlation mechanism, and neither `send_complete` nor `sync_complete`
+carries our `request_id`.
+
+**Only `sync_complete` can lose this race.** `response`, `send_complete` and `error` all emit to the
+single ordered `SyncRepository.ackEvents` flow (`NetworkUtils.kt`, `emitPriorityIncomingWebSocketMessage`)
+drained by one sequential collector, so `send_complete` is never processed before `response`.
+`sync_complete` rides its own channel and has no ordering relationship to either.
+
+**Fix — supersede, then reconcile.** We cannot link during the window, but we do not need to in
+order to avoid drawing two bubbles: `requestToLocalId` being non-empty means a link is *pending*,
+not absent. So `addNewEventToChain`, on a confirmed event from `currentUserId` whose
+`transaction_id` is unknown to `pendingEchoMap`, calls
+`LocalEchoCoordinator.supersedeOldestOutstanding()` — which flags the oldest still-live placeholder
+with `local_content.local_superseded` and hides it from `buildTimelineFromChain`. The entry stays in
+`eventChainMap`, so when `response` finally lands the existing guard below still evicts the *correct*
+placeholder by `transaction_id`. The hide is a render-time guess; the eviction stays authoritative.
+
+Oldest-first works because request ids are allocated monotonically. `markFailed` clears the flag, so
+if no response ever arrives (the confirmed event was another session's) the placeholder reappears
+and fails visibly rather than being silently swallowed. Both the hide and the eventual eviction emit
+`Androlog("LocalEcho", …)` — this race only reproduces in the field, so the evidence has to survive
+R8 stripping `Log.d`.
+
 ### Race condition — `response` arrives last (echo stranded forever)
 
 The `send` is always processed first (the placeholder is inserted synchronously). The reordering happens only among `response` / `send_complete` / `sync_complete`, because `response`+`send_complete` ride `SyncRepository.ackEvents` while `sync_complete` rides `syncCompleteChannel` — **two independent collectors with no mutual ordering**.
@@ -204,7 +245,7 @@ before the flush is awaited) rendered it at the oldest end. See
 
 | File | Role |
 |------|------|
-| `LocalEchoCoordinator.kt` | Send-time placeholders + `Sending→Sent→Confirmed/Failed` state machine, response/confirm watchdog timers; `onResponse` race guard evicts the echo when the confirmed event already arrived (response-processed-last) |
+| `LocalEchoCoordinator.kt` | Send-time placeholders + `Sending→Sent→Confirmed/Failed` state machine, response/confirm watchdog timers; `onResponse` race guard evicts the echo when the confirmed event already arrived (response-processed-last); `supersedeOldestOutstanding` hides a placeholder whose confirmed event beat its `response` |
 | `PersistenceCoordinator.kt` | Layer 1: drops timed-out `command_send_message` instead of re-sending (non-idempotent) |
 | `MessageSendCoordinator.kt` | Inserts the placeholder for every send variant (`textContent`/`insertMediaEcho` helpers); `buildMediaRelatesTo` builds reply/thread `relates_to` shared by sends and echoes |
 | `AppViewModel.kt` | `pendingEchoMap` declaration; `handleMessageResponse` / `handleOutgoingRequestResponse` (upgrade Sending→Sent, legacy echo fallback); `processSendCompleteEvent` (eviction/failure + watchdog cancel); `dismissPendingEcho` |

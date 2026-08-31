@@ -46,6 +46,14 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
     companion object {
         const val LOCAL_ECHO_PREFIX = "~local-"
 
+        /**
+         * `local_content` flag: this placeholder is hidden because a confirmed event that probably
+         * supersedes it arrived before we could link them. Render-time only — the entry stays in
+         * `eventChainMap` so `onResponse` can still evict it by `transaction_id`. Cleared if the
+         * placeholder ends up Failed, so a send that genuinely did not go out is never swallowed.
+         */
+        const val LOCAL_SUPERSEDED = "local_superseded"
+
         // The `response` (synchronous RPC ack) is fast even in E2EE rooms — encryption latency lives
         // in send_complete, not response — so this can be short.
         private const val RESPONSE_TIMEOUT_MS = 20_000L
@@ -142,12 +150,11 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
                 // settles in place rather than re-animating an entrance.
                 vm.markTimelineEntrancePlayed(confirmed.eventId)
                 vm.buildTimelineFromChain(expectedRoomId = bubble.roomId)
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Local echo $localId evicted on response — confirmed ${confirmed.eventId} already arrived for txId=$transactionId",
-                    )
-                }
+                Androlog(
+                    "LocalEcho",
+                    "echo $localId evicted on response — confirmed ${confirmed.eventId} " +
+                        "already present for txId=$transactionId",
+                )
                 return true
             }
         }
@@ -176,6 +183,63 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
         return true
     }
 
+    /**
+     * A confirmed event from our own user arrived carrying a `transaction_id` we cannot resolve,
+     * because its `response` has not been processed yet. Hide the oldest still-unresolved
+     * placeholder so the user does not see the same message twice.
+     *
+     * **Why a guess is safe here.** The four frames of a send form a *chain*, not a mesh:
+     *
+     * ```
+     *   request_id ──[response]── transaction_id ──[send_complete]── event_id
+     *        │                                   └─[sync_complete]─┘
+     *        └─ all the echo knows at send time
+     * ```
+     *
+     * `response` is a cut vertex — it is the only frame carrying both `request_id` and
+     * `transaction_id`, so until it lands there is provably *nothing* linking a confirmed event
+     * back to its placeholder. (`send_complete` cannot lose this race: it shares the ordered
+     * `ackEvents` flow with `response`. Only `sync_complete`, which rides its own channel, can.)
+     *
+     * But we do not need the link to avoid rendering two bubbles. [requestToLocalId] being
+     * non-empty means a link is *pending*, not absent. So we hide optimistically and let the real
+     * `transaction_id` reconciliation in [onResponse] delete the correct placeholder a moment
+     * later. The hide is a render-time guess; the eviction stays authoritative.
+     *
+     * Oldest-first because request ids are allocated monotonically, so the lowest outstanding id
+     * is the earliest unconfirmed send. Already-superseded and already-failed placeholders are
+     * skipped, so N confirmed events hide N distinct placeholders.
+     *
+     * Returns the local id that was hidden, or null if there was nothing to hide.
+     */
+    fun supersedeOldestOutstanding(): String? {
+        val requestId = requestToLocalId.keys.sorted().firstOrNull { isSupersedable(requestToLocalId[it]) }
+            ?: return null
+        val localId = requestToLocalId[requestId] ?: return null
+        val entry = vm.eventChainMap[localId] ?: return null
+        val bubble = entry.ourBubble ?: return null
+        val newLocalContent = (bubble.localContent?.let { JSONObject(it.toString()) } ?: JSONObject())
+            .put(LOCAL_SUPERSEDED, true)
+        vm.eventChainMap[localId] = entry.copy(
+            ourBubble = bubble.copy(localContent = newLocalContent),
+        )
+        // Release-visible: this race is intermittent and only reproduces in the field, so the
+        // evidence has to survive R8 stripping Log.d.
+        Androlog(
+            "LocalEcho",
+            "echo $localId hidden — confirmed event arrived before its response " +
+                "(reqId=$requestId, ${requestToLocalId.size} send(s) in flight)",
+        )
+        return localId
+    }
+
+    /** A placeholder can be hidden only if it is still live: present, not already hidden, not failed. */
+    private fun isSupersedable(localId: String?): Boolean {
+        val bubble = localId?.let { vm.eventChainMap[it]?.ourBubble } ?: return false
+        val lc = bubble.localContent ?: return true
+        return !lc.optBoolean(LOCAL_SUPERSEDED) && lc.optString("send_error").isBlank()
+    }
+
     /** Stop watching a placeholder once it's resolved elsewhere (confirmed / evicted / failed). */
     fun cancel(localId: String?) {
         if (localId == null) return
@@ -193,8 +257,12 @@ internal class LocalEchoCoordinator(private val vm: AppViewModel) {
     private fun markFailed(localId: String, reason: String, roomId: String) {
         val entry = vm.eventChainMap[localId] ?: return
         val bubble = entry.ourBubble ?: return
+        // Un-hide on the way to Failed. If a placeholder was superseded but no response ever
+        // arrived, the confirmed event that triggered the hide was not ours (another session, most
+        // likely) — this send really did fail and the user must see it.
         val newLocalContent = (bubble.localContent?.let { JSONObject(it.toString()) } ?: JSONObject())
             .put("send_error", reason)
+        newLocalContent.remove(LOCAL_SUPERSEDED)
         vm.eventChainMap[localId] = entry.copy(ourBubble = bubble.copy(localContent = newLocalContent))
         vm.buildTimelineFromChain(expectedRoomId = roomId)
         watchdogJobs.remove(localId)

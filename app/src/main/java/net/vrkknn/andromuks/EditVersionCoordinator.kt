@@ -623,6 +623,18 @@ internal class EditVersionCoordinator(private val vm: AppViewModel) {
                 vm.eventChainMap.remove(pendingId)
                 vm.localEchoCoordinator.cancel(pendingId) // confirmed via sync_complete: stop watchdog
                 vm.markTimelineEntrancePlayed(event.eventId)
+            } else if (event.sender == vm.currentUserId && vm.eventChainMap[event.eventId] == null) {
+                // Our own confirmed event, but its transaction_id is unknown to pendingEchoMap —
+                // the `response` that would register it has not been processed yet. Until it is,
+                // nothing links this event to its placeholder, so both would render. Hide the
+                // oldest unresolved placeholder; onResponse evicts the right one for real when it
+                // lands. See LocalEchoCoordinator.supersedeOldestOutstanding.
+                //
+                // Only reachable for genuinely new events: every caller here is the sync_complete
+                // ingest or a send ack, never paginate or a cache rebuild (those go through
+                // mergePaginatedEvents / buildEditChainsFromEvents), and the eventChainMap check
+                // skips re-delivery of an event we already hold.
+                vm.localEchoCoordinator.supersedeOldestOutstanding()
             }
         }
 
