@@ -1931,11 +1931,6 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             // This prevents visual jumping while still showing real-time updates
             val allRoomsUnsorted = roomMap.values.toList()
 
-            // BATTERY OPTIMIZATION: Update low priority rooms set only when changed (saves SharedPreferences writes)
-            // This function now caches the last hash and only writes when low priority status actually changes
-            // Without this optimization, we'd write to SharedPreferences on every sync even if nothing changed
-            updateLowPriorityRooms(allRoomsUnsorted)
-
             // Diff-based update: Only update UI if room state actually changed
             // BATTERY OPTIMIZATION: generateRoomStateHash is lightweight (O(n) string operations) but necessary for change detection
             // It allows us to skip expensive UI updates when room state hasn't changed

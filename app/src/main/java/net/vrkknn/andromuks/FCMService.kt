@@ -402,19 +402,6 @@ class FCMService : FirebaseMessagingService() {
 
         val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap) ?: return
 
-        // Check if room is marked as low priority - skip notifications for low priority rooms
-        val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-        val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
-
-        if (lowPriorityRooms.contains(notificationData.roomId)) {
-            if (BuildConfig.DEBUG) {
-                Log.d(
-                    TAG,
-                    "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})",
-                )
-            }
-            return
-        }
         if (shouldSuppressNotification(notificationData.roomId)) {
             if (BuildConfig.DEBUG) {
                 Log.d(
@@ -585,20 +572,6 @@ class FCMService : FirebaseMessagingService() {
                     image = imageUrl,
                     imageAuthToken = batchImageAuth,
                 )
-
-                // Check if room is marked as low priority - skip notifications for low priority rooms
-                val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
-
-                if (lowPriorityRooms.contains(roomId)) {
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            TAG,
-                            "Skipping notification for low priority room: $roomId ($roomName)",
-                        )
-                    }
-                    continue
-                }
 
                 // Check if notification should be suppressed (room is open and app is foreground)
                 if (shouldSuppressNotification(roomId)) {

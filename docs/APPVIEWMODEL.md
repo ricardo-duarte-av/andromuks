@@ -377,7 +377,6 @@ These are pre-computed at batch boundaries to keep O(1) reads from the UI.
 | `markPushRegistrationCompleted()` | Records that push registration succeeded and resets the backoff. |
 | `handleFCMRegistrationResponse(requestId, data)` | Handles the backend's acknowledgment of FCM registration. |
 | `requestPinShortcut(room)` | Requests Android to create a home-screen shortcut for a room. |
-| `updateLowPriorityRooms(rooms)` | Updates the low-priority room set used for notification filtering. |
 | `checkAndProcessPendingItemsOnStartup(context)` | Processes notification actions queued while the app was killed. |
 | `executePendingNotificationActions()` | Fires any queued notification actions (e.g., navigate to room). |
 

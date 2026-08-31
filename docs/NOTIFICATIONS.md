@@ -32,9 +32,31 @@ If notifications for a room are only arriving when the screen is turned on, chec
 - Decrypts the encrypted `payload` field using the stored push encryption key (`web_client_prefs / push_encryption_key`, base64-encoded AES key).
 - Routes decrypted JSON to `handleDismissNotification` **and/or** `handleMessageNotification` — see [Payload routing](#payload-routing--messages-and-dismiss-are-not-alternatives) below.
 - Suppresses notifications for the currently open room when the app is in the foreground (`shouldSuppressNotification`).
-- Skips notifications for rooms in `low_priority_rooms` (SharedPreferences set).
 - Verifies `self.id` against `current_user_id` to discard notifications for other accounts.
 - Uses `pendingNotifications` (synchronized set) to handle the race condition where a dismiss arrives before the notification is posted.
+
+### Low priority is not a mute
+
+`m.lowpriority` is a **sorting** tag. It used to also silence a room: `FCMService` and
+`EnhancedNotificationDisplay` each checked a `low_priority_rooms` SharedPreferences set (mirrored
+from the tag by `AppViewModel.updateLowPriorityRooms`) and dropped the notification. That is gone,
+along with the pref and its writer.
+
+Two reasons it was wrong:
+
+1. **It surprised users.** No other Matrix client treats the tag as a mute, and the app offered no
+   separate mute in the room list — so deprioritising a room silently stopped its notifications with
+   nothing in the UI saying so.
+2. **It burned FCM quota for nothing.** The tag is client-side; the gomuks backend knows nothing
+   about it and push rule conditions cannot express "room has tag X", so the server kept sending
+   **high-priority** pushes that the client threw away. High-priority delivery is metered per app
+   standby bucket, so every discarded push spent allowance that later notifications needed. See
+   GH #31.
+
+Muting is now explicit: a `room` push rule with empty actions (gomuks' `MuteRoom` shape), reachable
+from the room list long-press menu and from Room Info → Push Rules. Because it is a real push rule,
+the server stops generating the notification — **no push is sent at all**, which is the only thing
+that actually protects the quota. See [PUSH_RULES.md](PUSH_RULES.md).
 
 ### Image auth token
 
@@ -351,7 +373,7 @@ notification *channel* name and the shortcut label, and the channel name outlive
 that created it, so a raw `!abc:server.tld` sticks around. No call is made when the push already
 carried a name, which is the common case.
 
-Enrichment runs **after** the low-priority and visible-room suppression guards, so a notification
+Enrichment runs **after** the visible-room suppression guard, so a notification
 that will not be posted costs nothing, and is bounded by an `ExecBudget`
 (`ExecBudget.forNotification()`: 2 calls, 4 s) created once per notification and threaded through
 every step. Best-effort throughout: any failure yields the un-enriched notification.
@@ -474,7 +496,7 @@ Reading the trail: the **last** `FCMOpen` line before the user notices the list 
 
 Each room notification creates or updates a `ShortcutInfoCompat` (via `ConversationsApi`) so Android associates the notification with a conversation shortcut. This is required for `MessagingStyle` and bubble support.
 
-`ConversationsApi.onRoomActivity(roomItem)` is called inside the `synchronized` block in `showEnhancedNotification`, **after** `notificationManager.notify()`. This ensures only notifications that are actually posted push the room to the top of the Direct Share ranking — silent/suppressed notifications (low-priority rooms, same-room-app-visible suppression, bubble-already-visible silent updates) exit via early `return` before reaching the synchronized block and do not affect the ranking.
+`ConversationsApi.onRoomActivity(roomItem)` is called inside the `synchronized` block in `showEnhancedNotification`, **after** `notificationManager.notify()`. This ensures only notifications that are actually posted push the room to the top of the Direct Share ranking — silent/suppressed notifications (same-room-app-visible suppression, bubble-already-visible silent updates) exit via early `return` before reaching the synchronized block and do not affect the ranking.
 
 ## People / Conversation widget tile updates
 

@@ -553,23 +553,17 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // instead of each imposing its own delay.
             val enrichmentBudget = ExecBudget.forNotification()
 
-            // The suppression guards below run against the raw push (incomingData); enrichment is
-            // deliberately deferred past them so a notification that will never be posted costs no
+            // The suppression guard below runs against the raw push (incomingData); enrichment is
+            // deliberately deferred past it so a notification that will never be posted costs no
             // HTTP calls. Everything after that point uses the enriched `notificationData`.
+            //
+            // There is deliberately no low-priority guard here any more: m.lowpriority is a
+            // *sorting* tag, not a mute. Silencing it client-side both surprised users and burned
+            // a high-priority FCM delivery for a push that was then thrown away. Muting a room is
+            // now an explicit action that writes a `room` push rule with empty actions, so the
+            // server stops generating the notification at source. See docs/PUSH_RULES.md.
 
-            // Check if room is marked as low priority - skip notifications for low priority rooms
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
-
-            if (lowPriorityRooms.contains(incomingData.roomId)) {
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "Skipping notification for low priority room (EnhancedNotificationDisplay): ${incomingData.roomId} (${incomingData.roomName})",
-                    )
-                }
-                return
-            }
 
             // Check if this room is currently open in the app - skip notifications if user is viewing the room.
             // Read from the in-memory mirror (atomic) instead of SharedPreferences directly; see
@@ -594,7 +588,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 return
             }
 
-            // Past the suppression guards, so this notification will actually be posted and
+            // Past the suppression guard, so this notification will actually be posted and
             // enrichment is worth paying for. Room name first: it feeds the conversation title, the
             // channel name and the shortcut label, all of which are decided further down.
             val notificationData = enrichRoomName(incomingData, enrichmentBudget)

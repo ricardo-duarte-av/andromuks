@@ -2131,42 +2131,6 @@ class AppViewModel : ViewModel() {
         isLoading = true
     }
 
-    /**
-     * Updates the set of low priority room IDs in SharedPreferences.
-     * This is used by FCMService to filter out notifications for low priority rooms.
-     */
-    // BATTERY OPTIMIZATION: Cache last low priority rooms hash to avoid unnecessary SharedPreferences writes
-    private var lastLowPriorityRoomIds: Set<String>? = null
-
-    /**
-     * Update low priority rooms set for notification filtering.
-     * BATTERY OPTIMIZATION: Only writes to SharedPreferences when the set actually changes.
-     * This avoids expensive SharedPreferences writes on every sync when low priority status hasn't changed.
-     */
-    internal fun updateLowPriorityRooms(rooms: List<RoomItem>) {
-        val lowPriorityRoomIds = rooms.filter { it.isLowPriority }.map { it.id }.toSet()
-
-        // BATTERY OPTIMIZATION: Only update SharedPreferences if low priority rooms actually
-        // changed. Compare the sets directly — Set equality is an O(n) hash comparison. The old
-        // path did sorted().joinToString(","), i.e. an O(n log n) sort plus a multi-KB String
-        // build per sync, to answer the same question.
-        if (lowPriorityRoomIds == lastLowPriorityRoomIds) {
-            // No change - skip expensive SharedPreferences write
-            return
-        }
-
-        lastLowPriorityRoomIds = lowPriorityRoomIds
-
-        appContext?.let { context ->
-            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            sharedPrefs.edit()
-                .putStringSet("low_priority_rooms", lowPriorityRoomIds)
-                .apply()
-
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated low priority rooms set: ${lowPriorityRoomIds.size} rooms (changed)")
-        }
-    }
-
     fun updateHomeserverUrl(url: String) {
         homeserverUrl = url
     }
