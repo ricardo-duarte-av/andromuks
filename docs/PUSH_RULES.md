@@ -80,6 +80,26 @@ Each `PushRuleCard` also shows:
 Add-rule dialog adapts fields per kind (content→pattern, sender→user id, room→room id,
 override/underride→conditions JSON) + an action preset.
 
+### Room list long-press — Mute switch
+
+`RoomListScreen`'s room context menu carries a **Mute** switch beside Favourite and Low Priority. It
+reads `PushRuleset.roomNotificationLevel(roomId)` and writes through
+`AppViewModel.setRoomNotificationLevel` — the same path as the dialog below, so the in-memory
+`pushRuleset` updates optimistically and every surface agrees immediately. (The dedicated
+`mute_room` command produces an identical rule but would leave `pushRuleset` stale until the next
+sync, so it is deliberately not used.)
+
+Unmuting restores **DEFAULT**, not ALL: a room explicitly set to "All messages" falls back to
+account defaults if toggled off here. The three-way control is the dialog below.
+
+Mute is *not* on `RoomItem` (it lives in the ruleset, unlike the `m.tag`-backed favourite and
+low-priority flags), so the row derives it from `appViewModel.pushRuleset` inside a `remember`.
+
+**Mute vs low priority.** They are different things and now look different: mute owns the
+crossed-bell (`Icons.Filled.NotificationsOff`), low priority owns `Icons.Filled.LowPriority`. Low
+priority is purely a sort order and no longer suppresses notifications — see
+[NOTIFICATIONS.md](NOTIFICATIONS.md#low-priority-is-not-a-mute).
+
 ### Per-room editor — `RoomPushRulesDialog` in `utils/RoomInfo.kt`
 
 Reached from the **Push Rules** button in the Members / Media Gallery row. Shows:

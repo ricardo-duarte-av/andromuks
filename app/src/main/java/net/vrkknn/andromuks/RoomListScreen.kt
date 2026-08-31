@@ -75,6 +75,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LowPriority
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
@@ -164,7 +165,9 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
+import net.vrkknn.andromuks.utils.RoomNotificationLevel
 import net.vrkknn.andromuks.utils.navigateToUserInfo
+import net.vrkknn.andromuks.utils.roomNotificationLevel
 import kotlin.math.roundToInt
 
 private const val ROOM_LIST_VERBOSE_LOGGING = false
@@ -1961,6 +1964,15 @@ fun RoomListItem(
     var menuIsFavourite by remember(room.isFavourite) { mutableStateOf(room.isFavourite) }
     var menuIsLowPriority by remember(room.isLowPriority) { mutableStateOf(room.isLowPriority) }
 
+    // Mute lives in the push ruleset, not in m.tag, so unlike favourite/low-priority it is not
+    // carried on RoomItem. pushRuleset is Compose state on AppViewModel; it only changes when the
+    // user edits a rule or a sync delivers m.push_rules (rare), so subscribing rows to it is cheap
+    // — but keep the per-row derivation inside remember so recomposition does no real work.
+    val pushRuleset = appViewModel.pushRuleset
+    val isMuted = remember(pushRuleset, room.id) {
+        pushRuleset.roomNotificationLevel(room.id) == RoomNotificationLevel.MUTE
+    }
+
     // PERFORMANCE: Remember computed timestamp to avoid recalculation unless it actually changes
     // The timestampUpdateTrigger now updates at smart intervals (1s for recent, 1m for older, etc.)
     // This prevents expensive recompositions every second for all rooms
@@ -2209,11 +2221,22 @@ fun RoomListItem(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            // Silenced icon placed to the left of the unread badge when room is low priority
-                            if (room.isLowPriority) {
+                            // Muted rooms get the crossed-bell. This is the ONLY thing that
+                            // silences a room now — low priority is a sort order, not a mute, and
+                            // used to wrongly own this icon.
+                            if (isMuted) {
                                 Icon(
                                     imageVector = Icons.Filled.NotificationsOff,
-                                    contentDescription = "Low Priority - Notifications Disabled",
+                                    contentDescription = "Muted",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+
+                            if (room.isLowPriority) {
+                                Icon(
+                                    imageVector = Icons.Filled.LowPriority,
+                                    contentDescription = "Low Priority",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier.size(16.dp),
                                 )
@@ -2549,7 +2572,7 @@ fun RoomListItem(
                                             modifier = Modifier.weight(1f),
                                         ) {
                                             Icon(
-                                                imageVector = Icons.Filled.NotificationsOff,
+                                                imageVector = Icons.Filled.LowPriority,
                                                 contentDescription = "Low Priority",
                                                 tint = MaterialTheme.colorScheme.primary,
                                                 modifier = Modifier.size(24.dp),
@@ -2571,6 +2594,59 @@ fun RoomListItem(
                                                     "m.lowpriority",
                                                     enabled,
                                                     triggerSort = false,
+                                                )
+                                            },
+                                        )
+                                    }
+                                }
+
+                                // Mute switch. Distinct from Low Priority: this writes a `room`
+                                // push rule with empty actions (gomuks' MuteRoom shape), so the
+                                // server stops generating notifications for the room entirely.
+                                // Unmute restores DEFAULT (deletes the room rule) rather than ALL —
+                                // a room explicitly set to "All messages" in Room Info → Push Rules
+                                // therefore falls back to account defaults if toggled here. The
+                                // three-way control lives in that dialog; this is the common case.
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.weight(1f),
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.NotificationsOff,
+                                                contentDescription = "Mute",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(24.dp),
+                                            )
+                                            Spacer(modifier = Modifier.width(16.dp))
+                                            Text(
+                                                text = "Mute",
+                                                style = MaterialTheme.typography.bodyLarge,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                            )
+                                        }
+                                        Switch(
+                                            checked = isMuted,
+                                            onCheckedChange = { enabled ->
+                                                appViewModel.setRoomNotificationLevel(
+                                                    room.id,
+                                                    if (enabled) {
+                                                        RoomNotificationLevel.MUTE
+                                                    } else {
+                                                        RoomNotificationLevel.DEFAULT
+                                                    },
                                                 )
                                             },
                                         )
