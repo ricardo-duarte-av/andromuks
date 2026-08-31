@@ -226,6 +226,42 @@ data class TimelineEvent(
     }
 }
 
+/**
+ * Canonical timeline ordering, shared by every site that sorts or bisects a timeline list.
+ *
+ * `timelineRowid` is not a plain sort key — it has three regimes:
+ *
+ * | value | meaning | position |
+ * |-------|---------|----------|
+ * | `< 0` | Chronicled backfill (lower = older) | oldest, natural order |
+ * | `> 0` | server-assigned order | natural order |
+ * | `= 0` | not yet persisted to the DB | **newest** |
+ *
+ * The `0` case is the subtle one and is why this comparator exists. It covers both a pending
+ * `~` echo *and* a confirmed `$` event whose `sync_complete` has not been applied yet —
+ * `send_complete` always delivers the confirmed event with `timeline_rowid: 0` and only the
+ * follow-up `sync_complete` upgrades it (see [EditVersionCoordinator.addNewEventToChain] and
+ * docs/MESSAGE_SENDING.md). Sorting those on the raw `0` put them *below every positive rowid*,
+ * i.e. at the oldest end, which under `reverseLayout = true` is off the top of the screen.
+ *
+ * That is GH #32: send a message, sleep the device, unlock, and the message appears to vanish.
+ * Backgrounding makes `SyncBatchProcessor` queue rather than apply `sync_complete`, so the rowid
+ * stays `0` for the whole sleep, and the refresh that fires on unlock renders it in the wrong
+ * place. Substituting [Long.MAX_VALUE] for `0` pins those events to the newest end instead.
+ *
+ * Note this special-cases `0` only, **not** `<= 0`: negative rowids are real backfill positions
+ * and must keep sorting oldest-first.
+ *
+ * Among rowid-`0` entries, `~` echoes stay visually last, then timestamp, then event ID as a
+ * deterministic tiebreak.
+ */
+val timelineEventOrder: Comparator<TimelineEvent> = compareBy(
+    { if (it.timelineRowid == 0L) Long.MAX_VALUE else it.timelineRowid },
+    { it.eventId.startsWith("~") },
+    { it.timestamp },
+    { it.eventId },
+)
+
 @Immutable
 data class UserReaction(val userId: String, val timestamp: Long)
 

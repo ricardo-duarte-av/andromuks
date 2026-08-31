@@ -1369,12 +1369,6 @@ fun BubbleTimelineScreen(
             // Receipt flattening — mirrors RoomTimelineScreen. Non-rendered events (reactions,
             // redactions, edits, bridge status, hidden membership) collapse their read receipts
             // onto the nearest rendered event so the avatar never lands on an unrenderable row.
-            val timelineOrder = compareBy<TimelineEvent>(
-                { it.eventId.startsWith("~") },
-                { it.timelineRowid },
-                { it.timestamp },
-                { it.eventId },
-            )
             // Reactions are spliced back in: they are never in timelineEvents (see
             // docs/REACTIONS.md), so walking it alone never visited a reaction's event ID and the
             // reactor's receipt was dropped. Only reactions with a resolved timeline position can be
@@ -1386,9 +1380,9 @@ fun BubbleTimelineScreen(
                 val positionedReactions = RoomTimelineCache.getCachedReactionEvents(roomId)
                     .filter { it.timelineRowid > 0L }
                 val walkOrder = if (positionedReactions.isEmpty()) {
-                    timelineEvents.sortedWith(timelineOrder)
+                    timelineEvents.sortedWith(timelineEventOrder)
                 } else {
-                    (timelineEvents + positionedReactions).sortedWith(timelineOrder)
+                    (timelineEvents + positionedReactions).sortedWith(timelineEventOrder)
                 }
                 var anchor: String? = null
                 for (e in walkOrder) {
@@ -1414,7 +1408,7 @@ fun BubbleTimelineScreen(
             // re-open it.
             if (!readMarkerDecision.decided && sortedEvents.isNotEmpty() && fullyReadEvent != null) {
                 readMarkerDecision.anchorEventId = sortedEvents
-                    .firstOrNull { timelineOrder.compare(it, fullyReadEvent) > 0 }
+                    .firstOrNull { timelineEventOrder.compare(it, fullyReadEvent) > 0 }
                     ?.eventId
                 readMarkerDecision.decided = true
             }

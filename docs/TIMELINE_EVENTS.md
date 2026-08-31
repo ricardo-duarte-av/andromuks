@@ -40,21 +40,44 @@ In `sync_complete`, many events arrive with `timeline_rowid: 0`. The room data i
 
 ## Sort Order
 
-Timeline events are sorted by `timelineRowid` when it is positive (server-defined order); when `timelineRowid` is 0 or -1 (unresolved), events fall back to `timestamp` ordering. Applied in both `RoomTimelineScreen.kt` and `BubbleTimelineScreen.kt`:
+One comparator, `timelineEventOrder` in `TimelineEvent.kt`, is the canonical ordering. Every site
+that sorts or bisects a timeline list uses it — `processTimelineEvents` (which `BubbleTimelineScreen`
+also calls), the read-marker placement in `RoomTimelineScreen.kt`, and the receipt flattening in
+`BubbleTimelineScreen.kt`. It previously existed as three hand-copied comparators that drifted.
 
 ```kotlin
-Comparator { a, b ->
-    if (a.timelineRowid > 0L && b.timelineRowid > 0L) {
-        val cmp = a.timelineRowid.compareTo(b.timelineRowid)
-        if (cmp != 0) return@Comparator cmp
-    }
-    compareValuesBy(a, b, { it.timestamp }, { it.eventId })
-}
+val timelineEventOrder: Comparator<TimelineEvent> = compareBy(
+    { if (it.timelineRowid == 0L) Long.MAX_VALUE else it.timelineRowid },
+    { it.eventId.startsWith("~") },
+    { it.timestamp },
+    { it.eventId },
+)
 ```
 
-Pending echoes (`~`-prefixed `eventId`) have `timelineRowid = 0` and are therefore sorted by timestamp until `sync_complete` delivers their confirmed event with a real rowid — no special-casing needed.
+`timelineRowid` has three regimes, and conflating them is what caused GH #32:
 
-Note: `EventContextScreen.kt` uses a simpler `compareBy({ it.timelineRowid }, ...)` sort — no pending echoes expected there.
+| value | meaning | position |
+|-------|---------|----------|
+| `< 0` | Chronicled backfill (lower = older) | oldest, natural order |
+| `> 0` | server-assigned order | natural order |
+| `= 0` | not yet persisted to the DB | **newest** |
+
+**The `0` case must be special-cased, and only `0`.** It covers a pending `~` echo *and* a confirmed
+`$` event whose `sync_complete` has not been applied yet — `send_complete` always delivers rowid 0
+(see [MESSAGE_SENDING.md](MESSAGE_SENDING.md)). Sorting those on the raw `0` put them below every
+positive rowid, i.e. at the oldest end, which under `reverseLayout = true` is off the top of the
+screen. That is GH #32: send a message, sleep the device, unlock, and it appears to vanish — the
+sleep is what makes the window observable, because backgrounding makes `SyncBatchProcessor` queue
+rather than apply the `sync_complete` that would upgrade the rowid.
+
+An earlier version of this doc (and of `MESSAGE_SENDING.md`) prescribed substituting on
+`rowid <= 0`. That is **wrong** now that Chronicled backfill uses negative rowids as real
+oldest-first positions — it would fling backfilled history to the newest end.
+
+`TimelineEventOrderTest` pins all of this.
+
+Note: `EventContextScreen.kt` uses a simpler `compareBy({ it.timelineRowid }, ...)` sort — no
+pending echoes or backfill expected there.
 
 ## Pending Local Echoes
 

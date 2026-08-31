@@ -507,16 +507,9 @@ suspend fun processTimelineEvents(
         )
     }
 
-    // Sort by timeline_rowid (server order) while ensuring pending echoes (~ prefixed IDs)
-    // sort last. Chronicled backfilled events (negative rowid, lower=older) sort first.
-    val sorted = eventsWithoutEdits.sortedWith(
-        compareBy(
-            { it.eventId.startsWith("~") },
-            { it.timelineRowid },
-            { it.timestamp },
-            { it.eventId },
-        ),
-    )
+    // Canonical ordering lives in timelineEventOrder (TimelineEvent.kt): server order by
+    // timeline_rowid, backfill (negative) first, not-yet-persisted (rowid 0) last.
+    val sorted = eventsWithoutEdits.sortedWith(timelineEventOrder)
     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Final sorted events: ${sorted.size} events")
 
     sorted
@@ -1906,13 +1899,8 @@ fun RoomTimelineScreen(
             // absent from sortedEvents. We then drop the divider in just before the first rendered
             // event that sorts after it — i.e. exactly where the hidden event would have sat. If the
             // marker event isn't loaded at all (deep in the past) it stays null and no divider shows
-            // until pagination brings it in. The comparator mirrors processTimelineEvents' ordering.
-            val timelineOrder = compareBy<TimelineEvent>(
-                { it.eventId.startsWith("~") },
-                { it.timelineRowid },
-                { it.timestamp },
-                { it.eventId },
-            )
+            // until pagination brings it in. Ordering is timelineEventOrder — the same comparator
+            // processTimelineEvents sorts with, so the divider can never land out of step with it.
             val fullyReadEvent = fullyReadMarkerEventId?.let { id ->
                 timelineEvents.firstOrNull { it.eventId == id }
             }
@@ -1922,7 +1910,7 @@ fun RoomTimelineScreen(
             // events arriving after entry never re-open the decision.
             if (!readMarkerDecision.decided && sortedEvents.isNotEmpty() && fullyReadEvent != null) {
                 readMarkerDecision.anchorEventId = sortedEvents
-                    .firstOrNull { timelineOrder.compare(it, fullyReadEvent) > 0 }
+                    .firstOrNull { timelineEventOrder.compare(it, fullyReadEvent) > 0 }
                     ?.eventId
                 readMarkerDecision.decided = true
             }
@@ -1953,9 +1941,9 @@ fun RoomTimelineScreen(
                 val positionedReactions = RoomTimelineCache.getCachedReactionEvents(roomId)
                     .filter { it.timelineRowid > 0L }
                 val walkOrder = if (positionedReactions.isEmpty()) {
-                    timelineEvents.sortedWith(timelineOrder)
+                    timelineEvents.sortedWith(timelineEventOrder)
                 } else {
-                    (timelineEvents + positionedReactions).sortedWith(timelineOrder)
+                    (timelineEvents + positionedReactions).sortedWith(timelineEventOrder)
                 }
                 var anchor: String? = null
                 for (e in walkOrder) {

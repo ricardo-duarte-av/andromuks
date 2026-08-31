@@ -165,19 +165,33 @@ Color priority (order matters — a failed echo also starts with `~`):
 
 ## Sort Position of Pending Echoes
 
-Pending echoes have `timelineRowid = 0` (not yet persisted to DB). Since the timeline sorts by `timelineRowid` ascending, a zero value would sort to the "oldest" position — pushed off screen with `reverseLayout = true`.
+Pending echoes have `timelineRowid = 0` (not yet persisted to DB) — and so does a **confirmed**
+event between `send_complete` and its `sync_complete`, because `send_complete` always delivers
+rowid 0. Since the timeline sorts by `timelineRowid` ascending, a raw zero sorts to the "oldest"
+position — pushed off screen with `reverseLayout = true`.
 
-Fix: substitute `Long.MAX_VALUE` when `timelineRowid <= 0`, placing pending echoes at the newest end:
+Both cases are handled by the single shared comparator `timelineEventOrder` (`TimelineEvent.kt`),
+which substitutes `Long.MAX_VALUE` for rowid `0` so those events pin to the newest end:
 
 ```kotlin
-val sorted = eventsWithoutEdits.sortedWith(compareBy(
-    { if (it.timelineRowid > 0L) it.timelineRowid else Long.MAX_VALUE },
+val timelineEventOrder: Comparator<TimelineEvent> = compareBy(
+    { if (it.timelineRowid == 0L) Long.MAX_VALUE else it.timelineRowid },
+    { it.eventId.startsWith("~") },
     { it.timestamp },
-    { it.eventId }
-))
+    { it.eventId },
+)
 ```
 
-Applied in both `RoomTimelineScreen.kt` (`processTimelineEvents`) and `BubbleTimelineScreen.kt` (`bubbleProcessTimelineEvents`).
+**Substitute on `== 0`, never `<= 0`.** Negative rowids are Chronicled backfill positions that must
+keep sorting oldest-first; the `<= 0` form this doc used to prescribe would fling backfilled history
+to the bottom of the timeline.
+
+Treating the confirmed-but-rowid-0 case as if only `~` echoes needed handling was GH #32: a just-sent
+message vanished after the device slept. Backgrounding makes `SyncBatchProcessor` **queue** rather
+than apply `sync_complete`, so the rowid stays 0 for the whole sleep, and the refresh that fires on
+unlock (`ViewModelLifecycleCoordinator.kt`, the synchronous `timelineRefreshTrigger++` that runs
+before the flush is awaited) rendered it at the oldest end. See
+[TIMELINE_EVENTS.md](TIMELINE_EVENTS.md#sort-order); `TimelineEventOrderTest` covers it.
 
 ## User Actions on Pending/Failed Echoes
 
@@ -198,5 +212,6 @@ Applied in both `RoomTimelineScreen.kt` (`processTimelineEvents`) and `BubbleTim
 | `utils/NetworkUtils.kt` | Calls `processSendCompleteEvent(event, error)` — passes outer `error` field from `send_complete` |
 | `utils/ReplyFunctions.kt` | Derives `isPendingEcho`, `isFailedEcho`; applies bubble colors; disables actions; wires `effectiveOnDelete` |
 | `utils/MessageMenuBar.kt` | "Send Error" dropdown item + `AlertDialog` |
-| `RoomTimelineScreen.kt` | Sort fix for `timelineRowid = 0`; `stableKey` uses `eventId` (not `transactionId`) to prevent duplicate LazyColumn keys |
-| `BubbleTimelineScreen.kt` | Sort fix for `timelineRowid = 0`; `stableKey` uses `eventId` (not `transactionId`) to prevent duplicate LazyColumn keys |
+| `TimelineEvent.kt` | `timelineEventOrder` — the single canonical comparator; substitutes `Long.MAX_VALUE` for rowid `0` |
+| `RoomTimelineScreen.kt` | Sorts via `timelineEventOrder`; `stableKey` uses `eventId` (not `transactionId`) to prevent duplicate LazyColumn keys |
+| `BubbleTimelineScreen.kt` | Sorts via `timelineEventOrder`; `stableKey` uses `eventId` (not `transactionId`) to prevent duplicate LazyColumn keys |
