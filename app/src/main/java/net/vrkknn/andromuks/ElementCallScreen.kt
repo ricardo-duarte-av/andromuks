@@ -59,6 +59,7 @@ internal fun buildElementCallUrl(
             .appendQueryParameter("deviceId", deviceId)
             .appendQueryParameter("perParticipantE2EE", perParticipantE2EE.toString())
             .appendQueryParameter("baseUrl", homeserverUrl)
+            .appendQueryParameter("returnToLobby", "false")
             .build()
             .toString()
     }
@@ -76,6 +77,7 @@ internal fun buildElementCallUrl(
         .appendQueryParameter("intent", "join_existing")
         .appendQueryParameter("hideHeader", "true")
         .appendQueryParameter("confineToRoom", "true")
+        .appendQueryParameter("returnToLobby", "false")
         .appendQueryParameter("appPrompt", "false")
         .appendQueryParameter("lang", "en")
         .appendQueryParameter("fontScale", "1")
@@ -141,6 +143,13 @@ internal class ElementCallJsBridge(
     private val syntheticDelayIds = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val screenOpenTimestamp = System.currentTimeMillis()
 
+    /** True when [stateKey] is this device's own `org.matrix.msc3401.call.member` state key. */
+    private fun isOwnMembershipStateKey(stateKey: String?, deviceId: String): Boolean {
+        if (stateKey.isNullOrBlank() || deviceId.isBlank()) return false
+        val parts = extractMembershipParts(stateKey) ?: return false
+        return parts.first == appViewModel.currentUserId && parts.second == deviceId
+    }
+
     @JavascriptInterface
     fun postMessage(message: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ElementCallJsBridge: received $message")
@@ -184,7 +193,18 @@ internal class ElementCallJsBridge(
                 if (content.length() > 0 && !content.has("membershipID") && deviceId.isNotBlank()) {
                     content.put("membershipID", "${appViewModel.currentUserId}:$deviceId")
                 }
-                if (content.length() > 0) appViewModel.setCallReadyForPip(true)
+                if (content.length() > 0) {
+                    appViewModel.setCallReadyForPip(true)
+                } else if (isOwnMembershipStateKey(requestData.optString("state_key"), deviceId) &&
+                    !requestData.has("delay_ms") && !requestData.has("delay")
+                ) {
+                    // Element Call clears its own call.member state only when it actually leaves.
+                    // A delayed variant is the scheduled "leave" fallback registered at join time,
+                    // so it must not be mistaken for a hangup.
+                    android.util.Log.i("Andromuks", "ElementCallJsBridge: own membership cleared, ending call")
+                    appViewModel.setCallReadyForPip(false)
+                    webView.post { onCallEnded() }
+                }
             }
         }
 
@@ -204,7 +224,9 @@ internal class ElementCallJsBridge(
 
         if (normalizedAction.contains(
                 "hangup",
-            ) || normalizedAction.contains("leave_call") || normalizedAction.contains("call_ended")
+            ) || normalizedAction.contains("leave_call") || normalizedAction.contains(
+                "call_ended",
+            ) || normalizedAction.contains("close")
         ) {
             appViewModel.setCallReadyForPip(false)
             webView.post { onCallEnded() }

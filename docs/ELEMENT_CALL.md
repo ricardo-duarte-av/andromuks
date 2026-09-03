@@ -43,7 +43,30 @@ Pressing **Back** while in a call sets `callMiniPipActive = true`. `CallOverlay`
 The call button in `RoomHeader` detects `callActiveInternal && callActiveRoomId == roomId` and calls `setCallMiniPip(false, "")` to bring the overlay back to the foreground.
 
 ### Ending a call
-Element Call's JS bridge fires `onCallEnded` when the user hangs up inside the WebView. `CallsWidgetsCoordinator.endCall()` clears all call state including `callPersistentWebView`.
+`CallsWidgetsCoordinator.endCall()` clears all call state including `callPersistentWebView`, which
+drops `CallOverlay` out of the composition; its `AndroidView.onRelease` then blanks and `destroy()`s
+the WebView so WebRTC releases the mic/camera.
+
+Getting `onCallEnded` to fire reliably needs **three** independent signals, because Element Call's
+own leave path varies by version and URL params:
+
+1. **`im.vector.hangup` / `io.element.close`** — the widget actions EC sends on leave. The host page
+   forwards anything matching `hangup` / `leave` / `call_ended` / `close` to the bridge, synthesising
+   a `requestId` when EC omits one (the bridge drops messages without one). The call URL sets
+   `returnToLobby=false` so EC actually emits `io.element.close` instead of parking on its lobby
+   screen.
+2. **Own `call.member` cleared** — EC clears its own membership state exactly when it leaves, so a
+   `send_state`/`set_state` for `org.matrix.msc3401.call.member` with **empty content**, our own
+   state key, and **no** `delay_ms`/`delay` is treated as a hangup. The delay exclusion matters: the
+   scheduled "leave" fallback registered at join time is the same event with a delay attached.
+3. **Room-state poll** — the host polls `read_state` for call.member every 5 s;
+   `normalizeWidgetResponse` spots our own cleared membership with `origin_server_ts >
+   screenOpenTimestamp` and ends the call. This is server truth but only fires if the backend
+   actually returns cleared state events.
+
+Without (1) and (2) the WebView stayed parked on EC's "disconnected" screen with
+`callActiveInternal` still true — back-press only backgrounded it, and the header button offered
+"Return to call" rather than a fresh join, so the call could never be re-entered.
 
 ### Critical: WebRTC EGL surface
 **Never resize or reparent the WebView container while WebRTC is active.** The EGL surface is bound to the View's exact size and position. Use `zIndex` toggling (`10f` ↔ `-1f`) to show/hide the call; do not change size, shape, or parent.

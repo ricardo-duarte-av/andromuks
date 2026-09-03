@@ -129,7 +129,8 @@ fun CallOverlay(appViewModel: AppViewModel) {
             "https://element.io/bugreports/submit",
             StandardCharsets.UTF_8.toString(),
         )}" +
-        "&preload=false"
+        "&preload=false" +
+        "&returnToLobby=false"
 
     DisposableEffect(Unit) {
         appViewModel.setWidgetToDeviceHandler { payload ->
