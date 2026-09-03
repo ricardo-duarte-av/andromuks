@@ -274,6 +274,16 @@ fun CallOverlay(appViewModel: AppViewModel) {
                     lastLoadedUrl.value = hostUrl
                 }
             },
+            onRelease = { webView ->
+                // The overlay only leaves the composition when the call has ended, so tear the
+                // WebView down properly — otherwise WebRTC keeps the mic/camera and the LiveKit
+                // connection alive in a view nobody can see.
+                webView.stopLoading()
+                webView.loadUrl("about:blank")
+                webView.removeJavascriptInterface("AndroidWidgetBridge")
+                webView.destroy()
+                callWebView.value = null
+            },
             modifier = Modifier.fillMaxSize(),
         )
 
