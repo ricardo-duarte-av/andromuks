@@ -20,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.request.CachePolicy
 import coil3.request.ImageRequest
+import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.TimelineEvent
 
 /**
  * Parses a geo URI (geo:lat,lon or geo:lat,lon;u=accuracy or geo:lat,lon,alt) into
@@ -62,6 +64,10 @@ fun buildStaticMapUrl(latitude: Double, longitude: Double, apiKey: String): Stri
  * @param onCaptionClick Tap handler for the caption row below the map thumbnail. When
  *   non-null (e.g. a thread message) it overrides the default "open in Maps" so the
  *   caption can open the thread instead. The map thumbnail always opens Maps.
+ * @param event The location event itself, when available. Bridged locations carry
+ *   `format: org.matrix.custom.html` with the coordinates as a maps link, so the caption
+ *   is rendered through [HtmlMessageText] rather than printing the markup verbatim.
+ *   Falls back to the plain-text [body] when the event has no HTML.
  */
 @Composable
 fun LocationMessageContent(
@@ -71,9 +77,22 @@ fun LocationMessageContent(
     contentColor: androidx.compose.ui.graphics.Color,
     modifier: Modifier = Modifier,
     onCaptionClick: (() -> Unit)? = null,
+    event: TimelineEvent? = null,
+    homeserverUrl: String = "",
+    authToken: String = "",
+    appViewModel: AppViewModel? = null,
+    onMatrixUserClick: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val coords = remember(geoUri) { parseGeoUri(geoUri) }
+    // Only render markup when the event actually declares it; a plain-text body that happens
+    // to contain angle brackets must stay literal.
+    val captionHtml = remember(event) {
+        event?.takeIf { ev ->
+            val content = ev.decrypted ?: ev.content
+            content?.optString("format") == "org.matrix.custom.html"
+        }
+    }
 
     val openInMaps = {
         if (coords != null) {
@@ -132,11 +151,22 @@ fun LocationMessageContent(
                 modifier = Modifier.size(18.dp),
             )
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = if (body.isNotBlank() && body != "Location") body else "Location",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = contentColor,
-                )
+                if (captionHtml != null) {
+                    HtmlMessageText(
+                        event = captionHtml,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        color = contentColor,
+                        onMatrixUserClick = onMatrixUserClick,
+                        appViewModel = appViewModel,
+                    )
+                } else {
+                    Text(
+                        text = if (body.isNotBlank() && body != "Location") body else "Location",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = contentColor,
+                    )
+                }
                 if (coords != null) {
                     Text(
                         text = "%.5f, %.5f".format(coords.first, coords.second),

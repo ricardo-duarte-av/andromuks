@@ -1573,6 +1573,11 @@ private fun RoomLocationMessageContent(
                         } else {
                             null
                         },
+                        event = event,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        onMatrixUserClick = onUserClick,
                     )
                 }
             }
