@@ -1207,8 +1207,10 @@ class AppViewModel : ViewModel() {
         get() = StickerPacksCache.getAll()
         private set(value) = StickerPacksCache.setAll(value)
 
-    // Track pending emoji pack requests: requestId -> (roomId, packName)
-    private val emojiPackRequests = mutableMapOf<Int, Pair<String, String>>()
+    // Track pending emoji pack requests: requestId -> (roomId, packName, stateEventType).
+    // The state event type is carried so a request purged by a reconnect can be re-queued without
+    // losing the legacy (im.ponies.room_emotes) vs official (m.image_pack) distinction.
+    private val emojiPackRequests = mutableMapOf<Int, Triple<String, String, String>>()
 
     // Queue for emoji pack requests that were deferred because WebSocket wasn't ready
     private val deferredEmojiPackRequests = mutableListOf<Triple<String, String, String>>() // (roomId, packName, stateEventType)
@@ -6490,7 +6492,19 @@ class AppViewModel : ViewModel() {
         }
 
         // These gate future requests; a stale entry blocks the room permanently.
-        roomSpecificStateRequests.keys.filter { it > 0 }.toList().forEach { roomSpecificStateRequests.remove(it) }
+        roomSpecificStateRequests.keys.filter { it > 0 }.toList().forEach { purgedId ->
+            roomSpecificStateRequests.remove(purgedId)
+            // An emoji/sticker pack request lives in both maps. Dropping only the
+            // roomSpecificStateRequests half would leave the response undispatchable and the pack
+            // silently missing until the next account-data sync — re-queue it instead.
+            emojiPackRequests.remove(purgedId)?.let { (roomId, packName, stateEventType) ->
+                deferredEmojiPackRequests.add(Triple(roomId, packName, stateEventType))
+                android.util.Log.i(
+                    "Andromuks",
+                    "AppViewModel: Re-queued emoji pack $packName in $roomId after request purge",
+                )
+            }
+        }
         reactionRequests.keys.filter { it > 0 }.toList().forEach { reactionRequests.remove(it) }
         relatedEventsRequests.keys.filter { it > 0 }.toList().forEach { relatedEventsRequests.remove(it) }
         pollRequests.keys.filter { it > 0 }.toList().forEach { pollRequests.remove(it) }
@@ -8212,7 +8226,7 @@ class AppViewModel : ViewModel() {
         }
 
         val requestId = WebSocketService.allocateRequestId()
-        emojiPackRequests[requestId] = Pair(roomId, packName)
+        emojiPackRequests[requestId] = Triple(roomId, packName, stateEventType)
         roomSpecificStateRequests[requestId] = roomId
 
         val keysList = listOf(
@@ -8862,9 +8876,11 @@ class AppViewModel : ViewModel() {
             val callback = joinRoomCallbacks.remove(requestId) ?: return
             callback(Pair(null, errorMessage))
         } else if (roomSpecificStateRequests.containsKey(requestId)) {
+            val failedPack = emojiPackRequests.remove(requestId)
             android.util.Log.w(
                 "Andromuks",
-                "AppViewModel: Room specific state error for requestId=$requestId: $errorMessage",
+                "AppViewModel: Room specific state error for requestId=$requestId: $errorMessage" +
+                    (failedPack?.let { " (emoji/sticker pack ${it.second} in ${it.first})" } ?: ""),
             )
             roomSpecificStateRequests.remove(requestId)
         } else if (fullMemberListRequests.containsKey(requestId)) {
@@ -11047,7 +11063,7 @@ class AppViewModel : ViewModel() {
         // Check if this is an emoji pack request
         val emojiPackInfo = emojiPackRequests.remove(requestId)
         if (emojiPackInfo != null) {
-            val (packRoomId, packName) = emojiPackInfo
+            val (packRoomId, packName, _) = emojiPackInfo
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
@@ -11337,8 +11353,30 @@ class AppViewModel : ViewModel() {
                                     )
                                 }
                             }
+
+                            if (emojis.isEmpty() && stickers.isEmpty()) {
+                                android.util.Log.w(
+                                    "Andromuks",
+                                    "AppViewModel: Subscribed pack $packName in $roomId has no usable images — it will not appear in either picker",
+                                )
+                            }
+                        } else {
+                            android.util.Log.w(
+                                "Andromuks",
+                                "AppViewModel: Subscribed pack $packName in $roomId has no images object",
+                            )
                         }
+                    } else {
+                        android.util.Log.w(
+                            "Andromuks",
+                            "AppViewModel: Subscribed pack $packName in $roomId returned a state event with no content",
+                        )
                     }
+                } else {
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: Subscribed pack $packName in $roomId returned no state event — it is not in the room's state",
+                    )
                 }
             }
 
