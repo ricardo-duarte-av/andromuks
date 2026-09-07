@@ -11056,10 +11056,11 @@ class AppViewModel : ViewModel() {
         // Record whatever state this targeted fetch returned. Merges rather than replaces: unlike
         // get_room_state, this response speaks only for the keys it was asked about.
         //
-        // Inert today — every get_specific_room_state this app sends asks for m.room.member keys
-        // (batched profile resolution), and members are never cached. It is wired anyway so that
-        // widening any of those requests to other state types needs no second thought, and so the
-        // two response paths have symmetric handling.
+        // Load-bearing for pack fetches: requestEmojiPackData asks for im.ponies.room_emotes /
+        // m.image_pack by state key, so a subscribed pack's state lands in the store here and the
+        // in-room pack scan (StickerPackCoordinator.roomPacks) can read it back. The other sender,
+        // batched profile resolution, asks for m.room.member keys, which are never cached — that
+        // half really is a no-op.
         (data as? JSONArray)?.let { net.vrkknn.andromuks.utils.RoomStateStore.ingestPartialState(roomId, it) }
 
         // Check if this is an emoji pack request

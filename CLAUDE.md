@@ -208,6 +208,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Shared OkHttp client (`HttpClientProvider`, derived clients, the two deliberate exceptions) | [docs/MEDIA_LOADING.md](docs/MEDIA_LOADING.md#shared-http-client-utilshttpclientprovider) |
 | Settings & preferences (4-scope gomuks prefs, resolution order, reactivity, UI screens) | [docs/SETTINGS_PREFS.md](docs/SETTINGS_PREFS.md) |
 | Emoji picker, search, generated data files, JVM 64 KB chunk pattern | [docs/EMOJI.md](docs/EMOJI.md) |
+| Sticker/emoji pack subscriptions (account data keys, usage rules, in-room discovery) | [docs/STICKER_PACKS.md](docs/STICKER_PACKS.md) |
 | Reactions lifecycle, storage, redaction path, `removeReaction` internals | [docs/REACTIONS.md](docs/REACTIONS.md) |
 | Polls (MSC3381 render + vote, aggregation rules, satellite-event pipeline) | [docs/POLLS.md](docs/POLLS.md) |
 | In-room bot commands (MSC4391 discovery, `cmdschema` port, autocomplete, argument sheet, envelope) | [docs/BOT_COMMANDS.md](docs/BOT_COMMANDS.md) |

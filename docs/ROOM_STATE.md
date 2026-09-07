@@ -44,6 +44,11 @@ the room genuinely no longer has it, and the store **replaces** what it holds fo
 `get_specific_room_state` returns **only the keys it was asked for** and says nothing about the rest.
 Those responses **merge**.
 
+Two things send it. Batched profile resolution asks for `m.room.member` keys, which are never
+cached, so that half stores nothing. Pack fetches ask for `im.ponies.room_emotes` / `m.image_pack`
+by state key, and those *do* land in the store — which is what lets the in-room pack scan read them
+back without a round trip (see [STICKER_PACKS.md](STICKER_PACKS.md)).
+
 (Membership is the exception to "entire" — see
 [`has_member_list`](#and-the-backends-copy-may-not-be-complete-either--has_member_list).)
 

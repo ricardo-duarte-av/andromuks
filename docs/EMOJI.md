@@ -51,7 +51,12 @@ Tab index scheme (fixed; do not shift):
 | 0 | 🕒 Recent | `recentEmojis` arg |
 | 1 | 🌐 All | `EmojiData.getAllEmojis()` |
 | 2–10 | Category tabs | `emojiCategories[selectedCategory - 1]` |
-| 11+ | Custom emoji packs | `customEmojiPacks[selectedCategory - 1 - emojiCategories.size]` |
+| 11+ | Custom emoji packs | `allCustomPacks[selectedCategory - 1 - emojiCategories.size]` |
+
+`allCustomPacks` is the account's subscribed packs followed by the current room's *unsubscribed*
+ones, which render outlined with a `+` that subscribes them. See
+[STICKER_PACKS.md](STICKER_PACKS.md) — the index scheme above is unchanged by them, but anything
+walking the tail of the list must not assume every pack there is subscribed.
 
 When the user types in the search box, a `LaunchedEffect` automatically switches to the All tab (index 1). `EmojiData.searchEmojis()` runs across all emojis regardless of which category was previously selected.
 
