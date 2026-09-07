@@ -95,6 +95,13 @@ fun RoomInfoScreen(
     var showMembersDialog by remember { mutableStateOf(false) }
     var isMembersRefreshing by remember { mutableStateOf(false) }
     var showPushRulesDialog by remember { mutableStateOf(false) }
+    var showStickerPacksDialog by remember { mutableStateOf(false) }
+
+    // Recomputed when the room state fetch lands (roomState) and when a subscribe pulls pack data
+    // in (the cache version). Zero means the room hosts none — the tile stays disabled.
+    val roomPackCount = remember(roomId, roomState, net.vrkknn.andromuks.StickerPacksCache.version) {
+        appViewModel.stickerPackCoordinator.roomPackEntries(roomId).size
+    }
     var memberDialogSearchQuery by remember { mutableStateOf("") }
 
     // State for leave room confirmation dialog
@@ -562,6 +569,22 @@ fun RoomInfoScreen(
                             textAlign = TextAlign.Center,
                         )
                     }
+                    // The picker's `+` hangs off the composer, so it is unreachable in a room that
+                    // does not let you post — which is how sticker rooms are usually configured.
+                    // This entry point has no such gate. See docs/STICKER_PACKS.md.
+                    Button(
+                        onClick = { showStickerPacksDialog = true },
+                        enabled = roomPackCount > 0,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
+                    ) {
+                        Text(
+                            if (roomPackCount > 0) "Sticker\nPacks ($roomPackCount)" else "Sticker\nPacks",
+                            style = MaterialTheme.typography.labelMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
 
                 // Technical cache info (always last items)
@@ -824,6 +847,23 @@ fun RoomInfoScreen(
     }
 
     // Per-room Push Rules Dialog
+    if (showStickerPacksDialog) {
+        RoomStickerPacksDialog(
+            roomId = roomId,
+            homeserverUrl = appViewModel.homeserverUrl,
+            authToken = appViewModel.authToken,
+            packsProvider = { appViewModel.stickerPackCoordinator.roomPackEntries(roomId) },
+            onToggleSubscription = { pack ->
+                if (pack.subscribed) {
+                    appViewModel.stickerPackCoordinator.unsubscribe(pack.roomId, pack.packName)
+                } else {
+                    appViewModel.stickerPackCoordinator.subscribe(pack.roomId, pack.packName)
+                }
+            },
+            onDismiss = { showStickerPacksDialog = false },
+        )
+    }
+
     if (showPushRulesDialog) {
         RoomPushRulesDialog(
             roomId = roomId,

@@ -60,7 +60,8 @@ was reached. Rules are pinned in `StickerPackParsingTest`.
 | `subscribedPacks()` | Flattens `content.rooms` of the active key into `(roomId, packName)` refs. |
 | `subscribe(roomId, packName)` | Rewrites the key via `AccountDataCoordinator.setAccountDataRaw`, then fires `requestEmojiPackData` so the pack is usable without waiting for the server to echo the account data back. |
 | `unsubscribe(roomId, packName)` | Rewrites the key, then evicts `StickerPacksCache` + `EmojiPacksCache` so the pickers stop offering it immediately. |
-| `roomPacks(roomId)` / `roomEmojiPacks(roomId)` | The packs `roomId` hosts that are **not** subscribed. |
+| `roomPackEntries(roomId)` | Every pack `roomId` hosts, with counts, a thumbnail, and whether it is subscribed. |
+| `roomPacks(roomId)` / `roomEmojiPacks(roomId)` | The unsubscribed subset, for the pickers' trailing tabs. |
 
 `withSubscription` (pure, tested in `StickerPackSubscriptionTest`) rebuilds the `rooms` object rather
 than mutating it, so the optimistic cache update cannot alias the object just sent. A room key whose
@@ -119,6 +120,22 @@ diagnosable from a user's logcat rather than merely absent.
 | Settings → **Sticker & emoji packs** (`StickerPackManagerScreen`) | Lists subscribed packs with host room and counts; removes them. Adding is deliberately *not* here — discovery belongs in the room that hosts the pack, where the images can be seen first. |
 | Sticker picker (`StickerSelectionDialog`) | Subscribed packs, then this room's unsubscribed ones. |
 | Emoji picker (`EmojiSelectionDialog`) | Same, appended after the Unicode category tabs. |
+| Room info → **Sticker Packs** (`RoomStickerPacksDialog`) | Every pack the room hosts, subscribed or not, with add/remove per pack. |
+
+### Why room info carries the same thing as the picker
+
+**The picker is not a reachable entry point in the rooms that matter most.** Its sticker and emoji
+buttons hang off the composer and are gated on `isInputEnabled`, which is
+`canSendMessage && !isProcessingBatch` (`RoomTimelineScreen.kt`). Sticker rooms are routinely
+configured so ordinary members cannot post — that is the normal shape of a room that exists to
+publish packs — so in precisely those rooms the in-picker `+` can never be tapped and the room's
+packs stay invisible.
+
+Room info has no such gate, and it already issues its own `get_room_state`, so
+`roomPackEntries` can read the packs straight back. It lists **subscribed packs too**, so the room
+that hosts a pack is also a place to drop it.
+
+Anything added later that can subscribe must not be reachable only through the composer.
 
 The manager screen renders a subscribed pack whose data never arrived as **"not loaded"** rather
 than omitting it. The subscription is real even when the fetch behind it failed, and hiding it would

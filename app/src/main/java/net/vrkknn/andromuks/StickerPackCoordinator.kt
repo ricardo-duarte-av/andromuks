@@ -26,6 +26,22 @@ internal class StickerPackCoordinator(private val vm: AppViewModel) {
     data class PackKeys(val accountDataKey: String, val stateEventType: String)
 
     /**
+     * A pack a room hosts, as the room-info browser renders it: enough to show a row without
+     * re-parsing, plus whether this account already has it.
+     */
+    data class RoomPack(
+        val roomId: String,
+        val packName: String,
+        val displayName: String,
+        val stickerCount: Int,
+        val emojiCount: Int,
+        val thumbnailMxc: String?,
+        val subscribed: Boolean,
+        val stickerPack: AppViewModel.StickerPack?,
+        val emojiPack: AppViewModel.EmojiPack?,
+    )
+
+    /**
      * Which key this account is using.
      *
      * The official MSC2545 key wins when present; otherwise the legacy im.ponies one. When neither
@@ -46,42 +62,50 @@ internal class StickerPackCoordinator(private val vm: AppViewModel) {
     fun isSubscribed(roomId: String, packName: String): Boolean = subscribedPacks().any { it.roomId == roomId && it.packName == packName }
 
     /**
-     * The packs [roomId] hosts that this account is **not** subscribed to, parsed straight from the
-     * room's cached state.
+     * Every pack [roomId] hosts, parsed straight from the room's cached state, subscribed or not.
      *
-     * A room can host any number of packs as separate state keys; nothing surfaces them today
+     * A room can host any number of packs as separate state keys; nothing surfaces them on its own
      * because only packs named in account data are ever fetched. Reads the state the room already
      * loaded on open, so this costs no round trip — and returns nothing for a room whose state is
      * not resident, which is the honest answer rather than a claim that it has no packs.
      */
-    fun roomPacks(roomId: String): List<AppViewModel.StickerPack> {
+    fun roomPackEntries(roomId: String): List<RoomPack> {
         val keys = activePackKeys()
         val subscribed = subscribedPacks().toSet()
         return net.vrkknn.andromuks.utils.RoomStateStore
             .getRawByType(roomId, keys.stateEventType)
-            .filterKeys { PackRef(roomId, it) !in subscribed }
             .mapNotNull { (packName, content) ->
-                net.vrkknn.andromuks.utils.StickerPackParsing
+                val parsed = net.vrkknn.andromuks.utils.StickerPackParsing
                     .parsePackContent(roomId, packName, content)
-                    .stickerPack
+                val stickers = parsed.stickerPack?.stickers.orEmpty()
+                val emojis = parsed.emojiPack?.emojis.orEmpty()
+                if (stickers.isEmpty() && emojis.isEmpty()) {
+                    return@mapNotNull null
+                }
+                RoomPack(
+                    roomId = roomId,
+                    packName = packName,
+                    displayName = parsed.stickerPack?.displayName ?: parsed.emojiPack?.displayName ?: packName,
+                    stickerCount = stickers.size,
+                    emojiCount = emojis.size,
+                    thumbnailMxc = stickers.firstOrNull()?.mxcUrl ?: emojis.firstOrNull()?.mxcUrl,
+                    subscribed = PackRef(roomId, packName) in subscribed,
+                    stickerPack = parsed.stickerPack,
+                    emojiPack = parsed.emojiPack,
+                )
             }
             .sortedBy { it.displayName.lowercase() }
     }
 
-    /** The emoji half of [roomPacks]: unsubscribed packs of [roomId] that contain emoticons. */
-    fun roomEmojiPacks(roomId: String): List<AppViewModel.EmojiPack> {
-        val keys = activePackKeys()
-        val subscribed = subscribedPacks().toSet()
-        return net.vrkknn.andromuks.utils.RoomStateStore
-            .getRawByType(roomId, keys.stateEventType)
-            .filterKeys { PackRef(roomId, it) !in subscribed }
-            .mapNotNull { (packName, content) ->
-                net.vrkknn.andromuks.utils.StickerPackParsing
-                    .parsePackContent(roomId, packName, content)
-                    .emojiPack
-            }
-            .sortedBy { it.displayName.lowercase() }
-    }
+    /** The unsubscribed sticker packs of [roomId], for the sticker picker's trailing tabs. */
+    fun roomPacks(roomId: String): List<AppViewModel.StickerPack> = roomPackEntries(roomId).filterNot {
+        it.subscribed
+    }.mapNotNull { it.stickerPack }
+
+    /** The unsubscribed emoji packs of [roomId], for the emoji picker's trailing tabs. */
+    fun roomEmojiPacks(roomId: String): List<AppViewModel.EmojiPack> = roomPackEntries(roomId).filterNot {
+        it.subscribed
+    }.mapNotNull { it.emojiPack }
 
     /**
      * Subscribe to a pack: write the account data entry, then fetch the pack immediately so it is
