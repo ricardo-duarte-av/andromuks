@@ -46,6 +46,44 @@ internal class StickerPackCoordinator(private val vm: AppViewModel) {
     fun isSubscribed(roomId: String, packName: String): Boolean = subscribedPacks().any { it.roomId == roomId && it.packName == packName }
 
     /**
+     * The packs [roomId] hosts that this account is **not** subscribed to, parsed straight from the
+     * room's cached state.
+     *
+     * A room can host any number of packs as separate state keys; nothing surfaces them today
+     * because only packs named in account data are ever fetched. Reads the state the room already
+     * loaded on open, so this costs no round trip — and returns nothing for a room whose state is
+     * not resident, which is the honest answer rather than a claim that it has no packs.
+     */
+    fun roomPacks(roomId: String): List<AppViewModel.StickerPack> {
+        val keys = activePackKeys()
+        val subscribed = subscribedPacks().toSet()
+        return net.vrkknn.andromuks.utils.RoomStateStore
+            .getRawByType(roomId, keys.stateEventType)
+            .filterKeys { PackRef(roomId, it) !in subscribed }
+            .mapNotNull { (packName, content) ->
+                net.vrkknn.andromuks.utils.StickerPackParsing
+                    .parsePackContent(roomId, packName, content)
+                    .stickerPack
+            }
+            .sortedBy { it.displayName.lowercase() }
+    }
+
+    /** The emoji half of [roomPacks]: unsubscribed packs of [roomId] that contain emoticons. */
+    fun roomEmojiPacks(roomId: String): List<AppViewModel.EmojiPack> {
+        val keys = activePackKeys()
+        val subscribed = subscribedPacks().toSet()
+        return net.vrkknn.andromuks.utils.RoomStateStore
+            .getRawByType(roomId, keys.stateEventType)
+            .filterKeys { PackRef(roomId, it) !in subscribed }
+            .mapNotNull { (packName, content) ->
+                net.vrkknn.andromuks.utils.StickerPackParsing
+                    .parsePackContent(roomId, packName, content)
+                    .emojiPack
+            }
+            .sortedBy { it.displayName.lowercase() }
+    }
+
+    /**
      * Subscribe to a pack: write the account data entry, then fetch the pack immediately so it is
      * usable without waiting for the server to echo the account data back.
      */

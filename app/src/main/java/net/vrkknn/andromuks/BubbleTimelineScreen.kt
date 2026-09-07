@@ -4870,6 +4870,14 @@ fun BubbleTimelineScreen(
                                 reactingToEvent = null
                             },
                             customEmojiPacks = appViewModel.customEmojiPacks,
+                            // Reading the cache version subscribes this composition to packs
+                            // arriving from the server while the picker is open.
+                            roomEmojiPacks = remember(roomId, EmojiPacksCache.version) {
+                                appViewModel.stickerPackCoordinator.roomEmojiPacks(roomId)
+                            },
+                            onSubscribePack = { packRoomId, packName ->
+                                appViewModel.stickerPackCoordinator.subscribe(packRoomId, packName)
+                            },
                         )
                     }
 
@@ -4922,6 +4930,14 @@ fun BubbleTimelineScreen(
                                 showEmojiPickerForText = false
                             },
                             customEmojiPacks = appViewModel.customEmojiPacks,
+                            // Reading the cache version subscribes this composition to packs
+                            // arriving from the server while the picker is open.
+                            roomEmojiPacks = remember(roomId, EmojiPacksCache.version) {
+                                appViewModel.stickerPackCoordinator.roomEmojiPacks(roomId)
+                            },
+                            onSubscribePack = { packRoomId, packName ->
+                                appViewModel.stickerPackCoordinator.subscribe(packRoomId, packName)
+                            },
                             allowCustomReactions = false,
                         )
                     }
@@ -4956,6 +4972,14 @@ fun BubbleTimelineScreen(
                                 showStickerPickerForText = false
                             },
                             stickerPacks = appViewModel.stickerPacks,
+                            // Reading the cache version subscribes this composition to packs
+                            // arriving from the server while the picker is open.
+                            roomPacks = remember(roomId, StickerPacksCache.version) {
+                                appViewModel.stickerPackCoordinator.roomPacks(roomId)
+                            },
+                            onSubscribePack = { packRoomId, packName ->
+                                appViewModel.stickerPackCoordinator.subscribe(packRoomId, packName)
+                            },
                         )
                     }
 

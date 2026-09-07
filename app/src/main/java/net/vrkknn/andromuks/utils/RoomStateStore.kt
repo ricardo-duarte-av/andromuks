@@ -178,6 +178,24 @@ object RoomStateStore {
         }
     }
 
+    /**
+     * Every state event of [type] this room has, as `state key → content`.
+     *
+     * The single-key [getRawContent] cannot answer "which packs does this room host?", where the
+     * state keys are unknown up front and there may be many. Same residency rule: a non-resident
+     * room returns empty rather than reading disk on the caller's thread.
+     */
+    fun getRawByType(roomId: String, type: String): Map<String, JSONObject> {
+        if (type == MEMBER_TYPE) return emptyMap()
+        val prefix = "$type|"
+        synchronized(rawLock) {
+            val room = rawStates[roomId] ?: return emptyMap()
+            return room.entries
+                .filter { it.key.startsWith(prefix) }
+                .associate { it.key.removePrefix(prefix) to it.value }
+        }
+    }
+
     /** True when [roomId]'s raw state is resident in RAM (so [getRawContent] can answer). */
     fun isRawResident(roomId: String): Boolean = synchronized(rawLock) { rawStates.containsKey(roomId) }
 

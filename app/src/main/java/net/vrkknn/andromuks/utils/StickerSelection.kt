@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -9,6 +10,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -31,7 +33,12 @@ import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.foundation.lazy.grid.items as gridItems
 
 /**
- * Sticker selection dialog with sticker packs
+ * Sticker selection dialog with sticker packs.
+ *
+ * [stickerPacks] are the account's subscribed packs. [roomPacks] are packs the *current room*
+ * hosts that the account has not subscribed to — they appear as trailing, visually distinct tabs
+ * with an add affordance, so a room's stickers are usable immediately and can be kept with one tap.
+ * See [net.vrkknn.andromuks.StickerPackCoordinator].
  */
 @Composable
 fun StickerSelectionDialog(
@@ -40,9 +47,18 @@ fun StickerSelectionDialog(
     onStickerSelected: (net.vrkknn.andromuks.AppViewModel.Sticker) -> Unit,
     onDismiss: () -> Unit,
     stickerPacks: List<net.vrkknn.andromuks.AppViewModel.StickerPack> = emptyList(),
+    roomPacks: List<net.vrkknn.andromuks.AppViewModel.StickerPack> = emptyList(),
+    onSubscribePack: (String, String) -> Unit = { _, _ -> },
 ) {
     var selectedPackIndex by remember { mutableIntStateOf(0) }
     var searchText by remember { mutableStateOf("") }
+
+    // Subscribing fires a network fetch, so the pack cannot move into [stickerPacks] straight away.
+    // Track what was added here so the tab stops offering to add it without jumping around.
+    var addedHere by remember { mutableStateOf(setOf<String>()) }
+
+    val allPacks = remember(stickerPacks, roomPacks) { stickerPacks + roomPacks }
+    val subscribedCount = stickerPacks.size
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -84,37 +100,29 @@ fun StickerSelectionDialog(
                     }
                 }
 
-                // Pack tabs
-                if (stickerPacks.isNotEmpty()) {
+                // Pack tabs: subscribed packs first, then this room's own packs.
+                if (allPacks.isNotEmpty()) {
                     LazyRow(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        items(stickerPacks.size) { index ->
-                            val pack = stickerPacks[index]
-                            Surface(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable { selectedPackIndex = index },
-                                color = if (selectedPackIndex == index) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.surfaceVariant
+                        items(allPacks.size) { index ->
+                            val pack = allPacks[index]
+                            val fromRoom = index >= subscribedCount
+                            val packKey = "${pack.roomId}|${pack.packName}"
+                            PackTab(
+                                displayName = pack.displayName,
+                                selected = selectedPackIndex == index,
+                                offerAdd = fromRoom && packKey !in addedHere,
+                                fromRoom = fromRoom,
+                                onSelect = { selectedPackIndex = index },
+                                onAdd = {
+                                    addedHere = addedHere + packKey
+                                    onSubscribePack(pack.roomId, pack.packName)
                                 },
-                            ) {
-                                Text(
-                                    text = pack.displayName,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    style = MaterialTheme.typography.titleSmall,
-                                    color = if (selectedPackIndex == index) {
-                                        MaterialTheme.colorScheme.onPrimary
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    },
-                                )
-                            }
+                            )
                         }
                     }
                     // Search bar
@@ -182,8 +190,8 @@ fun StickerSelectionDialog(
                 }
 
                 // Sticker grid
-                if (stickerPacks.isNotEmpty() && selectedPackIndex < stickerPacks.size) {
-                    val selectedPack = stickerPacks[selectedPackIndex]
+                if (allPacks.isNotEmpty() && selectedPackIndex < allPacks.size) {
+                    val selectedPack = allPacks[selectedPackIndex]
 
                     // Filter stickers based on search text
                     val filteredStickers = remember(selectedPack.stickers, searchText) {
@@ -259,6 +267,70 @@ fun StickerSelectionDialog(
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * One tab in a picker's pack strip — shared by the sticker and emoji pickers.
+ *
+ * A pack from the room the user is in — one they have not subscribed to — is drawn outlined rather
+ * than filled, with a `+` that subscribes it. Selecting such a tab is free and non-committal: its
+ * stickers send like any other, and only the `+` changes the account's pack list.
+ */
+@Composable
+internal fun PackTab(
+    displayName: String,
+    selected: Boolean,
+    offerAdd: Boolean,
+    fromRoom: Boolean,
+    onSelect: () -> Unit,
+    onAdd: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val containerColor = when {
+        selected -> MaterialTheme.colorScheme.primary
+        fromRoom -> Color.Transparent
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    val contentColor = if (selected) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .clickable(onClick = onSelect),
+        color = containerColor,
+        border = if (fromRoom && !selected) {
+            BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+        } else {
+            null
+        },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = displayName,
+                style = MaterialTheme.typography.titleSmall,
+                color = contentColor,
+            )
+            if (offerAdd) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add $displayName to my packs",
+                    modifier = Modifier
+                        .size(18.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable(onClick = onAdd),
+                    tint = contentColor,
+                )
             }
         }
     }

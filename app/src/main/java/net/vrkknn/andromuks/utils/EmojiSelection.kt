@@ -102,10 +102,21 @@ fun EmojiSelectionDialog(
     onDismiss: () -> Unit,
     customEmojiPacks: List<net.vrkknn.andromuks.AppViewModel.EmojiPack> = emptyList(),
     allowCustomReactions: Boolean = true,
+    roomEmojiPacks: List<net.vrkknn.andromuks.AppViewModel.EmojiPack> = emptyList(),
+    onSubscribePack: (String, String) -> Unit = { _, _ -> },
 ) {
     var selectedCategory by remember { mutableIntStateOf(0) }
     var searchText by remember { mutableStateOf("") }
     val allEmojis = remember { EmojiData.getAllEmojis() }
+
+    // Packs the current room hosts but the account has not subscribed to, appended after the
+    // subscribed ones. Their tabs are drawn outlined with a `+`; see PackTab.
+    val allCustomPacks = remember(customEmojiPacks, roomEmojiPacks) { customEmojiPacks + roomEmojiPacks }
+    val subscribedPackCount = customEmojiPacks.size
+
+    // Subscribing fires a network fetch, so the pack cannot move into [customEmojiPacks] straight
+    // away. Track what was added here so the tab stops offering to add it.
+    var addedHere by remember { mutableStateOf(setOf<String>()) }
 
     // Auto-switch to the "All" tab (index 1) whenever the user starts typing
     LaunchedEffect(searchText) {
@@ -223,7 +234,7 @@ fun EmojiSelectionDialog(
                     }
 
                     // Custom emoji pack tabs - filter out any packs with displayName matching the recent tab icon
-                    val filteredCustomPacks = customEmojiPacks.filter {
+                    val filteredCustomPacks = allCustomPacks.filter {
                         it.displayName != "🕒" &&
                             it.displayName.isNotBlank()
                     }
@@ -232,29 +243,21 @@ fun EmojiSelectionDialog(
                         key = { "${it.roomId}_${it.packName}" },
                     ) { pack ->
                         // Calculate index based on position in original list (before filtering)
-                        val originalIndex = customEmojiPacks.indexOf(pack)
+                        val originalIndex = allCustomPacks.indexOf(pack)
                         val packIndex = 1 + emojiCategories.size + originalIndex // Offset by recent + standard categories
-                        Surface(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable { selectedCategory = packIndex },
-                            color = if (selectedCategory == packIndex) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
+                        val fromRoom = originalIndex >= subscribedPackCount
+                        val packKey = "${pack.roomId}|${pack.packName}"
+                        PackTab(
+                            displayName = pack.displayName,
+                            selected = selectedCategory == packIndex,
+                            offerAdd = fromRoom && packKey !in addedHere,
+                            fromRoom = fromRoom,
+                            onSelect = { selectedCategory = packIndex },
+                            onAdd = {
+                                addedHere = addedHere + packKey
+                                onSubscribePack(pack.roomId, pack.packName)
                             },
-                        ) {
-                            Text(
-                                text = pack.displayName,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = if (selectedCategory == packIndex) {
-                                    MaterialTheme.colorScheme.onPrimary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
-                        }
+                        )
                     }
                 }
 
@@ -295,8 +298,8 @@ fun EmojiSelectionDialog(
 
                         else -> {
                             val packIndex = selectedCategory - 1 - emojiCategories.size
-                            if (packIndex >= 0 && packIndex < customEmojiPacks.size) {
-                                customEmojiPacks[packIndex].emojis
+                            if (packIndex >= 0 && packIndex < allCustomPacks.size) {
+                                allCustomPacks[packIndex].emojis
                             } else {
                                 emptyList()
                             }
@@ -338,7 +341,7 @@ fun EmojiSelectionDialog(
                                                 // Recent custom emoji stored as bare mxc URL — look up the
                                                 // name in any available pack so we emit the full inline markup
                                                 // ![:name:](mxc://... "Emoji: :name:") rather than raw mxc://.
-                                                val custom = customEmojiPacks
+                                                val custom = allCustomPacks
                                                     .flatMap { it.emojis }
                                                     .firstOrNull { it.mxcUrl == trimmed }
                                                 if (custom != null) {

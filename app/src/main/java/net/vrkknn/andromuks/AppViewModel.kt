@@ -11235,161 +11235,51 @@ class AppViewModel : ViewModel() {
             )
         }
 
-        when (data) {
-            is JSONArray -> {
-                if (data.length() > 0) {
-                    val event = data.getJSONObject(0)
-                    val content = event.optJSONObject("content")
-                    if (content != null) {
-                        val images = content.optJSONObject("images")
-                        val packInfo = content.optJSONObject("pack")
-                        val displayName = packInfo?.optString("display_name") ?: packName
+        if (data !is JSONArray) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Emoji pack response for $packName in $roomId is not a JSONArray: ${data::class.java.simpleName}",
+            )
+            return
+        }
 
-                        if (images != null) {
-                            val emojis = mutableListOf<CustomEmoji>()
-                            val stickers = mutableListOf<Sticker>()
-                            val imageKeys = images.names()
-                            if (imageKeys != null) {
-                                for (i in 0 until imageKeys.length()) {
-                                    val emojiName = imageKeys.optString(i)
-                                    val emojiData = images.optJSONObject(emojiName)
-                                    if (emojiData != null) {
-                                        val usage = emojiData.optJSONArray("usage")
-                                        val mxcUrl = emojiData.optString("url")
-                                        val info = emojiData.optJSONObject("info")
+        val content = data.optJSONObject(0)?.optJSONObject("content")
+        if (content == null) {
+            // A subscribed pack that resolves to nothing is invisible in the UI; say so out loud,
+            // at a level that survives R8, so it is diagnosable from a user's logcat.
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Subscribed pack $packName in $roomId returned no usable state event — it is not in the room's state",
+            )
+            return
+        }
 
-                                        if (mxcUrl.isNotBlank() && mxcUrl.startsWith("mxc://")) {
-                                            // Parse usage array to determine if this can be used as emoji, sticker, or both
-                                            var hasSticker = false
-                                            var hasEmoticon = false
+        val parsed = net.vrkknn.andromuks.utils.StickerPackParsing.parsePackContent(roomId, packName, content)
 
-                                            if (usage != null && usage.length() > 0) {
-                                                for (j in 0 until usage.length()) {
-                                                    val usageItem = usage.optString(j)
-                                                    if (usageItem == "sticker") {
-                                                        hasSticker = true
-                                                    } else if (usageItem == "emoticon") {
-                                                        hasEmoticon = true
-                                                    }
-                                                }
-                                            } else {
-                                                // No usage key or empty means it can be used as BOTH emoji and sticker
-                                                hasEmoticon = true
-                                                hasSticker = true
-                                            }
-
-                                            // Add to stickers if it has "sticker" usage (regardless of emoticon)
-                                            if (hasSticker) {
-                                                stickers.add(
-                                                    Sticker(
-                                                        name = emojiName,
-                                                        mxcUrl = mxcUrl,
-                                                        body = emojiName, // Use name as body/caption
-                                                        info = info,
-                                                    ),
-                                                )
-                                            }
-
-                                            // Add to emojis if it has "emoticon" usage or no usage key
-                                            // (entries can appear in both lists if they have both usage types)
-                                            if (hasEmoticon) {
-                                                emojis.add(
-                                                    CustomEmoji(
-                                                        name = emojiName,
-                                                        mxcUrl = mxcUrl,
-                                                        info = info,
-                                                    ),
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            if (emojis.isNotEmpty()) {
-                                // Update or add emoji pack
-                                val existingPacks = customEmojiPacks.toMutableList()
-                                val existingIndex = existingPacks.indexOfFirst {
-                                    it.roomId == roomId &&
-                                        it.packName == packName
-                                }
-
-                                val newPack = EmojiPack(
-                                    packName = packName,
-                                    displayName = displayName,
-                                    roomId = roomId,
-                                    emojis = emojis,
-                                )
-
-                                // Update singleton cache
-                                EmojiPacksCache.updatePack(newPack)
-                                if (BuildConfig.DEBUG) {
-                                    android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Updated emoji pack $packName with ${emojis.size} emojis",
-                                    )
-                                }
-                            }
-
-                            if (stickers.isNotEmpty()) {
-                                // Update or add sticker pack
-                                val existingStickerPacks = stickerPacks.toMutableList()
-                                val existingStickerIndex = existingStickerPacks.indexOfFirst {
-                                    it.roomId == roomId &&
-                                        it.packName == packName
-                                }
-
-                                val newStickerPack = StickerPack(
-                                    packName = packName,
-                                    displayName = displayName,
-                                    roomId = roomId,
-                                    stickers = stickers,
-                                )
-
-                                // Update singleton cache
-                                StickerPacksCache.updatePack(newStickerPack)
-                                if (BuildConfig.DEBUG) {
-                                    android.util.Log.d(
-                                        "Andromuks",
-                                        "AppViewModel: Updated sticker pack $packName with ${stickers.size} stickers",
-                                    )
-                                }
-                            }
-
-                            if (emojis.isEmpty() && stickers.isEmpty()) {
-                                android.util.Log.w(
-                                    "Andromuks",
-                                    "AppViewModel: Subscribed pack $packName in $roomId has no usable images — it will not appear in either picker",
-                                )
-                            }
-                        } else {
-                            android.util.Log.w(
-                                "Andromuks",
-                                "AppViewModel: Subscribed pack $packName in $roomId has no images object",
-                            )
-                        }
-                    } else {
-                        android.util.Log.w(
-                            "Andromuks",
-                            "AppViewModel: Subscribed pack $packName in $roomId returned a state event with no content",
-                        )
-                    }
-                } else {
-                    android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: Subscribed pack $packName in $roomId returned no state event — it is not in the room's state",
-                    )
-                }
+        parsed.emojiPack?.let {
+            EmojiPacksCache.updatePack(it)
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Updated emoji pack $packName with ${it.emojis.size} emojis",
+                )
             }
-
-            else -> {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: Emoji pack response is not JSONArray: ${data::class.java.simpleName}",
-                    )
-                }
+        }
+        parsed.stickerPack?.let {
+            StickerPacksCache.updatePack(it)
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Updated sticker pack $packName with ${it.stickers.size} stickers",
+                )
             }
+        }
+
+        if (parsed.emojiPack == null && parsed.stickerPack == null) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Subscribed pack $packName in $roomId has no usable images — it will not appear in either picker",
+            )
         }
     }
 
