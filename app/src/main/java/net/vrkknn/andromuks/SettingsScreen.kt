@@ -708,6 +708,35 @@ fun SettingsScreen(appViewModel: AppViewModel, navController: NavController) {
                 }
             }
 
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = "Sticker & emoji packs",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        text = "See the packs you are subscribed to and remove ones you no longer want — synced across devices via account data. Add packs from the picker in the room that hosts them.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Button(
+                        onClick = { navController.navigate("sticker_packs") },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Open Sticker Packs")
+                    }
+                }
+            }
+
             // FCM Information Section
             Text(
                 text = "Push Notifications",

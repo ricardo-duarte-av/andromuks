@@ -1626,6 +1626,8 @@ class AppViewModel : ViewModel() {
     internal val accountDataCoordinator by lazy { AccountDataCoordinator(this) }
 
     /** Push rules editor send layer — see [PushRulesCoordinator]. */
+    internal val stickerPackCoordinator by lazy { StickerPackCoordinator(this) }
+
     internal val pushRulesCoordinator by lazy { PushRulesCoordinator(this) }
 
     /** Slash commands — see [SlashCommandsCoordinator]. */

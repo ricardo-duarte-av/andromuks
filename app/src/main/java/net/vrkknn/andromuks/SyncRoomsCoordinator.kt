@@ -492,11 +492,13 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             // im.ponies.emote_rooms key.  If both keys are present, only the official
             // one is used.  Both keys share the same structure and room-state logic;
             // the only difference is the room state event type that is requested.
-            val hasOfficialKey = accountDataJson.has("m.image_pack.rooms")
-            val hasLegacyKey = accountDataJson.has("im.ponies.emote_rooms")
+            val hasOfficialKey = accountDataJson.has(StickerPackCoordinator.OFFICIAL_KEY)
+            val hasLegacyKey = accountDataJson.has(StickerPackCoordinator.LEGACY_KEY)
             if (hasOfficialKey || hasLegacyKey) {
-                val activeAccountDataKey = if (hasOfficialKey) "m.image_pack.rooms" else "im.ponies.emote_rooms"
-                val activeStateEventType = if (hasOfficialKey) "m.image_pack" else "im.ponies.room_emotes"
+                // Shared with the subscription writer so the key read and the key written can
+                // never drift apart. See StickerPackCoordinator.
+                val (activeAccountDataKey, activeStateEventType) =
+                    StickerPackCoordinator.resolveKeys(hasOfficialKey)
                 val emoteRoomsData = accountDataJson.optJSONObject(activeAccountDataKey)
                 if (emoteRoomsData != null) {
                     val content = emoteRoomsData.optJSONObject("content")

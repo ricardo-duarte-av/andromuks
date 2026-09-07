@@ -19,6 +19,19 @@ object EmojiPacksCache {
     private val cacheLock = Any()
 
     /**
+     * Bumped on every mutation. Reading it inside a composable subscribes that composable to pack
+     * changes — the list itself is a plain locked collection, read from non-Compose contexts too,
+     * so this counter is what makes a screen showing packs repaint when one arrives.
+     */
+    private val versionState = androidx.compose.runtime.mutableIntStateOf(0)
+    val version: Int
+        get() = versionState.intValue
+
+    private fun bumpVersion() {
+        versionState.intValue++
+    }
+
+    /**
      * Set all emoji packs
      */
     fun setAll(packs: List<AppViewModel.EmojiPack>) {
@@ -27,6 +40,7 @@ object EmojiPacksCache {
             packsList.addAll(packs)
             if (BuildConfig.DEBUG) Log.d(TAG, "EmojiPacksCache: setAll - updated cache with ${packs.size} packs")
         }
+        bumpVersion()
     }
 
     /**
@@ -62,6 +76,7 @@ object EmojiPacksCache {
                 }
             }
         }
+        bumpVersion()
     }
 
     /**
@@ -76,6 +91,7 @@ object EmojiPacksCache {
                 Log.d(TAG, "EmojiPacksCache: removePack - removed pack $packName from room $roomId")
             }
         }
+        bumpVersion()
     }
 
     /**
@@ -93,5 +109,6 @@ object EmojiPacksCache {
             packsList.clear()
             if (BuildConfig.DEBUG) Log.d(TAG, "EmojiPacksCache: Cleared all emoji packs")
         }
+        bumpVersion()
     }
 }

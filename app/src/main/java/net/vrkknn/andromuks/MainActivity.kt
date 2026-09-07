@@ -2466,6 +2466,12 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                             navController = navController,
                         )
                     }
+                    composable("sticker_packs") {
+                        StickerPackManagerScreen(
+                            appViewModel = appViewModel,
+                            navController = navController,
+                        )
+                    }
                     composable("push_rules") {
                         PushRulesScreen(
                             appViewModel = appViewModel,
