@@ -2781,7 +2781,7 @@ private fun FileDownload(
 /**
  * Download file using OkHttp and Android DownloadManager
  */
-private suspend fun downloadFile(context: android.content.Context, url: String, filename: String, authToken: String) {
+internal suspend fun downloadFile(context: android.content.Context, url: String, filename: String, authToken: String) {
     try {
         // Use Android DownloadManager for system-level download handling
         val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager

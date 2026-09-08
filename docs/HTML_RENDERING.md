@@ -185,6 +185,33 @@ LaTeX is in the `latex` attribute (the inner `<code>` is just a textual fallback
   expression never blanks the message. ProGuard keeps `ru.noties.jlatexmath.**` and
   `org.scilab.forge.jlatexmath.**` (reflective font/symbol loading).
 
+## `mxc://` links (`utils/MxcLinkViewer.kt`)
+
+gomuks linkifies a bare `mxc://` URI in a message body into
+`<a class="hicli-mxc-url" data-mxc="mxc://server/id" href="_gomuks/media/server/id?encrypted=false">`.
+That href is useless to a browser — it is relative and needs the `gomuks_auth` cookie — so
+`appendAnchor` gives these anchors their own `MXC_MEDIA` annotation instead of the generic `URL`
+one, and a tap opens the media in-app. The plain-text linkifier (`buildPlainTextAnnotatedString`,
+used when there is no `sanitized_html`) recognises `mxc://` and pushes the same annotation.
+
+`parseMxcMediaLink` normalises all three shapes that reach it — raw `mxc://server/id`, the relative
+`_gomuks/media/...` href, and the absolute form — to an mxc URI plus the `?encrypted=` flag the link
+carried.
+
+**Type detection is a network round trip, because nothing in the event says what the media is.** A
+bare mxc URI carries no `info.mimetype` the way an `m.image` event does. `probeMxcMedia` issues a
+`Range: bytes=0-0` GET against the gomuks media endpoint and reads `Content-Type` (and a filename
+out of `Content-Disposition`). It is deliberately a ranged GET and **not** a HEAD:
+`EncryptedMediaRetryInterceptor` corrects a wrong `?encrypted=` flag by inspecting the *error body*,
+which a bodyless HEAD would never produce — so the probe also self-corrects the flag, and reports
+back which one actually worked.
+
+`MxcLinkViewerHost` then routes on the mime type: `image/*` → `ImageViewerDialog`, `video/*` and
+`audio/*` → `VideoPlayerDialog`, anything else → the same `downloadFile` path an `m.file` chip uses.
+An unreachable link toasts rather than guessing a viewer. The host renders nothing when its link is
+null, so `HtmlMessageText` mounts it unconditionally in both render branches — the same arrangement
+`InlineImageViewerHost` uses, and for the same reason (the table/block-math branch returns early).
+
 ## Known Limitation
 
 If a message interleaves text and tables (text → table → more text), the non-table text nodes are all rendered together above the table cards. The relative ordering of text-after-table is lost. This is acceptable for typical Matrix messages where tables are at the end or occupy the whole message body.

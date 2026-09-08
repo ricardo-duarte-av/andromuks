@@ -1350,7 +1350,7 @@ private fun parseCssColor(raw: String?): Color? {
     }
 }
 
-private val plainUrlRegex = Regex("""(?i)\bhttps?://[^\s<>()]+""")
+private val plainUrlRegex = Regex("""(?i)\b(?:https?|mxc)://[^\s<>()]+""")
 private val trailingUrlPunctuation = setOf('.', ',', ':', ';', '!', '?', ')', ']', '}', '"', '\'')
 
 private fun buildPlainTextAnnotatedString(text: String, linkStyle: SpanStyle): AnnotatedString {
@@ -1371,7 +1371,7 @@ private fun buildPlainTextAnnotatedString(text: String, linkStyle: SpanStyle): A
 
             if (trimmedEnd > start) {
                 val url = text.substring(start, trimmedEnd)
-                pushStringAnnotation("URL", url)
+                pushStringAnnotation(if (url.startsWith("mxc://", ignoreCase = true)) "MXC_MEDIA" else "URL", url)
                 withStyle(linkStyle) { append(url) }
                 pop()
                 if (trimmedEnd < endExclusive) {
@@ -1545,6 +1545,21 @@ private fun AnnotatedString.Builder.appendAnchor(
         if (!endsWithWhitespace()) {
             append(" ")
         }
+        return
+    }
+
+    // A link to Matrix media (gomuks linkifies bare mxc:// URIs as a.hicli-mxc-url). Annotated
+    // separately so a tap opens the in-app viewer instead of handing a gomuks path to the browser.
+    val mxcLink = if (href.isNotBlank()) parseMxcMediaLink(href, tag.attributes["data-mxc"]) else null
+    if (mxcLink != null && !hideContent) {
+        val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
+        pushStringAnnotation("MXC_MEDIA", href)
+        var previousWasLineBreak = false
+        tag.children.forEach { child ->
+            appendHtmlNode(child, linkStyle, inlineImages, inlineMatrixUsers, inlineMatrixRooms, spoilerContext, hideContent, previousWasLineBreak, inlineCodeBlocks = inlineCodeBlocks)
+            previousWasLineBreak = child is HtmlNode.LineBreak
+        }
+        pop()
         return
     }
 
@@ -2300,6 +2315,21 @@ fun HtmlMessageText(
             }
         }
     }
+
+    // A tapped mxc:// link in message text opens in the in-app viewer instead of the browser, which
+    // can't authenticate against the gomuks media endpoint anyway. Hosted in every render branch,
+    // like the inline-image viewer above.
+    var mxcViewerLink by remember { mutableStateOf<MxcMediaLink?>(null) }
+
+    @Composable
+    fun MxcLinkViewerSlot() {
+        MxcLinkViewerHost(
+            link = mxcViewerLink,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            onDismiss = { mxcViewerLink = null },
+        )
+    }
     val inlineContentMap =
         remember(annotatedString, inlineImagesSnapshot, inlineMatrixUsers.toMap(), inlineMatrixRooms.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onRoomLinkClick, onCodeBlockClick, handleInlineImageClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle, roomChipColor, roomChipTextColor, homeserverUrl, authToken, mathColorArgb, mathTextSizePx, inlineImageSizing) {
             val map = mutableMapOf<String, InlineTextContent>()
@@ -2519,6 +2549,21 @@ fun HtmlMessageText(
                                         }
                                         return@awaitEachGesture
                                     }
+                                    val mxcAnnotation = annotatedString.getStringAnnotations(
+                                        tag = "MXC_MEDIA",
+                                        start = offset,
+                                        end = offset,
+                                    ).firstOrNull()
+                                    if (mxcAnnotation != null) {
+                                        up.consume()
+                                        val parsed = parseMxcMediaLink(
+                                            mxcAnnotation.item,
+                                        )
+                                        if (parsed != null) {
+                                            mxcViewerLink = parsed
+                                        }
+                                        return@awaitEachGesture
+                                    }
                                     val hasInteractive = annotatedString.getStringAnnotations(
                                         tag = "MATRIX_USER",
                                         start = offset,
@@ -2693,6 +2738,7 @@ fun HtmlMessageText(
             }
         }
         InlineImageViewerHost()
+        MxcLinkViewerSlot()
         return
     }
 
@@ -2780,6 +2826,20 @@ fun HtmlMessageText(
                                 val codeBlock = inlineCodeBlocks[codeBlockId]
                                 if (codeBlock != null) {
                                     onCodeBlockClick(codeBlock.fullCode)
+                                }
+                                return@awaitEachGesture
+                            }
+
+                            val mxcAnnotation = annotatedString.getStringAnnotations(
+                                tag = "MXC_MEDIA",
+                                start = offset,
+                                end = offset,
+                            ).firstOrNull()
+                            if (mxcAnnotation != null) {
+                                up.consume()
+                                val parsed = parseMxcMediaLink(mxcAnnotation.item)
+                                if (parsed != null) {
+                                    mxcViewerLink = parsed
                                 }
                                 return@awaitEachGesture
                             }
@@ -2952,6 +3012,7 @@ fun HtmlMessageText(
         )
     }
     InlineImageViewerHost()
+    MxcLinkViewerSlot()
 }
 
 /**
