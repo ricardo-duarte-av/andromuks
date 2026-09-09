@@ -250,10 +250,14 @@ class FCMService : FirebaseMessagingService() {
                     // when reading rooms elsewhere while other rooms were still active.
                     val dismissCount = jsonObject.optJSONArray("dismiss")?.length()
                     val messageCount = jsonObject.optJSONArray("messages")?.length()
-                    Androlog(
-                        "Notifications",
-                        "Push payload received: dismiss=${dismissCount ?: "-"} messages=${messageCount ?: "-"}",
-                    )
+                    // Deliberately NOT an Androlog entry: this fires on every single push, so it
+                    // was the single largest source of noise in the log and (being interleaved)
+                    // also broke up the runs of identical dismiss lines that would otherwise
+                    // collapse into one repeat-counted entry. The outcome probes downstream
+                    // (dismissed / deferred / suppressed) already say what the payload did.
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "Push payload: dismiss=${dismissCount ?: "-"} messages=${messageCount ?: "-"}")
+                    }
 
                     // Dismisses run FIRST. handleMessageNotification stamps each message with its
                     // own messageReceivedAt (see the tombstone high-water mark in
