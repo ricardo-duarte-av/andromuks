@@ -32,16 +32,57 @@ Each call also mirrors to logcat via `Log.i("Androlog", "[$category] $text")`. `
 
 ## Storage & limits
 
-- In-memory list capped at `MAX_ENTRIES = 200` (oldest dropped first).
-- Persisted to `SharedPreferences("AndromuksAndrologPrefs")` under key `androlog`, as a JSON array of `{timestamp, category, text}`. Written with `apply()` (best-effort, non-blocking) — mirrors the WebSocket activity-log pattern in [`DiagnosticsCoordinator`](../app/src/main/java/net/vrkknn/andromuks/DiagnosticsCoordinator.kt).
-- Calls made before `init()` are buffered in memory and persisted on the next `init()`; persisted entries load ahead of those pre-init entries.
-- Thread-safe: all list mutation is `synchronized` on a private lock.
+The store is **partitioned by category**, not one global list. This matters: it *was* a single
+200-entry list, which meant the chattiest category silently evicted every other one — a burst of
+routine `"Notifications"` push traffic could wipe out the handful of `"FCMOpen"` / `"WSDial"` lines
+a rare wedge had just written, minutes before the user got a chance to export. For a log whose
+entire purpose is post-hoc diagnosis of blue-moon events, that made it useless exactly when it
+mattered.
+
+- **Per-category ring buffer**: `MAX_ENTRIES_PER_CATEGORY = 300`, oldest dropped first. A category
+  can only ever evict *itself*; a quiet category survives indefinitely no matter what the noisy
+  ones do.
+- **Total ceiling**: `MAX_ENTRIES_TOTAL = 2000`. When exceeded, the **largest** category is trimmed
+  first — pressure lands on whichever category is producing the volume, rather than on the
+  globally-oldest entries.
+- **Consecutive duplicates collapse.** An identical message logged again into the same category
+  bumps that entry's `repeatCount` and `lastTimestamp` instead of taking a new slot. A burst of 40
+  identical guard lines costs one slot, and the entry still shows the span it covered — so a tight
+  retry loop stays distinguishable from a slow one. Rendered as an `x40` chip with a
+  `first → last` timestamp, and as `(x40 through …)` in the export.
+- Persisted to `SharedPreferences("AndromuksAndrologPrefs")` under key `androlog`, as a JSON array
+  of `{timestamp, category, text}` (plus `repeatCount`/`lastTimestamp` when a run collapsed).
+  Written with `apply()` (best-effort, non-blocking) — mirrors the WebSocket activity-log pattern in
+  [`DiagnosticsCoordinator`](../app/src/main/java/net/vrkknn/andromuks/DiagnosticsCoordinator.kt).
+- **The write is debounced** (`SAVE_DEBOUNCE_MS = 2000`, on a daemon `androlog-save` thread).
+  `log()` used to re-serialise the whole buffer to JSON on the caller's thread on every call —
+  tolerable at 200 entries, not at 2000, and some callers are hot paths (the WebSocket reader
+  thread). Entries are in memory immediately either way; only the persist is deferred.
+- Calls made before `init()` are buffered in memory and persisted on the next `init()`; persisted
+  entries load ahead of those pre-init entries.
+- Thread-safe: all mutation is `synchronized` on a private lock.
+
+### Keeping it readable
+
+The cap is not the only thing that decides whether a log is usable — density is. Two rules:
+
+- **Don't log per-arrival counters.** A probe that fires on every push/message/frame will dominate
+  the log and, worse, interleave with the runs of identical lines that would otherwise collapse.
+  `FCMService`'s "Push payload received: dismiss=… messages=…" was removed for exactly this (it is
+  a `Log.d` now); the downstream outcome probes already say what the payload did.
+- **Log outcomes, not entries.** Prefer one line saying what happened to one line per code path
+  traversed.
 
 ## UI
 
 `AndrologScreen` (`app/src/main/java/net/vrkknn/andromuks/AndrologScreen.kt`), reached from **Settings → WebSocket Debug → "Androlog" → View Androlog** (nav route `"androlog"`, registered in `MainActivity`). It mirrors `ReconnectionLogScreen`:
 
 - Entries listed newest-first; each card shows the timestamp, a category chip, and the text.
+  A collapsed run also carries an `x<count>` chip and a `first → last` timestamp range.
+- **Category filter chips** across the top (shown once more than one category has entries), each
+  with its retained count, plus an "All". The filter drives the export too — so you can hand over
+  just the `WSDial` lines instead of a mixed dump — and the exported filename and header record
+  which category was selected.
 - **Export** writes a `timestamp | category | text` `.txt` via the system document picker.
 - **Clear** (trash icon) wipes the log.
 

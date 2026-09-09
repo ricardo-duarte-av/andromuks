@@ -4,9 +4,11 @@ package net.vrkknn.andromuks
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -27,7 +29,14 @@ import java.util.*
 fun AndrologScreen(navController: NavController) {
     // refreshTrigger forces re-read of the in-memory log (e.g. after clearing).
     var refreshTrigger by remember { mutableIntStateOf(0) }
-    val entries = remember(refreshTrigger) { Androlog.getEntries() }
+    val allEntries = remember(refreshTrigger) { Androlog.getEntries() }
+    val categoryCounts = remember(refreshTrigger) { Androlog.getCategoryCounts() }
+    // Null = "All". A single chatty category (Notifications) makes a mixed list unreadable, and
+    // the export is what actually gets shared for diagnosis — so the filter drives both.
+    var selectedCategory by remember { mutableStateOf<String?>(null) }
+    val entries = remember(allEntries, selectedCategory) {
+        selectedCategory?.let { category -> allEntries.filter { it.category == category } } ?: allEntries
+    }
     val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -40,7 +49,7 @@ fun AndrologScreen(navController: NavController) {
             return@rememberLauncherForActivityResult
         }
         try {
-            val exportText = buildAndrologExportText(entries)
+            val exportText = buildAndrologExportText(entries, selectedCategory)
             context.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { writer ->
                 writer.write(exportText)
             }
@@ -64,9 +73,10 @@ fun AndrologScreen(navController: NavController) {
                 },
                 actions = {
                     IconButton(
-                        enabled = entries.isNotEmpty(),
+                        enabled = allEntries.isNotEmpty(),
                         onClick = {
                             Androlog.clear()
+                            selectedCategory = null
                             refreshTrigger++
                             scope.launch { snackbarHostState.showSnackbar("Androlog cleared") }
                         },
@@ -80,7 +90,8 @@ fun AndrologScreen(navController: NavController) {
                         enabled = entries.isNotEmpty(),
                         onClick = {
                             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                            exportLauncher.launch("andromuks_androlog_$stamp.txt")
+                            val categorySuffix = selectedCategory?.lowercase(Locale.US)?.let { "_$it" } ?: ""
+                            exportLauncher.launch("andromuks_androlog${categorySuffix}_$stamp.txt")
                         },
                     ) {
                         Text("Export")
@@ -95,6 +106,31 @@ fun AndrologScreen(navController: NavController) {
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
+            if (categoryCounts.size > 1) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilterChip(
+                        selected = selectedCategory == null,
+                        onClick = { selectedCategory = null },
+                        label = { Text("All (${allEntries.size})") },
+                    )
+                    categoryCounts.entries.sortedBy { it.key }.forEach { (category, count) ->
+                        FilterChip(
+                            selected = selectedCategory == category,
+                            onClick = {
+                                selectedCategory = if (selectedCategory == category) null else category
+                            },
+                            label = { Text("$category ($count)") },
+                        )
+                    }
+                }
+            }
+
             if (entries.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -105,7 +141,11 @@ fun AndrologScreen(navController: NavController) {
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Text(
-                            text = "No Androlog entries yet",
+                            text = if (selectedCategory != null) {
+                                "No $selectedCategory entries"
+                            } else {
+                                "No Androlog entries yet"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -131,19 +171,29 @@ fun AndrologScreen(navController: NavController) {
     }
 }
 
-private fun buildAndrologExportText(entries: List<Androlog.Entry>): String {
+private fun buildAndrologExportText(entries: List<Androlog.Entry>, category: String?): String {
     val lineDateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
     val now = Date()
     val builder = StringBuilder()
 
     builder.append("Andromuks Androlog\n")
     builder.append("Exported at: ${lineDateFormat.format(now)}\n")
+    if (category != null) {
+        builder.append("Filtered to category: $category\n")
+    }
     builder.append("Total entries: ${entries.size}\n")
     builder.append("\n")
 
     entries.forEach { entry ->
         val timestamp = lineDateFormat.format(Date(entry.timestamp))
-        builder.append("$timestamp | ${entry.category} | ${entry.text}\n")
+        // A collapsed run prints its span, so "it repeated 40 times over 3 s" and "…over 20 min"
+        // stay distinguishable — the difference between a tight retry loop and a slow one.
+        val repeat = if (entry.repeatCount > 1) {
+            " (x${entry.repeatCount} through ${lineDateFormat.format(Date(entry.lastTimestamp))})"
+        } else {
+            ""
+        }
+        builder.append("$timestamp | ${entry.category} | ${entry.text}$repeat\n")
     }
 
     return builder.toString()
@@ -152,7 +202,12 @@ private fun buildAndrologExportText(entries: List<Androlog.Entry>): String {
 @Composable
 fun AndrologEntryCard(entry: Androlog.Entry) {
     val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
-    val formattedTime = dateFormat.format(Date(entry.timestamp))
+    val formattedTime = if (entry.repeatCount > 1) {
+        val lastFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+        "${dateFormat.format(Date(entry.timestamp))} → ${lastFormat.format(Date(entry.lastTimestamp))}"
+    } else {
+        dateFormat.format(Date(entry.timestamp))
+    }
 
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -174,17 +229,35 @@ fun AndrologEntryCard(entry: Androlog.Entry) {
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                if (entry.category.isNotEmpty()) {
-                    Surface(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = MaterialTheme.shapes.small,
-                    ) {
-                        Text(
-                            text = entry.category,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (entry.repeatCount > 1) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.tertiaryContainer,
+                            shape = MaterialTheme.shapes.small,
+                        ) {
+                            Text(
+                                text = "x${entry.repeatCount}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
+                    }
+                    if (entry.category.isNotEmpty()) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            shape = MaterialTheme.shapes.small,
+                        ) {
+                            Text(
+                                text = entry.category,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            )
+                        }
                     }
                 }
             }
