@@ -86,4 +86,40 @@ Release-visible because the race only reproduces in the field.
 
 The two-phase image flow these probes cover is documented in [docs/NOTIFICATIONS.md](NOTIFICATIONS.md).
 
+### `"WSDial"`
+
+Every silent or quiet exit in the WebSocket dial-and-retry chain. Companion to the `"FCMOpen"`
+category: `FCMOpen` covers the *navigation* half of a notification tap, `WSDial` covers the
+*socket* half. Together they make a "room renders but the socket never comes up" field repro
+diagnosable from an Androlog export alone, with no adb attached — which is the whole point, since
+that wedge happens once in a blue moon. Background and the earlier fixed variants:
+[DEBUG_WS_REVIVAL.md](DEBUG_WS_REVIVAL.md).
+
+These sites all previously logged to logcat only (the `DIAG-WS-START` breadcrumbs and friends);
+the Androlog line is added alongside, not instead.
+
+| Location | What it logs |
+|---|---|
+| `AppViewModel.startWebSocketService` — entry | Whether an FGS start or the plain-`startService` fallback was chosen, plus the SDK level. |
+| `AppViewModel.startWebSocketService` — `appContext == null` | The service was never asked to start. |
+| `AppViewModel.startWebSocketService` — FGS denied | `ForegroundServiceStartNotAllowedException`: a dialer fired while below `RESUMED`. |
+| `AppViewModel.startWebSocketService` — generic throw | Any other failure to start the service, with exception class and message. |
+| `AppViewModel.initializeWebSocketConnection` — non-primary | This VM is not `PRIMARY`, so it declined to dial. |
+| `AppViewModel.initializeWebSocketConnection` — already connected | Attached to an existing socket instead of dialing. |
+| `AppViewModel.initializeWebSocketConnection` — delegating | The dial actually proceeded to `WebSocketService`. Its **absence** after a `startWebSocketService` line is the tell. |
+| `WebSocketService.connectWebSocket` — no service instance | `waitForServiceInstance` timed out after 5 s; the service start was silently dropped. |
+| `WebSocketService.connectWebSocket` — already connected / already connecting | Which of the two post-delegation bails claimed the dial. |
+| `WebSocketService.scheduleReconnection` — parked | No network; the trigger was queued into `WaitingForNetwork`. |
+| `WebSocketService.scheduleReconnection` — skipped | A retry was dropped by the already-reconnecting or min-interval guard. |
+| `WebSocketService.scheduleReconnection` — gave up | `MAX_RECONNECTION_ATTEMPTS` reached; **no further retries will ever be scheduled**. A terminal line. |
+| `WebSocketService.scheduleReconnection` — scheduled | Attempt number, backoff delay and network type for a retry that was actually armed. |
+| reconnect job — aborted | Network went `NONE` after the backoff; the job ended in `Disconnected` without retrying. |
+| `WebSocketService.pingNowWithWatchdog` — watchdog | The resume health-check ping saw no traffic in 3 s and declared the socket dead. A watchdog line with no `scheduleReconnection` line after it means the recovery was lost (e.g. the service scope was cancelled mid-`delay`). |
+| `WebSocketService.startHardConnectingTimeout` — hard timeout | Stuck in `Connecting` past the hard ceiling; forcing recovery. |
+| `NetworkUtils` WebSocket `onFailure` | The decisive one: exception class, message and HTTP code for a dial that died. |
+
+Volume is bounded by the reconnect ladder (exponential backoff to a 120 s ceiling), so even a
+sustained bad-link session cannot flood the 200-entry buffer and evict the `FCMOpen` lines that
+give the tap its context.
+
 When adding new probes, keep the category short and stable (it renders as a chip and groups related events when scanning the export).

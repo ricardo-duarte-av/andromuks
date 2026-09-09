@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import net.vrkknn.andromuks.Androlog
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ErrorReportingCoordinator
@@ -1011,6 +1012,13 @@ fun connectToWebsocket(
             connectTrace = null
             Log.e("Andromuks", "NetworkUtils: WebSocket connection failed", t)
             Log.e("Andromuks", "NetworkUtils: Failure reason: ${t.message}, response: ${response?.code}")
+            // WSDial: the decisive line for a socket that never comes up — why the dial died.
+            // Persisted (unlike the Log.e above) so a blue-moon field repro is diagnosable from
+            // Settings → WebSocket Debug → Androlog. See docs/DEBUG_WS_REVIVAL.md.
+            Androlog(
+                "WSDial",
+                "onFailure ${t.javaClass.simpleName}: ${t.message} httpCode=${response?.code}",
+            )
 
             // Tear the parse pipeline down here too. OkHttp delivers onFailure INSTEAD OF
             // onClosed for abnormal termination (network drop, TLS error, read timeout) — the

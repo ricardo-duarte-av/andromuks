@@ -13991,12 +13991,17 @@ class AppViewModel : ViewModel() {
         if (context == null) {
             // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
             android.util.Log.i("Andromuks", "AppViewModel: startWebSocketService SKIPPED - appContext is null")
+            Androlog("WSDial", "startWebSocketService SKIPPED - appContext is null")
             return
         }
         // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
         android.util.Log.i(
             "Andromuks",
             "AppViewModel: startWebSocketService - shouldUseForegroundService=${WebSocketService.shouldUseForegroundService()}, sdk=${Build.VERSION.SDK_INT}",
+        )
+        Androlog(
+            "WSDial",
+            "startWebSocketService fgsAllowed=${WebSocketService.shouldUseForegroundService()} sdk=${Build.VERSION.SDK_INT}",
         )
         logActivity("Starting WebSocket Service", null)
         val intent = android.content.Intent(context, WebSocketService::class.java)
@@ -14014,6 +14019,7 @@ class AppViewModel : ViewModel() {
                     "Andromuks",
                     "AppViewModel: startWebSocketService - FALLBACK to startService (no FGS)",
                 )
+                Androlog("WSDial", "startWebSocketService FALLBACK to startService (no FGS)")
                 context.startService(intent)
             }
         } catch (e: ForegroundServiceStartNotAllowedException) {
@@ -14030,8 +14036,10 @@ class AppViewModel : ViewModel() {
                 "AppViewModel: startWebSocketService DENIED - ForegroundServiceStartNotAllowed (dialed while app backgrounded/below RESUMED, e.g. behind a lock)",
                 e,
             )
+            Androlog("WSDial", "startWebSocketService DENIED - ForegroundServiceStartNotAllowed (dialed while backgrounded)")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to start WebSocketService", e)
+            Androlog("WSDial", "startWebSocketService FAILED - ${e.javaClass.simpleName}: ${e.message}")
         }
         // Service will manage connection lifecycle once started
     }
@@ -14051,6 +14059,7 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: initializeWebSocketConnection SKIPPED - non-primary instance ($viewModelId, role=$instanceRole)",
             )
+            Androlog("WSDial", "initializeWebSocketConnection SKIPPED - non-primary (vm=$viewModelId role=$instanceRole)")
             return
         }
 
@@ -14061,12 +14070,14 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: initializeWebSocketConnection SKIPPED - isWebSocketConnected()=true (attaching to existing)",
             )
+            Androlog("WSDial", "initializeWebSocketConnection SKIPPED - already connected (attaching to existing)")
             attachToExistingWebSocketIfAvailable()
             return
         }
 
         // DIAG-WS-START: see docs/DEBUG_WS_REVIVAL.md
         android.util.Log.i("Andromuks", "AppViewModel: initializeWebSocketConnection - delegating to WebSocketService")
+        Androlog("WSDial", "initializeWebSocketConnection - delegating to WebSocketService")
 
         // Start WebSocket service BEFORE connecting websocket
         startWebSocketService()

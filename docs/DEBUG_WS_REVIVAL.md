@@ -70,6 +70,55 @@ grep -nE "FCMOpen|DIAG-WS-START|startWebSocketService DENIED|ForegroundServiceSt
 - `onAppBecameVisible: …` absent across the tap → the lock kept the app below `RESUMED`, so the
   foreground re-dialer never ran (expected pre-fix).
 
+## Open variant (2026-09-09): warm FCM tap, timeline renders, socket never dials
+
+Reported as happening "once in a blue moon". Distinct from every variant above in one
+important way: **the room and its timeline render fine** (from cache), so navigation
+worked and the VM is alive and primary. Only the socket half is dead — the header shows
+the pulsing red `CloudOff` indefinitely. Swiping the app away and relaunching from the
+launcher icon fixes it; no re-login, so credentials are intact and this is **not** the 401
+path. Process death being the cure means something in-process is latched.
+
+### Why it was not diagnosable
+
+The two halves of the FCM path had asymmetric instrumentation:
+
+| Half | Instrumented as | Survives a blue-moon repro? |
+|---|---|---|
+| Navigation | Androlog `"FCMOpen"` **and** `WebSocketService.logActivity` — both persisted to SharedPreferences, both exportable from Settings | yes |
+| Dial chain | `DIAG-WS-START` — `Log.i` to logcat only | no, unless adb happened to be attached |
+| Post-dial fate (backoff, `onFailure` reason, retry give-up) | nothing persisted | no |
+
+So the one thing needed was the one thing not recorded. Fixed by mirroring the dial chain
+into Androlog under the `"WSDial"` category — see
+[ANDROLOG.md](ANDROLOG.md#wsdial) for the full site table. No behaviour changed.
+
+### What to capture on the next occurrence
+
+1. **Before touching anything, check the notification shade.** Is the "WebSocket connected"
+   foreground-service notification present? That single bit halves the search space:
+   - **absent** → the service was never created or died → a bail in the dial chain.
+   - **present** → the service is alive but the socket is stuck → `Connecting` latched, or the
+     retry ladder went quiet.
+2. Export **both** logs: Settings → WebSocket Debug → *Reconnection Log* (`reconnection_log`)
+   and *Androlog* (`androlog`). Read the `FCMOpen` and `WSDial` lines around the tap
+   timestamp together. Note the reconnection log is capped at 100 entries
+   (`DiagnosticsCoordinator.kt`) and can lose the tap in a retry storm; Androlog holds 200.
+3. Only then swipe the app away.
+
+### Standing hypothesis (unverified — do not act on it without a log)
+
+`pingNowWithWatchdog` (`WebSocketService.kt`) returns `true` as soon as the ping is *sent*, and
+`onAppBecameVisible` treats `true` as "healthy, no re-dial needed"
+(`ViewModelLifecycleCoordinator.kt`). Recovery is delegated entirely to a `delay(3000)` launched
+on `svc.serviceScope`: if the service is torn down inside that window the scope is cancelled and
+the `clearWebSocket` + `scheduleReconnection` never run. Nothing re-checks afterwards and the
+resume funnel has already passed — which fits "red forever until a fresh process". The new
+`WSDial` probes are what confirm or kill this: a `ping watchdog: no traffic` line with **no**
+`scheduleReconnection` line after it is the signature.
+
+Three diagnoses in this doc have already been wrong. Confirm from a log first.
+
 ## The bug
 
 After the app has been backgrounded/idle for a long time (Doze-territory), tapping

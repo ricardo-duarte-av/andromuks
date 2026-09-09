@@ -1806,6 +1806,7 @@ class WebSocketService : Service() {
                         "WebSocketService",
                         "pingNowWithWatchdog: no traffic within ${watchdogMs}ms after ping — treating socket as dead",
                     )
+                    Androlog("WSDial", "ping watchdog: no traffic within ${watchdogMs}ms — socket dead, re-dialling")
                     clearWebSocket("ping watchdog: no traffic after immediate ping")
                     scheduleReconnection(ReconnectTrigger.MessageTimeout)
                 }
@@ -2142,6 +2143,7 @@ class WebSocketService : Service() {
                             "Andromuks",
                             "WebSocketService: connectWebSocket SKIPPED - service instance never appeared after 5s (startForegroundService likely silently dropped)",
                         )
+                        Androlog("WSDial", "connectWebSocket SKIPPED - service instance never appeared after 5s")
                         android.util.Log.e(
                             "WebSocketService",
                             "connectWebSocket() called but service instance is null after waiting 5 seconds",
@@ -2165,6 +2167,7 @@ class WebSocketService : Service() {
                             "Andromuks",
                             "WebSocketService: connectWebSocket SKIPPED - isWebSocketConnected()=true",
                         )
+                        Androlog("WSDial", "connectWebSocket SKIPPED - already connected")
                         logActivity(
                             withReconnectTrace(traceId, "connectWebSocket skipped: already connected"),
                             serviceInstance.currentNetworkType.name,
@@ -2194,6 +2197,7 @@ class WebSocketService : Service() {
                             "Andromuks",
                             "WebSocketService: connectWebSocket SKIPPED - dial already in progress (state=Connecting)",
                         )
+                        Androlog("WSDial", "connectWebSocket SKIPPED - dial already in progress (state=Connecting)")
                         logActivity(
                             withReconnectTrace(traceId, "connectWebSocket skipped: already connecting"),
                             serviceInstance.currentNetworkType.name,
@@ -2690,6 +2694,7 @@ class WebSocketService : Service() {
                     "[$reconnectTraceId] Waiting for network ($reasonLabel)",
                     serviceInstance.currentNetworkType.name,
                 )
+                Androlog("WSDial", "scheduleReconnection PARKED - no network, queued ($reasonLabel)")
                 return
             }
 
@@ -2746,6 +2751,10 @@ class WebSocketService : Service() {
                                 "[$reconnectTraceId] Reconnection skipped: already reconnecting (${timeSinceReconnect}ms)",
                                 serviceInstance.currentNetworkType.name,
                             )
+                            Androlog(
+                                "WSDial",
+                                "scheduleReconnection SKIPPED - already reconnecting ${timeSinceReconnect}ms ($reasonLabel)",
+                            )
                             return
                         }
                     } else {
@@ -2759,6 +2768,10 @@ class WebSocketService : Service() {
                         logActivity(
                             "[$reconnectTraceId] Reconnection skipped: reconnect in progress (${timeSinceReconnect}ms)",
                             serviceInstance.currentNetworkType.name,
+                        )
+                        Androlog(
+                            "WSDial",
+                            "scheduleReconnection SKIPPED - reconnect in progress ${timeSinceReconnect}ms ($reasonLabel)",
                         )
                         return
                     }
@@ -2776,6 +2789,10 @@ class WebSocketService : Service() {
                         "Reconnection attempt limit reached (${serviceInstance.reconnectionAttemptCount}) - stopping retries",
                     )
                     logActivity("Reconnection Limit Reached - Stopping", serviceInstance.currentNetworkType.name)
+                    Androlog(
+                        "WSDial",
+                        "scheduleReconnection GAVE UP - attempt limit ${serviceInstance.reconnectionAttemptCount} reached, no further retries",
+                    )
                     updateConnectionStatus(false, null, serviceInstance.lastSyncTimestamp)
                     return
                 }
@@ -2792,6 +2809,7 @@ class WebSocketService : Service() {
                         "[$reconnectTraceId] Reconnection skipped: min interval guard ($reasonLabel)",
                         serviceInstance.currentNetworkType.name,
                     )
+                    Androlog("WSDial", "scheduleReconnection SKIPPED - min interval guard ($reasonLabel)")
                     return
                 }
 
@@ -2831,6 +2849,10 @@ class WebSocketService : Service() {
                 }
 
                 logActivity("[$reconnectTraceId] Connecting - $reasonLabel", serviceInstance.currentNetworkType.name)
+                Androlog(
+                    "WSDial",
+                    "scheduleReconnection attempt=$nextAttempt backoff=${backoffDelayMs}ms net=${serviceInstance.currentNetworkType.name} ($reasonLabel)",
+                )
 
                 // Show toast for reconnection scheduled
                 serviceInstance.showWebSocketToast("Reconnecting: $reasonLabel")
@@ -2881,6 +2903,7 @@ class WebSocketService : Service() {
                                     "Reconnection job: Network NONE - cancelling reconnection",
                                 )
                                 serviceInstance.showWebSocketToast("No network")
+                                Androlog("WSDial", "reconnect job ABORTED - network NONE after backoff, state=Disconnected")
                                 updateConnectionState(ConnectionState.Disconnected)
                                 return@launch
                             }
@@ -4744,6 +4767,7 @@ class WebSocketService : Service() {
                         "HARD TIMEOUT: Stuck in Connecting state for ${timeSinceConnect}ms (>${HARD_CONNECTING_TIMEOUT_MS}ms) - forcing recovery",
                     )
                     logActivity("Hard Timeout - Stuck in Connecting", currentNetworkType.name)
+                    Androlog("WSDial", "HARD TIMEOUT - stuck in Connecting for ${timeSinceConnect}ms, forcing recovery")
 
                     // Force recovery
                     clearWebSocket("Hard timeout: Stuck in Connecting for >${HARD_CONNECTING_TIMEOUT_MS}ms")
