@@ -203,8 +203,12 @@ private fun buildAndrologExportText(entries: List<Androlog.Entry>, category: Str
 fun AndrologEntryCard(entry: Androlog.Entry) {
     val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
     val formattedTime = if (entry.repeatCount > 1) {
-        val lastFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-        "${dateFormat.format(Date(entry.timestamp))} → ${lastFormat.format(Date(entry.lastTimestamp))}"
+        // The end of a collapsed run only needs its time-of-day, but deriving it from this same
+        // formatter (rather than a second "HH:mm:ss" one) keeps the composable down to a single
+        // Locale.getDefault() read — a second one trips lint's NonObservableLocale, which the
+        // baseline covers for the line below but not for a new call site.
+        val last = dateFormat.format(Date(entry.lastTimestamp)).substringAfter(' ')
+        "${dateFormat.format(Date(entry.timestamp))} → $last"
     } else {
         dateFormat.format(Date(entry.timestamp))
     }
