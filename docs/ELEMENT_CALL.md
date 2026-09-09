@@ -111,9 +111,22 @@ The type is present in the `allowedEventTypes` sets of both `RoomTimelineScreen`
 
 ---
 
-## .well-known base URL resolution
+## Which Element Call deployment we load
 
-On connect, `CallsWidgetsCoordinator.refreshElementCallBaseUrlFromWellKnown` fetches `<homeserver>/.well-known/matrix/client`, parses `org.matrix.msc4143.rtc_foci`, finds the first `livekit` entry, and derives the Element Call base URL as `<origin>/room`. This is stored in `wellKnownElementCallBaseUrl` and takes precedence over the manually configured URL.
+`CallOverlay` resolves the base URL in exactly two steps:
+
+1. `elementCallBaseUrl` — the deployment configured in Settings, loaded as `<base>/room`.
+2. Otherwise `<gomuks backend>/element-call-embedded/index.html` — the build the gomuks backend
+   serves, which is the one gomuks web itself loads.
+
+There is **no third-party fallback**. `call.element.io` is configured for someone else's homeserver,
+and the old `.well-known` derivation (origin of `org.matrix.msc4143.rtc_foci[].livekit_service_url`
+plus `/room`) assumed Element Call is hosted on the SFU's origin, which is usually a 404 — both are
+gone. If neither URL is available the overlay shows "No Element Call deployment available" instead
+of loading a stranger's deployment.
+
+Both forms take the same parameters, in the URL hash, exactly as gomuks web passes them
+(`buildElementCallUrl`); only `parentUrl` and `widgetId` sit in the query string.
 
 ## SFU discovery — MSC4515 `get_rtc_transports`
 

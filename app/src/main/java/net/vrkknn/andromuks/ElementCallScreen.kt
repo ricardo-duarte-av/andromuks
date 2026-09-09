@@ -47,25 +47,20 @@ internal fun buildElementCallUrl(
     widgetId: String,
     parentOrigin: String,
 ): String {
-    val normalizedBase = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
-    val baseUri = Uri.parse(normalizedBase)
+    val baseUri = Uri.parse(baseUrl)
+    // The gomuks-hosted build is loaded by its own path; every other deployment serves the call at
+    // <base>/room. Both take the same parameters, in the hash, exactly as gomuks web passes them.
     val isEmbedded = baseUri.path?.contains("element-call-embedded") == true
-    if (isEmbedded) {
-        return baseUri.buildUpon()
-            .appendQueryParameter("parentUrl", "$parentOrigin/")
-            .appendQueryParameter("widgetId", widgetId)
-            .appendQueryParameter("roomId", roomId)
-            .appendQueryParameter("userId", userId)
-            .appendQueryParameter("deviceId", deviceId)
-            .appendQueryParameter("perParticipantE2EE", perParticipantE2EE.toString())
-            .appendQueryParameter("baseUrl", homeserverUrl)
-            .appendQueryParameter("returnToLobby", "false")
-            .build()
-            .toString()
+    val callBase = if (isEmbedded) {
+        baseUri
+    } else {
+        val normalizedBase = Uri.parse(if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/")
+        if (normalizedBase.lastPathSegment == "room") {
+            normalizedBase
+        } else {
+            normalizedBase.buildUpon().appendPath("room").build()
+        }
     }
-
-    val needsRoomSuffix = baseUri.lastPathSegment != "room"
-    val callBase = if (needsRoomSuffix) baseUri.buildUpon().appendPath("room").build() else baseUri
 
     val params = Uri.Builder()
         .appendQueryParameter("roomId", roomId)

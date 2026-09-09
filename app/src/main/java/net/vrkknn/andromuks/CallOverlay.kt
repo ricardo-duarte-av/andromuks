@@ -82,12 +82,15 @@ fun CallOverlay(appViewModel: AppViewModel) {
     val isEncrypted = RoomStateStore.getParsed(roomId)?.isEncrypted ?: false
     val effectiveDeviceId = appViewModel.deviceId.ifBlank { appViewModel.getDeviceID().orEmpty() }
     val configuredCallBaseUrl = appViewModel.elementCallBaseUrl.trim()
-    val wellKnownCallBaseUrl = appViewModel.wellKnownElementCallBaseUrl.trim()
-    val callBaseUrl = when {
-        configuredCallBaseUrl.isNotBlank() -> configuredCallBaseUrl
-        wellKnownCallBaseUrl.isNotBlank() -> wellKnownCallBaseUrl
-        else -> "https://call.element.io/"
+    // The gomuks backend serves its own Element Call build at /element-call-embedded — the exact
+    // deployment gomuks web itself uses. That is the only sane default: a public deployment such as
+    // call.element.io is configured for someone else's homeserver, and deriving a URL from the
+    // .well-known LiveKit focus assumed Element Call is hosted on the SFU's origin, which it usually
+    // is not. Never fall back to a third-party deployment.
+    val backendEmbeddedCallBaseUrl = appViewModel.homeserverUrl.trim().trimEnd('/').let {
+        if (it.isBlank()) "" else "$it/element-call-embedded/index.html"
     }
+    val callBaseUrl = configuredCallBaseUrl.ifBlank { backendEmbeddedCallBaseUrl }
     val homeserverBaseUrl = deriveHomeserverBaseUrl(
         appViewModel.realMatrixHomeserverUrl,
         appViewModel.currentUserId,
@@ -147,6 +150,12 @@ fun CallOverlay(appViewModel: AppViewModel) {
             appViewModel.setWidgetToDeviceHandler(null)
             appViewModel.callPersistentWebView = null
         }
+    }
+
+    LaunchedEffect(callBaseUrl) {
+        // No configured deployment and no gomuks backend URL: there is nothing to load, and we
+        // deliberately do not substitute a third-party Element Call deployment.
+        loadError.value = if (callBaseUrl.isBlank()) "No Element Call deployment available" else null
     }
 
     LaunchedEffect(roomId) {
@@ -263,12 +272,14 @@ fun CallOverlay(appViewModel: AppViewModel) {
                         android.util.Log.d("Andromuks", "CallOverlay: hostUrl=$hostUrl")
                         android.util.Log.d("Andromuks", "CallOverlay: callBaseUrl=$callBaseUrl")
                     }
-                    loadUrl(hostUrl)
-                    lastLoadedUrl.value = hostUrl
+                    if (callBaseUrl.isNotBlank()) {
+                        loadUrl(hostUrl)
+                        lastLoadedUrl.value = hostUrl
+                    }
                 }
             },
             update = { webView ->
-                if (hostUrl.isNotBlank() && hostUrl != lastLoadedUrl.value) {
+                if (callBaseUrl.isNotBlank() && hostUrl != lastLoadedUrl.value) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "CallOverlay: reloading hostUrl")
                     webView.loadUrl(hostUrl)
                     lastLoadedUrl.value = hostUrl

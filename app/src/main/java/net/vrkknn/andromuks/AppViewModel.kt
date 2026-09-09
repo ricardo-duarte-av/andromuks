@@ -557,8 +557,6 @@ class AppViewModel : ViewModel() {
     var authToken by mutableStateOf("")
         private set
     var realMatrixHomeserverUrl by mutableStateOf("")
-    var wellKnownElementCallBaseUrl by mutableStateOf("")
-        internal set
     internal var appContext: Context? = null
 
     // Timeline cache for instant room opening (now singleton)
@@ -2315,7 +2313,6 @@ class AppViewModel : ViewModel() {
                     "AppViewModel: Set realMatrixHomeserverUrl: $homeserver",
                 )
             }
-            callsWidgetsCoordinator.refreshElementCallBaseUrlFromWellKnown()
         }
         // IMPORTANT: Do NOT override gomuks backend URL with Matrix homeserver URL from client_state
         // The backend URL is set via AuthCheck from SharedPreferences (e.g., https://webmuks.aguiarvieira.pt)

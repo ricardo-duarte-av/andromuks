@@ -516,7 +516,7 @@ fun SettingsScreen(appViewModel: AppViewModel, navController: NavController) {
                         fontWeight = FontWeight.Medium,
                     )
                     Text(
-                        text = "Set the base URL of your Element Call deployment. If it does not point to /element-call-embedded, the app will use the gomuks backend's embedded endpoint when available.",
+                        text = "Set the base URL of your own Element Call deployment. Leave empty to use the build the gomuks backend serves at /element-call-embedded, which is what gomuks web itself uses.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
