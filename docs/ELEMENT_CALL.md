@@ -144,6 +144,19 @@ WebView does not have). Without this Element Call reports `MISSING_MATRIX_RTC_TR
 not supported. The server is not configured to work with Element Call" — on every join, while native
 clients and gomuks web work fine.
 
+## Room state push (`update_state`) must be retried
+
+Element Call registers its `update_state` listener only once its own client has started, some time
+after the capabilities handshake. The host's first room-state push races that, and a push that loses
+is rejected with an "Unexpected action" error and silently dropped — leaving Element Call with **no
+`m.room.member` events at all**, which shows up as the local participant rendering a letter avatar
+instead of their profile picture.
+
+`ensureRoomStatePushed` therefore re-pushes every 2 s (up to 8 attempts) until one `update_state` is
+acked without an error, and pushes again on `io.element.join`. The host also logs the member count,
+whether our own member event is present, and whether it carries `avatar_url`, so a debug-build
+logcat (`CallOverlay: console …`) says which of those went wrong.
+
 ---
 
 ## Widget protocol (JS bridge)

@@ -174,6 +174,10 @@
         }
 
         const pendingToWidgetRequests = new Map();
+        const MAX_ROOM_STATE_PUSHES = 8;
+        let roomStatePushAttempts = 0;
+        let roomStatePushTimer = null;
+        let roomStateAccepted = false;
         const pendingAndroidRequests = new Map();
         const delayedEventRequests = new Map();
         let toWidgetRequestCounter = 1;
@@ -279,6 +283,22 @@
           console.log("Host requested room state", requestId, widgetData.roomId);
         }
 
+        // Element Call only registers its update_state listener once its own client has started,
+        // which happens some time after the capabilities handshake. Our first state push races that
+        // and is silently rejected ("Unexpected action") if it loses, leaving Element Call with no
+        // m.room.member events at all — which is why the local participant fell back to a letter
+        // avatar. Keep pushing until one push is actually accepted.
+        function ensureRoomStatePushed(targetWindow) {
+          if (roomStateAccepted || roomStatePushAttempts >= MAX_ROOM_STATE_PUSHES) return;
+          roomStatePushAttempts++;
+          requestRoomStateForWidget(targetWindow);
+          if (roomStatePushTimer) clearTimeout(roomStatePushTimer);
+          roomStatePushTimer = setTimeout(() => {
+            roomStatePushTimer = null;
+            ensureRoomStatePushed(targetWindow);
+          }, 2000);
+        }
+
         const defaultCapabilities = [
           "org.matrix.msc2762.receive.state_event:m.room.member",
           "org.matrix.msc2762.receive.state_event:m.room.encryption",
@@ -329,7 +349,7 @@
           });
           sendToWidgetRequest("supported_api_versions", {}, targetWindow, () => {});
           // Element Call doesn't accept widget_config as a toWidget action.
-          requestRoomStateForWidget(targetWindow);
+          ensureRoomStatePushed(targetWindow);
         }
 
         function handleWidgetMessage(message, targetWindow) {
@@ -390,6 +410,9 @@
           if (action === "io.element.join") {
             requestListenToDevice();
             startCallStatePolling(targetWindow);
+            roomStateAccepted = false;
+            roomStatePushAttempts = 0;
+            ensureRoomStatePushed(targetWindow);
             replyToWidget(message, {}, null, targetWindow);
             return;
           }
@@ -536,11 +559,31 @@
                     events = parsed.response.state;
                   }
                 }
+                const widgetData = parseWidgetData();
+                const members = events.filter((e) => e && e.type === "m.room.member");
+                const ownMember = members.find((e) => e.state_key === widgetData.userId);
+                console.log(
+                  "Host pushing room state: " + events.length + " events, " + members.length +
+                    " members, own member " + (ownMember ? "present" : "MISSING") +
+                    ", own avatar_url " +
+                    ((ownMember && ownMember.content && ownMember.content.avatar_url) || "MISSING")
+                );
                 sendToWidgetRequest(
                   "update_state",
                   { state: events, events },
                   hostRequest.targetWindow || iframe.contentWindow,
-                  () => {}
+                  (response) => {
+                    if (response && response.error) {
+                      console.warn("Host room state push rejected", JSON.stringify(response.error));
+                      return;
+                    }
+                    roomStateAccepted = true;
+                    if (roomStatePushTimer) {
+                      clearTimeout(roomStatePushTimer);
+                      roomStatePushTimer = null;
+                    }
+                    console.log("Host room state accepted by Element Call");
+                  }
                 );
                 return;
               }
