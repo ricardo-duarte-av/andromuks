@@ -241,6 +241,35 @@ internal class ElementCallJsBridge(
             return
         }
 
+        if (normalizedAction.contains("get_rtc_transports")) {
+            // MSC4515: Element Call in widget mode cannot reach the homeserver's MSC4143
+            // `/rtc/transports` endpoint itself (it has no access token), so it asks the host for
+            // the transports over the widget API. gomuks proxies the call with the real token.
+            // Without this the discovery fails and EC reports MISSING_MATRIX_RTC_TRANSPORT
+            // ("Call is not supported") for every join.
+            appViewModel.sendWidgetCommand("get_rtc_transports", JSONObject()) { result ->
+                result.onSuccess { response ->
+                    val transports = when (response) {
+                        is JSONObject -> response.optJSONArray("rtc_transports") ?: JSONArray()
+                        is JSONArray -> response
+                        else -> JSONArray()
+                    }
+                    sendWidgetResponse(
+                        action,
+                        widgetRequestId,
+                        JSONObject().put("rtc_transports", transports),
+                    )
+                }.onFailure { error ->
+                    android.util.Log.w(
+                        "Andromuks",
+                        "ElementCallJsBridge: get_rtc_transports failed -> ${error.message}",
+                    )
+                    sendWidgetError(action, widgetRequestId, error.message ?: "Unknown error")
+                }
+            }
+            return
+        }
+
         if (normalizedAction.contains("read_events")) {
             val response = buildTimelineEventsResponse(requestData)
             sendWidgetResponse(action, widgetRequestId, response)

@@ -115,6 +115,22 @@ The type is present in the `allowedEventTypes` sets of both `RoomTimelineScreen`
 
 On connect, `CallsWidgetsCoordinator.refreshElementCallBaseUrlFromWellKnown` fetches `<homeserver>/.well-known/matrix/client`, parses `org.matrix.msc4143.rtc_foci`, finds the first `livekit` entry, and derives the Element Call base URL as `<origin>/room`. This is stored in `wellKnownElementCallBaseUrl` and takes precedence over the manually configured URL.
 
+## SFU discovery — MSC4515 `get_rtc_transports`
+
+Current Element Call builds no longer read `org.matrix.msc4143.rtc_foci` from `.well-known`. They
+discover the SFU by calling `_unstable_getRTCTransports()`, which **in widget mode is not an HTTP
+request** — it is the fromWidget action `org.matrix.msc4515.get_rtc_transports`, and it is only
+attempted when the host advertises `org.matrix.msc4515` in `supported_api_versions`. The only other
+source is Element Call's own `config.json` (`livekit.livekit_service_url`), which the gomuks-served
+build does not set.
+
+So the host page must advertise `org.matrix.msc4515` and answer the action; `ElementCallJsBridge`
+maps it to the gomuks `get_rtc_transports` command (gomuks proxies MSC4143
+`/_matrix/client/unstable/org.matrix.msc4143/rtc/transports` with the real access token, which the
+WebView does not have). Without this Element Call reports `MISSING_MATRIX_RTC_TRANSPORT` — "Call is
+not supported. The server is not configured to work with Element Call" — on every join, while native
+clients and gomuks web work fine.
+
 ---
 
 ## Widget protocol (JS bridge)
@@ -123,5 +139,6 @@ On connect, `CallsWidgetsCoordinator.refreshElementCallBaseUrlFromWellKnown` fet
 
 - **`update_delayed_event`** — responded to immediately (empty `{}`) to prevent Element Call's ~11 s timeout from killing the WebSocket. The actual update is forwarded to gomuks fire-and-forget.
 - **`send_state` / `set_state`** for `call.member` — state key is auto-filled as `_<userId>_<deviceId>_m.call`; `membershipID` is injected; non-empty content triggers `setCallReadyForPip(true)`.
+- **`org.matrix.msc4515.get_rtc_transports`** — answered from the gomuks `get_rtc_transports` command; see the SFU discovery section above.
 - **`get_room_timeline`** — filters call.member events; detects own disconnect (empty content + `origin_server_ts > screenOpenTimestamp`) and calls `onCallEnded`.
 - Synthetic delay IDs (prefixed `andromuks-`) are used for delayed events that the backend creates on our behalf, so we don't forward update requests for them.

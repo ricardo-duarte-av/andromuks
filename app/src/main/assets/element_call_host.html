@@ -365,7 +365,8 @@
                   "town.robin.msc3846",
                   "org.matrix.msc3869",
                   "org.matrix.msc3973",
-                  "org.matrix.msc4039"
+                  "org.matrix.msc4039",
+                  "org.matrix.msc4515"
                 ],
               },
               null,
@@ -467,6 +468,7 @@
             action.includes("receive.to_device") ||
             action.includes("update_delayed_event") ||
             action.includes("read_events") ||
+            action.includes("get_rtc_transports") ||
             action.includes("read_state") ||
             action.includes("get_state")
           ) {
