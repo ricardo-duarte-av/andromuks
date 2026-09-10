@@ -22,7 +22,14 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
     fun isCallActive(): Boolean = vm.callActiveInternal
 
     fun setCallReadyForPip(ready: Boolean) = with(vm) {
+        val wasReady = callReadyForPipInternal
         callReadyForPipInternal = ready
+        // First time media is flowing: start the notification's elapsed-time counter. Element Call
+        // can sit in its lobby for a while, and counting that as call time would be a lie.
+        if (ready && !wasReady) {
+            callConnectedAtMs = System.currentTimeMillis()
+            refreshCallNotification()
+        }
     }
 
     fun isCallReadyForPip(): Boolean = vm.callReadyForPipInternal
@@ -38,8 +45,27 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         CallTracker.onCallStarted(roomId)
         callMiniPipActive = false
         callReadyForPipInternal = false
+        callConnectedAtMs = 0L
         callPersistentWebView = null
         incomingCallInfo = null
+        CallForegroundService.hangupHandler = { endCall() }
+        refreshCallNotification()
+    }
+
+    /**
+     * (Re)post the ongoing-call notification for the current call. Safe to call repeatedly — the
+     * service only promotes itself to the foreground once and refreshes the notification after that.
+     */
+    private fun refreshCallNotification() = with(vm) {
+        val context = appContext ?: return@with
+        val room = getRoomById(callActiveRoomId)
+        CallForegroundService.start(
+            context = context,
+            roomId = callActiveRoomId,
+            roomName = room?.name?.takeIf { it.isNotBlank() } ?: callActiveRoomId,
+            avatarUrl = room?.avatarUrl,
+            connectedAt = callConnectedAtMs,
+        )
     }
 
     fun handleRtcNotification(roomId: String, senderId: String, content: JSONObject, eventTimestamp: Long) = with(vm) {
@@ -63,6 +89,9 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
     }
 
     fun endCall() = with(vm) {
+        appContext?.let { CallForegroundService.stop(it) }
+        CallForegroundService.hangupHandler = null
+        callConnectedAtMs = 0L
         CallTracker.onCallEnded(callActiveRoomId)
         callActiveInternal = false
         callReadyForPipInternal = false

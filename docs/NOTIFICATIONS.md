@@ -492,6 +492,15 @@ Every breadcrumb captures the three discriminators that pick out which branch ru
 
 Reading the trail: the **last** `FCMOpen` line before the user notices the list tells you which branch fired last. An `OPEN … → room_timeline` line means navigation was issued (look downstream — `awaitRoomDataReadiness TIMEOUT`, `onInitComplete SKIPPED`, `requestRoomTimeline: WS down` — for why the timeline itself may be empty); a `TIMEOUT … stranding on room_list` or `FORCE → room_list` line means the open never happened.
 
+## Ongoing-call notification
+
+Element Call's ongoing call has its own notification, posted by `CallForegroundService` on the
+`ongoing_call` channel — a `CallStyle.forOngoingCall` with a chronometer, a "Hang up" action, and a
+tap target that returns to the live call WebView. It is a foreground service notification because the
+service also declares the `microphone`/`camera` types Android 14 requires for a call to keep
+capturing while the app is not visible. Full details in
+[ELEMENT_CALL.md](ELEMENT_CALL.md#ongoing-call-notification-callforegroundservice).
+
 ## Shortcut / conversation API
 
 Each room notification creates or updates a `ShortcutInfoCompat` (via `ConversationsApi`) so Android associates the notification with a conversation shortcut. This is required for `MessagingStyle` and bubble support.

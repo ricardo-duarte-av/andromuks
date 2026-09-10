@@ -557,6 +557,13 @@ class AppViewModel : ViewModel() {
     var authToken by mutableStateOf("")
         private set
     var realMatrixHomeserverUrl by mutableStateOf("")
+
+    /**
+     * Wall-clock time Element Call reported media flowing, or 0 while it is still connecting. Drives
+     * the ongoing-call notification's chronometer (see [CallForegroundService]); not Compose state
+     * because no UI observes it.
+     */
+    internal var callConnectedAtMs: Long = 0L
     internal var appContext: Context? = null
 
     // Timeline cache for instant room opening (now singleton)

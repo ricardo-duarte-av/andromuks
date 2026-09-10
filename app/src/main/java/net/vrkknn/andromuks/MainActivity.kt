@@ -1181,6 +1181,19 @@ class MainActivity : FragmentActivity() {
 
         applyRequestedRoomListSection(intent)
 
+        // Tap on the ongoing-call notification: bring the live call back to the front. The WebView
+        // is persistent, so this is instant — nothing is reloaded and the call is not re-joined.
+        if (intent.action == CallForegroundService.ACTION_RETURN_TO_CALL) {
+            val callRoomId = intent.getStringExtra(CallForegroundService.EXTRA_ROOM_ID).orEmpty()
+            if (::appViewModel.isInitialized && appViewModel.isCallActive()) {
+                Log.i("Andromuks", "MainActivity: returning to the active call in $callRoomId")
+                appViewModel.setCallMiniPip(false, callRoomId)
+            } else {
+                Log.w("Andromuks", "MainActivity: return-to-call for $callRoomId but no call is active")
+            }
+            return
+        }
+
         // Handle ACTION_REPLY from notification when MainActivity is already running
         if (intent.action == "net.vrkknn.andromuks.ACTION_REPLY") {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - ACTION_REPLY received")

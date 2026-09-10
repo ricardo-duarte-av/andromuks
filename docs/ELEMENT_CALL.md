@@ -13,6 +13,7 @@ Element Call is the Matrix video/audio calling system, running as a WebView (Web
 | `CallOverlay.kt` | Full-screen WebView overlay; handles foreground/background toggling via `zIndex` |
 | `ElementCallScreen.kt` | Navigation entry point; also hosts `ElementCallJsBridge`, `isRoomEncryptedFromState`, `isCallActiveInRoomState` |
 | `CallsWidgetsCoordinator.kt` | Coordinator owning all call state and operations on AppViewModel |
+| `CallForegroundService.kt` | Ongoing-call `CallStyle` notification + the microphone/camera foreground service |
 | `IncomingCallBanner.kt` | Floating banner shown when an incoming call notification arrives |
 | `RoomTimelineScreen.kt` (RoomHeader) | Call button — pulsing green when a call is live, "Return to call" when we're in it |
 | `NarratorFunctions.kt` (CallMemberEventNarrator) | Timeline narrator for call join/leave events |
@@ -25,6 +26,7 @@ Element Call is the Matrix video/audio calling system, running as a WebView (Web
 | `callReadyForPipInternal` | `Boolean` | WebRTC negotiation complete; safe to background |
 | `callMiniPipActive` | `Boolean` | Call is backgrounded (WebView hidden behind NavHost) |
 | `callActiveRoomId` | `String` | Room ID of the active call |
+| `callConnectedAtMs` | `Long` | Wall clock when media started flowing, or 0 while connecting; drives the notification chronometer |
 | `callPersistentWebView` | `WebView?` | The WebView kept alive across navigation |
 | `incomingCallInfo` | `IncomingCallInfo?` | Non-null while an incoming call banner should be shown |
 | `activeCallRooms` | `Set<String>` | Room IDs where a call is currently ongoing (from room state) |
@@ -67,6 +69,36 @@ own leave path varies by version and URL params:
 Without (1) and (2) the WebView stayed parked on EC's "disconnected" screen with
 `callActiveInternal` still true — back-press only backgrounded it, and the header button offered
 "Return to call" rather than a fresh join, so the call could never be re-entered.
+
+### Ongoing-call notification (`CallForegroundService`)
+
+While a call is active, `CallsWidgetsCoordinator` runs `CallForegroundService`, a foreground service
+whose notification is a `NotificationCompat.CallStyle.forOngoingCall`:
+
+- **Tapping it** sends `ACTION_RETURN_TO_CALL` to `MainActivity`, which calls
+  `setCallMiniPip(false, roomId)`. The WebView is persistent, so the call comes back instantly —
+  nothing reloads and nothing re-joins. Before this, a backgrounded call could only be recovered by
+  navigating to the room and pressing the header button, and could not be hung up at all.
+- **"Hang up"** goes to the service, which invokes `CallForegroundService.hangupHandler` — set by
+  `startCall`, cleared by `endCall` — on the main thread. Service and ViewModel are always in the
+  same process while a call runs, so a plain callback is enough.
+- **The chronometer** starts from `callConnectedAtMs`, set the first time `setCallReadyForPip(true)`
+  fires, so it measures the call rather than time spent in Element Call's lobby. Until then the
+  notification reads "Connecting…" with no counter.
+- **The avatar** is a cache-only `IntelligentMediaCache` lookup off the main thread; the notification
+  is posted immediately without one and refreshed if a cached file exists. A call notification never
+  waits on the network.
+
+The service declares `foregroundServiceType="microphone|camera"` — from Android 14 an app may only
+keep capturing while it is not visible if such a service runs, so this is what makes a backgrounded
+call survive leaving the app, and `CallStyle` only keeps its system treatment (the status-bar chip)
+while it is a foreground service notification. At runtime the claimed types are narrowed to the
+permissions actually granted (Element Call requests the camera only for video), because starting
+with a type whose permission is missing throws; if `startForeground` fails anyway the service falls
+back to a plain notification rather than taking the call down with it.
+
+`onTaskRemoved` tears the notification down: the call lives in MainActivity's WebView, so a swiped
+task means there is nothing left to return to.
 
 ### Critical: WebRTC EGL surface
 **Never resize or reparent the WebView container while WebRTC is active.** The EGL surface is bound to the View's exact size and position. Use `zIndex` toggling (`10f` ↔ `-1f`) to show/hide the call; do not change size, shape, or parent.
