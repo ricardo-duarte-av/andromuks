@@ -1695,7 +1695,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Falls back to bitmap-based icon if ContentUri creation fails
      * Uses in-memory cache to avoid reloading the same avatar on every notification update
      */
-    private suspend fun loadAvatarAsIcon(avatarUrl: String, imageAuthToken: String? = null, allowNetwork: Boolean = true): IconCompat? {
+    internal suspend fun loadAvatarAsIcon(avatarUrl: String, imageAuthToken: String? = null, allowNetwork: Boolean = true): IconCompat? {
         return try {
             // Check cache first to avoid reloading
             avatarIconCache[avatarUrl]?.let { cachedIcon ->

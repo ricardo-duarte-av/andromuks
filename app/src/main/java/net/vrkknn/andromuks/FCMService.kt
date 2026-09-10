@@ -486,6 +486,7 @@ class FCMService : FirebaseMessagingService() {
     private fun handleCallNotification(jsonObject: JSONObject) {
         try {
             val messages = jsonObject.optJSONArray("messages") ?: return
+            val batchImageAuth = jsonObject.optString("image_auth", "").takeIf { it.isNotEmpty() }
             val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
             val currentUserId = prefs.getString("current_user_id", "") ?: ""
             for (i in 0 until messages.length()) {
@@ -519,32 +520,49 @@ class FCMService : FirebaseMessagingService() {
                 }
 
                 val timestamp = message.optLong("timestamp", System.currentTimeMillis())
+                // `expires_at` is absolute ms and may be absent (the minimal ring shape).
                 val expiresAt = rtc.optLong("expires_at", 0L).takeIf { it > 0L } ?: (timestamp + 30_000L)
+                val callIntent = if (rtc.optString("intent") == "audio") "audio" else "video"
                 val roomName = message.optString("room_name", "").takeIf { it.isNotEmpty() } ?: roomId
                 val caller = sender?.optString("name")?.takeIf { it.isNotEmpty() } ?: senderId.ifEmpty { roomName }
                 val text = message.optString("text", "").takeIf { it.isNotEmpty() }
+                    ?: if (type == "ring") "Incoming call" else "Started a call"
+                // The caller's avatar, falling back to the room's — a ring showing a letter where a
+                // face should be is the first thing anyone notices.
+                val avatarUrl = sender?.optString("avatar")?.takeIf { it.isNotEmpty() }
+                    ?: message.optString("room_avatar").takeIf { it.isNotEmpty() }
 
-                if (type == "ring") {
-                    IncomingCallRinger.ring(
-                        context = this,
-                        roomId = roomId,
-                        roomName = roomName,
-                        caller = caller,
-                        expiresAt = expiresAt,
-                    )
-                } else {
-                    IncomingCallRinger.notifyCallStarted(
-                        context = this,
-                        roomId = roomId,
-                        roomName = roomName,
-                        caller = caller,
-                        text = text ?: "Started a call",
-                        expiresAt = expiresAt,
-                    )
+                postCallNotification(type, roomId, roomName, caller, text, callIntent, expiresAt, null)
+                // Then again with the avatar once it is loaded. Never block the ring on a download:
+                // a late avatar is a cosmetic loss, a late ring is a missed call.
+                if (avatarUrl != null) {
+                    serviceScope.launch {
+                        val icon = ensureNotificationDisplay()?.loadAvatarAsIcon(avatarUrl, batchImageAuth)
+                        if (icon != null) {
+                            postCallNotification(type, roomId, roomName, caller, text, callIntent, expiresAt, icon)
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling call notification", e)
+        }
+    }
+
+    private fun postCallNotification(
+        type: String,
+        roomId: String,
+        roomName: String,
+        caller: String,
+        text: String,
+        callIntent: String,
+        expiresAt: Long,
+        icon: androidx.core.graphics.drawable.IconCompat?,
+    ) {
+        if (type == "ring") {
+            IncomingCallRinger.ring(this, roomId, roomName, caller, text, callIntent, expiresAt, icon)
+        } else {
+            IncomingCallRinger.notifyCallStarted(this, roomId, roomName, caller, text, callIntent, expiresAt, icon)
         }
     }
 

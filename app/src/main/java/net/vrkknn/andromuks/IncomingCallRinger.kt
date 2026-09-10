@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.core.graphics.drawable.IconCompat
 
 /**
  * What the user chose on an incoming-call notification, waiting for the ViewModel to exist.
@@ -25,8 +26,8 @@ import androidx.core.app.Person
  * with. MainActivity parks the intent here and the Compose tree drains it once [AppViewModel] is up.
  */
 sealed interface CallAction {
-    /** The user tapped Answer: join the call in [roomId]. */
-    data class Answer(val roomId: String) : CallAction
+    /** The user tapped Answer: join the call in [roomId] as [callIntent] ("audio" or "video"). */
+    data class Answer(val roomId: String, val callIntent: String) : CallAction
 
     /** The full-screen intent fired: show the in-app incoming-call banner for [info]. */
     data class Incoming(val info: IncomingCallInfo) : CallAction
@@ -75,6 +76,7 @@ object IncomingCallRinger {
 
     const val EXTRA_ROOM_ID = "room_id"
     const val EXTRA_CALLER_ID = "caller_id"
+    const val EXTRA_CALL_INTENT = "call_intent"
     const val EXTRA_EXPIRES_AT = "expires_at"
 
     private const val REQUEST_ANSWER = 10
@@ -94,7 +96,7 @@ object IncomingCallRinger {
     }
 
     @SuppressLint("MissingPermission")
-    fun ring(context: Context, roomId: String, roomName: String, caller: String, expiresAt: Long) {
+    fun ring(context: Context, roomId: String, roomName: String, caller: String, text: String, callIntent: String, expiresAt: Long, icon: IconCompat? = null) {
         ensureChannel(context)
         val remaining = expiresAt - System.currentTimeMillis()
         if (remaining <= 0L) {
@@ -102,9 +104,9 @@ object IncomingCallRinger {
             return
         }
 
-        val person = Person.Builder().setName(caller).setImportant(true).build()
-        val answer = activityIntent(context, ACTION_ANSWER, REQUEST_ANSWER, roomId, caller, expiresAt)
-        val fullScreen = activityIntent(context, ACTION_INCOMING, REQUEST_FULL_SCREEN, roomId, caller, expiresAt)
+        val person = Person.Builder().setName(caller).setIcon(icon).setImportant(true).build()
+        val answer = activityIntent(context, ACTION_ANSWER, REQUEST_ANSWER, roomId, caller, callIntent, expiresAt)
+        val fullScreen = activityIntent(context, ACTION_INCOMING, REQUEST_FULL_SCREEN, roomId, caller, callIntent, expiresAt)
         val decline = PendingIntent.getBroadcast(
             context,
             REQUEST_DECLINE,
@@ -115,7 +117,7 @@ object IncomingCallRinger {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setStyle(NotificationCompat.CallStyle.forIncomingCall(person, decline, answer))
-            .setContentText("Incoming call in $roomName")
+            .setContentText(if (text.isNotEmpty()) "$text in $roomName" else "Incoming call in $roomName")
             .setContentIntent(fullScreen)
             .setFullScreenIntent(fullScreen, true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -138,7 +140,16 @@ object IncomingCallRinger {
      * One notification per room, so a second announcement for the same room replaces the first.
      */
     @SuppressLint("MissingPermission")
-    fun notifyCallStarted(context: Context, roomId: String, roomName: String, caller: String, text: String, expiresAt: Long) {
+    fun notifyCallStarted(
+        context: Context,
+        roomId: String,
+        roomName: String,
+        caller: String,
+        text: String,
+        callIntent: String,
+        expiresAt: Long,
+        icon: IconCompat? = null,
+    ) {
         ensureStartedChannel(context)
         val remaining = expiresAt - System.currentTimeMillis()
         if (remaining <= 0L) {
@@ -157,14 +168,15 @@ object IncomingCallRinger {
             },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val join = activityIntent(context, ACTION_ANSWER, roomId.hashCode() + 1, roomId, caller, expiresAt)
+        val join = activityIntent(context, ACTION_ANSWER, roomId.hashCode() + 1, roomId, caller, callIntent, expiresAt)
 
         val notification = NotificationCompat.Builder(context, STARTED_CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(roomName)
             .setContentText(if (caller.isNotEmpty() && caller != roomName) "$caller: $text" else text)
             .setContentIntent(open)
-            .addAction(0, "Join call", join)
+            .also { builder -> icon?.let { builder.setLargeIcon(it.toIcon(context)) } }
+            .addAction(0, if (callIntent == "audio") "Join with voice" else "Join call", join)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
@@ -179,12 +191,21 @@ object IncomingCallRinger {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
     }
 
-    private fun activityIntent(context: Context, action: String, requestCode: Int, roomId: String, caller: String, expiresAt: Long): PendingIntent {
+    private fun activityIntent(
+        context: Context,
+        action: String,
+        requestCode: Int,
+        roomId: String,
+        caller: String,
+        callIntent: String,
+        expiresAt: Long,
+    ): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             this.action = action
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(EXTRA_ROOM_ID, roomId)
             putExtra(EXTRA_CALLER_ID, caller)
+            putExtra(EXTRA_CALL_INTENT, callIntent)
             putExtra(EXTRA_EXPIRES_AT, expiresAt)
         }
         return PendingIntent.getActivity(

@@ -200,8 +200,9 @@ Our backend carries these as ordinary entries in the push's `messages` array, wi
 object mirroring the event's `notification_type`:
 
 ```json
-{ "room_id": "…", "room_name": "Alice", "sender": {…}, "self": {…}, "text": "Incoming call",
-  "rtc": { "type": "ring", "expires_at": 1757505630000 } }
+{ "room_id": "…", "room_name": "Alice", "sender": { "id": "…", "name": "…", "avatar": "…" },
+  "self": {…}, "room_avatar": "…", "text": "Incoming call",
+  "rtc": { "type": "ring", "intent": "audio", "call_id": "$…", "expires_at": 1757505630000 } }
 ```
 
 | `rtc.type` | Meaning | What we do |
@@ -210,8 +211,18 @@ object mirroring the event's `notification_type`:
 | `notification` | Someone started a call | `IncomingCallRinger.notifyCallStarted` — ordinary notification, tap opens the room, "Join call" joins |
 | `cancel` | Caller gave up / answered elsewhere | Cancels a showing ring |
 
-`rtc.expires_at` is absolute ms (the event's `sender_ts + lifetime`), and falls back to
-`timestamp + 30 s`. Everything else comes from the normal message fields.
+`rtc.intent` (`audio` \| `video`) picks the notification wording and the mode we answer in.
+`rtc.expires_at` is absolute ms (the event's `sender_ts + lifetime`) and falls back to
+`timestamp + 30 s`; `rtc.call_id` names the call the notification belongs to. Only `room_id` and
+`rtc.type` are load-bearing — the minimal shape is `"rtc": {"type": "ring"}` and everything else
+degrades. Caller name, avatar (`sender.avatar`, falling back to `room_avatar`) and the line to
+display (`text`) come from the normal message fields.
+
+A ring and an ordinary message can arrive **in the same `messages` array**, which is why the split is
+per entry (`countRtcMessages`) rather than per push. The avatar is loaded through the same
+`loadAvatarAsIcon` path as message notifications, using the batch `image_auth` token so it works from
+a cold push — but **after** the notification is posted, which is then re-posted with the icon. A late
+avatar is cosmetic; a late ring is a missed call.
 
 **`countRtcMessages` splits the array**: entries with an `rtc` object are handled by
 `handleCallNotification` and `handleMessageNotification` skips them, so a call never also posts as a
@@ -314,6 +325,30 @@ whether our own member event is present, and whether it carries `avatar_url`, so
 logcat (`CallOverlay: console …`) says which of those went wrong.
 
 ---
+
+## Avatars: MSC4039 `download_file`
+
+In widget mode Element Call never builds a media URL of its own. Every avatar goes through
+`widgetApi.downloadFile(mxc)`, and it accepts the reply as either a `Blob` or a **base64 string**:
+
+```js
+async function oV(widgetApi, mxcUrl) {
+  const file = (await widgetApi.downloadFile(mxcUrl)).file;
+  if (file instanceof Blob) return file;
+  if (typeof file === "string") { /* base64 → Blob */ }
+  throw Error("Downloaded file format is not supported: " + typeof file);
+}
+```
+
+We advertise `org.matrix.msc4039` in `supported_api_versions`, so Element Call believes we can serve
+it. Until this was implemented there was no handler: the request fell through the host's catch-all
+empty reply and **every avatar in the call failed** with "Downloaded file format is not supported:
+undefined".
+
+`downloadMediaAsBase64` proxies the fetch through gomuks (`/_gomuks/media/`, session cookie) and
+replies with base64 — the WebView has no Matrix access token and Synapse requires one for media, so
+this is not something the page could do for itself. Downloads are capped at 8 MB, since the base64
+crosses the JS bridge as a string.
 
 ## Widget protocol (JS bridge)
 

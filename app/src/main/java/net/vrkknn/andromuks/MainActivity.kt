@@ -1186,7 +1186,12 @@ class MainActivity : FragmentActivity() {
             IncomingCallRinger.ACTION_ANSWER -> {
                 if (roomId.isEmpty()) return false
                 IncomingCallRinger.cancel(this)
-                PendingCallAction.offer(CallAction.Answer(roomId))
+                PendingCallAction.offer(
+                    CallAction.Answer(
+                        roomId = roomId,
+                        callIntent = intent.getStringExtra(IncomingCallRinger.EXTRA_CALL_INTENT) ?: "video",
+                    ),
+                )
             }
 
             IncomingCallRinger.ACTION_INCOMING -> {
@@ -1200,8 +1205,7 @@ class MainActivity : FragmentActivity() {
                         IncomingCallInfo(
                             roomId = roomId,
                             callerId = intent.getStringExtra(IncomingCallRinger.EXTRA_CALLER_ID).orEmpty(),
-                            // The push carries no intent hint; the banner's wording is generic.
-                            callIntent = "video",
+                            callIntent = intent.getStringExtra(IncomingCallRinger.EXTRA_CALL_INTENT) ?: "video",
                             expiresAt = intent.getLongExtra(IncomingCallRinger.EXTRA_EXPIRES_AT, 0L),
                         ),
                     ),
@@ -2810,8 +2814,8 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             LaunchedEffect(pendingCallAction) {
                 when (val action = PendingCallAction.consume()) {
                     is CallAction.Answer -> {
-                        Log.i("Andromuks", "MainActivity: answering the call in ${action.roomId}")
-                        appViewModel.startCall(action.roomId)
+                        Log.i("Andromuks", "MainActivity: answering the ${action.callIntent} call in ${action.roomId}")
+                        appViewModel.startCall(action.roomId, action.callIntent)
                     }
 
                     is CallAction.Incoming -> {
