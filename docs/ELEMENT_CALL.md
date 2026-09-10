@@ -169,6 +169,30 @@ notification without promoting at all, and the permission grant that follows re-
 `onTaskRemoved` tears the notification down: the call lives in MainActivity's WebView, so a swiped
 task means there is nothing left to return to.
 
+### In-call audio (`CallAudioController`)
+
+WebRTC inside the WebView will happily play a voice call out of the loudspeaker at media volume.
+`CallAudioController`, created and disposed with [CallOverlay], fixes the three things that separate
+that from a phone call:
+
+- **Mode** — `MODE_IN_COMMUNICATION` so the volume keys control call volume. Only from Android 13:
+  Element X found that setting it on 12 and below breaks audio-device switching outright, and that
+  workaround is mirrored here.
+- **Routing** — a plugged-in or paired headset always wins; otherwise a voice call goes to the
+  earpiece and a video call to the loudspeaker. An `AudioDeviceCallback` re-applies the choice when a
+  headset is connected or removed mid-call.
+- **Proximity** — `PROXIMITY_SCREEN_OFF_WAKE_LOCK` while the earpiece is the active route, released
+  as soon as it is not.
+
+**Why this is native rather than driven by Element Call.** Element Call can hand device control to
+its host: with the `controlledAudioDevices` URL parameter it drives `window.controls`
+(`setAvailableAudioDevices`, `onAudioDeviceSelect`, `setAudioEnabled`), which is exactly how Element
+X routes call audio. That route is closed to us for an architectural reason: Element X loads Element
+Call as the WebView's **top-level document**, so `controls` is same-document and reachable from
+`evaluateJavascript`. We load it in a **cross-origin iframe** inside our widget host page, where
+neither the host page nor `evaluateJavascript` can touch it. Adopting it would mean loading Element
+Call at top level and rebuilding the widget host as script injected into a page we do not serve.
+
 ### Critical: WebRTC EGL surface
 **Never resize or reparent the WebView container while WebRTC is active.** The EGL surface is bound to the View's exact size and position. Use `zIndex` toggling (`10f` ↔ `-1f`) to show/hide the call; do not change size, shape, or parent.
 

@@ -142,6 +142,14 @@ fun CallOverlay(appViewModel: AppViewModel) {
         "&preload=false" +
         "&returnToLobby=false"
 
+    // In-call audio: mode, routing and the proximity sensor, for as long as the overlay exists.
+    // Keyed on the call intent so switching between a voice and a video call re-applies the route.
+    val audioController = remember(context) { CallAudioController(context) }
+    DisposableEffect(audioController, appViewModel.callIntent) {
+        audioController.onCallStarted(isVoiceCall = appViewModel.callIntent == "audio")
+        onDispose { audioController.onCallStopped() }
+    }
+
     DisposableEffect(Unit) {
         appViewModel.setWidgetToDeviceHandler { payload ->
             val webView = callWebView.value ?: return@setWidgetToDeviceHandler
