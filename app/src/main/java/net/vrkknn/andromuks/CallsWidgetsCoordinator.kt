@@ -2,9 +2,13 @@ package net.vrkknn.andromuks
 
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import net.vrkknn.andromuks.utils.getUserAgent
+import okhttp3.Request
 import org.json.JSONObject
 
 data class IncomingCallInfo(val roomId: String, val callerId: String, val callIntent: String, val expiresAt: Long)
@@ -17,6 +21,12 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
     private companion object {
         /** How long Element Call gets to clear its own membership before we end the call anyway. */
         const val HANGUP_GRACE_MS = 3000L
+
+        /**
+         * Cap on a single MSC4039 download. Avatars are small; the base64 has to cross the JS bridge
+         * as a string, so a stray large file would be a memory problem rather than a slow one.
+         */
+        const val MAX_WIDGET_MEDIA_BYTES = 8 * 1024 * 1024
     }
 
     fun setCallActive(active: Boolean) = with(vm) {
@@ -152,6 +162,40 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         callPersistentWebView = null
         incomingCallInfo = null
         setWidgetToDeviceHandler(null)
+    }
+
+    /**
+     * Fetch an `mxc://` through the gomuks media proxy and hand it back base64-encoded.
+     *
+     * This is the MSC4039 `download_file` path Element Call uses for every avatar in widget mode.
+     * The WebView cannot do it itself: it has no Matrix access token, and Synapse now requires one
+     * for media. gomuks does have it, so we proxy the fetch with the session cookie the rest of the
+     * app uses for `/_gomuks/media/`, and reply with base64 — one of the two shapes Element Call
+     * accepts, and the only one that survives the JS bridge.
+     */
+    fun downloadMediaAsBase64(contentUri: String, onResult: (Result<String>) -> Unit) = with(vm) {
+        val httpUrl = net.vrkknn.andromuks.utils.MediaUtils.mxcToHttpUrl(contentUri, homeserverUrl, registerMapping = false)
+        if (httpUrl == null) {
+            onResult(Result.failure(IllegalArgumentException("Not an mxc URL: $contentUri")))
+            return@with
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = runCatching {
+                val request = Request.Builder()
+                    .url(httpUrl)
+                    .get()
+                    .header("Cookie", "gomuks_auth=$authToken")
+                    .header("User-Agent", getUserAgent())
+                    .build()
+                net.vrkknn.andromuks.utils.HttpClientProvider.shared.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) error("HTTP ${response.code} for $contentUri")
+                    val bytes = response.body.bytes()
+                    if (bytes.size > MAX_WIDGET_MEDIA_BYTES) error("Media too large for the widget bridge: ${bytes.size} bytes")
+                    android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                }
+            }
+            withContext(Dispatchers.Main) { onResult(result) }
+        }
     }
 
     fun sendWidgetCommand(command: String, data: Any?, onResult: (Result<Any?>) -> Unit) = with(vm) {

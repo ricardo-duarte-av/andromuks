@@ -2382,6 +2382,9 @@ class AppViewModel : ViewModel() {
     /** Hang up the way Element Call's own leave button does. Used by the call notification. */
     fun requestGracefulHangup() = callsWidgetsCoordinator.requestGracefulHangup()
 
+    /** MSC4039 `download_file` for the Element Call widget; see [CallsWidgetsCoordinator]. */
+    fun downloadMediaAsBase64(contentUri: String, onResult: (Result<String>) -> Unit) = callsWidgetsCoordinator.downloadMediaAsBase64(contentUri, onResult)
+
     /** Show the incoming-call banner for a ring delivered by push. */
     fun showIncomingCall(info: IncomingCallInfo) = callsWidgetsCoordinator.showIncomingCall(info)
 

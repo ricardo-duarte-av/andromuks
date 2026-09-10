@@ -255,6 +255,29 @@ internal class ElementCallJsBridge(
             return
         }
 
+        if (normalizedAction.contains("download_file")) {
+            // MSC4039. In widget mode Element Call never builds a media URL of its own: every avatar
+            // goes through `widgetApi.downloadFile(mxc)` and it accepts the reply as either a Blob or
+            // a base64 string. We advertise org.matrix.msc4039 in supported_api_versions, so Element
+            // Call believes we can serve it; without a handler the request fell through to the host's
+            // catch-all empty reply and every avatar failed with "Downloaded file format is not
+            // supported: undefined".
+            val contentUri = (requestData as? JSONObject)?.optString("content_uri").orEmpty()
+            if (contentUri.isBlank()) {
+                sendWidgetError(action, widgetRequestId, "Missing content_uri")
+                return
+            }
+            appViewModel.downloadMediaAsBase64(contentUri) { result ->
+                result.onSuccess { base64 ->
+                    sendWidgetResponse(action, widgetRequestId, JSONObject().put("file", base64))
+                }.onFailure { error ->
+                    android.util.Log.w("Andromuks", "ElementCallJsBridge: download_file failed for $contentUri", error)
+                    sendWidgetError(action, widgetRequestId, error.message ?: "Download failed")
+                }
+            }
+            return
+        }
+
         if (normalizedAction.contains("get_rtc_transports")) {
             // MSC4515: Element Call in widget mode cannot reach the homeserver's MSC4143
             // `/rtc/transports` endpoint itself (it has no access token), so it asks the host for
