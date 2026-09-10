@@ -107,6 +107,17 @@ class CallForegroundService : Service() {
     @SuppressLint("MissingPermission")
     private fun postOrPromote(notification: Notification) {
         val types = grantedServiceTypes()
+        if (types == 0 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Nothing to claim. A call starts before Element Call has asked for the microphone, so on
+            // a fresh install this is the normal first-call state — and promoting with no type at all
+            // is fatal from Android 14 (MissingForegroundServiceTypeException, an
+            // AndroidRuntimeException that no sensible catch would cover) for a service that declares
+            // types in the manifest. Post the notification plainly; the permission grant that follows
+            // re-promotes us properly.
+            Log.i(TAG, "No microphone/camera permission yet — notification without foreground promotion")
+            NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
+            return
+        }
         if (started && types == claimedTypes) {
             NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
             return
@@ -115,11 +126,10 @@ class CallForegroundService : Service() {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, types)
             started = true
             claimedTypes = types
-        } catch (e: SecurityException) {
-            // The microphone/camera permission was revoked between the check above and here.
-            degradeToPlainNotification(notification, e)
-        } catch (e: IllegalStateException) {
-            // A background start the system refused (Android 12+ FGS launch restrictions).
+        } catch (e: RuntimeException) {
+            // Permission revoked between the check above and here (SecurityException), a background
+            // start the system refused (IllegalStateException), or any future foreground-service-type
+            // rule. Never take the call down over the notification that reports it.
             degradeToPlainNotification(notification, e)
         }
     }
@@ -129,7 +139,7 @@ class CallForegroundService : Service() {
      * still get back to it and hang up, and stop pretending to be a foreground service.
      */
     @SuppressLint("MissingPermission")
-    private fun degradeToPlainNotification(notification: Notification, cause: Exception) {
+    private fun degradeToPlainNotification(notification: Notification, cause: RuntimeException) {
         Log.w(TAG, "startForeground failed, falling back to a plain notification", cause)
         NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
         stopSelfCompat()
