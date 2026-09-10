@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BatteryFull
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Power
@@ -39,6 +40,7 @@ fun PermissionsScreen(onPermissionsGranted: () -> Unit, modifier: Modifier = Mod
     // Track permission states
     var notificationPermissionGranted by remember { mutableStateOf(checkNotificationPermission(context)) }
     var batteryOptimizationDisabled by remember { mutableStateOf(checkBatteryOptimization(context)) }
+    var fullScreenIntentGranted by remember { mutableStateOf(IncomingCallRinger.canRing(context)) }
 
     // Notification permission launcher (Android 13+)
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -57,6 +59,13 @@ fun PermissionsScreen(onPermissionsGranted: () -> Unit, modifier: Modifier = Mod
         batteryOptimizationDisabled = checkBatteryOptimization(context)
         if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Battery optimization disabled: $batteryOptimizationDisabled")
         checkAndProceed(notificationPermissionGranted, batteryOptimizationDisabled, onPermissionsGranted)
+    }
+
+    val fullScreenIntentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+    ) {
+        fullScreenIntentGranted = IncomingCallRinger.canRing(context)
+        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Full-screen intent granted: $fullScreenIntentGranted")
     }
 
     // Check if all permissions are already granted on first composition
@@ -135,6 +144,23 @@ fun PermissionsScreen(onPermissionsGranted: () -> Unit, modifier: Modifier = Mod
                     requestBatteryOptimizationExemption(context, batteryOptimizationLauncher)
                 },
             )
+
+            // Full-screen intent (Android 14+): without it an incoming call arrives as a heads-up
+            // notification instead of taking over the screen. Optional — the call is still
+            // answerable either way — and only offered when the system says it is not granted,
+            // because on Android 13 and below it always is.
+            if (!fullScreenIntentGranted) {
+                PermissionCard(
+                    icon = Icons.Default.Call,
+                    title = "Full-screen calls (Optional)",
+                    description = "Let incoming calls take over the screen like a phone call instead of appearing as a notification.",
+                    isGranted = false,
+                    onRequestClick = {
+                        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Opening full-screen intent settings")
+                        openFullScreenIntentSettings(context, fullScreenIntentLauncher)
+                    },
+                )
+            }
 
             // Auto-start Permission Card (device-specific, informational only)
             if (AutoStartPermissionHelper.isAutoStartPermissionNeeded()) {
@@ -296,6 +322,28 @@ private fun AutoStartInfoCard(context: Context, modifier: Modifier = Modifier) {
                 fontStyle = FontStyle.Italic,
             )
         }
+    }
+}
+
+/**
+ * Open the system page that grants USE_FULL_SCREEN_INTENT, falling back to the app's notification
+ * settings on devices without the dedicated screen.
+ */
+private fun openFullScreenIntentSettings(context: Context, launcher: androidx.activity.result.ActivityResultLauncher<Intent>) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+    try {
+        launcher.launch(
+            Intent(
+                Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                android.net.Uri.parse("package:${context.packageName}"),
+            ),
+        )
+    } catch (e: android.content.ActivityNotFoundException) {
+        Log.w("PermissionsScreen", "No full-screen intent settings page, falling back", e)
+        launcher.launch(
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName),
+        )
     }
 }
 

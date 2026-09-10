@@ -40,9 +40,18 @@ Element Call is the Matrix video/audio calling system, running as a WebView (Web
 
 ### Voice vs video, and who rings
 
-The room header's call button opens a two-item menu — **Voice call** / **Video call** (worded "Join
-with …" when a call is already running) — and passes the choice to `startCall(roomId, intent)`, which
-stores it as `AppViewModel.callIntent`. Returning to a call we are already in skips the menu.
+The call actions live in the header's **3-dot overflow menu**, alongside Mentions and Search — the
+header row was already crowded. Following Element X's rule, a **Voice call** item appears only in
+DMs; **Video call** always; and while we are in the call the menu offers **Return to call** instead.
+The choice goes to `startCall(roomId, intent)`, which stores it as `AppViewModel.callIntent`.
+
+Because the call button no longer sits in the header, the **3-dot icon carries the "call is live"
+pulse** (primary colour, animated alpha) — otherwise nothing would signal an ongoing call in the room.
+
+`startCall` also resolves `callSendNotificationType` **before joining** — joining puts our own
+membership in `activeCallRooms`, and Element X only rings when it *starts* a call in a DM
+(`START_CALL_DM` vs `JOIN_EXISTING_DM`). Joining a call already in progress notifies rather than
+summoning everyone a second time.
 
 That choice, plus whether the room is a DM, is handed to Element Call through **its own URL
 parameters** — the names come from the bundle it serves, not from guesswork:
@@ -55,6 +64,12 @@ parameters** — the names come from the bundle it serves, not from guesswork:
 Note `intent=join_existing`, which gomuks web passes, is **not a value this build recognises at
 all** — the parameter it reads is `callIntent`, and the only value it compares against is `audio`.
 
+Element Call reports its own mute state to the host as an `io.element.device_mute` action
+(`{audio_enabled, video_enabled}`). If a voice call somehow comes up with the camera on anyway, the
+host sends the same action back once with `video_enabled: false` — once only, so the user is free to
+turn their camera on deliberately afterwards. The call URL is logged at `Log.i` (surviving release
+builds) precisely so the parameters can be checked when a call starts in the wrong mode.
+
 **Why we decide `ring` rather than Element Call**: left alone it sends `notification_type:
 "notification"` for every call including DMs, so a call to one person never rings anybody. It cannot
 do better — in widget mode it has no way to know the room is a DM. `RoomItem.isDirectMessage` does,
@@ -66,7 +81,8 @@ if a future build renames it) and sets the ring lifetime:
 
 | Room | `notification_type` | `lifetime` |
 |---|---|---|
-| DM (any member count) | `ring` | 90 s, matching Element X — Element Call's 30 s is too short to answer |
+| DM, starting a call | `ring` | 90 s, matching Element X — Element Call's 30 s is too short to answer |
+| DM, joining an ongoing call | `notification` | left as Element Call sent it |
 | Group room | `notification` | left as Element Call sent it |
 
 The receiving side is [Push: ringing while backgrounded](#push-ringing-while-backgrounded); a `ring`
@@ -144,6 +160,12 @@ permissions actually granted (Element Call requests the camera only for video), 
 with a type whose permission is missing throws; if `startForeground` fails anyway the service falls
 back to a plain notification rather than taking the call down with it.
 
+**A call starts before Element Call has asked for the microphone**, so on a fresh install
+`grantedServiceTypes()` is 0 on the first call. Promoting with no type at all is fatal from
+Android 14 — `MissingForegroundServiceTypeException`, an `AndroidRuntimeException` that no ordinary
+catch covers — for a service that declares types in its manifest. So a zero type set posts the
+notification without promoting at all, and the permission grant that follows re-promotes properly.
+
 `onTaskRemoved` tears the notification down: the call lives in MainActivity's WebView, so a swiped
 task means there is nothing left to return to.
 
@@ -205,7 +227,11 @@ sound is the device ringtone under `USAGE_NOTIFICATION_RINGTONE` (ring volume, f
 `CallStyle.forIncomingCall` for the Answer/Decline affordances, and a **full-screen intent** to take
 over the lockscreen. The last is a privilege: from Android 14, apps that are not calling or alarm
 apps have `USE_FULL_SCREEN_INTENT` denied by default. `IncomingCallRinger.canRing` reports it (and is
-logged on every ring) and the ring degrades to a heads-up notification rather than failing.
+logged on every ring) and the ring degrades to a heads-up notification rather than failing — a
+floating notification with Answer/Decline instead of taking over the screen. `PermissionsScreen`
+offers it as an optional card when the system says it is not granted, opening
+`Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT` (falling back to the app's notification settings),
+the same route Element X takes.
 
 `setTimeoutAfter(remaining)` retires either notification even if our process is gone, so a missed
 call can never ring forever. **Declining is purely local** (`CallActionReceiver`): MatrixRTC has no

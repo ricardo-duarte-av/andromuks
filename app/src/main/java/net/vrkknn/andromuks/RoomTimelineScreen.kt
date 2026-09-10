@@ -91,6 +91,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -4082,6 +4083,7 @@ fun RoomTimelineScreen(
                             },
                             callInProgress = appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId,
                             callActiveInRoom = appViewModel.activeCallRooms.contains(roomId),
+                            isDirectMessage = appViewModel.getRoomById(roomId)?.isDirectMessage == true,
                             onRefreshClick = {
                                 // Full refresh: drop all on-disk and in-RAM data, then fetch 100 events
                                 if (BuildConfig.DEBUG) {
@@ -6760,6 +6762,7 @@ fun RoomHeader(
     onCallClick: (callIntent: String?) -> Unit = {},
     callInProgress: Boolean = false,
     callActiveInRoom: Boolean = false,
+    isDirectMessage: Boolean = false,
     onRefreshClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
 ) {
@@ -6983,40 +6986,6 @@ fun RoomHeader(
             // Starting or joining asks for voice vs video first — it decides `m.call.intent` on the
             // notification we send, which is what tells the other side whether to ring quietly or
             // as a video call. Returning to a call we are already in needs no question.
-            var showCallMenu by remember { mutableStateOf(false) }
-            IconButton(onClick = { if (callInProgress) onCallClick(null) else showCallMenu = true }) {
-                Icon(
-                    imageVector = Icons.Filled.VideoCall,
-                    contentDescription = when {
-                        callInProgress -> "Return to call"
-                        callActiveInRoom -> "Join call"
-                        else -> "Start call"
-                    },
-                    tint = when {
-                        callIsLive -> MaterialTheme.colorScheme.primary.copy(alpha = callPulseAlpha)
-                        else -> MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-            DropdownMenu(expanded = showCallMenu, onDismissRequest = { showCallMenu = false }) {
-                DropdownMenuItem(
-                    text = { Text(if (callActiveInRoom) "Join with voice" else "Voice call") },
-                    leadingIcon = { Icon(Icons.Filled.Call, contentDescription = null) },
-                    onClick = {
-                        showCallMenu = false
-                        onCallClick("audio")
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(if (callActiveInRoom) "Join with video" else "Video call") },
-                    leadingIcon = { Icon(Icons.Filled.VideoCall, contentDescription = null) },
-                    onClick = {
-                        showCallMenu = false
-                        onCallClick("video")
-                    },
-                )
-            }
-
             if (bridgeInfo != null && bridgeInfo.hasRenderableIcon) {
                 // SHARED TRANSITION: match the "bridge-badge-${roomId}" key used in RoomListItem.
                 val bridgeBadgeModifier: Modifier = if (sharedTransitionScope != null && animatedVisibilityScope != null &&
@@ -7060,14 +7029,56 @@ fun RoomHeader(
                 IconButton(onClick = { moreExpanded = true }) {
                     Icon(
                         imageVector = Icons.Filled.MoreVert,
-                        contentDescription = "More",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        contentDescription = if (callIsLive) "More — call in progress" else "More",
+                        // The call actions moved inside this menu, so the pulse has to live here:
+                        // otherwise nothing in the header says a call is running in this room.
+                        tint = when {
+                            callIsLive -> MaterialTheme.colorScheme.primary.copy(alpha = callPulseAlpha)
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                 }
                 DropdownMenu(
                     expanded = moreExpanded,
                     onDismissRequest = { moreExpanded = false },
                 ) {
+                    // Calls first: Element X's rule, a voice option only in DMs.
+                    if (callInProgress) {
+                        DropdownMenuItem(
+                            text = { Text("Return to call") },
+                            onClick = {
+                                moreExpanded = false
+                                onCallClick(null)
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Filled.VideoCall, contentDescription = null)
+                            },
+                        )
+                    } else {
+                        if (isDirectMessage) {
+                            DropdownMenuItem(
+                                text = { Text(if (callActiveInRoom) "Join with voice" else "Voice call") },
+                                onClick = {
+                                    moreExpanded = false
+                                    onCallClick("audio")
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Filled.Call, contentDescription = null)
+                                },
+                            )
+                        }
+                        DropdownMenuItem(
+                            text = { Text(if (callActiveInRoom) "Join call" else "Video call") },
+                            onClick = {
+                                moreExpanded = false
+                                onCallClick("video")
+                            },
+                            leadingIcon = {
+                                Icon(Icons.Filled.VideoCall, contentDescription = null)
+                            },
+                        )
+                    }
+                    HorizontalDivider()
                     DropdownMenuItem(
                         text = { Text("Mentions") },
                         onClick = {
