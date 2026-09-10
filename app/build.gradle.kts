@@ -38,11 +38,17 @@ android {
         // Epoch offset: 2024-01-01 to reduce size
         val epochOffset = 1704067200000L
 
-        // Value to make it larger than 1.0.1
-        val playStoreOffset = 1800000000 
+        // Floor that keeps every generated code above the highest one already uploaded to Play
+        // (~1,884,964,860, the second-based scheme this replaced).
+        val playStoreOffset = 1885000000
 
-        // Final value calculation.
-        versionCode = playStoreOffset + ((now - epochOffset) / 1000).toInt()
+        // Minutes, not seconds, since the epoch. Play's ceiling is 2,100,000,000 and the old
+        // second-based scheme burned 31,557,600 codes a year whether we shipped or not — about
+        // 6.8 years of headroom left, after which the app can never be updated again (this is the
+        // "version code significantly higher than the previous one" warning in the Play Console).
+        // A minute tick spends 525,960 a year instead: ~400 years of headroom, while staying
+        // automatic, monotonic, and distinct across CI re-runs of the same tag.
+        versionCode = playStoreOffset + ((now - epochOffset) / 60000).toInt()
 
 
         // Update versionName for each release (e.g., 1.0, 1.1, 1.2, 2.0)
