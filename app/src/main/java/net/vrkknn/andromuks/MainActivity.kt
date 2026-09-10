@@ -1200,7 +1200,8 @@ class MainActivity : FragmentActivity() {
                         IncomingCallInfo(
                             roomId = roomId,
                             callerId = intent.getStringExtra(IncomingCallRinger.EXTRA_CALLER_ID).orEmpty(),
-                            callIntent = intent.getStringExtra(IncomingCallRinger.EXTRA_CALL_INTENT) ?: "video",
+                            // The push carries no intent hint; the banner's wording is generic.
+                            callIntent = "video",
                             expiresAt = intent.getLongExtra(IncomingCallRinger.EXTRA_EXPIRES_AT, 0L),
                         ),
                     ),

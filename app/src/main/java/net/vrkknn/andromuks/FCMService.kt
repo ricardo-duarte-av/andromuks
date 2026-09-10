@@ -250,7 +250,7 @@ class FCMService : FirebaseMessagingService() {
                     // when reading rooms elsewhere while other rooms were still active.
                     val dismissCount = jsonObject.optJSONArray("dismiss")?.length()
                     val messageCount = jsonObject.optJSONArray("messages")?.length()
-                    val callCount = jsonObject.optJSONArray("calls")?.length()
+                    val callCount = countRtcMessages(jsonObject)
                     // Deliberately NOT an Androlog entry: this fires on every single push, so it
                     // was the single largest source of noise in the log and (being interleaved)
                     // also broke up the runs of identical dismiss lines that would otherwise
@@ -275,11 +275,11 @@ class FCMService : FirebaseMessagingService() {
                     }
                     // Calls ring rather than notify, so they are handled on their own and never
                     // fall through to the message path.
-                    if (callCount != null) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Processing incoming call payload")
+                    if (callCount > 0) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Processing $callCount call notification(s)")
                         handleCallNotification(jsonObject)
                     }
-                    if (dismissCount == null && messageCount == null && callCount == null) {
+                    if (dismissCount == null && messageCount == null) {
                         handleLegacyNotification(jsonObject)
                     }
                 } catch (e: Exception) {
@@ -459,66 +459,89 @@ class FCMService : FirebaseMessagingService() {
         }
     }
 
+    /** How many entries in this push are MatrixRTC call notifications rather than messages. */
+    private fun countRtcMessages(jsonObject: JSONObject): Int {
+        val messages = jsonObject.optJSONArray("messages") ?: return 0
+        var count = 0
+        for (i in 0 until messages.length()) {
+            if (messages.optJSONObject(i)?.optJSONObject("rtc") != null) count++
+        }
+        return count
+    }
+
     /**
-     * Ring for an `org.matrix.msc4075.rtc.notification` pushed by the backend.
+     * Ring (or quietly announce) an `org.matrix.msc4075.rtc.notification` pushed by the backend.
+     *
+     * The backend carries these as ordinary `messages` entries with an extra `rtc` object —
+     * `{"type": "ring" | "notification", "expires_at": <ms>}` — mirroring the event's
+     * `notification_type`. `ring` is a call asking to be answered now; `notification` means someone
+     * started a call and we should say so without waking the room.
      *
      * The in-app path ([CallsWidgetsCoordinator.handleRtcNotification]) only works while the app is
-     * alive and syncing; this is the same event delivered as a high-priority push so a backgrounded
-     * or dead app can still ring. The guards mirror that path exactly — never ring for our own call,
-     * never ring while already in one, never ring for an event whose lifetime has already run out —
-     * plus one it does not need: if the app is in the foreground the WebSocket will deliver the same
-     * event and show the banner, so pushing a ring on top would double up.
+     * alive and syncing; this is the same event delivered as a push so a backgrounded or dead app
+     * still reacts. Guards mirror that path — never our own call, never while already in one, never
+     * past the event's lifetime — plus one it does not need: if the app is in the foreground the
+     * WebSocket delivers the same event and shows the banner, so pushing on top would double up.
      */
     private fun handleCallNotification(jsonObject: JSONObject) {
         try {
-            val calls = jsonObject.getJSONArray("calls")
+            val messages = jsonObject.optJSONArray("messages") ?: return
             val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
             val currentUserId = prefs.getString("current_user_id", "") ?: ""
-            for (i in 0 until calls.length()) {
-                val call = calls.getJSONObject(i)
-                val roomId = call.optString("room_id", "")
+            for (i in 0 until messages.length()) {
+                val message = messages.optJSONObject(i) ?: continue
+                val rtc = message.optJSONObject("rtc") ?: continue
+                val roomId = message.optString("room_id", "")
                 if (roomId.isEmpty()) continue
 
-                val selfId = call.optJSONObject("self")?.optString("id", "").orEmpty()
+                val selfId = message.optJSONObject("self")?.optString("id", "").orEmpty()
                 if (selfId.isNotEmpty() && currentUserId.isNotEmpty() && selfId != currentUserId) {
-                    Log.w(TAG, "Ignoring a call push for a different account")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Call push for a different account, discarding")
                     continue
                 }
 
-                // A cancelled ring: the caller gave up, or we answered on another device.
-                if (call.optBoolean("cancel", false)) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Call cancelled for $roomId")
+                val type = rtc.optString("type", "notification")
+                if (type == "cancel") {
                     IncomingCallRinger.cancel(this)
                     continue
                 }
 
-                val sender = call.optJSONObject("sender")
+                val sender = message.optJSONObject("sender")
                 val senderId = sender?.optString("id", "").orEmpty()
                 if (senderId.isNotEmpty() && senderId == currentUserId) continue
                 if (CallTracker.anyCallActive()) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Already in a call, not ringing")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Already in a call, ignoring $type for $roomId")
                     continue
                 }
                 if (isAppInForeground()) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "App is in the foreground; the sync path shows the banner")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "App in foreground; the sync path handles $type")
                     continue
                 }
 
-                val timestamp = call.optLong("timestamp", System.currentTimeMillis())
-                val senderTs = call.optLong("sender_ts", timestamp)
-                val lifetime = call.optLong("lifetime", 30_000L)
-                val callIntent = call.optString("call_intent", "video")
-                val roomName = call.optString("room_name", "").takeIf { it.isNotEmpty() } ?: roomId
-                val callerName = sender?.optString("name")?.takeIf { it.isNotEmpty() } ?: senderId.ifEmpty { roomName }
+                val timestamp = message.optLong("timestamp", System.currentTimeMillis())
+                val expiresAt = rtc.optLong("expires_at", 0L).takeIf { it > 0L } ?: (timestamp + 30_000L)
+                val roomName = message.optString("room_name", "").takeIf { it.isNotEmpty() } ?: roomId
+                val caller = sender?.optString("name")?.takeIf { it.isNotEmpty() } ?: senderId.ifEmpty { roomName }
+                val text = message.optString("text", "").takeIf { it.isNotEmpty() }
 
-                IncomingCallRinger.ring(
-                    context = this,
-                    roomId = roomId,
-                    roomName = roomName,
-                    caller = callerName,
-                    callIntent = callIntent,
-                    expiresAt = senderTs + lifetime,
-                )
+                if (type == "ring") {
+                    IncomingCallRinger.ring(
+                        context = this,
+                        roomId = roomId,
+                        roomName = roomName,
+                        caller = caller,
+                        expiresAt = expiresAt,
+                    )
+                } else {
+                    IncomingCallRinger.notifyCallStarted(
+                        context = this,
+                        roomId = roomId,
+                        roomName = roomName,
+                        caller = caller,
+                        text = text ?: "Started a call",
+                        expiresAt = expiresAt,
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling call notification", e)
@@ -541,6 +564,9 @@ class FCMService : FirebaseMessagingService() {
             // Process each message
             for (i in 0 until messagesArray.length()) {
                 val message = messagesArray.getJSONObject(i)
+                // Call notifications ride in this array too; handleCallNotification owns them and
+                // they must not also post as a chat message (or burn /exec enrichment).
+                if (message.optJSONObject("rtc") != null) continue
                 if (BuildConfig.DEBUG) Log.d(TAG, "Processing message: $message")
 
                 // Wall-clock instant this message FCM was received. Compared against any later

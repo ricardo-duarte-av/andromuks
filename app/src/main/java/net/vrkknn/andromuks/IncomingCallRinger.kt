@@ -66,6 +66,7 @@ object PendingCallAction {
 object IncomingCallRinger {
     private const val TAG = "IncomingCallRinger"
     private const val CHANNEL_ID = "incoming_call"
+    private const val STARTED_CHANNEL_ID = "call_started"
     private const val NOTIFICATION_ID = 90211
 
     const val ACTION_ANSWER = "net.vrkknn.andromuks.CALL_ANSWER"
@@ -74,7 +75,6 @@ object IncomingCallRinger {
 
     const val EXTRA_ROOM_ID = "room_id"
     const val EXTRA_CALLER_ID = "caller_id"
-    const val EXTRA_CALL_INTENT = "call_intent"
     const val EXTRA_EXPIRES_AT = "expires_at"
 
     private const val REQUEST_ANSWER = 10
@@ -94,7 +94,7 @@ object IncomingCallRinger {
     }
 
     @SuppressLint("MissingPermission")
-    fun ring(context: Context, roomId: String, roomName: String, caller: String, callIntent: String, expiresAt: Long) {
+    fun ring(context: Context, roomId: String, roomName: String, caller: String, expiresAt: Long) {
         ensureChannel(context)
         val remaining = expiresAt - System.currentTimeMillis()
         if (remaining <= 0L) {
@@ -103,16 +103,8 @@ object IncomingCallRinger {
         }
 
         val person = Person.Builder().setName(caller).setImportant(true).build()
-        val answer = activityIntent(context, ACTION_ANSWER, REQUEST_ANSWER, roomId, caller, callIntent, expiresAt)
-        val fullScreen = activityIntent(
-            context,
-            ACTION_INCOMING,
-            REQUEST_FULL_SCREEN,
-            roomId,
-            caller,
-            callIntent,
-            expiresAt,
-        )
+        val answer = activityIntent(context, ACTION_ANSWER, REQUEST_ANSWER, roomId, caller, expiresAt)
+        val fullScreen = activityIntent(context, ACTION_INCOMING, REQUEST_FULL_SCREEN, roomId, caller, expiresAt)
         val decline = PendingIntent.getBroadcast(
             context,
             REQUEST_DECLINE,
@@ -123,7 +115,7 @@ object IncomingCallRinger {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setStyle(NotificationCompat.CallStyle.forIncomingCall(person, decline, answer))
-            .setContentText(if (callIntent == "video") "Incoming video call in $roomName" else "Incoming call in $roomName")
+            .setContentText("Incoming call in $roomName")
             .setContentIntent(fullScreen)
             .setFullScreenIntent(fullScreen, true)
             .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -140,25 +132,59 @@ object IncomingCallRinger {
         NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
     }
 
+    /**
+     * `notification_type: "notification"` — someone started a call, but this is not a summons: no
+     * ring, no full-screen intent, no `CallStyle`. Tapping opens the room; "Join call" joins it.
+     * One notification per room, so a second announcement for the same room replaces the first.
+     */
+    @SuppressLint("MissingPermission")
+    fun notifyCallStarted(context: Context, roomId: String, roomName: String, caller: String, text: String, expiresAt: Long) {
+        ensureStartedChannel(context)
+        val remaining = expiresAt - System.currentTimeMillis()
+        if (remaining <= 0L) {
+            Log.i(TAG, "Ignoring a call announcement that already expired")
+            return
+        }
+
+        val open = PendingIntent.getActivity(
+            context,
+            roomId.hashCode(),
+            Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("room_id", roomId)
+                putExtra("direct_navigation", true)
+                putExtra("from_notification", true)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val join = activityIntent(context, ACTION_ANSWER, roomId.hashCode() + 1, roomId, caller, expiresAt)
+
+        val notification = NotificationCompat.Builder(context, STARTED_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(roomName)
+            .setContentText(if (caller.isNotEmpty() && caller != roomName) "$caller: $text" else text)
+            .setContentIntent(open)
+            .addAction(0, "Join call", join)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setTimeoutAfter(remaining)
+            .build()
+
+        Log.i(TAG, "Announcing a call started in $roomId (${remaining}ms left)")
+        NotificationManagerCompat.from(context).notify(roomId.hashCode(), notification)
+    }
+
     fun cancel(context: Context) {
         NotificationManagerCompat.from(context).cancel(NOTIFICATION_ID)
     }
 
-    private fun activityIntent(
-        context: Context,
-        action: String,
-        requestCode: Int,
-        roomId: String,
-        caller: String,
-        callIntent: String,
-        expiresAt: Long,
-    ): PendingIntent {
+    private fun activityIntent(context: Context, action: String, requestCode: Int, roomId: String, caller: String, expiresAt: Long): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             this.action = action
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
             putExtra(EXTRA_ROOM_ID, roomId)
             putExtra(EXTRA_CALLER_ID, caller)
-            putExtra(EXTRA_CALL_INTENT, callIntent)
             putExtra(EXTRA_EXPIRES_AT, expiresAt)
         }
         return PendingIntent.getActivity(
@@ -166,6 +192,23 @@ object IncomingCallRinger {
             requestCode,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+    }
+
+    private fun ensureStartedChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (manager.getNotificationChannel(STARTED_CHANNEL_ID) != null) return
+        manager.createNotificationChannel(
+            NotificationChannel(
+                STARTED_CHANNEL_ID,
+                "Calls started",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Someone started a call in a room"
+                setShowBadge(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            },
         )
     }
 

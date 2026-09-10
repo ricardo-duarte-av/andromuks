@@ -136,37 +136,43 @@ These events are **not shown in the timeline** (filtered out in `processTimeline
 The sync path above only works while the app is alive and syncing. For a backgrounded or dead app
 the same event has to arrive as a **high-priority FCM push**, which the backend must be built to
 send — stock gomuks drops every event that is not `m.room.message`/`m.sticker` in
-`formatPushNotificationMessage`, so this needs a backend that emits a `calls` array (see the payload
-contract below).
+`formatPushNotificationMessage`.
 
-`FCMService.handleCallNotification` reads that array and rings via `IncomingCallRinger`:
+Our backend carries these as ordinary entries in the push's `messages` array, with an extra `rtc`
+object mirroring the event's `notification_type`:
 
-| Field | Meaning |
-|---|---|
-| `room_id` | Room the call is in (required) |
-| `room_name` | Shown as "Incoming call in …" |
-| `sender.id` / `sender.name` | Caller; `sender.id == self` is never rung |
-| `self.id` | Guards against ringing for another logged-in account |
-| `timestamp` | Event `origin_server_ts`, ms |
-| `sender_ts` | `content.sender_ts`, ms; falls back to `timestamp` |
-| `lifetime` | `content.lifetime`, ms (default 30000) — `sender_ts + lifetime` is when the ring retires |
-| `call_intent` | `content["m.call.intent"]`, `"video"` or `"audio"` |
-| `cancel` | `true` stops a ring already showing (caller gave up / answered elsewhere) |
+```json
+{ "room_id": "…", "room_name": "Alice", "sender": {…}, "self": {…}, "text": "Incoming call",
+  "rtc": { "type": "ring", "expires_at": 1757505630000 } }
+```
 
-Guards mirror `handleRtcNotification` — never ring for our own call, never while already in one
-(`CallTracker.anyCallActive()`), never for an expired lifetime — plus one it does not need: if the
-app is in the foreground the WebSocket delivers the same event and shows the banner, so the push
-ring is skipped to avoid doubling up.
+| `rtc.type` | Meaning | What we do |
+|---|---|---|
+| `ring` | A call asking to be answered now | `IncomingCallRinger.ring` — `CallStyle.forIncomingCall`, ringtone channel, full-screen intent |
+| `notification` | Someone started a call | `IncomingCallRinger.notifyCallStarted` — ordinary notification, tap opens the room, "Join call" joins |
+| `cancel` | Caller gave up / answered elsewhere | Cancels a showing ring |
+
+`rtc.expires_at` is absolute ms (the event's `sender_ts + lifetime`), and falls back to
+`timestamp + 30 s`. Everything else comes from the normal message fields.
+
+**`countRtcMessages` splits the array**: entries with an `rtc` object are handled by
+`handleCallNotification` and `handleMessageNotification` skips them, so a call never also posts as a
+chat message or burns `/exec` enrichment on an event with no body to render.
+
+Guards mirror `handleRtcNotification` — never for our own call, never while already in one
+(`CallTracker.anyCallActive()`), never past `expires_at` — plus one it does not need: if the app is
+in the foreground the WebSocket delivers the same event and shows the banner, so the push is skipped
+to avoid doubling up.
 
 **Ringing** needs three things beyond an ordinary notification: an `IMPORTANCE_HIGH` channel whose
 sound is the device ringtone under `USAGE_NOTIFICATION_RINGTONE` (ring volume, follows ringer mode),
 `CallStyle.forIncomingCall` for the Answer/Decline affordances, and a **full-screen intent** to take
 over the lockscreen. The last is a privilege: from Android 14, apps that are not calling or alarm
-apps have `USE_FULL_SCREEN_INTENT` denied by default. `IncomingCallRinger.canRing` reports it and the
-ring degrades to a heads-up notification rather than failing.
+apps have `USE_FULL_SCREEN_INTENT` denied by default. `IncomingCallRinger.canRing` reports it (and is
+logged on every ring) and the ring degrades to a heads-up notification rather than failing.
 
-`setTimeoutAfter(lifetime remaining)` retires the ring even if our process is gone, so a missed call
-can never ring forever. **Declining is purely local** (`CallActionReceiver`): MatrixRTC has no
+`setTimeoutAfter(remaining)` retires either notification even if our process is gone, so a missed
+call can never ring forever. **Declining is purely local** (`CallActionReceiver`): MatrixRTC has no
 "rejected" event — `rtc.notification` is a hint, not an invite — so declining just stops the ring.
 
 **Answering from a dead process**: a ring routinely starts the process, so Answer and the
