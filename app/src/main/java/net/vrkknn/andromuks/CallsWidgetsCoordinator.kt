@@ -46,6 +46,12 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
     }
 
     fun startCall(roomId: String, intent: String = "video") = with(vm) {
+        // Decide before we join, because joining puts our own membership in activeCallRooms.
+        // Element X only rings when it *starts* a call in a DM: joining a call already in progress
+        // notifies rather than summoning everyone a second time.
+        val isDirectMessage = getRoomById(roomId)?.isDirectMessage == true
+        val joiningExistingCall = activeCallRooms.contains(roomId)
+        callSendNotificationType = if (isDirectMessage && !joiningExistingCall) "ring" else "notification"
         callActiveRoomId = roomId
         callIntent = if (intent == "audio") "audio" else "video"
         callActiveInternal = true

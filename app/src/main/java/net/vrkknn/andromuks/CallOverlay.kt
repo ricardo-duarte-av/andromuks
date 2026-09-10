@@ -96,9 +96,9 @@ fun CallOverlay(appViewModel: AppViewModel) {
         appViewModel.currentUserId,
     )
     // Element Call cannot tell a DM from a group room in widget mode, so it asks for a plain
-    // notification for every call. Element X rings for DMs and notifies for group rooms; decide it
-    // here, where the room list knows, and hand Element Call the answer.
-    val sendNotificationType = if (appViewModel.getRoomById(roomId)?.isDirectMessage == true) "ring" else "notification"
+    // notification for every call. Resolved in startCall, where "are we starting or joining" is
+    // still knowable.
+    val sendNotificationType = appViewModel.callSendNotificationType
     val theme = if (isSystemInDarkTheme()) "dark" else "light"
     val hostOrigin = "https://appassets.androidplatform.net"
     val assetLoader = remember(context) {
@@ -287,6 +287,10 @@ fun CallOverlay(appViewModel: AppViewModel) {
                         "AndroidWidgetBridge",
                     )
 
+                    // Log.i, not Log.d: R8 strips Log.d from release builds, and the exact
+                    // parameters we hand Element Call (callIntent, sendNotificationType) are the
+                    // first thing worth checking when a call starts in the wrong mode.
+                    android.util.Log.i("Andromuks", "CallOverlay: loading call URL $callUrl")
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d("Andromuks", "CallOverlay: hostUrl=$hostUrl")
                         android.util.Log.d("Andromuks", "CallOverlay: callBaseUrl=$callBaseUrl")

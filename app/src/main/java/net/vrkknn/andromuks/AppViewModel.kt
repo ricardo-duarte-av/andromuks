@@ -571,6 +571,12 @@ class AppViewModel : ViewModel() {
      * `org.matrix.msc4075.rtc.notification` event as `m.call.intent`.
      */
     internal var callIntent: String = "video"
+
+    /**
+     * `"ring"` or `"notification"` — what Element Call should stamp on the `rtc.notification` it
+     * sends, resolved by [CallsWidgetsCoordinator.startCall] before we join.
+     */
+    internal var callSendNotificationType: String = "notification"
     internal var appContext: Context? = null
 
     // Timeline cache for instant room opening (now singleton)

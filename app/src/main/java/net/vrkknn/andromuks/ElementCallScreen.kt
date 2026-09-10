@@ -356,11 +356,10 @@ internal class ElementCallJsBridge(
      */
     private fun stampCallNotification(requestData: JSONObject) {
         val content = requestData.optJSONObject("content") ?: return
-        val isDirectMessage = appViewModel.getRoomById(roomId)?.isDirectMessage == true
-        val notificationType = if (isDirectMessage) "ring" else "notification"
+        val notificationType = appViewModel.callSendNotificationType
         content.put("notification_type", notificationType)
         content.put("m.call.intent", appViewModel.callIntent)
-        if (isDirectMessage) content.put("lifetime", RING_LIFETIME_MS)
+        if (notificationType == "ring") content.put("lifetime", RING_LIFETIME_MS)
         android.util.Log.i(
             "Andromuks",
             "ElementCallJsBridge: rtc.notification for $roomId → $notificationType (${appViewModel.callIntent})",

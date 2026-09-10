@@ -144,6 +144,7 @@
               userId: getHostParam("userId") || getParam("userId"),
               deviceId: getHostParam("deviceId") || getParam("deviceId"),
               theme: getHostParam("theme") || getParam("theme"),
+              callIntent: getHostParam("callIntent") || getParam("callIntent"),
             };
           } catch (e) {
             console.warn("Failed to parse widget data", e);
@@ -175,6 +176,10 @@
 
         const pendingToWidgetRequests = new Map();
         const MAX_ROOM_STATE_PUSHES = 8;
+        // "audio" when the user picked a voice call. Element Call should already start with the
+        // camera off (its `callIntent` URL parameter), but it reports its mute state to us, so if it
+        // ever comes up with video on anyway we correct it once — see the device_mute handler.
+        let videoCorrectionDone = false;
         let roomStatePushAttempts = 0;
         let roomStatePushTimer = null;
         let roomStateAccepted = false;
@@ -435,6 +440,24 @@
           if (action.includes("always_on_screen")) {
             sendToAndroid(message.action, message.requestId, message.data);
             replyToWidget(message, {}, null, targetWindow);
+            return;
+          }
+          if (action === "io.element.device_mute") {
+            replyToWidget(message, {}, null, targetWindow);
+            const widgetData = parseWidgetData();
+            const wantsVoiceOnly = widgetData.callIntent === "audio";
+            const videoOn = message.data && message.data.video_enabled === true;
+            if (wantsVoiceOnly && videoOn && !videoCorrectionDone) {
+              // Once only: after this the user is free to turn their camera on deliberately.
+              videoCorrectionDone = true;
+              console.log("Host forcing the camera off for a voice call");
+              sendToWidgetRequest(
+                "io.element.device_mute",
+                { audio_enabled: message.data.audio_enabled !== false, video_enabled: false },
+                targetWindow,
+                function () {}
+              );
+            }
             return;
           }
           if (action.startsWith("io.element.") || action.startsWith("im.vector.") || action === "set_always_on_screen") {
