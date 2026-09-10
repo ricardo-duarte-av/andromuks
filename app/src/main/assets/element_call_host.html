@@ -642,6 +642,18 @@
               target.postMessage(message, "*");
             }
           },
+          // Ask Element Call to leave the call the same way its own leave button does. It listens
+          // for `im.vector.hangup` as a toWidget action and responds by clearing its
+          // org.matrix.msc3401.call.member state — which is what puts the "left the call" event in
+          // the room. Tearing the WebView down instead (what the notification's Hang up button used
+          // to do) ends the call locally but leaves our membership standing until the server applies
+          // the delayed leave event.
+          requestHangup: function () {
+            console.log("Host asking Element Call to leave the call");
+            sendToWidgetRequest("im.vector.hangup", {}, iframe.contentWindow, function (response) {
+              console.log("Element Call acked hangup: " + JSON.stringify(response || {}));
+            });
+          },
           onNativeToDevice: function (payload) {
             let parsed = payload;
             if (typeof payload === "string") {

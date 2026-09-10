@@ -146,8 +146,20 @@ fun CallOverlay(appViewModel: AppViewModel) {
                 )
             }
         }
+        appViewModel.setCallHangupRequester {
+            val webView = callWebView.value
+            if (webView == null) {
+                false
+            } else {
+                webView.post {
+                    webView.evaluateJavascript("window.__andromuksWidgetHost.requestHangup();", null)
+                }
+                true
+            }
+        }
         onDispose {
             appViewModel.setWidgetToDeviceHandler(null)
+            appViewModel.setCallHangupRequester(null)
             appViewModel.callPersistentWebView = null
         }
     }

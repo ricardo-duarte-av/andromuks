@@ -2356,6 +2356,19 @@ class AppViewModel : ViewModel() {
 
     fun setWidgetToDeviceHandler(handler: ((Any?) -> Unit)?) = toDeviceCoordinator.setWidgetToDeviceHandler(handler)
 
+    /**
+     * Asks the live Element Call WebView to leave the call, returning false when there is no WebView
+     * to ask. Registered by [CallOverlay]; see [CallsWidgetsCoordinator.requestGracefulHangup].
+     */
+    internal var callHangupRequester: (() -> Boolean)? = null
+
+    fun setCallHangupRequester(requester: (() -> Boolean)?) {
+        callHangupRequester = requester
+    }
+
+    /** Hang up the way Element Call's own leave button does. Used by the call notification. */
+    fun requestGracefulHangup() = callsWidgetsCoordinator.requestGracefulHangup()
+
     fun handleToDeviceMessage(data: Any?) = toDeviceCoordinator.handleToDeviceMessage(data)
 
     internal fun handleSyncToDeviceEvents(syncJson: JSONObject) = toDeviceCoordinator.handleSyncToDeviceEvents(syncJson)

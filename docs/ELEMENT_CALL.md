@@ -66,6 +66,15 @@ own leave path varies by version and URL params:
    screenOpenTimestamp` and ends the call. This is server truth but only fires if the backend
    actually returns cleared state events.
 
+**Hanging up from outside Element Call** (the notification's "Hang up") must not take the WebView
+down directly. Clearing `org.matrix.msc3401.call.member` is EC's job, so killing the WebView ends the
+call locally while our membership stands until the server applies the delayed leave event — nobody,
+including our own timeline, sees us leave. `requestGracefulHangup` instead sends EC the
+`im.vector.hangup` toWidget action, which is exactly what its own leave button does: EC clears its
+membership, and that comes back through signals (1) and (2) above and ends the call for real. A 3 s
+timeout ends the call locally anyway, so a wedged WebView can never trap the user in a call they
+asked to leave.
+
 Without (1) and (2) the WebView stayed parked on EC's "disconnected" screen with
 `callActiveInternal` still true — back-press only backgrounded it, and the header button offered
 "Return to call" rather than a fresh join, so the call could never be re-entered.
@@ -81,7 +90,9 @@ whose notification is a `NotificationCompat.CallStyle.forOngoingCall`:
   navigating to the room and pressing the header button, and could not be hung up at all.
 - **"Hang up"** goes to the service, which invokes `CallForegroundService.hangupHandler` — set by
   `startCall`, cleared by `endCall` — on the main thread. Service and ViewModel are always in the
-  same process while a call runs, so a plain callback is enough.
+  same process while a call runs, so a plain callback is enough. The handler routes through
+  `requestGracefulHangup` rather than `endCall`, so Element Call clears its own membership and the
+  room actually sees us leave (see [Ending a call](#ending-a-call)).
 - **The chronometer** starts from `callConnectedAtMs`, set the first time `setCallReadyForPip(true)`
   fires, so it measures the call rather than time spent in Element Call's lobby. Until then the
   notification reads "Connecting…" with no counter.
@@ -199,4 +210,6 @@ logcat (`CallOverlay: console …`) says which of those went wrong.
 - **`send_state` / `set_state`** for `call.member` — state key is auto-filled as `_<userId>_<deviceId>_m.call`; `membershipID` is injected; non-empty content triggers `setCallReadyForPip(true)`.
 - **`org.matrix.msc4515.get_rtc_transports`** — answered from the gomuks `get_rtc_transports` command; see the SFU discovery section above.
 - **`get_room_timeline`** — filters call.member events; detects own disconnect (empty content + `origin_server_ts > screenOpenTimestamp`) and calls `onCallEnded`.
+- **`im.vector.hangup`** (toWidget, sent by us) — asks EC to leave the call; the host exposes it as
+  `window.__andromuksWidgetHost.requestHangup()`.
 - Synthetic delay IDs (prefixed `andromuks-`) are used for delayed events that the backend creates on our behalf, so we don't forward update requests for them.

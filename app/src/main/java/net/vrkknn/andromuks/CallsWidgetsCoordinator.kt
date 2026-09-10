@@ -2,6 +2,7 @@ package net.vrkknn.andromuks
 
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
@@ -12,6 +13,11 @@ data class IncomingCallInfo(val roomId: String, val callerId: String, val callIn
  * Element Call UI state and widget WebSocket commands — [AppViewModel].
  */
 internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
+
+    private companion object {
+        /** How long Element Call gets to clear its own membership before we end the call anyway. */
+        const val HANGUP_GRACE_MS = 3000L
+    }
 
     fun setCallActive(active: Boolean) = with(vm) {
         callActiveInternal = active
@@ -48,7 +54,7 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         callConnectedAtMs = 0L
         callPersistentWebView = null
         incomingCallInfo = null
-        CallForegroundService.hangupHandler = { endCall() }
+        CallForegroundService.hangupHandler = { requestGracefulHangup() }
         refreshCallNotification()
     }
 
@@ -86,6 +92,38 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
 
     fun dismissIncomingCall() = with(vm) {
         incomingCallInfo = null
+    }
+
+    /**
+     * Leave the call the way Element Call's own leave button does, rather than tearing the WebView
+     * down underneath it.
+     *
+     * This matters because clearing our `org.matrix.msc3401.call.member` state is Element Call's
+     * job: killing the WebView ends the call locally but leaves our membership standing in the room
+     * until the server applies the delayed leave event, so nobody — including our own timeline —
+     * sees us leave. Asking it to hang up produces the state event, which comes back to us through
+     * the usual signals and ends the call for real.
+     *
+     * If there is no WebView to ask, or Element Call does not act on it, fall back to ending the
+     * call locally so the user is never stuck in a call they asked to leave.
+     */
+    fun requestGracefulHangup() = with(vm) {
+        val asked = callHangupRequester?.invoke() ?: false
+        if (!asked) {
+            endCall()
+            return@with
+        }
+        val leavingRoomId = callActiveRoomId
+        viewModelScope.launch {
+            delay(HANGUP_GRACE_MS)
+            if (callActiveInternal && callActiveRoomId == leavingRoomId) {
+                android.util.Log.w(
+                    "Andromuks",
+                    "CallsWidgetsCoordinator: Element Call did not leave within ${HANGUP_GRACE_MS}ms, ending locally",
+                )
+                endCall()
+            }
+        }
     }
 
     fun endCall() = with(vm) {
