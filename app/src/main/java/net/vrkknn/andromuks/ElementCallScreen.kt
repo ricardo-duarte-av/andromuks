@@ -43,6 +43,8 @@ internal fun buildElementCallUrl(
     deviceId: String,
     homeserverUrl: String,
     perParticipantE2EE: Boolean,
+    callIntent: String,
+    sendNotificationType: String,
     theme: String,
     widgetId: String,
     parentOrigin: String,
@@ -69,7 +71,13 @@ internal fun buildElementCallUrl(
         .appendQueryParameter("deviceId", deviceId)
         .appendQueryParameter("perParticipantE2EE", perParticipantE2EE.toString())
         .appendQueryParameter("baseUrl", homeserverUrl)
-        .appendQueryParameter("intent", "join_existing")
+        // Element Call's own parameter names, read straight from the bundle it serves:
+        // `callIntent` drives calculateInitialMuteState (`videoEnabled: callIntent != "audio"`) and
+        // Android audio routing (earpiece rather than speaker for a voice call), and
+        // `sendNotificationType` is what it stamps on the rtc.notification it sends. `intent`, which
+        // gomuks web passes as "join_existing", is not a value this build recognises at all.
+        .appendQueryParameter("callIntent", callIntent)
+        .appendQueryParameter("sendNotificationType", sendNotificationType)
         .appendQueryParameter("hideHeader", "true")
         .appendQueryParameter("confineToRoom", "true")
         .appendQueryParameter("returnToLobby", "false")
@@ -135,6 +143,11 @@ internal class ElementCallJsBridge(
     private val onCallEnded: () -> Unit,
     private val onAlwaysOnScreen: (Boolean) -> Unit,
 ) {
+    private companion object {
+        /** Element X rings for 90 s; Element Call's 30 s default is too short to answer a ring. */
+        const val RING_LIFETIME_MS = 90_000L
+    }
+
     private val syntheticDelayIds = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val screenOpenTimestamp = System.currentTimeMillis()
 
@@ -167,6 +180,12 @@ internal class ElementCallJsBridge(
         if (widgetRequestId == null) {
             android.util.Log.w("Andromuks", "ElementCallJsBridge: missing requestId for action=$action")
             return
+        }
+
+        if (requestData is JSONObject && normalizedAction.contains("send_event") &&
+            requestData.optString("type") == "org.matrix.msc4075.rtc.notification"
+        ) {
+            stampCallNotification(requestData)
         }
 
         if (requestData is JSONObject &&
@@ -319,6 +338,33 @@ internal class ElementCallJsBridge(
                 sendWidgetError(action, widgetRequestId, error.message ?: "Unknown error")
             }
         }
+    }
+
+    /**
+     * Decide `notification_type` and `m.call.intent` on the outgoing
+     * `org.matrix.msc4075.rtc.notification` ourselves, rather than accepting Element Call's.
+     *
+     * Element Call's own choice is useless to us here: the gomuks-served build sends
+     * `notification_type: "notification"` for every call, including DMs, so a call to one person
+     * never rings anybody. Element X rings for DMs and only notifies for group rooms, and that is
+     * the behaviour worth having, so mirror it from the one fact Element Call cannot see in widget
+     * mode — whether this room is a DM (`RoomItem.isDirectMessage`).
+     *
+     * `m.call.intent` carries the voice/video choice the user made in the room header, and a ring
+     * gets Element X's 90 s lifetime rather than the 30 s Element Call defaults to, so a ringing
+     * call has a realistic window to be answered.
+     */
+    private fun stampCallNotification(requestData: JSONObject) {
+        val content = requestData.optJSONObject("content") ?: return
+        val isDirectMessage = appViewModel.getRoomById(roomId)?.isDirectMessage == true
+        val notificationType = if (isDirectMessage) "ring" else "notification"
+        content.put("notification_type", notificationType)
+        content.put("m.call.intent", appViewModel.callIntent)
+        if (isDirectMessage) content.put("lifetime", RING_LIFETIME_MS)
+        android.util.Log.i(
+            "Andromuks",
+            "ElementCallJsBridge: rtc.notification for $roomId → $notificationType (${appViewModel.callIntent})",
+        )
     }
 
     private fun mapWidgetActionToCommand(action: String, requestData: Any?): String? {

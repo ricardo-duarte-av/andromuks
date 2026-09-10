@@ -95,6 +95,10 @@ fun CallOverlay(appViewModel: AppViewModel) {
         appViewModel.realMatrixHomeserverUrl,
         appViewModel.currentUserId,
     )
+    // Element Call cannot tell a DM from a group room in widget mode, so it asks for a plain
+    // notification for every call. Element X rings for DMs and notifies for group rooms; decide it
+    // here, where the room list knows, and hand Element Call the answer.
+    val sendNotificationType = if (appViewModel.getRoomById(roomId)?.isDirectMessage == true) "ring" else "notification"
     val theme = if (isSystemInDarkTheme()) "dark" else "light"
     val hostOrigin = "https://appassets.androidplatform.net"
     val assetLoader = remember(context) {
@@ -109,6 +113,8 @@ fun CallOverlay(appViewModel: AppViewModel) {
         deviceId = effectiveDeviceId,
         homeserverUrl = homeserverBaseUrl,
         perParticipantE2EE = isEncrypted,
+        callIntent = appViewModel.callIntent,
+        sendNotificationType = sendNotificationType,
         theme = theme,
         widgetId = "app.andromuks.call",
         parentOrigin = hostOrigin,
@@ -122,7 +128,8 @@ fun CallOverlay(appViewModel: AppViewModel) {
         "&baseUrl=${URLEncoder.encode(homeserverBaseUrl, StandardCharsets.UTF_8.toString())}" +
         "&perParticipantE2EE=${URLEncoder.encode(isEncrypted.toString(), StandardCharsets.UTF_8.toString())}" +
         "&theme=${URLEncoder.encode(theme, StandardCharsets.UTF_8.toString())}" +
-        "&intent=join_existing" +
+        "&callIntent=${URLEncoder.encode(appViewModel.callIntent, StandardCharsets.UTF_8.toString())}" +
+        "&sendNotificationType=${URLEncoder.encode(sendNotificationType, StandardCharsets.UTF_8.toString())}" +
         "&hideHeader=true" +
         "&confineToRoom=true" +
         "&appPrompt=false" +

@@ -38,6 +38,42 @@ Element Call is the Matrix video/audio calling system, running as a WebView (Web
 ### Starting a call
 `appViewModel.startCall(roomId)` sets `callActiveInternal = true`, clears mini-pip, and is called either by the user tapping the header button or by `IncomingCallBanner`'s "Join" button.
 
+### Voice vs video, and who rings
+
+The room header's call button opens a two-item menu — **Voice call** / **Video call** (worded "Join
+with …" when a call is already running) — and passes the choice to `startCall(roomId, intent)`, which
+stores it as `AppViewModel.callIntent`. Returning to a call we are already in skips the menu.
+
+That choice, plus whether the room is a DM, is handed to Element Call through **its own URL
+parameters** — the names come from the bundle it serves, not from guesswork:
+
+| Param | Effect inside Element Call |
+|---|---|
+| `callIntent` = `audio` \| `video` | `calculateInitialMuteState` → `videoEnabled: callIntent != "audio"`, so a voice call opens with the camera off; also switches Android audio routing to the earpiece instead of the speaker |
+| `sendNotificationType` = `ring` \| `notification` | Passed to `joinRTCSession` as `notificationType`, i.e. what Element Call stamps on the `rtc.notification` it sends. `ring` additionally makes it wait for pickup |
+
+Note `intent=join_existing`, which gomuks web passes, is **not a value this build recognises at
+all** — the parameter it reads is `callIntent`, and the only value it compares against is `audio`.
+
+**Why we decide `ring` rather than Element Call**: left alone it sends `notification_type:
+"notification"` for every call including DMs, so a call to one person never rings anybody. It cannot
+do better — in widget mode it has no way to know the room is a DM. `RoomItem.isDirectMessage` does,
+so `CallOverlay` resolves it and passes the answer down.
+
+`ElementCallJsBridge.stampCallNotification` then enforces the same decision on the outgoing event as
+a belt-and-braces measure (the URL parameter is the mechanism; the stamp guarantees the outcome even
+if a future build renames it) and sets the ring lifetime:
+
+| Room | `notification_type` | `lifetime` |
+|---|---|---|
+| DM (any member count) | `ring` | 90 s, matching Element X — Element Call's 30 s is too short to answer |
+| Group room | `notification` | left as Element Call sent it |
+
+The receiving side is [Push: ringing while backgrounded](#push-ringing-while-backgrounded); a `ring`
+is what makes it ring rather than post a quiet "started a call" notification.
+
+
+
 ### Backgrounding (mini-pip)
 Pressing **Back** while in a call sets `callMiniPipActive = true`. `CallOverlay` responds by switching its `zIndex` from `10f` to `-1f` — the WebView becomes invisible behind the NavHost but is never resized or reparented, preserving WebRTC's EGL surface.
 

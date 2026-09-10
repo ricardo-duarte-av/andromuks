@@ -564,6 +564,13 @@ class AppViewModel : ViewModel() {
      * because no UI observes it.
      */
     internal var callConnectedAtMs: Long = 0L
+
+    /**
+     * `"audio"` or `"video"` — what the user picked when starting or joining. Element Call uses it
+     * for audio routing (earpiece vs speaker), and [ElementCallJsBridge] stamps it onto the
+     * `org.matrix.msc4075.rtc.notification` event as `m.call.intent`.
+     */
+    internal var callIntent: String = "video"
     internal var appContext: Context? = null
 
     // Timeline cache for instant room opening (now singleton)
@@ -2346,7 +2353,7 @@ class AppViewModel : ViewModel() {
 
     fun setCallMiniPip(active: Boolean, roomId: String = "") = callsWidgetsCoordinator.setCallMiniPip(active, roomId)
 
-    fun startCall(roomId: String) = callsWidgetsCoordinator.startCall(roomId)
+    fun startCall(roomId: String, intent: String = "video") = callsWidgetsCoordinator.startCall(roomId, intent)
 
     fun endCall() = callsWidgetsCoordinator.endCall()
 

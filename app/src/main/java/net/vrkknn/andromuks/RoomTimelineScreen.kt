@@ -67,6 +67,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -4070,11 +4071,13 @@ fun RoomTimelineScreen(
                                 saveTimelineReturnScroll()
                                 navController.navigate("mentions?roomId=$encodedRoomId")
                             },
-                            onCallClick = {
-                                if (appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId) {
+                            onCallClick = { chosenIntent ->
+                                if (chosenIntent == null ||
+                                    (appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId)
+                                ) {
                                     appViewModel.setCallMiniPip(false, "")
                                 } else {
-                                    appViewModel.startCall(roomId)
+                                    appViewModel.startCall(roomId, chosenIntent)
                                 }
                             },
                             callInProgress = appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId,
@@ -6754,7 +6757,7 @@ fun RoomHeader(
     onHeaderClick: () -> Unit = {},
     onBackClick: () -> Unit = {},
     onNotificationsClick: () -> Unit = {},
-    onCallClick: () -> Unit = {},
+    onCallClick: (callIntent: String?) -> Unit = {},
     callInProgress: Boolean = false,
     callActiveInRoom: Boolean = false,
     onRefreshClick: () -> Unit = {},
@@ -6977,7 +6980,11 @@ fun RoomHeader(
                 ),
                 label = "call_pulse_alpha",
             )
-            IconButton(onClick = onCallClick) {
+            // Starting or joining asks for voice vs video first — it decides `m.call.intent` on the
+            // notification we send, which is what tells the other side whether to ring quietly or
+            // as a video call. Returning to a call we are already in needs no question.
+            var showCallMenu by remember { mutableStateOf(false) }
+            IconButton(onClick = { if (callInProgress) onCallClick(null) else showCallMenu = true }) {
                 Icon(
                     imageVector = Icons.Filled.VideoCall,
                     contentDescription = when {
@@ -6988,6 +6995,24 @@ fun RoomHeader(
                     tint = when {
                         callIsLive -> MaterialTheme.colorScheme.primary.copy(alpha = callPulseAlpha)
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            DropdownMenu(expanded = showCallMenu, onDismissRequest = { showCallMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text(if (callActiveInRoom) "Join with voice" else "Voice call") },
+                    leadingIcon = { Icon(Icons.Filled.Call, contentDescription = null) },
+                    onClick = {
+                        showCallMenu = false
+                        onCallClick("audio")
+                    },
+                )
+                DropdownMenuItem(
+                    text = { Text(if (callActiveInRoom) "Join with video" else "Video call") },
+                    leadingIcon = { Icon(Icons.Filled.VideoCall, contentDescription = null) },
+                    onClick = {
+                        showCallMenu = false
+                        onCallClick("video")
                     },
                 )
             }

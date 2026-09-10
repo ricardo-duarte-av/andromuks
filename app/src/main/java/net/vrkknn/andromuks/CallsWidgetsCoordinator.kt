@@ -45,8 +45,9 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         if (!active) callPersistentWebView = null
     }
 
-    fun startCall(roomId: String) = with(vm) {
+    fun startCall(roomId: String, intent: String = "video") = with(vm) {
         callActiveRoomId = roomId
+        callIntent = if (intent == "audio") "audio" else "video"
         callActiveInternal = true
         CallTracker.onCallStarted(roomId)
         callMiniPipActive = false
