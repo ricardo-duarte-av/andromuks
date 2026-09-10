@@ -492,6 +492,14 @@ Every breadcrumb captures the three discriminators that pick out which branch ru
 
 Reading the trail: the **last** `FCMOpen` line before the user notices the list tells you which branch fired last. An `OPEN … → room_timeline` line means navigation was issued (look downstream — `awaitRoomDataReadiness TIMEOUT`, `onInitComplete SKIPPED`, `requestRoomTimeline: WS down` — for why the timeline itself may be empty); a `TIMEOUT … stranding on room_list` or `FORCE → room_list` line means the open never happened.
 
+## Incoming-call ring
+
+A pushed `org.matrix.msc4075.rtc.notification` rings instead of notifying: `IncomingCallRinger`
+posts a `CallStyle.forIncomingCall` on the `incoming_call` channel (ringtone sound under
+`USAGE_NOTIFICATION_RINGTONE`, full-screen intent, Answer/Decline). The push payload contract, the
+guards, and the dead-process answer path are documented in
+[ELEMENT_CALL.md](ELEMENT_CALL.md#push-ringing-while-backgrounded).
+
 ## Ongoing-call notification
 
 Element Call's ongoing call has its own notification, posted by `CallForegroundService` on the

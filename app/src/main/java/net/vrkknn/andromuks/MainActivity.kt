@@ -298,6 +298,10 @@ class MainActivity : FragmentActivity() {
 
                             // OPTIMIZATION: Check if opening from notification BEFORE initializing FCM
                             // This allows us to skip cache clearing to preserve preemptive pagination cache
+                            // A ring can start the process: park Answer / full-screen-intent before
+                            // the normal notification-tap routing looks at room_id.
+                            offerCallActionFromIntent(intent)
+
                             val shortcutUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
                             val roomId = intent.getStringExtra("room_id")
                             val directNavigation = intent.getBooleanExtra("direct_navigation", false)
@@ -1169,6 +1173,52 @@ class MainActivity : FragmentActivity() {
         return replyText
     }
 
+    /**
+     * Park an Answer / full-screen-intent ring action for the composition to pick up.
+     *
+     * A ring can start the process from scratch, so these intents routinely arrive before there is
+     * an [AppViewModel] to act on them — hence the hand-off through [PendingCallAction] rather than
+     * touching the ViewModel here. Returns true when the intent was a call action.
+     */
+    private fun offerCallActionFromIntent(intent: Intent): Boolean {
+        val roomId = intent.getStringExtra(IncomingCallRinger.EXTRA_ROOM_ID).orEmpty()
+        when (intent.action) {
+            IncomingCallRinger.ACTION_ANSWER -> {
+                if (roomId.isEmpty()) return false
+                IncomingCallRinger.cancel(this)
+                PendingCallAction.offer(CallAction.Answer(roomId))
+            }
+
+            IncomingCallRinger.ACTION_INCOMING -> {
+                if (roomId.isEmpty()) return false
+                // The full-screen intent fires over the lockscreen, so the Activity has to be
+                // allowed to show there and wake the display — for this intent only, never for
+                // ordinary launches.
+                showOverLockscreen(true)
+                PendingCallAction.offer(
+                    CallAction.Incoming(
+                        IncomingCallInfo(
+                            roomId = roomId,
+                            callerId = intent.getStringExtra(IncomingCallRinger.EXTRA_CALLER_ID).orEmpty(),
+                            callIntent = intent.getStringExtra(IncomingCallRinger.EXTRA_CALL_INTENT) ?: "video",
+                            expiresAt = intent.getLongExtra(IncomingCallRinger.EXTRA_EXPIRES_AT, 0L),
+                        ),
+                    ),
+                )
+            }
+
+            else -> return false
+        }
+        return true
+    }
+
+    internal fun showOverLockscreen(enabled: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setShowWhenLocked(enabled)
+            setTurnScreenOn(enabled)
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -1180,6 +1230,8 @@ class MainActivity : FragmentActivity() {
         }
 
         applyRequestedRoomListSection(intent)
+
+        if (offerCallActionFromIntent(intent)) return
 
         // Tap on the ongoing-call notification: bring the live call back to the front. The WebView
         // is persistent, so this is instant — nothing is reloaded and the call is not re-joined.
@@ -2750,6 +2802,25 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             CallOverlay(appViewModel = appViewModel)
             // Incoming call banner (zIndex 20, above the call overlay's 10).
             IncomingCallBanner(appViewModel = appViewModel)
+
+            // Drain whatever the ring notification asked for. Keyed on the pending value so it also
+            // runs for an intent that arrives while the app is already up (onNewIntent).
+            val pendingCallAction = PendingCallAction.pending
+            LaunchedEffect(pendingCallAction) {
+                when (val action = PendingCallAction.consume()) {
+                    is CallAction.Answer -> {
+                        Log.i("Andromuks", "MainActivity: answering the call in ${action.roomId}")
+                        appViewModel.startCall(action.roomId)
+                    }
+
+                    is CallAction.Incoming -> {
+                        Log.i("Andromuks", "MainActivity: showing the incoming call banner for ${action.info.roomId}")
+                        appViewModel.showIncomingCall(action.info)
+                    }
+
+                    null -> Unit
+                }
+            }
         } // End of BiometricLockGate content
     } // End of outer Box
 }

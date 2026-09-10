@@ -94,6 +94,13 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         incomingCallInfo = null
     }
 
+    /** Show the incoming-call banner for a ring that arrived as a push rather than over sync. */
+    fun showIncomingCall(info: IncomingCallInfo) = with(vm) {
+        if (callActiveInternal) return@with
+        if (System.currentTimeMillis() >= info.expiresAt) return@with
+        incomingCallInfo = info
+    }
+
     /**
      * Leave the call the way Element Call's own leave button does, rather than tearing the WebView
      * down underneath it.

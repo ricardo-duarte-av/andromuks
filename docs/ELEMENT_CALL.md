@@ -131,6 +131,51 @@ If all pass, `incomingCallInfo` is set and `IncomingCallBanner` appears.
 
 These events are **not shown in the timeline** (filtered out in `processTimelineEvents`) and are **not pushed via FCM** — they only work when the app is in the foreground and sync is live.
 
+### Push: ringing while backgrounded
+
+The sync path above only works while the app is alive and syncing. For a backgrounded or dead app
+the same event has to arrive as a **high-priority FCM push**, which the backend must be built to
+send — stock gomuks drops every event that is not `m.room.message`/`m.sticker` in
+`formatPushNotificationMessage`, so this needs a backend that emits a `calls` array (see the payload
+contract below).
+
+`FCMService.handleCallNotification` reads that array and rings via `IncomingCallRinger`:
+
+| Field | Meaning |
+|---|---|
+| `room_id` | Room the call is in (required) |
+| `room_name` | Shown as "Incoming call in …" |
+| `sender.id` / `sender.name` | Caller; `sender.id == self` is never rung |
+| `self.id` | Guards against ringing for another logged-in account |
+| `timestamp` | Event `origin_server_ts`, ms |
+| `sender_ts` | `content.sender_ts`, ms; falls back to `timestamp` |
+| `lifetime` | `content.lifetime`, ms (default 30000) — `sender_ts + lifetime` is when the ring retires |
+| `call_intent` | `content["m.call.intent"]`, `"video"` or `"audio"` |
+| `cancel` | `true` stops a ring already showing (caller gave up / answered elsewhere) |
+
+Guards mirror `handleRtcNotification` — never ring for our own call, never while already in one
+(`CallTracker.anyCallActive()`), never for an expired lifetime — plus one it does not need: if the
+app is in the foreground the WebSocket delivers the same event and shows the banner, so the push
+ring is skipped to avoid doubling up.
+
+**Ringing** needs three things beyond an ordinary notification: an `IMPORTANCE_HIGH` channel whose
+sound is the device ringtone under `USAGE_NOTIFICATION_RINGTONE` (ring volume, follows ringer mode),
+`CallStyle.forIncomingCall` for the Answer/Decline affordances, and a **full-screen intent** to take
+over the lockscreen. The last is a privilege: from Android 14, apps that are not calling or alarm
+apps have `USE_FULL_SCREEN_INTENT` denied by default. `IncomingCallRinger.canRing` reports it and the
+ring degrades to a heads-up notification rather than failing.
+
+`setTimeoutAfter(lifetime remaining)` retires the ring even if our process is gone, so a missed call
+can never ring forever. **Declining is purely local** (`CallActionReceiver`): MatrixRTC has no
+"rejected" event — `rtc.notification` is a hint, not an invite — so declining just stops the ring.
+
+**Answering from a dead process**: a ring routinely starts the process, so Answer and the
+full-screen intent arrive before there is an `AppViewModel`. `MainActivity.offerCallActionFromIntent`
+parks them in `PendingCallAction` (Compose state) and a `LaunchedEffect` next to `CallOverlay` drains
+it once the ViewModel exists — Answer calls `startCall`, the full-screen intent shows the existing
+`IncomingCallBanner` via `showIncomingCall`. The full-screen intent also flips
+`setShowWhenLocked`/`setTurnScreenOn` on, for that intent only.
+
 ### Room-state: org.matrix.msc3401.call.member
 `activeCallRooms` tracks which rooms have an ongoing call based on room state events. It is updated in two places:
 

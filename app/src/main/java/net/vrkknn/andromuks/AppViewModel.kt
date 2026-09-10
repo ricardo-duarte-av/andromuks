@@ -2369,6 +2369,9 @@ class AppViewModel : ViewModel() {
     /** Hang up the way Element Call's own leave button does. Used by the call notification. */
     fun requestGracefulHangup() = callsWidgetsCoordinator.requestGracefulHangup()
 
+    /** Show the incoming-call banner for a ring delivered by push. */
+    fun showIncomingCall(info: IncomingCallInfo) = callsWidgetsCoordinator.showIncomingCall(info)
+
     fun handleToDeviceMessage(data: Any?) = toDeviceCoordinator.handleToDeviceMessage(data)
 
     internal fun handleSyncToDeviceEvents(syncJson: JSONObject) = toDeviceCoordinator.handleSyncToDeviceEvents(syncJson)
