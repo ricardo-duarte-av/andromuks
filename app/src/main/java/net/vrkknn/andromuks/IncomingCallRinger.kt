@@ -31,6 +31,15 @@ sealed interface CallAction {
 
     /** The full-screen intent fired: show the in-app incoming-call banner for [info]. */
     data class Incoming(val info: IncomingCallInfo) : CallAction
+
+    /**
+     * A "Matrix call" row was tapped on an Android contact card: call [userId] in their canonical DM.
+     *
+     * Carries the person rather than a room because that tap routinely starts the process from
+     * scratch — there is no ViewModel to resolve a room with, and no synced room list to resolve it
+     * from, until well after the intent has been handled.
+     */
+    data class CallUser(val userId: String, val callIntent: String) : CallAction
 }
 
 /** Process-global hand-off for [CallAction], observed by MainActivity's composition. */

@@ -8,5 +8,16 @@
         android:summaryColumn="data1"
         android:detailColumn="data3" />
 
-</ContactsAccountType>
+    <ContactsDataKind
+        android:mimeType="vnd.android.cursor.item/vnd.net.vrkknn.andromuks.matrix.call"
+        android:icon="@mipmap/ic_launcher"
+        android:summaryColumn="data1"
+        android:detailColumn="data3" />
 
+    <ContactsDataKind
+        android:mimeType="vnd.android.cursor.item/vnd.net.vrkknn.andromuks.matrix.videocall"
+        android:icon="@mipmap/ic_launcher"
+        android:summaryColumn="data1"
+        android:detailColumn="data3" />
+
+</ContactsAccountType>

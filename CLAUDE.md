@@ -213,6 +213,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Polls (MSC3381 render + vote, aggregation rules, satellite-event pipeline) | [docs/POLLS.md](docs/POLLS.md) |
 | In-room bot commands (MSC4391 discovery, `cmdschema` port, autocomplete, argument sheet, envelope) | [docs/BOT_COMMANDS.md](docs/BOT_COMMANDS.md) |
 | Element Call (WebView/WebRTC, call state, incoming banners, timeline narrator, widget protocol) | [docs/ELEMENT_CALL.md](docs/ELEMENT_CALL.md) |
+| Canonical DMs (room ↔ mxid index, person call address, contact-card call actions, phone-contact linking) | [docs/CANONICAL_DM.md](docs/CANONICAL_DM.md) |
 | Androlog (persistent release-safe event log, `Androlog(category, text)`, viewer screen) | [docs/ANDROLOG.md](docs/ANDROLOG.md) |
 | Observability (opt-in Firebase Crashlytics + Performance, `ws_connect` trace, mapping upload, Android vitals) | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |
 | Dependencies & toolchain (version catalog, single-Compose-BOM rule, AGP 9 migration walls, Coil 3 notes, Firebase `-ktx` removal, upgrade workflow) | [docs/DEPENDENCIES.md](docs/DEPENDENCIES.md) |

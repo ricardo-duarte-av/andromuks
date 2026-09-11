@@ -313,7 +313,7 @@ class MainActivity : FragmentActivity() {
 
                             // Handle custom MIME type from contacts
                             val mimeType = intent.type
-                            if (mimeType == MatrixContactsProvider.MIME_TYPE_MATRIX_USER && matrixUri != null) {
+                            if (MatrixContactsProvider.isMatrixContactMimeType(mimeType) && matrixUri != null) {
                                 // Mark that we were opened from external app (Contacts)
                                 appViewModel.setOpenedFromExternalApp(true)
                                 if (BuildConfig.DEBUG) {
@@ -589,7 +589,18 @@ class MainActivity : FragmentActivity() {
                                         "MainActivity: onCreate - Storing user info navigation for userId: $extractedUserId (will wait for WebSocket)",
                                     )
                                 }
-                                appViewModel.setPendingUserInfoNavigation(extractedUserId)
+                                // Which Matrix row was tapped decides what the tap means: the call rows
+                                // start a call with the canonical DM, the message row opens the profile
+                                // as it always has.
+                                when (mimeType) {
+                                    MatrixContactsProvider.MIME_TYPE_MATRIX_CALL ->
+                                        PendingCallAction.offer(CallAction.CallUser(extractedUserId, "audio"))
+
+                                    MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL ->
+                                        PendingCallAction.offer(CallAction.CallUser(extractedUserId, "video"))
+
+                                    else -> appViewModel.setPendingUserInfoNavigation(extractedUserId)
+                                }
                             }
 
                             // Register broadcast receiver for notification actions
@@ -1217,6 +1228,28 @@ class MainActivity : FragmentActivity() {
         return true
     }
 
+    /**
+     * The mxid behind a tapped contact row: every Matrix row we write carries `matrix:u/<user>` in
+     * `DATA1`. Returns null when the row is gone or unreadable (contacts permission revoked).
+     */
+    private fun readMatrixUserIdFromContactRow(dataRowUri: android.net.Uri): String? = try {
+        contentResolver.query(dataRowUri, arrayOf(android.provider.ContactsContract.Data.DATA1), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                cursor.getString(0)?.takeIf { it.startsWith("matrix:u/", ignoreCase = true) }?.let { uri ->
+                    val decoded = runCatching {
+                        java.net.URLDecoder.decode(uri.substringAfter("matrix:u/").substringBefore("?"), Charsets.UTF_8.name())
+                    }.getOrDefault(uri.substringAfter("matrix:u/").substringBefore("?"))
+                    if (decoded.startsWith("@")) decoded else "@$decoded"
+                }
+            } else {
+                null
+            }
+        }
+    } catch (e: Exception) {
+        Log.w("Andromuks", "MainActivity: could not read the Matrix user id from $dataRowUri", e)
+        null
+    }
+
     internal fun showOverLockscreen(enabled: Boolean) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(enabled)
@@ -1279,6 +1312,25 @@ class MainActivity : FragmentActivity() {
                 )
             }
             return
+        }
+
+        // A Matrix row tapped on a contact card delivers a content:// Data-row URI plus our MIME
+        // type; the mxid lives in DATA1. Same shape as the onCreate path, warm instead of cold.
+        val contactMimeType = intent.type
+        if (MatrixContactsProvider.isMatrixContactMimeType(contactMimeType) && intent.data != null) {
+            val userIdFromRow = readMatrixUserIdFromContactRow(intent.data!!)
+            if (userIdFromRow != null) {
+                when (contactMimeType) {
+                    MatrixContactsProvider.MIME_TYPE_MATRIX_CALL ->
+                        PendingCallAction.offer(CallAction.CallUser(userIdFromRow, "audio"))
+
+                    MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL ->
+                        PendingCallAction.offer(CallAction.CallUser(userIdFromRow, "video"))
+
+                    else -> appViewModel.setPendingUserInfoNavigation(userIdFromRow)
+                }
+                return
+            }
         }
 
         // Handle matrix:u/ URIs (from contacts)
@@ -2811,7 +2863,14 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             // Drain whatever the ring notification asked for. Keyed on the pending value so it also
             // runs for an intent that arrives while the app is already up (onNewIntent).
             val pendingCallAction = PendingCallAction.pending
-            LaunchedEffect(pendingCallAction) {
+            // A contact-card call needs the room list to resolve a person to their canonical DM, and
+            // that tap routinely starts the process — so hold the action (rather than consuming and
+            // failing) until rooms exist, or a cold tap would report "no DM" purely because sync had
+            // not finished yet.
+            val roomsReady = appViewModel.spacesLoaded || appViewModel.allRooms.isNotEmpty()
+            LaunchedEffect(pendingCallAction, roomsReady) {
+                val pending = pendingCallAction
+                if (pending is CallAction.CallUser && !roomsReady) return@LaunchedEffect
                 when (val action = PendingCallAction.consume()) {
                     is CallAction.Answer -> {
                         Log.i("Andromuks", "MainActivity: answering the ${action.callIntent} call in ${action.roomId}")
@@ -2823,6 +2882,24 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                     is CallAction.Incoming -> {
                         Log.i("Andromuks", "MainActivity: showing the incoming call banner for ${action.info.roomId}")
                         appViewModel.showIncomingCall(action.info)
+                    }
+
+                    is CallAction.CallUser -> {
+                        val dmRoomId = appViewModel.getDirectRoomIdForUser(action.userId)
+                        if (dmRoomId != null) {
+                            Log.i("Andromuks", "MainActivity: contact call → ${action.userId} in $dmRoomId")
+                            appViewModel.startCall(dmRoomId, action.callIntent)
+                        } else {
+                            // Never create a room from a contact tap: land on the profile, which
+                            // already offers to start the chat.
+                            Log.w("Andromuks", "MainActivity: no DM room for ${action.userId}; opening their profile")
+                            android.widget.Toast.makeText(
+                                context,
+                                "No direct chat with ${action.userId} yet",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                            appViewModel.setPendingUserInfoNavigation(action.userId)
+                        }
                     }
 
                     null -> Unit

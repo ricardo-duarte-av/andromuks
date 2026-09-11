@@ -619,6 +619,26 @@ fun UserInfoScreen(
 
     // Check if user is already in contacts
     var isUserInContacts by remember { mutableStateOf(false) }
+    // The phone contact this Matrix user is aggregated with, if any (see ContactLinkCoordinator).
+    var linkedContactName by remember { mutableStateOf<String?>(null) }
+    val contactLinkCoordinator = remember(context) { net.vrkknn.andromuks.ContactLinkCoordinator(context) }
+    // The system contact picker: an explicit choice, because Matrix can never tell us another user's
+    // phone number, so there is nothing to match on automatically.
+    val contactPickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickContact(),
+    ) { pickedUri ->
+        if (pickedUri != null) {
+            coroutineScope.launch {
+                val linked = contactLinkCoordinator.linkToPickedContact(userId, pickedUri)
+                linkedContactName = if (linked) contactLinkCoordinator.getLinkedDisplayName(userId) else null
+                Toast.makeText(
+                    context,
+                    if (linked) "Linked to ${linkedContactName ?: "contact"}" else "Could not link that contact",
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
 
     // Function to check if user is in contacts
     fun checkContactStatus() {
@@ -640,6 +660,8 @@ fun UserInfoScreen(
                         )
                         isUserInContacts = syncService.isUserInContacts(userId)
                     }
+                    // Same IO pass: the link state drives the button's label below.
+                    linkedContactName = if (isUserInContacts) contactLinkCoordinator.getLinkedDisplayName(userId) else null
                 }
             }
         }
@@ -2034,6 +2056,42 @@ fun UserInfoScreen(
                                 .heightIn(min = 48.dp),
                         ) {
                             Text(text = "Per-Message\nProfiles", textAlign = TextAlign.Center)
+                        }
+                    }
+
+                    // Link this Matrix contact to a phone contact, so one person is one entry in the
+                    // address book instead of two. Only offered once the Matrix contact exists —
+                    // there is nothing to aggregate before that.
+                    if (myUserId != userId && isUserInContacts) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Button(
+                                onClick = {
+                                    if (linkedContactName != null) {
+                                        coroutineScope.launch {
+                                            val ok = contactLinkCoordinator.unlink(userId)
+                                            linkedContactName = null
+                                            Toast.makeText(
+                                                context,
+                                                if (ok) "Unlinked" else "Could not unlink",
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    } else {
+                                        contactPickerLauncher.launch(null)
+                                    }
+                                },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = 48.dp),
+                            ) {
+                                Text(
+                                    text = linkedContactName?.let { "Unlink from\n$it" } ?: "Link to\nPhone Contact",
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
                         }
                     }
                 }

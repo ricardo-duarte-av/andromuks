@@ -135,6 +135,9 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="vnd.android.cursor.item/vnd.net.vrkknn.andromuks.matrix.user" />
+                <!-- Call actions on the contact card; MainActivity routes these to a call. -->
+                <data android:mimeType="vnd.android.cursor.item/vnd.net.vrkknn.andromuks.matrix.call" />
+                <data android:mimeType="vnd.android.cursor.item/vnd.net.vrkknn.andromuks.matrix.videocall" />
             </intent-filter>
             <!-- Required for Direct Share: links dynamic shortcuts to this activity as share targets -->
             <meta-data

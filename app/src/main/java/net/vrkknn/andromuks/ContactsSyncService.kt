@@ -233,20 +233,12 @@ class ContactsSyncService(private val context: Context, private val accountName:
             )
         }
 
-        // Add Matrix user ID as custom MIME type
-        // This is what allows Android to recognize this as a Matrix contact
-        // Use matrix:u/ URI format so MainActivity can handle it automatically
-        val matrixUri = "matrix:u/${user.userId.removePrefix("@")}"
-        operations.add(
-            ContentProviderOperation.newInsert(Data.CONTENT_URI)
-                .withValueBackReference(Data.RAW_CONTACT_ID, rawContactInsertIndex)
-                .withValue(Data.MIMETYPE, MatrixContactsProvider.MIME_TYPE_MATRIX_USER)
-                .withValue(Data.DATA1, matrixUri) // URI (must be in DATA1 for Android Contacts to find it)
-                .withValue(Data.DATA2, "Matrix") // Type/label
-                .withValue(Data.DATA3, "Send Matrix message") // Action label
-                .withValue(Data.DATA4, user.userId) // Store full user ID for reference
-                .build(),
-        )
+        // The Matrix rows: message, voice call, video call. All three carry the same matrix:u/ URI
+        // in DATA1 (which is what MainActivity reads back); they differ only in MIME type, which is
+        // what lets a tap mean "open the chat" or "start a call".
+        matrixDataRows(user).forEach { row ->
+            operations.add(row.withValueBackReference(Data.RAW_CONTACT_ID, rawContactInsertIndex).build())
+        }
 
         // Add avatar if available
         if (syncAvatars && user.avatarUrl != null) {
@@ -268,6 +260,10 @@ class ContactsSyncService(private val context: Context, private val accountName:
      */
     private suspend fun updateContact(operations: MutableList<ContentProviderOperation>, rawContactId: Long, user: MatrixUser, syncAvatars: Boolean) {
         val displayName = user.displayName ?: extractUsername(user.userId)
+
+        // Contacts saved before the call actions existed only have the message row; give them the
+        // rest here rather than making the user delete and re-add the contact.
+        ensureMatrixDataRows(rawContactId, user)
 
         // Update display name
         val nameId = getNameDataId(rawContactId)
@@ -419,7 +415,7 @@ class ContactsSyncService(private val context: Context, private val accountName:
      * CRITICAL FIX: Excludes deleted contacts (DELETED = 1)
      * This ensures we can re-add contacts that were deleted from the Contacts app
      */
-    private fun getRawContactId(userId: String): Long? {
+    internal fun getRawContactId(userId: String): Long? {
         val cursor = context.contentResolver.query(
             RawContacts.CONTENT_URI,
             arrayOf(RawContacts._ID, RawContacts.SYNC1, RawContacts.ACCOUNT_TYPE, RawContacts.DELETED),
@@ -604,18 +600,9 @@ class ContactsSyncService(private val context: Context, private val accountName:
     suspend fun mergeWithExistingContact(existingRawContactId: Long, user: MatrixUser, syncAvatars: Boolean) = withContext(Dispatchers.IO) {
         val operations = mutableListOf<ContentProviderOperation>()
 
-        // Add Matrix user ID as custom MIME type to existing contact
-        val matrixUri = "matrix:u/${user.userId.removePrefix("@")}"
-        operations.add(
-            ContentProviderOperation.newInsert(Data.CONTENT_URI)
-                .withValue(Data.RAW_CONTACT_ID, existingRawContactId)
-                .withValue(Data.MIMETYPE, MatrixContactsProvider.MIME_TYPE_MATRIX_USER)
-                .withValue(Data.DATA1, matrixUri)
-                .withValue(Data.DATA2, "Matrix")
-                .withValue(Data.DATA3, "Send Matrix message")
-                .withValue(Data.DATA4, user.userId)
-                .build(),
-        )
+        matrixDataRows(user).forEach { row ->
+            operations.add(row.withValue(Data.RAW_CONTACT_ID, existingRawContactId).build())
+        }
 
         // Add avatar if available
         if (syncAvatars && user.avatarUrl != null) {
@@ -642,6 +629,64 @@ class ContactsSyncService(private val context: Context, private val accountName:
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error merging contact", e)
+        }
+    }
+
+    /**
+     * The custom Data rows that make a contact a Matrix contact: one per action the contact card
+     * offers. `DATA1` is the `matrix:u/…` URI every entry point parses; `DATA3` is the label the
+     * Contacts app renders for the row; `DATA4` keeps the full user id for reference.
+     *
+     * Returned as un-anchored builders so the caller decides whether the row attaches to a raw
+     * contact being inserted in the same batch (back-reference) or to an existing one (direct id).
+     */
+    private fun matrixDataRows(user: MatrixUser): List<ContentProviderOperation.Builder> {
+        val matrixUri = "matrix:u/${user.userId.removePrefix("@")}"
+        return listOf(
+            MatrixContactsProvider.MIME_TYPE_MATRIX_USER to "Send Matrix message",
+            MatrixContactsProvider.MIME_TYPE_MATRIX_CALL to "Matrix call",
+            MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL to "Matrix video call",
+        ).map { (mimeType, actionLabel) ->
+            ContentProviderOperation.newInsert(Data.CONTENT_URI)
+                .withValue(Data.MIMETYPE, mimeType)
+                .withValue(Data.DATA1, matrixUri)
+                .withValue(Data.DATA2, "Matrix")
+                .withValue(Data.DATA3, actionLabel)
+                .withValue(Data.DATA4, user.userId)
+        }
+    }
+
+    /**
+     * Add any Matrix rows a contact is missing, without touching the ones it has.
+     *
+     * Contacts created before the call actions existed carry only the message row; this gives them
+     * the call rows on the next sync instead of requiring the user to delete and re-add them.
+     */
+    private fun ensureMatrixDataRows(rawContactId: Long, user: MatrixUser) {
+        val operations = mutableListOf<ContentProviderOperation>()
+        matrixDataRows(user).forEachIndexed { index, builder ->
+            val mimeType = listOf(
+                MatrixContactsProvider.MIME_TYPE_MATRIX_USER,
+                MatrixContactsProvider.MIME_TYPE_MATRIX_CALL,
+                MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL,
+            )[index]
+            val exists = context.contentResolver.query(
+                Data.CONTENT_URI,
+                arrayOf(Data._ID),
+                "${Data.RAW_CONTACT_ID} = ? AND ${Data.MIMETYPE} = ?",
+                arrayOf(rawContactId.toString(), mimeType),
+                null,
+            )?.use { it.count > 0 } ?: false
+            if (!exists) {
+                operations.add(builder.withValue(Data.RAW_CONTACT_ID, rawContactId).build())
+            }
+        }
+        if (operations.isEmpty()) return
+        try {
+            context.contentResolver.applyBatch(ContactsContract.AUTHORITY, ArrayList(operations))
+            if (BuildConfig.DEBUG) Log.d(TAG, "Added ${operations.size} missing Matrix row(s) for ${user.userId}")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adding missing Matrix rows", e)
         }
     }
 
