@@ -48,12 +48,12 @@ internal class ContactLinkCoordinator(private val context: Context) {
     suspend fun linkToPickedContact(userId: String, pickedContactUri: Uri): Boolean = withContext(Dispatchers.IO) {
         val ourRawContactId = syncService.getRawContactId(userId)
         if (ourRawContactId == null) {
-            Log.w(TAG, "No Matrix contact for $userId to link")
+            Androlog("Contacts", "Link aborted: no Matrix contact exists for $userId")
             return@withContext false
         }
         val targetRawContactId = resolveForeignRawContactId(pickedContactUri)
         if (targetRawContactId == null) {
-            Log.w(TAG, "Could not resolve a raw contact from $pickedContactUri")
+            Androlog("Contacts", "Link aborted: no foreign raw contact behind the picked contact")
             return@withContext false
         }
         if (!writeAggregationException(ourRawContactId, targetRawContactId, ContactsContract.AggregationExceptions.TYPE_KEEP_TOGETHER)) {
@@ -145,10 +145,11 @@ internal class ContactLinkCoordinator(private val context: Context) {
             put(ContactsContract.AggregationExceptions.TYPE, type)
         }
         context.contentResolver.update(ContactsContract.AggregationExceptions.CONTENT_URI, values, null, null)
-        Log.i(TAG, "Aggregation exception type=$type written for $rawContactId1 + $rawContactId2")
+        Androlog("Contacts", "Aggregation type=$type written for raw contacts $rawContactId1 + $rawContactId2")
         true
     } catch (e: Exception) {
         Log.e(TAG, "Could not write the aggregation exception", e)
+        Androlog("Contacts", "Aggregation write failed: ${e.javaClass.simpleName}: ${e.message}")
         false
     }
 

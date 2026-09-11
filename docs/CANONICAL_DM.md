@@ -106,6 +106,19 @@ do not survive a Contacts restore). The aggregation exception is the source of t
 the button's label, and it is deleted with our contact so it can never outlive the link. Unlinking
 writes `TYPE_KEEP_SEPARATE` — not `TYPE_AUTOMATIC`, which would let the provider re-aggregate them.
 
+## Diagnosing a failed save
+
+Contacts writes are user-initiated one-shot events, so they log to **Androlog** under the `Contacts`
+category (Settings → Androlog, exportable) rather than only to a logcat nobody can capture from a
+release build:
+
+- whether the `net.vrkknn.andromuks.matrix` account could be created — `addAccountExplicitly`'s
+  return value used to be discarded, and without that account every RawContact we write has nothing
+  to attach to;
+- the exception class and message behind a failed save, merge, or aggregation write, which the
+  per-user `catch` previously swallowed into a single `Log.e`;
+- the outcome of each save (`N added, M updated`) and each aggregation write.
+
 ## Known limits
 
 - A Contacts restore assigns new raw-contact ids and drops the exception; the link shows as absent

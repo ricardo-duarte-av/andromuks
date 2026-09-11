@@ -125,7 +125,9 @@ class ContactsSyncService(private val context: Context, private val accountName:
 
         try {
             val account = Account(accountName, accountType)
-            ensureAccountExists(account)
+            if (!ensureAccountExists(account)) {
+                return@withContext
+            }
 
             var addedCount = 0
             var updatedCount = 0
@@ -171,14 +173,14 @@ class ContactsSyncService(private val context: Context, private val accountName:
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error syncing contact for user: ${user.userId}", e)
+                    Androlog("Contacts", "Save failed for ${user.userId}: ${e.javaClass.simpleName}: ${e.message}")
                 }
             }
 
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "Contact sync completed: $addedCount added, $updatedCount updated")
-            }
+            Androlog("Contacts", "Saved ${users.size} user(s): $addedCount added, $updatedCount updated")
         } catch (e: Exception) {
             Log.e(TAG, "Error during contact sync", e)
+            Androlog("Contacts", "Contact sync failed: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
@@ -629,6 +631,7 @@ class ContactsSyncService(private val context: Context, private val accountName:
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error merging contact", e)
+            Androlog("Contacts", "Merge failed for ${user.userId}: ${e.javaClass.simpleName}: ${e.message}")
         }
     }
 
@@ -693,16 +696,26 @@ class ContactsSyncService(private val context: Context, private val accountName:
     /**
      * Ensure the sync account exists
      */
-    private fun ensureAccountExists(account: Account) {
+    private fun ensureAccountExists(account: Account): Boolean {
         val accountManager = android.accounts.AccountManager.get(context)
         val accounts = accountManager.getAccountsByType(accountType)
 
-        if (accounts.none { it.name == account.name }) {
+        if (accounts.any { it.name == account.name }) return true
+
+        // The return value matters: every RawContact we write names this account, so if it was never
+        // created the provider has nothing to attach them to. It used to be discarded.
+        val created = try {
             accountManager.addAccountExplicitly(account, null, null)
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "Created sync account: ${account.name}")
-            }
+        } catch (e: Exception) {
+            Androlog("Contacts", "addAccountExplicitly threw: ${e.javaClass.simpleName}: ${e.message}")
+            false
         }
+        if (!created) {
+            Androlog("Contacts", "Could not create the ${account.type} account — contacts have nowhere to live")
+        } else if (BuildConfig.DEBUG) {
+            Log.d(TAG, "Created sync account: ${account.name}")
+        }
+        return created
     }
 
     /**
