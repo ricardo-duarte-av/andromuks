@@ -529,8 +529,15 @@ class FCMService : FirebaseMessagingService() {
                     ?: if (type == "ring") "Incoming call" else "Started a call"
                 // The caller's avatar, falling back to the room's — a ring showing a letter where a
                 // face should be is the first thing anyone notices.
-                val avatarUrl = sender?.optString("avatar")?.takeIf { it.isNotEmpty() }
+                //
+                // Normalise to the canonical mxc:// form first, exactly as the message path does.
+                // IntelligentMediaCache keys on the string it is handed, verbatim, so the raw push
+                // form ("_gomuks/media/server/id?encrypted=false&fallback=d") can never match what
+                // the app cached when the room was opened ("mxc://server/id") — and its query
+                // parameters make the key differ between pushes as well.
+                val rawAvatarUrl = sender?.optString("avatar")?.takeIf { it.isNotEmpty() }
                     ?: message.optString("room_avatar").takeIf { it.isNotEmpty() }
+                val avatarUrl = rawAvatarUrl?.let { normalizeToMxcUrl(it) ?: it }
 
                 postCallNotification(type, roomId, roomName, caller, text, callIntent, expiresAt, null)
                 // Then again with the avatar once it is loaded. Never block the ring on a download:
