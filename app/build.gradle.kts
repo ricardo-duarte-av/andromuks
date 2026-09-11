@@ -87,6 +87,14 @@ android {
             resValue("string", "app_name", "Andromuks")
             manifestPlaceholders["contactsAuthority"] = "net.vrkknn.andromuks.matrix.contacts"
             buildConfigField("String", "CONTACTS_AUTHORITY", "\"net.vrkknn.andromuks.matrix.contacts\"")
+            // The account type MUST be per-flavour. AccountManager.addAccountExplicitly only works
+            // for the package that registered the authenticator for that type, so two flavours
+            // sharing one type means whichever installed first owns it and every other flavour is
+            // permanently locked out with a SecurityException. Base keeps the original value so
+            // existing accounts and their contacts are not orphaned.
+            resValue("string", "account_type", "net.vrkknn.andromuks.matrix")
+            buildConfigField("String", "ACCOUNT_TYPE", "\"net.vrkknn.andromuks.matrix\"")
+            buildConfigField("String", "ACCOUNT_NAME", "\"Andromuks\"")
         }
         create("a") {
             dimension = "variant"
@@ -94,6 +102,14 @@ android {
             resValue("string", "app_name", "Andromuks A")
             manifestPlaceholders["contactsAuthority"] = "net.vrkknn.andromuks.matrix.contacts.a"
             buildConfigField("String", "CONTACTS_AUTHORITY", "\"net.vrkknn.andromuks.matrix.contacts.a\"")
+            // The account type MUST be per-flavour. AccountManager.addAccountExplicitly only works
+            // for the package that registered the authenticator for that type, so two flavours
+            // sharing one type means whichever installed first owns it and every other flavour is
+            // permanently locked out with a SecurityException. Base keeps the original value so
+            // existing accounts and their contacts are not orphaned.
+            resValue("string", "account_type", "net.vrkknn.andromuks.matrix.a")
+            buildConfigField("String", "ACCOUNT_TYPE", "\"net.vrkknn.andromuks.matrix.a\"")
+            buildConfigField("String", "ACCOUNT_NAME", "\"Andromuks A\"")
         }
         create("b") {
             dimension = "variant"
@@ -101,6 +117,14 @@ android {
             resValue("string", "app_name", "Andromuks B")
             manifestPlaceholders["contactsAuthority"] = "net.vrkknn.andromuks.matrix.contacts.b"
             buildConfigField("String", "CONTACTS_AUTHORITY", "\"net.vrkknn.andromuks.matrix.contacts.b\"")
+            // The account type MUST be per-flavour. AccountManager.addAccountExplicitly only works
+            // for the package that registered the authenticator for that type, so two flavours
+            // sharing one type means whichever installed first owns it and every other flavour is
+            // permanently locked out with a SecurityException. Base keeps the original value so
+            // existing accounts and their contacts are not orphaned.
+            resValue("string", "account_type", "net.vrkknn.andromuks.matrix.b")
+            buildConfigField("String", "ACCOUNT_TYPE", "\"net.vrkknn.andromuks.matrix.b\"")
+            buildConfigField("String", "ACCOUNT_NAME", "\"Andromuks B\"")
         }
         create("c") {
             dimension = "variant"
@@ -108,6 +132,14 @@ android {
             resValue("string", "app_name", "Andromuks C")
             manifestPlaceholders["contactsAuthority"] = "net.vrkknn.andromuks.matrix.contacts.c"
             buildConfigField("String", "CONTACTS_AUTHORITY", "\"net.vrkknn.andromuks.matrix.contacts.c\"")
+            // The account type MUST be per-flavour. AccountManager.addAccountExplicitly only works
+            // for the package that registered the authenticator for that type, so two flavours
+            // sharing one type means whichever installed first owns it and every other flavour is
+            // permanently locked out with a SecurityException. Base keeps the original value so
+            // existing accounts and their contacts are not orphaned.
+            resValue("string", "account_type", "net.vrkknn.andromuks.matrix.c")
+            buildConfigField("String", "ACCOUNT_TYPE", "\"net.vrkknn.andromuks.matrix.c\"")
+            buildConfigField("String", "ACCOUNT_NAME", "\"Andromuks C\"")
         }
     }
 

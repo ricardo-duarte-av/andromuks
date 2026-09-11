@@ -32,7 +32,7 @@ import java.io.ByteArrayOutputStream
  * - Handles avatar syncing
  * - Supports incremental updates
  */
-class ContactsSyncService(private val context: Context, private val accountName: String, private val accountType: String = "net.vrkknn.andromuks.matrix") {
+class ContactsSyncService(private val context: Context, private val accountName: String, private val accountType: String = BuildConfig.ACCOUNT_TYPE) {
     companion object {
         private const val TAG = "ContactsSyncService"
 

@@ -35,7 +35,9 @@ import kotlinx.coroutines.withContext
 internal class ContactLinkCoordinator(private val context: Context) {
 
     private val syncService by lazy {
-        ContactsSyncService(context, accountName = ACCOUNT_NAME, accountType = ACCOUNT_TYPE)
+        // Name and type both follow the flavour, so side-by-side installs get distinct accounts
+        // rather than fighting over one.
+        ContactsSyncService(context, accountName = BuildConfig.ACCOUNT_NAME, accountType = ACCOUNT_TYPE)
     }
 
     /**
@@ -196,7 +198,6 @@ internal class ContactLinkCoordinator(private val context: Context) {
 
     private companion object {
         const val TAG = "ContactLink"
-        const val ACCOUNT_NAME = "Andromuks"
-        const val ACCOUNT_TYPE = "net.vrkknn.andromuks.matrix"
+        val ACCOUNT_TYPE: String = BuildConfig.ACCOUNT_TYPE
     }
 }

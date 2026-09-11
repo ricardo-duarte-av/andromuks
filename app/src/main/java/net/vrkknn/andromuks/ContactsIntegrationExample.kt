@@ -31,7 +31,7 @@ class ContactsIntegrationExample(private val context: Context, private val appVi
         // currentUserId is non-null but starts as "" until login resolves, so `?: "matrix_user"`
         // never fired and an early construction would name the account "".
         accountName = appViewModel.currentUserId.takeIf { it.isNotBlank() } ?: "matrix_user",
-        accountType = "net.vrkknn.andromuks.matrix",
+        accountType = BuildConfig.ACCOUNT_TYPE,
     )
 
     /**

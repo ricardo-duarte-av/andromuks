@@ -596,8 +596,8 @@ fun UserInfoScreen(
                     withContext(Dispatchers.IO) {
                         val syncService = ContactsSyncService(
                             context,
-                            accountName = "Andromuks",
-                            accountType = "net.vrkknn.andromuks.matrix",
+                            accountName = net.vrkknn.andromuks.BuildConfig.ACCOUNT_NAME,
+                            accountType = net.vrkknn.andromuks.BuildConfig.ACCOUNT_TYPE,
                         )
                         isUserInContacts = syncService.isUserInContacts(userId)
                     }
@@ -635,8 +635,8 @@ fun UserInfoScreen(
                 withContext(Dispatchers.IO) {
                     val syncService = ContactsSyncService(
                         context,
-                        accountName = "Andromuks",
-                        accountType = "net.vrkknn.andromuks.matrix",
+                        accountName = net.vrkknn.andromuks.BuildConfig.ACCOUNT_NAME,
+                        accountType = net.vrkknn.andromuks.BuildConfig.ACCOUNT_TYPE,
                     )
                     val wasAdded = syncService.isUserInContacts(userId)
                     isUserInContacts = wasAdded
@@ -927,8 +927,8 @@ fun UserInfoScreen(
                                         withContext(Dispatchers.IO) {
                                             val syncService = ContactsSyncService(
                                                 context,
-                                                accountName = "Andromuks",
-                                                accountType = "net.vrkknn.andromuks.matrix",
+                                                accountName = net.vrkknn.andromuks.BuildConfig.ACCOUNT_NAME,
+                                                accountType = net.vrkknn.andromuks.BuildConfig.ACCOUNT_TYPE,
                                             )
                                             val contactUri = syncService.getContactUri(userId)
                                             withContext(Dispatchers.Main) {
@@ -983,8 +983,8 @@ fun UserInfoScreen(
                                             withContext(Dispatchers.IO) {
                                                 val syncService = ContactsSyncService(
                                                     context,
-                                                    accountName = "Andromuks",
-                                                    accountType = "net.vrkknn.andromuks.matrix",
+                                                    accountName = net.vrkknn.andromuks.BuildConfig.ACCOUNT_NAME,
+                                                    accountType = net.vrkknn.andromuks.BuildConfig.ACCOUNT_TYPE,
                                                 )
                                                 val wasAdded = syncService.isUserInContacts(userId)
                                                 isUserInContacts = wasAdded
@@ -3663,8 +3663,8 @@ suspend fun addMatrixUserToContacts(context: Context, userId: String, displayNam
         // a cloud/SIM default — so the gate closed on a value nothing needed.
         val syncService = ContactsSyncService(
             context,
-            accountName = "Andromuks", // display name for the account
-            accountType = "net.vrkknn.andromuks.matrix",
+            accountName = net.vrkknn.andromuks.BuildConfig.ACCOUNT_NAME,
+            accountType = net.vrkknn.andromuks.BuildConfig.ACCOUNT_TYPE,
         )
         val user = net.vrkknn.andromuks.MatrixUser(
             userId = userId,

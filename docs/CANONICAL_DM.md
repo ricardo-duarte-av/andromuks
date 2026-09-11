@@ -125,5 +125,27 @@ release build:
   and must be re-made.
 - OEM Contacts apps (Samsung, Xiaomi) sometimes collapse or drop unknown custom data kinds, in which
   case the call rows may not appear — the profile sheet's own buttons remain the route.
-- `accountType` and the MIME types are not flavour-suffixed while `applicationId` and
-  `contactsAuthority` are, so side-by-side flavours share an account type. Pre-existing.
+- The custom MIME types are still shared across flavours, so tapping a Matrix row with two flavours
+  installed can offer a chooser. Harmless: each flavour's `ContactsAccountType` applies only to rows
+  on its own account, so rendering is unaffected.
+
+## The account type is per-flavour, and must be
+
+`res/xml/authenticator.xml` takes its `accountType` from a **per-flavour `resValue`**
+(`net.vrkknn.andromuks.matrix`, `.a`, `.b`, `.c`), mirrored into `BuildConfig.ACCOUNT_TYPE` for the
+Kotlin side and used by `contacts_sync_adapter.xml` too. The account *name* follows `app_name`, so
+side-by-side installs show up as distinct accounts rather than four identical "Andromuks" entries.
+
+This is not tidiness. `AccountManager.addAccountExplicitly` only works for the package that
+registered the authenticator for that type, so when every flavour declared
+`net.vrkknn.andromuks.matrix`, whichever installed **first** owned it and every other flavour was
+locked out for good:
+
+```
+SecurityException: uid=10675, package=pt.aguiarvieira.andromuks
+cannot explicitly add accounts of type net.vrkknn.andromuks.matrix
+```
+
+With no account, every RawContact we write has nothing to attach to — which is why saving a contact
+failed on a device that also had variant B installed. Base deliberately keeps the original value so
+existing accounts and their contacts are not orphaned; only `a`/`b`/`c` change.
