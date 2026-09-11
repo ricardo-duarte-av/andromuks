@@ -284,6 +284,7 @@ class SyncBatchProcessor(
                                             room.isLowPriority || existing.isLowPriority
                                         },
                                         isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
+                                        directUserId = room.directUserId ?: existing.directUserId,
                                         bridgeProtocolAvatarUrl =
                                         room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
                                         bridgeProtocolId = room.bridgeProtocolId ?: existing.bridgeProtocolId,
@@ -333,6 +334,7 @@ class SyncBatchProcessor(
                                             room.isLowPriority || existing.isLowPriority
                                         },
                                         isDirectMessage = room.isDirectMessage || existing.isDirectMessage,
+                                        directUserId = room.directUserId ?: existing.directUserId,
                                         bridgeProtocolAvatarUrl =
                                         room.bridgeProtocolAvatarUrl ?: existing.bridgeProtocolAvatarUrl,
                                         bridgeProtocolId = room.bridgeProtocolId ?: existing.bridgeProtocolId,

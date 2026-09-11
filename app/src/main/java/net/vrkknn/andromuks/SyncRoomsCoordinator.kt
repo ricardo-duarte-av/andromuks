@@ -654,6 +654,14 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
         }
     }
 
+    /**
+     * The mxid `m.direct` associates with [roomId], by reverse-scanning the userId → roomIds map the
+     * account-data parser already builds. Null when the room is not listed for anyone.
+     */
+    private fun directUserIdFromAccountData(roomId: String): String? = with(vm) {
+        directMessageUserMap.entries.firstOrNull { (_, roomIds) -> roomIds.contains(roomId) }?.key
+    }
+
     fun updateRoomsDirectMessageStatus(dmRoomIds: Set<String>) {
         with(vm) {
             var updatedCount = 0
@@ -662,9 +670,12 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
             // Update the map in place (roomMap is a val but points to a mutable map)
             for ((roomId, room) in roomMap) {
                 val shouldBeDirect = dmRoomIds.contains(roomId)
-                if (room.isDirectMessage != shouldBeDirect) {
-                    // Update room with correct DM status
-                    roomMap[roomId] = room.copy(isDirectMessage = shouldBeDirect)
+                // m.direct is authoritative for DM-ness, so it is also the right place to learn the
+                // partner's identity for rooms whose `meta.dm_user_id` never arrived (bridged and
+                // legacy rooms, mostly).
+                val partner = room.directUserId ?: if (shouldBeDirect) directUserIdFromAccountData(roomId) else null
+                if (room.isDirectMessage != shouldBeDirect || partner != room.directUserId) {
+                    roomMap[roomId] = room.copy(isDirectMessage = shouldBeDirect, directUserId = partner)
                     updatedCount++
                 }
             }
@@ -1574,6 +1585,9 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                         // DM status is reconciled authoritatively (both directions) by
                         // updateRoomsDirectMessageStatus from m.direct, so OR-preserve here.
                         isDirectMessage = room.isDirectMessage || existingRoom.isDirectMessage,
+                        // ?:-preserve, not OR: a delta that omitted `meta` carries null, which means
+                        // "said nothing", never "no partner".
+                        directUserId = room.directUserId ?: existingRoom.directUserId,
                         // WRITE-ONLY BRIDGE INFO: Preserve bridge protocol avatar if it was previously set
                         // Bridge info comes from get_room_state (m.bridge event), not from sync_complete
                         // Once set, it's never removed (will be resolved on app restart if room is no longer bridged)
@@ -1739,6 +1753,7 @@ internal class SyncRoomsCoordinator(private val vm: AppViewModel) {
                             room.isLowPriority || existingInRoomMap.isLowPriority
                         },
                         isDirectMessage = room.isDirectMessage || existingInRoomMap.isDirectMessage,
+                        directUserId = room.directUserId ?: existingInRoomMap.directUserId,
                         latestEventId = room.latestEventId ?: existingInRoomMap.latestEventId,
                         // Permanent once seen; a later delta's meta may simply omit it.
                         tombstone = room.tombstone ?: existingInRoomMap.tombstone,

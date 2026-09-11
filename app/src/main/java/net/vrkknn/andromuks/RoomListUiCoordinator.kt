@@ -133,6 +133,15 @@ internal class RoomListUiCoordinator(private val vm: AppViewModel) {
                 roomMap[roomId]?.let { candidateRooms.add(it) }
             }
 
+            // The canonical DM index: rooms that told us their partner outright (gomuks'
+            // meta.dm_user_id, persisted). This resolves before account data has arrived and for
+            // rooms m.direct never listed.
+            roomMap.values.forEach { room ->
+                if (room.directUserId == normalizedUserId && candidateRooms.none { it.id == room.id }) {
+                    candidateRooms.add(room)
+                }
+            }
+
             if (candidateRooms.isEmpty()) {
                 val roomsToCheck =
                     if (cachedDirectChatRooms.isNotEmpty()) {

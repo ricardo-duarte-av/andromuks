@@ -31,7 +31,7 @@ object RoomMetadataStore {
     private const val TAG = "RoomMetadataStore"
 
     private const val DB_NAME = "room_metadata.db"
-    private const val DB_VERSION = 6
+    private const val DB_VERSION = 7
 
     private const val TABLE = "room_metadata"
     private const val COL_ROOM_ID = "room_id"
@@ -61,6 +61,12 @@ object RoomMetadataStore {
     private const val COL_IS_FAVOURITE = "is_favourite"
     private const val COL_IS_LOW_PRIORITY = "is_low_priority"
     private const val COL_IS_DIRECT = "is_direct"
+
+    // v7: the DM partner's Matrix user id (gomuks' meta.dm_user_id). Persisted so the canonical DM
+    // index is bidirectional on cold start, before any sync_complete — which is what lets a Telecom
+    // call or a contact-card tap resolve a person to a room from a dead process. NULL = unknown or
+    // not a DM. Sticky: only ever written with a non-null value.
+    private const val COL_DM_USER_ID = "dm_user_id"
 
     // v5: the bridge's protocol identity (BridgeInfo.protocolId, e.g. "discord"). The Bridges tab
     // groups pseudo-spaces on this rather than on the avatar URL, so it has to survive process
@@ -126,6 +132,7 @@ object RoomMetadataStore {
         val isFavourite: Boolean = false,
         val isLowPriority: Boolean = false,
         val isDirect: Boolean = false,
+        val dmUserId: String? = null,
     )
 
     private val initialized = AtomicBoolean(false)
@@ -194,6 +201,7 @@ object RoomMetadataStore {
                 COL_IS_FAVOURITE,
                 COL_IS_LOW_PRIORITY,
                 COL_IS_DIRECT,
+                COL_DM_USER_ID,
             ),
             null,
             null,
@@ -213,6 +221,7 @@ object RoomMetadataStore {
             val iFavourite = c.getColumnIndexOrThrow(COL_IS_FAVOURITE)
             val iLowPriority = c.getColumnIndexOrThrow(COL_IS_LOW_PRIORITY)
             val iDirect = c.getColumnIndexOrThrow(COL_IS_DIRECT)
+            val iDmUser = c.getColumnIndexOrThrow(COL_DM_USER_ID)
             while (c.moveToNext()) {
                 val roomId = c.getString(iRoomId) ?: continue
                 // Skip-existing: never clobber a Row a backend write already populated. hydrate runs
@@ -236,6 +245,7 @@ object RoomMetadataStore {
                     isFavourite = !c.isNull(iFavourite) && c.getInt(iFavourite) != 0,
                     isLowPriority = !c.isNull(iLowPriority) && c.getInt(iLowPriority) != 0,
                     isDirect = !c.isNull(iDirect) && c.getInt(iDirect) != 0,
+                    dmUserId = if (c.isNull(iDmUser)) null else c.getString(iDmUser),
                 )
             }
         }
@@ -347,6 +357,7 @@ object RoomMetadataStore {
         val isFavourite: Boolean? = null,
         val isLowPriority: Boolean? = null,
         val isDirect: Boolean? = null,
+        val dmUserId: String? = null,
     )
 
     /**
@@ -373,8 +384,9 @@ object RoomMetadataStore {
             val favChanged = u.isFavourite != null && (existing == null || existing.isFavourite != u.isFavourite)
             val lowChanged = u.isLowPriority != null && (existing == null || existing.isLowPriority != u.isLowPriority)
             val dmChanged = u.isDirect != null && (existing == null || existing.isDirect != u.isDirect)
+            val partnerChanged = u.dmUserId != null && (existing == null || existing.dmUserId != u.dmUserId)
             if (u.name == null && u.avatarMxc == null && effectiveSortTs == null &&
-                !favChanged && !lowChanged && !dmChanged
+                !favChanged && !lowChanged && !dmChanged && !partnerChanged
             ) {
                 continue
             }
@@ -386,6 +398,7 @@ object RoomMetadataStore {
                 isFavourite = u.isFavourite,
                 isLowPriority = u.isLowPriority,
                 isDirect = u.isDirect,
+                dmUserId = u.dmUserId,
             )
             // Persist only the flags that changed (leave unchanged columns untouched) and drop a
             // non-advancing sortTs.
@@ -395,6 +408,7 @@ object RoomMetadataStore {
                     isFavourite = u.isFavourite.takeIf { favChanged },
                     isLowPriority = u.isLowPriority.takeIf { lowChanged },
                     isDirect = u.isDirect.takeIf { dmChanged },
+                    dmUserId = u.dmUserId.takeIf { partnerChanged },
                 ),
             )
         }
@@ -414,6 +428,7 @@ object RoomMetadataStore {
                         if (u.isFavourite != null) put(COL_IS_FAVOURITE, if (u.isFavourite) 1 else 0)
                         if (u.isLowPriority != null) put(COL_IS_LOW_PRIORITY, if (u.isLowPriority) 1 else 0)
                         if (u.isDirect != null) put(COL_IS_DIRECT, if (u.isDirect) 1 else 0)
+                        if (u.dmUserId != null) put(COL_DM_USER_ID, u.dmUserId)
                     }
                     val inserted = db.insertWithOnConflict(TABLE, null, values, SQLiteDatabase.CONFLICT_IGNORE)
                     if (inserted == -1L) {
@@ -526,6 +541,7 @@ object RoomMetadataStore {
         isFavourite: Boolean? = null,
         isLowPriority: Boolean? = null,
         isDirect: Boolean? = null,
+        dmUserId: String? = null,
     ): Row = mirror.compute(roomId) { _, existing ->
         Row(
             roomId = roomId,
@@ -540,6 +556,8 @@ object RoomMetadataStore {
             isFavourite = isFavourite ?: existing?.isFavourite ?: false,
             isLowPriority = isLowPriority ?: existing?.isLowPriority ?: false,
             isDirect = isDirect ?: existing?.isDirect ?: false,
+            // Stickiness at the storage layer: an incoming null never erases a known partner.
+            dmUserId = dmUserId ?: existing?.dmUserId,
         )
     }!!
 
@@ -580,7 +598,8 @@ object RoomMetadataStore {
                     $COL_SHORTCUT_HAS_AVATAR INTEGER NOT NULL DEFAULT 0,
                     $COL_IS_FAVOURITE INTEGER NOT NULL DEFAULT 0,
                     $COL_IS_LOW_PRIORITY INTEGER NOT NULL DEFAULT 0,
-                    $COL_IS_DIRECT INTEGER NOT NULL DEFAULT 0
+                    $COL_IS_DIRECT INTEGER NOT NULL DEFAULT 0,
+                    $COL_DM_USER_ID TEXT
                 )
                 """.trimIndent(),
             )
@@ -645,6 +664,12 @@ object RoomMetadataStore {
             if (oldVersion < 6) {
                 db.execSQL(CREATE_STATE_TABLE.trimIndent())
                 db.execSQL(CREATE_STATE_INDEX)
+            }
+            // v6 → v7: add the DM partner's mxid. Purely additive; existing rows stay NULL and fill
+            // in from the first sync_complete whose meta carries dm_user_id for that room (or from
+            // m.direct), so there is nothing to backfill.
+            if (oldVersion < 7) {
+                db.execSQL("ALTER TABLE $TABLE ADD COLUMN $COL_DM_USER_ID TEXT")
             }
         }
 

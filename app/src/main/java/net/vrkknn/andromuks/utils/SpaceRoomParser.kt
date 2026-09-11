@@ -491,7 +491,8 @@ object SpaceRoomParser {
             val unreadHighlights = meta.optInt("unread_highlights", 0)
 
             // Detect if this is a Direct Message room
-            val isDirectMessage = detectDirectMessage(roomId, roomObj, meta, appViewModel)
+            val dmDetection = detectDirectMessage(roomId, roomObj, meta, appViewModel)
+            val isDirectMessage = dmDetection.isDirect
 
             // Whether the backend holds this room's full member list. Recorded (not carried on
             // RoomItem — nothing renders it) so opening the room can top up a lazy-loaded one.
@@ -616,6 +617,7 @@ object SpaceRoomParser {
                     avatarUrl = avatar,
                     sortingTimestamp = sortingTimestamp,
                     isDirectMessage = isDirectMessage,
+                    directUserId = dmDetection.dmUserId,
                     isFavourite = isFavourite,
                     isLowPriority = isLowPriority,
                     tombstone = parseTombstone(meta),
@@ -637,20 +639,27 @@ object SpaceRoomParser {
      * 2. Secondary: m.direct account data (more reliable than name-based detection)
      * 3. Fallback: room name patterns (contains @ symbol or looks like a user ID)
      */
-    private fun detectDirectMessage(roomId: String, roomObj: JSONObject, meta: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): Boolean {
+    private fun detectDirectMessage(
+        roomId: String,
+        roomObj: JSONObject,
+        meta: JSONObject,
+        appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
+    ): DmDetection {
         try {
             // Method 1: Check if dm_user_id is populated in meta - this indicates a DM
             val dmUserId = meta.optString("dm_user_id").takeIf { it.isNotBlank() }
 
             if (dmUserId != null) {
                 // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")
-                return true
+                return DmDetection(true, dmUserId)
             }
 
             // Method 2: Check m.direct account data (secondary method)
             if (appViewModel != null && appViewModel.isDirectMessageFromAccountData(roomId)) {
                 // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (m.direct account data)")
-                return true
+                // The identity is filled in by updateRoomsDirectMessageStatus, where m.direct is the
+                // authoritative source; the parser only reports what `meta` told it.
+                return DmDetection(true, null)
             }
 
             // Method 3: Fallback - Check if room name is exactly a Matrix user ID (not just contains @)
@@ -663,16 +672,25 @@ object SpaceRoomParser {
 
             if (isExactMatrixUserId) {
                 // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name is exact Matrix user ID: '$roomName')")
-                return true
+                // Deliberately no user id: the name merely *looks* like an mxid, and asserting
+                // identity from a display string is how you end up calling the wrong person. The
+                // resolver's later fallbacks settle it from real membership instead.
+                return DmDetection(true, null)
             }
 
             // Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id, not in m.direct, name: '$roomName')")
-            return false
+            return DmDetection(false, null)
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error detecting DM status for room $roomId", e)
-            return false
+            return DmDetection(false, null)
         }
     }
+
+    /**
+     * Outcome of [detectDirectMessage]: whether the room is a DM, and — when `meta.dm_user_id` said
+     * so outright — who with.
+     */
+    private data class DmDetection(val isDirect: Boolean, val dmUserId: String?)
 
     /**
      * Parses basic space info from sync data (without edges).

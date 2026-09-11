@@ -20,6 +20,16 @@ data class RoomItem(
     val avatarUrl: String?,
     val sortingTimestamp: Long? = null,
     val isDirectMessage: Boolean = false,
+    /**
+     * The other party's Matrix user id for a DM (gomuks' `meta.dm_user_id`), or null when this is
+     * not a DM or the partner is not known yet.
+     *
+     * **Sticky, like [isDirectMessage].** `meta` is only sent on the initial sync and thereafter
+     * when a room's metadata actually changed, so for most syncs this field is simply absent from
+     * the payload. Every merge site preserves a known value rather than letting an incoming null
+     * clobber it — null means "this delta said nothing", never "there is no partner".
+     */
+    val directUserId: String? = null,
     val isFavourite: Boolean = false,
     val isLowPriority: Boolean = false,
     val bridgeProtocolAvatarUrl: String? = null,

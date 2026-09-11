@@ -66,7 +66,10 @@ object RoomListCache {
         val name = room.name.takeIf { it.isNotBlank() && it != room.id }
         val avatar = room.avatarUrl
         val sortTs = room.sortingTimestamp?.takeIf { it > 0L }
-        if (name == null && avatar == null && sortTs == null) return null
+        // The DM partner must be part of this guard: a DM whose display name is still the raw room
+        // id and whose sort-ts is 0 would otherwise never persist its mxid — precisely the rooms the
+        // canonical DM index is least able to resolve by other means.
+        if (name == null && avatar == null && sortTs == null && room.directUserId == null) return null
         // Persist the sticky section flags alongside name/avatar so the Favourites / DM /
         // low-priority tabs survive a cold start (RoomMetadataStore only writes a flag when it
         // actually changed, so a steady favourite doesn't rewrite its row every sync).
@@ -78,6 +81,7 @@ object RoomListCache {
             isFavourite = room.isFavourite,
             isLowPriority = room.isLowPriority,
             isDirect = room.isDirectMessage,
+            dmUserId = room.directUserId,
         )
     }
 
@@ -196,6 +200,7 @@ object RoomListCache {
                     isFavourite = row.isFavourite,
                     isLowPriority = row.isLowPriority,
                     isDirectMessage = row.isDirect,
+                    directUserId = row.dmUserId,
                 )
                 seeded++
             }
