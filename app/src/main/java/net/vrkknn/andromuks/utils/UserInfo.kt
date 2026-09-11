@@ -1,15 +1,11 @@
 package net.vrkknn.andromuks.utils
 
 import android.Manifest
-import android.accounts.AccountManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.SystemClock
-import android.provider.ContactsContract.RawContacts.DefaultAccount
-import android.provider.ContactsContract.RawContacts.DefaultAccount.DefaultAccountAndState
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -100,61 +96,6 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.util.TimeZone
-
-/**
- * Get the default contact account for creating new contacts
- * 
- * Android 14+ requires using the default account when a cloud account is set.
- * This function detects the default account and falls back gracefully.
- * 
- * @return Pair of (accountName, accountType) or (null, null) if no account available
- */
-private fun getDefaultContactAccount(context: Context): Pair<String?, String?> {
-    // Android 15+ (API 35) provides direct API to get default account
-    if (Build.VERSION.SDK_INT >= 35) {
-        try {
-            val defaultAccountAndState: DefaultAccountAndState =
-                DefaultAccount.getDefaultAccountForNewContacts(context.contentResolver)
-
-            // .account is only non-null for STATE_CLOUD or STATE_SIM
-            val account = defaultAccountAndState.account
-            if (account != null) {
-                if (BuildConfig.DEBUG) {
-                    Log.d("Andromuks", "Using default contact account: ${account.name} (${account.type})")
-                }
-                return Pair(account.name, account.type)
-            }
-        } catch (e: Exception) {
-            Log.e("Andromuks", "Error getting default contact account", e)
-        }
-    }
-
-    // Fallback: first Google account
-    val accountManager = AccountManager.get(context)
-    val googleAccount = accountManager.getAccountsByType("com.google").firstOrNull()
-    if (googleAccount != null) {
-        if (BuildConfig.DEBUG) {
-            Log.d("Andromuks", "Using Google account: ${googleAccount.name}")
-        }
-        return Pair(googleAccount.name, "com.google")
-    }
-
-    // Last resort: any non-local syncing account
-    val anyAccount = accountManager.accounts.firstOrNull { it.type != "local" }
-    if (anyAccount != null) {
-        if (BuildConfig.DEBUG) {
-            Log.d("Andromuks", "Using any available account: ${anyAccount.name} (${anyAccount.type})")
-        }
-        return Pair(anyAccount.name, anyAccount.type)
-    }
-
-    // No account available - return null (local account)
-    // Note: This may fail on Android 14+ if a cloud account is set as default
-    if (BuildConfig.DEBUG) {
-        Log.w("Andromuks", "No account available, will attempt to use local account (may fail on Android 14+)")
-    }
-    return Pair(null, null)
-}
 
 /**
  * Helper function to navigate to user info screen with optional roomId and eventId
@@ -698,15 +639,13 @@ fun UserInfoScreen(
                         accountType = "net.vrkknn.andromuks.matrix",
                     )
                     val wasAdded = syncService.isUserInContacts(userId)
-                    if (wasAdded) {
-                        isUserInContacts = true
-                        withContext(Dispatchers.Main) {
-                            Toast.makeText(
-                                context,
-                                "Contact saved successfully",
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
+                    isUserInContacts = wasAdded
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(
+                            context,
+                            if (wasAdded) "Contact saved successfully" else "Could not save the contact",
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     }
                 }
             }
@@ -1048,15 +987,17 @@ fun UserInfoScreen(
                                                     accountType = "net.vrkknn.andromuks.matrix",
                                                 )
                                                 val wasAdded = syncService.isUserInContacts(userId)
-                                                if (wasAdded) {
-                                                    isUserInContacts = true
-                                                    withContext(Dispatchers.Main) {
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Contact saved successfully",
-                                                            Toast.LENGTH_SHORT,
-                                                        ).show()
-                                                    }
+                                                isUserInContacts = wasAdded
+                                                withContext(Dispatchers.Main) {
+                                                    Toast.makeText(
+                                                        context,
+                                                        if (wasAdded) {
+                                                            "Contact saved successfully"
+                                                        } else {
+                                                            "Could not save the contact"
+                                                        },
+                                                        Toast.LENGTH_SHORT,
+                                                    ).show()
                                                 }
                                             }
                                         }
@@ -3709,12 +3650,17 @@ suspend fun addMatrixUserToContacts(context: Context, userId: String, displayNam
             return@withContext
         }
 
-        val (accountName, accountType) = getDefaultContactAccount(context)
-        if (accountName == null || accountType == null) {
-            Log.e("UserInfo", "No contact account available")
-            return@withContext
-        }
-
+        // The contact goes under OUR account, not the device's default one — and that is required,
+        // not incidental: the Contacts app resolves our custom "Matrix call" rows through the
+        // ContactsAccountType XML of the row's owning account, which is registered for
+        // net.vrkknn.andromuks.matrix. ContactsSyncService.ensureAccountExists creates it on demand.
+        //
+        // This used to ask getDefaultContactAccount() first and abort when it came back null, while
+        // discarding its answer and hardcoding ours anyway — so saving a contact silently did nothing
+        // on any modern device. Since Android 8, getAccountsByType("com.google") returns an empty
+        // array to an app that has no visibility of those accounts (GET_ACCOUNTS alone no longer
+        // grants it), and DefaultAccount.getDefaultAccountForNewContacts only reports an account for
+        // a cloud/SIM default — so the gate closed on a value nothing needed.
         val syncService = ContactsSyncService(
             context,
             accountName = "Andromuks", // display name for the account
