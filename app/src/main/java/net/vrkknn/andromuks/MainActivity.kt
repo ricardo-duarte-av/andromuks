@@ -57,6 +57,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.toPath
 import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
@@ -2898,20 +2899,42 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             //    on the room list. Keying on currentBackStackEntry re-runs this after AuthCheck has
             //    landed, exactly as the pending-user-info effect above does.
             val roomsReady = appViewModel.spacesLoaded || appViewModel.allRooms.isNotEmpty()
+            // Only the Activity the user is actually looking at may act on this. MainActivity has no
+            // launchMode, so a contact-card tap arrives with FLAG_ACTIVITY_NEW_TASK and Android
+            // builds a SECOND instance while the old one lives on in the background — and the parked
+            // action is process-global, so whichever composition ran its effect first won. That was
+            // the background instance: it navigated *itself* to the room (the trace even shows the
+            // room mounting) while the user watched the new instance sit on the room list.
+            val lifecycleOwner = LocalLifecycleOwner.current
+            var isResumed by remember {
+                mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+            }
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    isResumed = event.targetState.isAtLeast(Lifecycle.State.RESUMED)
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+            }
             // currentBackStackEntryAsState, NOT currentBackStackEntry: the latter is a plain
             // property, so reading it subscribes to nothing. Keyed on it, this effect only ever
             // re-ran when the composable happened to recompose for some unrelated reason — so a
             // parked action could sit there forever while the user looked at the room list.
             val backStackEntry by navController.currentBackStackEntryAsState()
             val currentRoute = backStackEntry?.destination?.route
-            LaunchedEffect(pendingExternalAction, roomsReady, currentRoute) {
-                val pending = pendingExternalAction
+            LaunchedEffect(pendingExternalAction, roomsReady, currentRoute, isResumed) {
+                val pending = pendingExternalAction ?: return@LaunchedEffect
                 val needsNavigation = pending is ExternalAction.CallUser || pending is ExternalAction.OpenChat
-                if (needsNavigation && (!roomsReady || currentRoute == null || currentRoute == "auth_check")) {
-                    Androlog(
-                        "ContactTap",
-                        "Holding ${pending.javaClass.simpleName}: roomsReady=$roomsReady route=$currentRoute",
-                    )
+                val held = when {
+                    !isResumed -> "not resumed"
+                    needsNavigation && !roomsReady -> "rooms not ready"
+                    needsNavigation && (currentRoute == null || currentRoute == "auth_check") -> "route=$currentRoute"
+                    else -> null
+                }
+                if (held != null) {
+                    // R8 obfuscates javaClass.simpleName, and this line exists to be read on a
+                    // release build, so name the action explicitly.
+                    Androlog("ContactTap", "Holding ${pending.describe()} — $held")
                     return@LaunchedEffect
                 }
                 when (val action = PendingExternalAction.consume()) {

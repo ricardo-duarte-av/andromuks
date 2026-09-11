@@ -86,6 +86,19 @@ room from a tap.
 — the label says message, not contact — and a call navigates to the room *before* starting, so the
 call overlay sits over the conversation and ending the call leaves the user somewhere sensible.
 
+**Only the resumed Activity may act.** `MainActivity` declares no `launchMode`, so a contact-card tap
+arrives with `FLAG_ACTIVITY_NEW_TASK` and Android builds a **second instance** while the existing one
+lives on in the background. `PendingExternalAction` is process-global, so whichever composition ran
+its effect first consumed it — and that was the background instance, which navigated *itself* to the
+room while the user watched the new instance sit on the room list. The room really did open; it was
+just in an Activity nobody could see. The drain therefore tracks its own lifecycle and holds unless
+this composition is `RESUMED`.
+
+(The structural alternative is `android:launchMode="singleTask"`, so the tap reaches the existing
+instance via `onNewIntent` and only one instance ever exists. That is arguably more correct, but it
+changes back-stack behaviour for every entry point — share, shortcuts, bubbles, notifications — so it
+is not a change to make while chasing a contacts bug.)
+
 **The drain must wait for the nav graph, not just for rooms.** AuthCheck navigates to `room_list`
 with `popUpTo` once it connects, so anything navigated to before that is wiped — a contact-card call
 would start correctly and still dump the user on the room list with the call running unseen. The

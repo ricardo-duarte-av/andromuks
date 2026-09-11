@@ -50,6 +50,17 @@ sealed interface ExternalAction {
     data class OpenChat(val userId: String) : ExternalAction
 }
 
+/**
+ * A stable name for logging. `javaClass.simpleName` is obfuscated by R8, and these lines exist
+ * precisely to be read on release builds.
+ */
+internal fun ExternalAction.describe(): String = when (this) {
+    is ExternalAction.Answer -> "Answer($roomId)"
+    is ExternalAction.Incoming -> "Incoming(${info.roomId})"
+    is ExternalAction.CallUser -> "CallUser($userId, $callIntent)"
+    is ExternalAction.OpenChat -> "OpenChat($userId)"
+}
+
 /** Process-global hand-off for [ExternalAction], observed by MainActivity's composition. */
 object PendingExternalAction {
     var pending by mutableStateOf<ExternalAction?>(null)
