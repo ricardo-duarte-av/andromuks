@@ -65,6 +65,7 @@ import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.CoroutineScope
@@ -313,6 +314,9 @@ class MainActivity : FragmentActivity() {
 
                             // Handle custom MIME type from contacts
                             val mimeType = intent.type
+                            if (MatrixContactsProvider.isMatrixContactMimeType(mimeType)) {
+                                Androlog("ContactTap", "onCreate: contact row intent type=$mimeType data=$matrixUri")
+                            }
                             if (MatrixContactsProvider.isMatrixContactMimeType(mimeType) && matrixUri != null) {
                                 // Mark that we were opened from external app (Contacts)
                                 appViewModel.setOpenedFromExternalApp(true)
@@ -593,16 +597,22 @@ class MainActivity : FragmentActivity() {
                                 // start a call with the canonical DM, the message row opens the profile
                                 // as it always has.
                                 when (mimeType) {
-                                    MatrixContactsProvider.MIME_TYPE_MATRIX_CALL ->
+                                    MatrixContactsProvider.MIME_TYPE_MATRIX_CALL -> {
+                                        Androlog("ContactTap", "onCreate: voice call row for $extractedUserId")
                                         PendingExternalAction.offer(ExternalAction.CallUser(extractedUserId, "audio"))
+                                    }
 
-                                    MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL ->
+                                    MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL -> {
+                                        Androlog("ContactTap", "onCreate: video call row for $extractedUserId")
                                         PendingExternalAction.offer(ExternalAction.CallUser(extractedUserId, "video"))
+                                    }
 
                                     // "Send Matrix message" means the chat, not a profile page. The
                                     // profile stays the fallback when there is no DM room to open.
-                                    MatrixContactsProvider.MIME_TYPE_MATRIX_USER ->
+                                    MatrixContactsProvider.MIME_TYPE_MATRIX_USER -> {
+                                        Androlog("ContactTap", "onCreate: message row for $extractedUserId")
                                         PendingExternalAction.offer(ExternalAction.OpenChat(extractedUserId))
+                                    }
 
                                     else -> appViewModel.setPendingUserInfoNavigation(extractedUserId)
                                 }
@@ -1326,14 +1336,20 @@ class MainActivity : FragmentActivity() {
             val userIdFromRow = readMatrixUserIdFromContactRow(intent.data!!)
             if (userIdFromRow != null) {
                 when (contactMimeType) {
-                    MatrixContactsProvider.MIME_TYPE_MATRIX_CALL ->
+                    MatrixContactsProvider.MIME_TYPE_MATRIX_CALL -> {
+                        Androlog("ContactTap", "onNewIntent: voice call row for $userIdFromRow")
                         PendingExternalAction.offer(ExternalAction.CallUser(userIdFromRow, "audio"))
+                    }
 
-                    MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL ->
+                    MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL -> {
+                        Androlog("ContactTap", "onNewIntent: video call row for $userIdFromRow")
                         PendingExternalAction.offer(ExternalAction.CallUser(userIdFromRow, "video"))
+                    }
 
-                    MatrixContactsProvider.MIME_TYPE_MATRIX_USER ->
+                    MatrixContactsProvider.MIME_TYPE_MATRIX_USER -> {
+                        Androlog("ContactTap", "onNewIntent: message row for $userIdFromRow")
                         PendingExternalAction.offer(ExternalAction.OpenChat(userIdFromRow))
+                    }
 
                     else -> appViewModel.setPendingUserInfoNavigation(userIdFromRow)
                 }
@@ -2882,11 +2898,22 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
             //    on the room list. Keying on currentBackStackEntry re-runs this after AuthCheck has
             //    landed, exactly as the pending-user-info effect above does.
             val roomsReady = appViewModel.spacesLoaded || appViewModel.allRooms.isNotEmpty()
-            val currentRoute = navController.currentBackStackEntry?.destination?.route
-            LaunchedEffect(pendingExternalAction, roomsReady, navController.currentBackStackEntry) {
+            // currentBackStackEntryAsState, NOT currentBackStackEntry: the latter is a plain
+            // property, so reading it subscribes to nothing. Keyed on it, this effect only ever
+            // re-ran when the composable happened to recompose for some unrelated reason — so a
+            // parked action could sit there forever while the user looked at the room list.
+            val backStackEntry by navController.currentBackStackEntryAsState()
+            val currentRoute = backStackEntry?.destination?.route
+            LaunchedEffect(pendingExternalAction, roomsReady, currentRoute) {
                 val pending = pendingExternalAction
                 val needsNavigation = pending is ExternalAction.CallUser || pending is ExternalAction.OpenChat
                 if (needsNavigation && (!roomsReady || currentRoute == null || currentRoute == "auth_check")) {
+                    if (pending != null) {
+                        Androlog(
+                            "ContactTap",
+                            "Holding ${pending.javaClass.simpleName}: roomsReady=$roomsReady route=$currentRoute",
+                        )
+                    }
                     return@LaunchedEffect
                 }
                 when (val action = PendingExternalAction.consume()) {
@@ -2905,7 +2932,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                     is ExternalAction.CallUser -> {
                         val dmRoomId = appViewModel.getDirectRoomIdForUser(action.userId)
                         if (dmRoomId != null) {
-                            Androlog("Calls", "Contact card call: ${action.userId} (${action.callIntent}) -> $dmRoomId")
+                            Androlog("ContactTap", "Call ${action.userId} (${action.callIntent}) -> $dmRoomId, from route=$currentRoute")
                             // Navigate to the room *first*. A call started from outside the app would
                             // otherwise leave the user wherever the launch happened to land — the room
                             // list — with the call overlay over an unrelated screen and nowhere
@@ -2914,7 +2941,7 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                             navController.navigate("room_timeline/$encoded") { launchSingleTop = true }
                             appViewModel.startCall(dmRoomId, action.callIntent)
                         } else {
-                            Log.w("Andromuks", "MainActivity: no DM room for ${action.userId}; opening their profile")
+                            Androlog("ContactTap", "No DM room for ${action.userId}; falling back to their profile")
                             android.widget.Toast.makeText(
                                 context,
                                 "No direct chat with ${action.userId} yet",
@@ -2928,12 +2955,12 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                         // "Send Matrix message" means the conversation, not a profile page.
                         val dmRoomId = appViewModel.getDirectRoomIdForUser(action.userId)
                         if (dmRoomId != null) {
-                            Log.i("Andromuks", "MainActivity: contact card chat -> ${action.userId} in $dmRoomId")
+                            Androlog("ContactTap", "Open chat ${action.userId} -> $dmRoomId, from route=$currentRoute")
                             val encoded = java.net.URLEncoder.encode(dmRoomId, "UTF-8")
                             navController.navigate("room_timeline/$encoded") { launchSingleTop = true }
                         } else {
                             // A contact tap must never silently create a room; the profile offers it.
-                            Log.w("Andromuks", "MainActivity: no DM room for ${action.userId}; opening their profile")
+                            Androlog("ContactTap", "No DM room for ${action.userId}; falling back to their profile")
                             android.widget.Toast.makeText(
                                 context,
                                 "No direct chat with ${action.userId} yet",
