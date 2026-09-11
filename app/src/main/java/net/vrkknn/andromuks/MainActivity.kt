@@ -2908,12 +2908,10 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                 val pending = pendingExternalAction
                 val needsNavigation = pending is ExternalAction.CallUser || pending is ExternalAction.OpenChat
                 if (needsNavigation && (!roomsReady || currentRoute == null || currentRoute == "auth_check")) {
-                    if (pending != null) {
-                        Androlog(
-                            "ContactTap",
-                            "Holding ${pending.javaClass.simpleName}: roomsReady=$roomsReady route=$currentRoute",
-                        )
-                    }
+                    Androlog(
+                        "ContactTap",
+                        "Holding ${pending.javaClass.simpleName}: roomsReady=$roomsReady route=$currentRoute",
+                    )
                     return@LaunchedEffect
                 }
                 when (val action = PendingExternalAction.consume()) {
