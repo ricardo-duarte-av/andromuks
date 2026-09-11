@@ -2359,7 +2359,8 @@ class AppViewModel : ViewModel() {
 
     fun setCallMiniPip(active: Boolean, roomId: String = "") = callsWidgetsCoordinator.setCallMiniPip(active, roomId)
 
-    fun startCall(roomId: String, intent: String = "video") = callsWidgetsCoordinator.startCall(roomId, intent)
+    fun startCall(roomId: String, intent: String = "video", answeringIncoming: Boolean = false) =
+        callsWidgetsCoordinator.startCall(roomId, intent, answeringIncoming)
 
     fun endCall() = callsWidgetsCoordinator.endCall()
 

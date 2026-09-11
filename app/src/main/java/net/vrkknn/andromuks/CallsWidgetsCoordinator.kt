@@ -18,6 +18,9 @@ data class IncomingCallInfo(val roomId: String, val callerId: String, val callIn
  */
 internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
 
+    /** Makes the call visible to the system — Android Auto, Wear, headset buttons, cellular interop. */
+    private val telecom = CallTelecomCoordinator(vm)
+
     private companion object {
         /** How long Element Call gets to clear its own membership before we end the call anyway. */
         const val HANGUP_GRACE_MS = 3000L
@@ -55,7 +58,7 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         if (!active) callPersistentWebView = null
     }
 
-    fun startCall(roomId: String, intent: String = "video") = with(vm) {
+    fun startCall(roomId: String, intent: String = "video", answeringIncoming: Boolean = false) = with(vm) {
         // Decide before we join, because joining puts our own membership in activeCallRooms.
         // Element X only rings when it *starts* a call in a DM: joining a call already in progress
         // notifies rather than summoning everyone a second time.
@@ -73,6 +76,12 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         incomingCallInfo = null
         CallForegroundService.hangupHandler = { requestGracefulHangup() }
         refreshCallNotification()
+        telecom.onCallStarted(
+            roomId = roomId,
+            displayName = getRoomById(roomId)?.name?.takeIf { it.isNotBlank() } ?: roomId,
+            isVideo = callIntent != "audio",
+            answeringIncoming = answeringIncoming,
+        )
     }
 
     /**
@@ -151,6 +160,7 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
     }
 
     fun endCall() = with(vm) {
+        telecom.onCallEnded()
         appContext?.let { CallForegroundService.stop(it) }
         CallForegroundService.hangupHandler = null
         callConnectedAtMs = 0L

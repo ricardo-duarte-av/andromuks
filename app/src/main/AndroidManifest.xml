@@ -25,6 +25,9 @@
          foreground service declaring these types (see CallForegroundService). -->
     <!-- Incoming-call ring: taking over the screen when locked. Android 14+ grants this only to
          calling/alarm apps by default; IncomingCallRinger degrades to a heads-up ring without it. -->
+    <!-- Telecom: register our calls with the system (self-managed), which is what surfaces them to
+         Android Auto, Wear and Bluetooth car kits, and lets the OS arbitrate with cellular calls. -->
+    <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />

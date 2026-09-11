@@ -221,6 +221,10 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.core:core-ktx:1.17.0")
+    // Jetpack Telecom: registers our calls with the system so they behave like calls everywhere the
+    // system renders them — Android Auto, Wear, Bluetooth headset buttons — and so the OS can
+    // arbitrate against a cellular call. See docs/ELEMENT_CALL.md.
+    implementation(libs.androidx.core.telecom)
     implementation("androidx.biometric:biometric:1.1.0")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)

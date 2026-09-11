@@ -169,6 +169,33 @@ notification without promoting at all, and the permission grant that follows re-
 `onTaskRemoved` tears the notification down: the call lives in MainActivity's WebView, so a swiped
 task means there is nothing left to return to.
 
+### Telecom (`CallTelecomCoordinator`)
+
+A `CallStyle` notification only *looks* like a call to the user; the operating system has no idea one
+is happening. `CallTelecomCoordinator` registers the call with **Jetpack Telecom**
+(`androidx.core:core-telecom`), which is what makes it real to everything that renders calls but is
+not our UI: **Android Auto**, Wear, Bluetooth car kits and headset answer/hang-up buttons — and what
+lets the OS arbitrate when a cellular call arrives mid-call.
+
+It is a **self-managed** registration: we keep drawing our own call UI (the Element Call WebView) and
+Telecom just owns the call's lifecycle. `CallsManager` wraps the `ConnectionService` plumbing that
+would otherwise be required, and needs `MANAGE_OWN_CALLS`.
+
+- `startCall` registers the call, `endCall` releases it. `answeringIncoming` marks calls answered
+  from a ring as `DIRECTION_INCOMING`, which is what a car or watch offers to answer.
+- Telecom's `onDisconnect` (headset button, car, or the OS making room for a cellular call) routes
+  into `requestGracefulHangup`, so leaving from a steering wheel clears our membership exactly as the
+  in-app button does.
+- Matrix has no dialable address, so the room id stands in as `matrix:<roomId>` — stable, unique, and
+  never displayed as a phone number.
+
+**Every path is best-effort.** No Telecom support, a revoked permission or a refused registration
+logs and carries on: the call belongs to the WebView, not to Telecom.
+
+Note Element X does **not** do this — it has no `ConnectionService` at all — so it gets no Auto, Wear
+or headset-button integration either. This is the one place we deliberately go further than the
+reference client.
+
 ### In-call audio (`CallAudioController`)
 
 WebRTC inside the WebView will happily play a voice call out of the loudspeaker at media volume.

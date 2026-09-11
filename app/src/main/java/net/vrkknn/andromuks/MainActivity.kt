@@ -2815,7 +2815,9 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                 when (val action = PendingCallAction.consume()) {
                     is CallAction.Answer -> {
                         Log.i("Andromuks", "MainActivity: answering the ${action.callIntent} call in ${action.roomId}")
-                        appViewModel.startCall(action.roomId, action.callIntent)
+                        // Answering a ring: Telecom must see this as an incoming call, which is what
+                        // a car or watch offers to answer.
+                        appViewModel.startCall(action.roomId, action.callIntent, answeringIncoming = true)
                     }
 
                     is CallAction.Incoming -> {
