@@ -20,17 +20,19 @@ import androidx.core.app.Person
 import androidx.core.graphics.drawable.IconCompat
 
 /**
- * What the user chose on an incoming-call notification, waiting for the ViewModel to exist.
+ * Something an entry point outside the app asked for, waiting for the ViewModel to exist.
  *
- * A ring can arrive while the app is dead, so "Answer" may land before there is anything to answer
- * with. MainActivity parks the intent here and the Compose tree drains it once [AppViewModel] is up.
+ * A ring or a contact-card tap routinely arrives while the app is dead, so the request lands before
+ * there is anything to act on — and, for the person-addressed ones, before the room list that could
+ * resolve a person to a room has synced. MainActivity parks the intent here and the Compose tree
+ * drains it once [AppViewModel] is up and rooms exist.
  */
-sealed interface CallAction {
+sealed interface ExternalAction {
     /** The user tapped Answer: join the call in [roomId] as [callIntent] ("audio" or "video"). */
-    data class Answer(val roomId: String, val callIntent: String) : CallAction
+    data class Answer(val roomId: String, val callIntent: String) : ExternalAction
 
     /** The full-screen intent fired: show the in-app incoming-call banner for [info]. */
-    data class Incoming(val info: IncomingCallInfo) : CallAction
+    data class Incoming(val info: IncomingCallInfo) : ExternalAction
 
     /**
      * A "Matrix call" row was tapped on an Android contact card: call [userId] in their canonical DM.
@@ -39,19 +41,25 @@ sealed interface CallAction {
      * scratch — there is no ViewModel to resolve a room with, and no synced room list to resolve it
      * from, until well after the intent has been handled.
      */
-    data class CallUser(val userId: String, val callIntent: String) : CallAction
+    data class CallUser(val userId: String, val callIntent: String) : ExternalAction
+
+    /**
+     * "Send Matrix message" was tapped on an Android contact card: open the canonical DM with
+     * [userId]. Carries the person for the same reason [CallUser] does.
+     */
+    data class OpenChat(val userId: String) : ExternalAction
 }
 
-/** Process-global hand-off for [CallAction], observed by MainActivity's composition. */
-object PendingCallAction {
-    var pending by mutableStateOf<CallAction?>(null)
+/** Process-global hand-off for [ExternalAction], observed by MainActivity's composition. */
+object PendingExternalAction {
+    var pending by mutableStateOf<ExternalAction?>(null)
         private set
 
-    fun offer(action: CallAction) {
+    fun offer(action: ExternalAction) {
         pending = action
     }
 
-    fun consume(): CallAction? {
+    fun consume(): ExternalAction? {
         val action = pending
         pending = null
         return action

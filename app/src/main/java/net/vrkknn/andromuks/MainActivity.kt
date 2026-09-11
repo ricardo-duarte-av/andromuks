@@ -300,7 +300,7 @@ class MainActivity : FragmentActivity() {
                             // This allows us to skip cache clearing to preserve preemptive pagination cache
                             // A ring can start the process: park Answer / full-screen-intent before
                             // the normal notification-tap routing looks at room_id.
-                            offerCallActionFromIntent(intent)
+                            offerExternalActionFromIntent(intent)
 
                             val shortcutUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
                             val roomId = intent.getStringExtra("room_id")
@@ -594,10 +594,15 @@ class MainActivity : FragmentActivity() {
                                 // as it always has.
                                 when (mimeType) {
                                     MatrixContactsProvider.MIME_TYPE_MATRIX_CALL ->
-                                        PendingCallAction.offer(CallAction.CallUser(extractedUserId, "audio"))
+                                        PendingExternalAction.offer(ExternalAction.CallUser(extractedUserId, "audio"))
 
                                     MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL ->
-                                        PendingCallAction.offer(CallAction.CallUser(extractedUserId, "video"))
+                                        PendingExternalAction.offer(ExternalAction.CallUser(extractedUserId, "video"))
+
+                                    // "Send Matrix message" means the chat, not a profile page. The
+                                    // profile stays the fallback when there is no DM room to open.
+                                    MatrixContactsProvider.MIME_TYPE_MATRIX_USER ->
+                                        PendingExternalAction.offer(ExternalAction.OpenChat(extractedUserId))
 
                                     else -> appViewModel.setPendingUserInfoNavigation(extractedUserId)
                                 }
@@ -1188,17 +1193,17 @@ class MainActivity : FragmentActivity() {
      * Park an Answer / full-screen-intent ring action for the composition to pick up.
      *
      * A ring can start the process from scratch, so these intents routinely arrive before there is
-     * an [AppViewModel] to act on them — hence the hand-off through [PendingCallAction] rather than
+     * an [AppViewModel] to act on them — hence the hand-off through [PendingExternalAction] rather than
      * touching the ViewModel here. Returns true when the intent was a call action.
      */
-    private fun offerCallActionFromIntent(intent: Intent): Boolean {
+    private fun offerExternalActionFromIntent(intent: Intent): Boolean {
         val roomId = intent.getStringExtra(IncomingCallRinger.EXTRA_ROOM_ID).orEmpty()
         when (intent.action) {
             IncomingCallRinger.ACTION_ANSWER -> {
                 if (roomId.isEmpty()) return false
                 IncomingCallRinger.cancel(this)
-                PendingCallAction.offer(
-                    CallAction.Answer(
+                PendingExternalAction.offer(
+                    ExternalAction.Answer(
                         roomId = roomId,
                         callIntent = intent.getStringExtra(IncomingCallRinger.EXTRA_CALL_INTENT) ?: "video",
                     ),
@@ -1211,8 +1216,8 @@ class MainActivity : FragmentActivity() {
                 // allowed to show there and wake the display — for this intent only, never for
                 // ordinary launches.
                 showOverLockscreen(true)
-                PendingCallAction.offer(
-                    CallAction.Incoming(
+                PendingExternalAction.offer(
+                    ExternalAction.Incoming(
                         IncomingCallInfo(
                             roomId = roomId,
                             callerId = intent.getStringExtra(IncomingCallRinger.EXTRA_CALLER_ID).orEmpty(),
@@ -1269,7 +1274,7 @@ class MainActivity : FragmentActivity() {
 
         applyRequestedRoomListSection(intent)
 
-        if (offerCallActionFromIntent(intent)) return
+        if (offerExternalActionFromIntent(intent)) return
 
         // Tap on the ongoing-call notification: bring the live call back to the front. The WebView
         // is persistent, so this is instant — nothing is reloaded and the call is not re-joined.
@@ -1322,10 +1327,13 @@ class MainActivity : FragmentActivity() {
             if (userIdFromRow != null) {
                 when (contactMimeType) {
                     MatrixContactsProvider.MIME_TYPE_MATRIX_CALL ->
-                        PendingCallAction.offer(CallAction.CallUser(userIdFromRow, "audio"))
+                        PendingExternalAction.offer(ExternalAction.CallUser(userIdFromRow, "audio"))
 
                     MatrixContactsProvider.MIME_TYPE_MATRIX_VIDEO_CALL ->
-                        PendingCallAction.offer(CallAction.CallUser(userIdFromRow, "video"))
+                        PendingExternalAction.offer(ExternalAction.CallUser(userIdFromRow, "video"))
+
+                    MatrixContactsProvider.MIME_TYPE_MATRIX_USER ->
+                        PendingExternalAction.offer(ExternalAction.OpenChat(userIdFromRow))
 
                     else -> appViewModel.setPendingUserInfoNavigation(userIdFromRow)
                 }
@@ -2862,36 +2870,69 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
 
             // Drain whatever the ring notification asked for. Keyed on the pending value so it also
             // runs for an intent that arrives while the app is already up (onNewIntent).
-            val pendingCallAction = PendingCallAction.pending
-            // A contact-card call needs the room list to resolve a person to their canonical DM, and
-            // that tap routinely starts the process — so hold the action (rather than consuming and
-            // failing) until rooms exist, or a cold tap would report "no DM" purely because sync had
-            // not finished yet.
+            val pendingExternalAction = PendingExternalAction.pending
+            // A contact-card action needs two things a cold start does not have yet, and consuming
+            // before either is ready is how it silently goes nowhere:
+            //
+            // 1. the room list, to resolve a person to their canonical DM — otherwise it reports
+            //    "no DM" purely because sync had not finished;
+            // 2. a navigation graph past auth_check. AuthCheck navigates to room_list with popUpTo
+            //    once it connects, so anything we navigate to before that is simply wiped — which
+            //    is why a contact-card call used to start correctly and still leave the user sitting
+            //    on the room list. Keying on currentBackStackEntry re-runs this after AuthCheck has
+            //    landed, exactly as the pending-user-info effect above does.
             val roomsReady = appViewModel.spacesLoaded || appViewModel.allRooms.isNotEmpty()
-            LaunchedEffect(pendingCallAction, roomsReady) {
-                val pending = pendingCallAction
-                if (pending is CallAction.CallUser && !roomsReady) return@LaunchedEffect
-                when (val action = PendingCallAction.consume()) {
-                    is CallAction.Answer -> {
+            val currentRoute = navController.currentBackStackEntry?.destination?.route
+            LaunchedEffect(pendingExternalAction, roomsReady, navController.currentBackStackEntry) {
+                val pending = pendingExternalAction
+                val needsNavigation = pending is ExternalAction.CallUser || pending is ExternalAction.OpenChat
+                if (needsNavigation && (!roomsReady || currentRoute == null || currentRoute == "auth_check")) {
+                    return@LaunchedEffect
+                }
+                when (val action = PendingExternalAction.consume()) {
+                    is ExternalAction.Answer -> {
                         Log.i("Andromuks", "MainActivity: answering the ${action.callIntent} call in ${action.roomId}")
                         // Answering a ring: Telecom must see this as an incoming call, which is what
                         // a car or watch offers to answer.
                         appViewModel.startCall(action.roomId, action.callIntent, answeringIncoming = true)
                     }
 
-                    is CallAction.Incoming -> {
+                    is ExternalAction.Incoming -> {
                         Log.i("Andromuks", "MainActivity: showing the incoming call banner for ${action.info.roomId}")
                         appViewModel.showIncomingCall(action.info)
                     }
 
-                    is CallAction.CallUser -> {
+                    is ExternalAction.CallUser -> {
                         val dmRoomId = appViewModel.getDirectRoomIdForUser(action.userId)
                         if (dmRoomId != null) {
-                            Log.i("Andromuks", "MainActivity: contact call → ${action.userId} in $dmRoomId")
+                            Androlog("Calls", "Contact card call: ${action.userId} (${action.callIntent}) -> $dmRoomId")
+                            // Navigate to the room *first*. A call started from outside the app would
+                            // otherwise leave the user wherever the launch happened to land — the room
+                            // list — with the call overlay over an unrelated screen and nowhere
+                            // sensible to return to when the call ends.
+                            val encoded = java.net.URLEncoder.encode(dmRoomId, "UTF-8")
+                            navController.navigate("room_timeline/$encoded") { launchSingleTop = true }
                             appViewModel.startCall(dmRoomId, action.callIntent)
                         } else {
-                            // Never create a room from a contact tap: land on the profile, which
-                            // already offers to start the chat.
+                            Log.w("Andromuks", "MainActivity: no DM room for ${action.userId}; opening their profile")
+                            android.widget.Toast.makeText(
+                                context,
+                                "No direct chat with ${action.userId} yet",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                            appViewModel.setPendingUserInfoNavigation(action.userId)
+                        }
+                    }
+
+                    is ExternalAction.OpenChat -> {
+                        // "Send Matrix message" means the conversation, not a profile page.
+                        val dmRoomId = appViewModel.getDirectRoomIdForUser(action.userId)
+                        if (dmRoomId != null) {
+                            Log.i("Andromuks", "MainActivity: contact card chat -> ${action.userId} in $dmRoomId")
+                            val encoded = java.net.URLEncoder.encode(dmRoomId, "UTF-8")
+                            navController.navigate("room_timeline/$encoded") { launchSingleTop = true }
+                        } else {
+                            // A contact tap must never silently create a room; the profile offers it.
                             Log.w("Andromuks", "MainActivity: no DM room for ${action.userId}; opening their profile")
                             android.widget.Toast.makeText(
                                 context,

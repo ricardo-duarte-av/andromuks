@@ -75,11 +75,24 @@ intent-filter. `ensureMatrixDataRows` adds missing rows on update, so contacts s
 actions existed gain them without being re-added.
 
 **Cold start is the normal case here.** A contact tap routinely starts the process, so there is no
-ViewModel to resolve with and no synced room list to resolve from. The tap parks a
-`CallAction.CallUser(mxid, intent)` in `PendingCallAction` — the same hand-off the incoming-call ring
-uses — and the drain beside `CallOverlay` holds it until rooms exist rather than consuming it and
-reporting "no DM" merely because sync had not finished. With no DM room at all, it falls back to the
-profile sheet (which offers to start the chat) with a Toast; it never creates a room from a tap.
+ViewModel to resolve with and no synced room list to resolve from. The tap parks an
+`ExternalAction` (`CallUser` or `OpenChat`) in `PendingExternalAction` — the same hand-off the
+incoming-call ring uses — and the drain beside `CallOverlay` holds it until rooms exist rather than
+consuming it and reporting "no DM" merely because sync had not finished. With no DM room at all, it
+falls back to the profile sheet (which offers to start the chat) with a Toast; it never creates a
+room from a tap.
+
+**All three rows navigate into the room.** "Send Matrix message" opens the DM rather than the profile
+— the label says message, not contact — and a call navigates to the room *before* starting, so the
+call overlay sits over the conversation and ending the call leaves the user somewhere sensible.
+
+**The drain must wait for the nav graph, not just for rooms.** AuthCheck navigates to `room_list`
+with `popUpTo` once it connects, so anything navigated to before that is wiped — a contact-card call
+would start correctly and still dump the user on the room list with the call running unseen. The
+effect is therefore keyed on `navController.currentBackStackEntry` and refuses to consume a
+navigating action while the route is null or `auth_check`, the same gate
+`pendingUserInfoNavigation` uses. Actions that do not navigate (answering a ring, showing the
+incoming-call banner) are not gated, so a ring is never delayed by it.
 
 ## Linking to a phone contact
 
