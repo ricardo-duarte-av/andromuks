@@ -7,6 +7,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import net.vrkknn.andromuks.utils.RoomStateStore
 import net.vrkknn.andromuks.utils.getUserAgent
 import okhttp3.Request
 import org.json.JSONObject
@@ -58,7 +59,37 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         if (!active) callPersistentWebView = null
     }
 
+    /**
+     * Whether a call may be started in [roomId], as far as we can tell.
+     *
+     * Deliberately optimistic: it refuses only when the room's power levels are *known* and say so.
+     * With state not yet fetched — a cold start from a contact card, say — we let the attempt through
+     * and leave the server to decide, which is now a handled refusal rather than a crash.
+     */
+    fun canStartCallInRoom(roomId: String): Boolean = with(vm) {
+        val state = RoomStateStore.getParsed(roomId) ?: return true
+        val powerLevels = state.powerLevels ?: return true
+        return net.vrkknn.andromuks.utils.RoomPermissions.canStartCall(
+            powerLevels = powerLevels,
+            creators = net.vrkknn.andromuks.utils.RoomPermissions.creatorsOf(state),
+            userId = currentUserId,
+        )
+    }
+
     fun startCall(roomId: String, intent: String = "video", answeringIncoming: Boolean = false) = with(vm) {
+        if (!canStartCallInRoom(roomId)) {
+            // Every entry point funnels through here — the room header, a contact-card tap, answering
+            // a ring — so refusing once covers them all.
+            Androlog("Calls", "Refused to start a call in $roomId: power level too low")
+            appContext?.let {
+                android.widget.Toast.makeText(
+                    it,
+                    "Your power level doesn't allow starting calls in this room",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+            return@with
+        }
         // Decide before we join, because joining puts our own membership in activeCallRooms.
         // Element X only rings when it *starts* a call in a DM: joining a call already in progress
         // notifies rather than summoning everyone a second time.
@@ -228,7 +259,18 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         }
 
         viewModelScope.launch {
-            val response = withTimeoutOrNull(30_000L) { deferred.await() }
+            // handleError completes this deferred *exceptionally*, so await() rethrows here. Without
+            // the catch that propagates out of a bare launch and kills the process — a server saying
+            // "you may not post that" (M_FORBIDDEN when your power level is too low to join an RTC
+            // session) took the whole app down. A refused command is a normal outcome: hand it to the
+            // caller, which reports it to Element Call as a widget error.
+            val response = runCatching { withTimeoutOrNull(30_000L) { deferred.await() } }
+                .getOrElse { error ->
+                    widgetCommandRequests.remove(requestId)
+                    Androlog("Calls", "Widget command '$command' refused: ${error.message}")
+                    onResult(Result.failure(error))
+                    return@launch
+                }
             if (response == null) {
                 widgetCommandRequests.remove(requestId)
                 onResult(Result.failure(java.util.concurrent.TimeoutException("Widget command timeout")))

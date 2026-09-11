@@ -25,6 +25,37 @@ There used to be **two** classes named `PowerLevelsInfo` and **three** parsers f
 events["m.room.pinned_events"] ?: stateDefault ?: 50
 ```
 
+## `canStartCall`
+
+Joining an RTC session means sending `org.matrix.msc3401.call.member`, a **state** event, so its
+required level falls back to `state_default` (50), not `events_default`:
+
+```
+events["org.matrix.msc3401.call.member"] ?: stateDefault ?: 50
+```
+
+In a room that leaves state events at the default, an ordinary member at PL 0 cannot call at all —
+the server refuses Element Call's join with
+`M_FORBIDDEN … user_level (0) < send_level (50)`. That refusal used to **crash the app**:
+`AppViewModel.handleError` completes the widget command's deferred exceptionally, and
+`CallsWidgetsCoordinator.sendWidgetCommand` awaited it inside a bare `viewModelScope.launch`, so the
+exception propagated out of the coroutine and killed the process. It is caught now — a refused
+command is an ordinary outcome, reported back to Element Call as a widget error.
+
+The check itself lives at two levels:
+
+- `CallsWidgetsCoordinator.canStartCallInRoom` refuses in `startCall`, which every entry point funnels
+  through (room header, contact-card tap, answering a ring), with a Toast naming the reason.
+- The room header's overflow menu keeps the call items exactly where they are but draws them with
+  struck-through icons (`PhoneDisabled` / `VideocamOff`, dimmed); tapping one explains why instead of
+  starting a call. A menu that grows a sentence of explanation is worse than one that shows at a
+  glance that the thing is off.
+
+Both are deliberately **optimistic when power levels are unknown** — state not yet fetched, a cold
+start from a contact card — and let the server decide, which is now a handled refusal. This is the
+one predicate here that does not fail closed, because the cost of a wrong "no" (a call the user
+could have made) outweighs a handled error.
+
 ## Creators (room version 12+)
 
 From room version 12 (MSC4289) the room's **creators** hold power that `m.room.power_levels` never

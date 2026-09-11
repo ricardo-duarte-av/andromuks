@@ -76,11 +76,13 @@ import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.PhoneDisabled
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.VideoCall
+import androidx.compose.material.icons.filled.VideocamOff
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
@@ -4084,6 +4086,14 @@ fun RoomTimelineScreen(
                             callInProgress = appViewModel.callActiveInternal && appViewModel.callActiveRoomId == roomId,
                             callActiveInRoom = appViewModel.activeCallRooms.contains(roomId),
                             isDirectMessage = appViewModel.getRoomById(roomId)?.isDirectMessage == true,
+                            canStartCall = appViewModel.canStartCallInRoom(roomId),
+                            onCallUnavailable = {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    "Your power level doesn't allow starting calls in this room",
+                                    android.widget.Toast.LENGTH_LONG,
+                                ).show()
+                            },
                             onRefreshClick = {
                                 // Full refresh: drop all on-disk and in-RAM data, then fetch 100 events
                                 if (BuildConfig.DEBUG) {
@@ -6763,6 +6773,8 @@ fun RoomHeader(
     callInProgress: Boolean = false,
     callActiveInRoom: Boolean = false,
     isDirectMessage: Boolean = false,
+    canStartCall: Boolean = true,
+    onCallUnavailable: () -> Unit = {},
     onRefreshClick: () -> Unit = {},
     onSearchClick: () -> Unit = {},
 ) {
@@ -7042,8 +7054,19 @@ fun RoomHeader(
                     expanded = moreExpanded,
                     onDismissRequest = { moreExpanded = false },
                 ) {
-                    // Calls first: Element X's rule, a voice option only in DMs.
-                    if (callInProgress) {
+                    // Calls first: Element X's rule, a voice option only in DMs. An option that can
+                    // only end in "M_FORBIDDEN" is worse than no option, so a room whose power levels
+                    // put calls out of reach shows the reason instead.
+                    if (!callInProgress && !canStartCall) {
+                        DropdownMenuItem(
+                            text = { Text("Calls need a higher power level") },
+                            onClick = { moreExpanded = false },
+                            enabled = false,
+                            leadingIcon = {
+                                Icon(Icons.Filled.VideoCall, contentDescription = null)
+                            },
+                        )
+                    } else if (callInProgress) {
                         DropdownMenuItem(
                             text = { Text("Return to call") },
                             onClick = {
@@ -7055,15 +7078,20 @@ fun RoomHeader(
                             },
                         )
                     } else {
+                        val deniedTint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                         if (isDirectMessage) {
                             DropdownMenuItem(
                                 text = { Text(if (callActiveInRoom) "Join with voice" else "Voice call") },
                                 onClick = {
                                     moreExpanded = false
-                                    onCallClick("audio")
+                                    if (canStartCall) onCallClick("audio") else onCallUnavailable()
                                 },
                                 leadingIcon = {
-                                    Icon(Icons.Filled.Call, contentDescription = null)
+                                    if (canStartCall) {
+                                        Icon(Icons.Filled.Call, contentDescription = null)
+                                    } else {
+                                        Icon(Icons.Filled.PhoneDisabled, contentDescription = null, tint = deniedTint)
+                                    }
                                 },
                             )
                         }
@@ -7071,10 +7099,14 @@ fun RoomHeader(
                             text = { Text(if (callActiveInRoom) "Join call" else "Video call") },
                             onClick = {
                                 moreExpanded = false
-                                onCallClick("video")
+                                if (canStartCall) onCallClick("video") else onCallUnavailable()
                             },
                             leadingIcon = {
-                                Icon(Icons.Filled.VideoCall, contentDescription = null)
+                                if (canStartCall) {
+                                    Icon(Icons.Filled.VideoCall, contentDescription = null)
+                                } else {
+                                    Icon(Icons.Filled.VideocamOff, contentDescription = null, tint = deniedTint)
+                                }
                             },
                         )
                     }

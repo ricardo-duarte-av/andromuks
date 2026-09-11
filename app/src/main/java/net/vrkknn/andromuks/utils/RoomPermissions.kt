@@ -142,6 +142,21 @@ object RoomPermissions {
     }
 
     /**
+     * Whether [userId] may start or join a call.
+     *
+     * Joining an RTC session means sending `org.matrix.msc3401.call.member`, a **state** event — so
+     * an unlisted level falls back to `state_default` (50 by default), not `events_default`. In a
+     * room that leaves state events at the default, an ordinary member at PL 0 simply cannot call,
+     * and the server refuses with M_FORBIDDEN once Element Call tries to join.
+     */
+    fun canStartCall(powerLevels: PowerLevelsInfo?, creators: Set<String>, userId: String?): Boolean {
+        val required = powerLevels?.events?.get("org.matrix.msc3401.call.member")
+            ?: powerLevels?.stateDefault
+            ?: DEFAULT_POWER_LEVEL
+        return powerLevelOf(powerLevels, creators, userId) >= required
+    }
+
+    /**
      * Whether [actorUserId] may kick [targetUserId].
      *
      * Requires clearing the room's `kick` level *and* being strictly above the target: Matrix does

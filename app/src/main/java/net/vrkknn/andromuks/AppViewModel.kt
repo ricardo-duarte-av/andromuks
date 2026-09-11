@@ -2031,6 +2031,12 @@ class AppViewModel : ViewModel() {
      */
     fun getDirectRoomIdForUser(userId: String): String? = roomListUiCoordinator.getDirectRoomIdForUser(userId)
 
+    /**
+     * Whether a call may be started in [roomId] as far as the room's power levels say. Optimistic
+     * when they are unknown; see [CallsWidgetsCoordinator.canStartCallInRoom].
+     */
+    fun canStartCallInRoom(roomId: String): Boolean = callsWidgetsCoordinator.canStartCallInRoom(roomId)
+
     /** The other party in a DM room, or null. See [CanonicalDmCoordinator]. */
     fun getDirectUserIdForRoom(roomId: String): String? = canonicalDmCoordinator.getDirectUserIdForRoom(roomId)
 
