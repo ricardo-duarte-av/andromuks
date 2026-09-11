@@ -44,7 +44,7 @@ internal class CallTelecomCoordinator(private val vm: AppViewModel) {
      * Tell Telecom a call has begun. [answeringIncoming] matters: an incoming call is what a car or
      * watch offers to answer, an outgoing one is simply in progress.
      */
-    fun onCallStarted(roomId: String, displayName: String, isVideo: Boolean, answeringIncoming: Boolean) = with(vm) {
+    fun onCallStarted(roomId: String, displayName: String, isVideo: Boolean, answeringIncoming: Boolean, personUserId: String? = null) = with(vm) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return@with
         val context = appContext ?: return@with
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.MANAGE_OWN_CALLS) != PackageManager.PERMISSION_GRANTED) {
@@ -66,11 +66,20 @@ internal class CallTelecomCoordinator(private val vm: AppViewModel) {
             }
         }
 
-        // A self-managed call still needs an address. Matrix has no dialable one, so the room id
-        // stands in: it is stable, unique, and never shown as a phone number anywhere.
+        // A self-managed call still needs an address, and Matrix has no dialable one. A DM is a call
+        // to a *person* — the room is an implementation detail of how we reach them — so address the
+        // person when the canonical DM index knows who that is, and fall back to the room for group
+        // calls. The person form is byte-identical to PersonsApi.buildPersonUri and to the DATA1 our
+        // contact rows carry, so one identity string spans shortcuts, contacts and calls.
+        //
+        // Note this is identity, not contact matching: the Jetpack PhoneAccount declares no supported
+        // URI schemes, so call UIs still render `displayName`, not a looked-up contact.
         val attributes = CallAttributesCompat(
             displayName = displayName,
-            address = Uri.fromParts("matrix", roomId, null),
+            address = personUserId
+                ?.takeIf { it.isNotBlank() }
+                ?.let { Uri.fromParts("matrix", "u/${it.removePrefix("@")}", null) }
+                ?: Uri.fromParts("matrix", roomId, null),
             direction = if (answeringIncoming) {
                 CallAttributesCompat.DIRECTION_INCOMING
             } else {

@@ -1642,6 +1642,7 @@ class AppViewModel : ViewModel() {
 
     /** Account data (m.direct, tags, ignore, recent emojis) — see [AccountDataCoordinator]. */
     internal val accountDataCoordinator by lazy { AccountDataCoordinator(this) }
+    internal val canonicalDmCoordinator by lazy { CanonicalDmCoordinator(this) }
 
     /** Push rules editor send layer — see [PushRulesCoordinator]. */
     internal val stickerPackCoordinator by lazy { StickerPackCoordinator(this) }
@@ -2029,6 +2030,9 @@ class AppViewModel : ViewModel() {
      * Prefers rooms listed in account data; falls back to scanning direct rooms.
      */
     fun getDirectRoomIdForUser(userId: String): String? = roomListUiCoordinator.getDirectRoomIdForUser(userId)
+
+    /** The other party in a DM room, or null. See [CanonicalDmCoordinator]. */
+    fun getDirectUserIdForRoom(roomId: String): String? = canonicalDmCoordinator.getDirectUserIdForRoom(roomId)
 
     /**
      * Get all DM room IDs for a user from m.direct account data
@@ -5128,6 +5132,8 @@ class AppViewModel : ViewModel() {
                                                             },
                                                             isDirectMessage =
                                                             room.isDirectMessage || existing.isDirectMessage,
+                                                            directUserId =
+                                                            room.directUserId ?: existing.directUserId,
                                                             bridgeProtocolAvatarUrl =
                                                             room.bridgeProtocolAvatarUrl
                                                                 ?: existing.bridgeProtocolAvatarUrl,
@@ -5177,6 +5183,8 @@ class AppViewModel : ViewModel() {
                                                             },
                                                             isDirectMessage =
                                                             room.isDirectMessage || existing.isDirectMessage,
+                                                            directUserId =
+                                                            room.directUserId ?: existing.directUserId,
                                                             bridgeProtocolAvatarUrl =
                                                             room.bridgeProtocolAvatarUrl
                                                                 ?: existing.bridgeProtocolAvatarUrl,

@@ -76,11 +76,18 @@ internal class CallsWidgetsCoordinator(private val vm: AppViewModel) {
         incomingCallInfo = null
         CallForegroundService.hangupHandler = { requestGracefulHangup() }
         refreshCallNotification()
+        // Address the person for a DM. The partner's own display name beats the room's, which for a
+        // DM is often the raw mxid or a bridge-generated string.
+        val dmPartner = if (isDirectMessage) canonicalDmCoordinator.getDirectUserIdForRoom(roomId) else null
         telecom.onCallStarted(
             roomId = roomId,
-            displayName = getRoomById(roomId)?.name?.takeIf { it.isNotBlank() } ?: roomId,
+            displayName = dmPartner
+                ?.let { getMemberMap(roomId)[it]?.displayName?.takeIf(String::isNotBlank) }
+                ?: getRoomById(roomId)?.name?.takeIf { it.isNotBlank() }
+                ?: roomId,
             isVideo = callIntent != "audio",
             answeringIncoming = answeringIncoming,
+            personUserId = dmPartner,
         )
     }
 
