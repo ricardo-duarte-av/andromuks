@@ -6,7 +6,7 @@
 |---|---|
 | `Disconnected` | No active socket, no reconnection pending |
 | `Connecting(n)` | TCP/TLS/WebSocket dial in progress |
-| `Initializing(runId, pending, received)` | run_id received; consuming initial sync_completes |
+| `Initializing(runId, pending, received)` | **Never entered today** — `onOpen` goes straight to `Ready`. Still referenced by `updateInitializingProgress` and the notification text, which are therefore dormant. |
 | `Ready` | Fully connected and synced |
 | `QuickReconnecting(runId, lastEventId, n)` | Resume path (last_received_event in URL) |
 | `FullReconnecting` | Cold resync path (clears resume state) |
@@ -191,7 +191,7 @@ Checks performed:
 
 1. **Callback validation** (every tick) — warns if credentials missing and not `Ready`.
 2. **State corruption + primary ViewModel health** (every 30 ticks) — promotes stale primaries.
-3. **Stuck Connecting** — `>3s` in `Connecting` with no active timeout jobs → `clearWebSocket` + `scheduleReconnection`.
+3. **Stuck Connecting** — not a monitoring check. A dial is bounded by OkHttp's own timeouts and, as a backstop, `startHardConnectingTimeout()` (see [`connectWebSocket()`](#connectwebsocket-claim-validate-then-time-the-dial)). The monitor used to carry three `>3s in Connecting` checks measured from `connectionStartTime`; that is 0 until `onOpen`, which moves straight to `Ready`, so they could never fire — and had they fired they would have killed dials that legitimately spend up to 10 s in network validation. They were removed rather than fixed.
 4. **Stuck Reconnecting** — `>60s` in a `isReconnectingPhase()` state → same.
 5. **Stuck Disconnected** — `Disconnected`, no reconnect job, network available, credentials present, and (`connectionLostAt > 5s ago` OR `serviceStartTime > 5s ago`) → `scheduleReconnection`.
 6. **Notification staleness** (every 60s) — forces notification update if not `Ready`.
@@ -390,7 +390,6 @@ Battery optimization exemption is recommended for reliable background operation.
 | `DEEP_CHECK_INTERVAL_MS` | 30s | Cadence of the expensive monitoring checks |
 | `NETWORK_CHANGE_DEBOUNCE_MS` | — | Debounce for rapid network events |
 | `NETWORK_VALIDATION_TIMEOUT_MS` | — | Max wait for `NET_CAPABILITY_VALIDATED` |
-| `INIT_COMPLETE_TIMEOUT_MS_BASE` | — | Max wait for `init_complete` after run_id |
 | Reconnect stuck guard | 30s | Reset stuck reconnection lock |
 | Stuck-Disconnected delay | 5s | Grace period before health-check recovery |
 
