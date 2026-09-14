@@ -395,10 +395,30 @@ is not. The app-level JSON `{"command":"ping"}` loop is the only liveness channe
   cadence regulation only and is **not** gated on connection state — it used to be, and whenever the
   state left `Ready` at exactly that moment the flag latched `true`. The ping loop's only send gate is
   `if (!pingInFlight)`, so pings then stopped for the entire life of the connection.
-- **Stage 2**, at `PONG_DEADLINE_MS`, is the liveness check. If `lastMessageReceivedTimestamp` has not
+- **Stage 2**, at `PONG_DEADLINE_MS`, is the liveness check. If `lastInboundActivityAt()` has not
   advanced past the moment the ping was sent, `consecutivePingTimeouts` is incremented; at
   `MAX_CONSECUTIVE_PING_TIMEOUTS` the socket is cleared and `ReconnectTrigger.PingTimeout` scheduled.
-  Any inbound traffic counts as liveness, not just the matching pong.
+  Any inbound traffic counts as liveness, not just the matching pong — down to raw bytes, see below.
+
+### Weak links: byte-level liveness
+
+OkHttp reports a WebSocket message only once its **whole frame** has arrived. On a weak link a
+~500 KB `sync_complete` can trickle in for many seconds, and the pong for our ping queues behind it on
+the same TCP stream, so a frame-only clock saw a socket that was actively delivering data as silent —
+and every watchdog tore it down mid-download, re-dialled over the same weak link and restarted the sync.
+
+The WebSocket client is therefore built with `utils/CountingSocketFactory`, whose sockets stamp
+`InboundByteClock` on every raw read. TLS is layered on top of that socket, so encrypted bytes count.
+`WebSocketService.lastInboundActivityAt()` returns the later of the frame and byte clocks, and it is the
+**only** signal the watchdogs may use: stage 2 above, the ping loop's `MESSAGE_TIMEOUT_*` check, and
+`pingNowWithWatchdog`.
+
+- `pingNowWithWatchdog` (resume and screen-on) uses the same `PONG_DEADLINE_MS` window. It was 3 s
+  against whole frames, which killed a healthy slow socket on every app open.
+- If a TLS implementation ever reads the socket's file descriptor directly, the byte clock never ticks
+  and `lastInboundActivityAt()` degrades to exactly the old frame-only behaviour — never worse. The
+  `WSDial` Androlog line `socket open: byte liveness active (…)` / `INACTIVE` shows which one a device got.
+- A socket that delivers **nothing** is still caught as before: ~30 s of missed pongs, 60 s/135 s backstop.
 
 Before this existed, `consecutivePingTimeouts` was reset in five places and incremented in none, so a
 **half-open TCP connection** — no FIN, the normal failure on a lossy link — was only ever caught by

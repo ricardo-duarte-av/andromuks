@@ -265,8 +265,9 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
             // isServiceRunning can both lie: zombie sockets, transient post-stopSelf state,
             // kernel idle reaping). Two outcomes only:
             //   1. pingNowWithWatchdog returns false → service gone or state not Ready → re-dial.
-            //   2. pingNowWithWatchdog returns true → ping in flight; its 3s watchdog will
-            //      reconnect on no-traffic via clearWebSocket + scheduleReconnection.
+            //   2. pingNowWithWatchdog returns true → ping in flight; its 10s watchdog will
+            //      reconnect if not a single byte arrives, via clearWebSocket + scheduleReconnection.
+            //      A slow link still trickling a large frame is left alone.
             // If the connection is actually healthy, the cost is one ping round-trip.
             appContext?.applicationContext?.let { ctx ->
                 WebSocketService.consumeForceFreshTimelinePaginatePending(ctx, vm)

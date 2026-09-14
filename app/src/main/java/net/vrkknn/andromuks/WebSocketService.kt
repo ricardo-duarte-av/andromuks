@@ -683,7 +683,7 @@ class WebSocketService : Service() {
                     // If no message at all has arrived within the (visibility-scaled) bound,
                     // treat the connection as stale and re-dial.
                     val timeout = messageTimeoutMs(serviceInstance)
-                    val timeSinceLastMessage = System.currentTimeMillis() - serviceInstance.lastMessageReceivedTimestamp
+                    val timeSinceLastMessage = System.currentTimeMillis() - lastInboundActivityAt()
                     if (timeSinceLastMessage >= timeout) {
                         android.util.Log.w(
                             "WebSocketService",
@@ -1810,15 +1810,17 @@ class WebSocketService : Service() {
          * Returns false if the service isn't running or isn't in Ready state (caller may
          * choose to force a reconnect directly).
          */
-        fun pingNowWithWatchdog(watchdogMs: Long = 3_000L): Boolean {
+        fun pingNowWithWatchdog(watchdogMs: Long = PONG_DEADLINE_MS): Boolean {
             val svc = instance ?: return false
             if (!svc.connectionState.isReady()) return false
-            val expectedSeenAfter = svc.lastMessageReceivedTimestamp
+            // Same window and signal as the regular missed-pong check. This was 3 s against whole
+            // frames only, which on a weak link tore down a healthy socket on every app open.
+            val pingSentAt = System.currentTimeMillis()
             svc.sendPing()
             svc.serviceScope.launch {
                 delay(watchdogMs)
-                val updatedSeen = instance?.lastMessageReceivedTimestamp ?: return@launch
-                if (updatedSeen <= expectedSeenAfter) {
+                if (instance == null) return@launch
+                if (!net.vrkknn.andromuks.utils.isLinkAlive(lastInboundActivityAt(), pingSentAt)) {
                     android.util.Log.w(
                         "WebSocketService",
                         "pingNowWithWatchdog: no traffic within ${watchdogMs}ms after ping — treating socket as dead",
@@ -3233,9 +3235,9 @@ class WebSocketService : Service() {
                     isScreenOn = true
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Screen turned ON")
                     // Bug C2: Doze can silently kill the underlying TCP socket while the OS-visible
-                    // state still reads Ready. Fire an immediate ping with a 3s pong watchdog so we
-                    // detect the dead socket in seconds instead of waiting for the 60s message-
-                    // timeout check. No-op if the service isn't Ready (the lifecycle resume path
+                    // state still reads Ready. Fire an immediate ping with a 10s byte-level watchdog so
+                    // we detect the dead socket in seconds instead of waiting for the 60s message-
+                    // timeout check, without killing a slow one that is still delivering. No-op if the service isn't Ready (the lifecycle resume path
                     // will handle re-dialling).
                     pingNowWithWatchdog()
                 }
@@ -4502,7 +4504,9 @@ class WebSocketService : Service() {
 
             delay(PONG_DEADLINE_MS - PONG_CLEAR_INFLIGHT_MS)
             if (!connectionState.isReady()) return@launch
-            if (lastMessageReceivedTimestamp > pingSentAt) return@launch
+            // Bytes of a frame still arriving count: on a weak link the pong queues behind a large
+            // sync_complete, and that frame's progress is the proof the link is alive.
+            if (net.vrkknn.andromuks.utils.isLinkAlive(lastInboundActivityAt(), pingSentAt)) return@launch
 
             consecutivePingTimeouts++
             android.util.Log.w(
