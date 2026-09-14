@@ -66,7 +66,7 @@ testing is tracked in GH issue #20.
 
 ### Product flavors (side-by-side installs)
 
-`app/build.gradle.kts` defines four flavors on the `variant` dimension so multiple copies can be installed at once: **base** (`pt.aguiarvieira.andromuks`), **a**/**b**/**c** (`…andromuks.a/.b/.c`). Each flavor sets its own `applicationIdSuffix`, `app_name` (`resValue`), FileProvider authority (manifest `${applicationId}.fileprovider`; Kotlin derives it from `context.packageName`), and Matrix-contacts authority (manifest `${contactsAuthority}` placeholder + `BuildConfig.CONTACTS_AUTHORITY`). This replaced the CI `sed` hacks — variants are now real Gradle variants, buildable locally. The baseline-profile module pins to `base` via `missingDimensionStrategy`. CI builds all flavors via a single matrix workflow (`.github/workflows/build.yml`); only `base` is published to the Play Console.
+`app/build.gradle.kts` defines four flavors on the `variant` dimension so multiple copies can be installed at once: **base** (`pt.aguiarvieira.andromuks`), **a**/**b**/**c** (`…andromuks.a/.b/.c`). Each flavor sets its own `applicationIdSuffix`, `app_name` (`resValue`), FileProvider authority (manifest `${applicationId}.fileprovider`; Kotlin derives it from `context.packageName`), Matrix-contacts authority (manifest `${contactsAuthority}` placeholder + `BuildConfig.CONTACTS_AUTHORITY`), and **contacts account type** (`@string/account_type` via `resValue`, mirrored as `BuildConfig.ACCOUNT_TYPE`/`ACCOUNT_NAME`; base keeps the unsuffixed value so existing accounts are not orphaned). The account type **must** be per-flavour: `AccountManager.addAccountExplicitly` only works for the package that registered the authenticator for that type, so a shared type means whichever flavour installed first owns it and the rest are locked out — see [docs/CANONICAL_DM.md](docs/CANONICAL_DM.md#the-account-type-is-per-flavour-and-must-be). This replaced the CI `sed` hacks — variants are now real Gradle variants, buildable locally. The baseline-profile module pins to `base` via `missingDimensionStrategy`. CI builds all flavors via a single matrix workflow (`.github/workflows/build.yml`); only `base` is published to the Play Console.
 
 ### Release signing
 
@@ -153,7 +153,14 @@ When adding features, follow the existing Coordinator pattern: create a `*Coordi
 
 ## Version Management
 
-`versionCode` is computed dynamically in `app/build.gradle.kts` based on seconds since 2024-01-01 epoch, plus a Play Store offset. `versionName` (e.g., `1.0.73`) is set manually. Bump `versionName` in `app/build.gradle.kts` for releases.
+`versionCode` is computed dynamically in `app/build.gradle.kts` as **minutes** since the 2024-01-01 epoch plus a Play Store floor (`1_885_000_000`). `versionName` (e.g., `1.0.73`) is set manually. Bump `versionName` in `app/build.gradle.kts` for releases.
+
+It was *seconds*, which burned 31.5M codes a year whether or not anything shipped and left ~6.8 years before Play's 2,100,000,000 ceiling — after which the app can never be updated again. Minutes spend 525,960 a year instead. The floor exists because codes can never be reused or go backwards: the ~1.88 billion already spent are gone, so the tidy `versionName`-derived scheme Google suggests is not available to us, and only the *rate* was fixable.
+
+Two consequences worth knowing:
+
+- A **re-run of a failed release job mints a fresh code**, which is what makes re-running a rejected upload work at all.
+- That depends on the code being read at configuration time. If the Gradle **configuration cache is ever persisted across CI runs** (`gradle/actions/setup-gradle` with a `cache-encryption-key`), a reused entry replays the *old* timestamp — verified locally: two runs, same `VERSION_CODE`. Persisting it therefore requires making the code a tracked input first (e.g. `providers.environmentVariable`), or re-runs will be rejected as duplicates.
 
 ## Version Control
 
@@ -212,7 +219,7 @@ When investigating protocol behaviour, message shapes, or backend fields, consul
 | Reactions lifecycle, storage, redaction path, `removeReaction` internals | [docs/REACTIONS.md](docs/REACTIONS.md) |
 | Polls (MSC3381 render + vote, aggregation rules, satellite-event pipeline) | [docs/POLLS.md](docs/POLLS.md) |
 | In-room bot commands (MSC4391 discovery, `cmdschema` port, autocomplete, argument sheet, envelope) | [docs/BOT_COMMANDS.md](docs/BOT_COMMANDS.md) |
-| Element Call (WebView/WebRTC, call state, incoming banners, timeline narrator, widget protocol) | [docs/ELEMENT_CALL.md](docs/ELEMENT_CALL.md) |
+| Element Call (WebView/WebRTC, call state, SFU discovery, widget protocol, ringing, Telecom, in-call audio, ongoing-call notification) | [docs/ELEMENT_CALL.md](docs/ELEMENT_CALL.md) |
 | Canonical DMs (room ↔ mxid index, person call address, contact-card call actions, phone-contact linking) | [docs/CANONICAL_DM.md](docs/CANONICAL_DM.md) |
 | Androlog (persistent release-safe event log, `Androlog(category, text)`, viewer screen) | [docs/ANDROLOG.md](docs/ANDROLOG.md) |
 | Observability (opt-in Firebase Crashlytics + Performance, `ws_connect` trace, mapping upload, Android vitals) | [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md) |

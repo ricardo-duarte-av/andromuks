@@ -92,6 +92,17 @@ Migrated from Coil 2. Key differences if you touch image loading:
   `VideoUploadUtils`, `NetworkUtils`, and the OkHttp paths in `MediaFunctions`/`UserInfo`/
   `UrlPreviewComposition`) — those genuinely need the cookie and are not covered by the Coil interceptor.
 
+## Jetpack Telecom (`androidx.core:core-telecom`)
+
+Added for self-managed call registration (`CallTelecomCoordinator`), which is what makes a call real
+to Android Auto, Wear, Bluetooth car kits and the OS's cellular-call arbitration. It wraps the
+`ConnectionService` plumbing that would otherwise have to be written by hand, and ships its own
+`JetpackConnectionService` plus the `MANAGE_OWN_CALLS` / `BLUETOOTH_CONNECT` permissions in its
+manifest — so adding the dependency alone changes the merged manifest.
+
+Pinned to the latest **stable** (1.0.1) rather than the 1.1.0-beta line. See
+[ELEMENT_CALL.md](ELEMENT_CALL.md#telecom-calltelecomcoordinator).
+
 ## Upgrade workflow
 
 Validate **locally before CI** — much faster than the 4-flavor matrix (~15 min):

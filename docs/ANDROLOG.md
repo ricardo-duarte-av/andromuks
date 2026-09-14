@@ -163,4 +163,39 @@ Volume is bounded by the reconnect ladder (exponential backoff to a 120 s ceilin
 sustained bad-link session cannot flood the 200-entry buffer and evict the `FCMOpen` lines that
 give the tap its context.
 
+### `"Calls"`
+
+| Location | What it logs |
+|---|---|
+| `CallsWidgetsCoordinator.sendWidgetCommand` — refused | A widget command the backend rejected, with the error. Most commonly `M_FORBIDDEN` when power levels forbid joining an RTC session; this used to kill the process (see [POWER_LEVELS.md](POWER_LEVELS.md#canstartcall)). |
+| `CallsWidgetsCoordinator.startCall` — refused | We declined to start a call because the room's power levels say the user cannot. |
+
+### `"Contacts"`
+
+Writing to the Android contacts provider is a user-initiated one-shot, and its failures are invisible
+otherwise — the provider simply does nothing and the contact never appears.
+
+| Location | What it logs |
+|---|---|
+| `ContactsSyncService.ensureAccountExists` | Whether the `net.vrkknn.andromuks.matrix*` account could be created, including the `SecurityException` thrown when another flavour owns that account type. Without the account, every RawContact we write has nothing to attach to. |
+| `ContactsSyncService.syncContacts` — per user / overall | The exception behind a failed save, and the outcome (`N added, M updated`). |
+| `ContactsSyncService.mergeWithExistingContact` | A failed merge. |
+| `ContactLinkCoordinator` | Each aggregation-exception write, and why a link was abandoned (no Matrix contact yet, or no foreign raw contact behind the picked one). |
+
+### `"ContactTap"`
+
+The path from a tap on a contact card to something happening, which crosses a process start, a
+ViewModel that does not exist yet and a navigation graph that is not ready — three places it can
+silently stall. See [CANONICAL_DM.md](CANONICAL_DM.md#the-contact-card).
+
+| Location | What it logs |
+|---|---|
+| `MainActivity` intent handling | The contact-row intent as it arrives (type and data), *even when its URI is unusable* — so "arrived but unusable" is distinguishable from "never arrived" — then the action parked for it. |
+| External-action drain — holding | The action is parked and why: `not resumed` (a background Activity instance must not act), `rooms not ready`, or `route=…` (still on `auth_check`). Repeats collapse. |
+| External-action drain — acted | The room resolved, and the route it fired from. Its **absence** after an offer line is the tell. |
+| External-action drain — no DM | The person has no DM room, so the profile was opened instead. |
+
+Actions name themselves through `ExternalAction.describe()` rather than `javaClass.simpleName`, which
+R8 obfuscates to things like `oh2` in exactly the release builds these lines exist to diagnose.
+
 When adding new probes, keep the category short and stable (it renders as a chip and groups related events when scanning the export).

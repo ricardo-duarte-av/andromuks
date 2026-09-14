@@ -158,6 +158,39 @@ Webmuks tab and Andromuks will disagree about which conversations are still noti
 
 ---
 
+## 6. Only `m.room.message` and `m.sticker` are ever pushed, so calls cannot ring
+
+`formatPushNotificationMessage` (`pkg/gomuks/pushmessage.go`) returns `nil` for any event that is
+not `m.room.message` or `m.sticker`:
+
+```go
+if evtType != event.EventMessage && evtType != event.EventSticker {
+    return nil
+}
+```
+
+Everything else is dropped before it reaches the FCM gateway, no matter what the homeserver's push
+rules decided. The payload type (`PushNewMessage`) is message-shaped too — room, sender, text, image,
+mention/reply/sound — with no field naming the event type, so a client could not recognise a call
+push even if one arrived.
+
+**Cost to Andromuks**: `org.matrix.msc4075.rtc.notification` — the event that says "someone is
+calling you" — never arrives as a push, so a backgrounded or dead app cannot ring at all. The
+in-app path (`CallsWidgetsCoordinator.handleRtcNotification`) only works while the app is alive and
+syncing, which is precisely when the user does not need to be told.
+
+**Local workaround**: none possible client-side; this one is genuinely in the backend. Andromuks runs
+against a fork that emits an `rtc` object (`type`, `intent`, `call_id`, `expires_at`) on the
+`messages` entry, which `FCMService.handleCallNotification` reads — see
+[docs/ELEMENT_CALL.md](docs/ELEMENT_CALL.md#push-ringing-while-backgrounded). Against stock gomuks
+the ring simply never fires; everything else about calls still works.
+
+**Upstream fix**: let the notification type through and carry enough of the event to act on — the
+type at minimum, plus `notification_type` and `lifetime` from the content. Ringing is not optional
+for a calling client, and it cannot be synthesised from a message-shaped payload.
+
+---
+
 ## How the workarounds line up
 
 | Upstream issue | `NotificationSyncReconciler` (socket) | `verifyRoomRead` (`/exec`) | Durable tombstone |
@@ -167,6 +200,7 @@ Webmuks tab and Andromuks will disagree about which conversations are still noti
 | 3. Normal-priority Doze delay | yes | yes | — |
 | 4. Unorderable dismiss | — | yes | partial (wall-clock) |
 | 5. Web push dismissal | not applicable | not applicable | not applicable |
+| 6. Calls never pushed | not applicable | not applicable | backend fork required |
 
 The socket arm is inert in battery-saver mode (the WebSocket is torn down there), which is precisely
 why the `/exec` arm exists as well.
