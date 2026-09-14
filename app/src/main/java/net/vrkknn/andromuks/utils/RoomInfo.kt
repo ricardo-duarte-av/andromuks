@@ -564,7 +564,8 @@ fun RoomInfoScreen(
                             .height(48.dp),
                     ) {
                         Text(
-                            "Per-Message\nProfiles",
+                            // "Per-Message" is wider than a third of the row and wrapped mid-word (GH #39).
+                            "Message\nProfiles",
                             style = MaterialTheme.typography.labelMedium,
                             textAlign = TextAlign.Center,
                         )
