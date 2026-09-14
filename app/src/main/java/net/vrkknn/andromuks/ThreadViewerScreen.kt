@@ -1097,19 +1097,9 @@ fun ThreadViewerScreen(
                     lastDate = eventDate
                 }
 
-                val hasPerMessageProfile =
-                    event.content?.has("com.beeper.per_message_profile") == true ||
-                        event.decrypted?.has("com.beeper.per_message_profile") == true
+                val hasPerMessageProfile = net.vrkknn.andromuks.utils.perMessageProfileOf(event) != null
 
-                val timeDifference = if (previousEvent != null) {
-                    kotlin.math.abs(
-                        event.timestamp - previousEvent.timestamp,
-                    )
-                } else {
-                    0L
-                }
-                val isConsecutive =
-                    !hasPerMessageProfile && previousEvent?.sender == event.sender && timeDifference <= 5 * 60 * 1000
+                val isConsecutive = net.vrkknn.andromuks.utils.isConsecutiveMessage(previousEvent, event)
 
                 // Add the event
                 items.add(
@@ -1477,24 +1467,8 @@ fun ThreadViewerScreen(
                                                 prevIndex++
                                             }
 
-                                            val hasPerMessageProfile =
-                                                event.content?.has("com.beeper.per_message_profile") ==
-                                                    true ||
-                                                    event.decrypted?.has(
-                                                        "com.beeper.per_message_profile",
-                                                    ) == true
-
-                                            val timeDifference = if (previousEvent != null) {
-                                                kotlin.math.abs(
-                                                    event.timestamp - previousEvent.timestamp,
-                                                )
-                                            } else {
-                                                0L
-                                            }
                                             val isConsecutive =
-                                                !hasPerMessageProfile &&
-                                                    previousEvent?.sender == event.sender &&
-                                                    timeDifference <= 5 * 60 * 1000
+                                                net.vrkknn.andromuks.utils.isConsecutiveMessage(previousEvent, event)
 
                                             // Add a little extra spacing before non-consecutive messages
                                             // (only when there was a previous event).

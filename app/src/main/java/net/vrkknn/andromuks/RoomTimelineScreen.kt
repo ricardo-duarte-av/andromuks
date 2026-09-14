@@ -1988,21 +1988,10 @@ fun RoomTimelineScreen(
                 }
 
                 // Check if this event has per-message profile (from bridges like Beeper)
-                val hasPerMessageProfile =
-                    event.content?.has("com.beeper.per_message_profile") == true ||
-                        event.decrypted?.has("com.beeper.per_message_profile") == true
+                val hasPerMessageProfile = net.vrkknn.andromuks.utils.perMessageProfileOf(event) != null
 
-                // Check if this is a consecutive message from the same sender
-                val timeDifference = if (previousEvent != null) {
-                    kotlin.math.abs(
-                        event.timestamp - previousEvent.timestamp,
-                    )
-                } else {
-                    0L
-                }
-                val isConsecutive = !hasPerMessageProfile &&
-                    previousEvent?.sender == event.sender &&
-                    timeDifference <= 5 * 60 * 1000
+                // Same sender, same per-message profile, within the grouping window
+                val isConsecutive = net.vrkknn.andromuks.utils.isConsecutiveMessage(previousEvent, event)
 
                 // Add the event with pre-computed flags
                 items.add(

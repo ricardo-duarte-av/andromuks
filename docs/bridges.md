@@ -71,6 +71,11 @@ Mautrix bridges can attach `com.beeper.per_message_profile` to individual messag
 
 The on-demand sender-profile fetch is gated on "per-message supplies BOTH fields"; otherwise we still need the sender cache populated so the fallback target is available.
 
+**Grouping and ownership** live in `utils/PerMessageProfileIdentity.kt`, shared by every screen that builds timeline items:
+
+- `isConsecutiveMessage` groups two messages only when the Matrix sender **and** the profile match (by `id`, or by displayname + avatar when there is no id), within the 5-minute window. Comparing the profile keeps a relay bot's different remote users apart; not *breaking* on a profile keeps a run of messages under one profile grouped. The old rule — any profile breaks grouping — made every message sent under our own MSC4461 profile start a new group (GH #37).
+- `isOwnMessage` treats a message as ours if we sent it, whatever profile it wears, or if a relay bot's profile `id` is our mxid. Deciding by the profile `id` alone made our own profile messages (ids like `black_cat`) render as someone else's and lose the Edit action (GH #37).
+
 This section covers the **incoming** side only. For sending *our own* messages under a stored
 profile (MSC4461 rev-2 account data, trigger prefixes, the `base_content` path), see
 [PER_MESSAGE_PROFILES.md](PER_MESSAGE_PROFILES.md).

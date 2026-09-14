@@ -4061,17 +4061,15 @@ fun TimelineEventItem(
     val bridgeSender =
         if (hasPerMessageProfile || hasEncryptedPerMessageProfile) event.sender else null
 
-    // For per-message profiles, check if the message is "mine" based on the per-message profile
-    // user ID
+    // Ours if we sent it (whatever profile it wears), or if a relay bot's profile names us
     val actualIsMine =
         if (hasPerMessageProfile || hasEncryptedPerMessageProfile) {
-            val perMessageUserId =
-                if (hasEncryptedPerMessageProfile) {
-                    encryptedPerMessageProfile.optString("id").takeIf { it.isNotBlank() }
-                } else {
-                    perMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
-                }
-            myUserId != null && perMessageUserId == myUserId
+            isMine ||
+                net.vrkknn.andromuks.utils.isOwnMessage(
+                    event.sender,
+                    encryptedPerMessageProfile ?: perMessageProfile,
+                    myUserId,
+                )
         } else {
             isMine
         }
