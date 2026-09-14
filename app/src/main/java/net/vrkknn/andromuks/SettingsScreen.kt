@@ -416,7 +416,7 @@ fun SettingsScreen(appViewModel: AppViewModel, navController: NavController) {
                                 fontWeight = FontWeight.Medium,
                             )
                             Text(
-                                text = "When enabled, the app disconnects from the server while backgrounded and relies on push notifications, saving significant battery on cellular. Notification reply and mark-as-read are routed through the gomuks backend's HTTP command endpoint (<homeserver>/_gomuks/exec). The WebSocket is automatically reconnected while a chat bubble is open and torn down again 60 s after the last bubble closes. When disabled, a persistent foreground-service WebSocket stays connected for real-time delivery.",
+                                text = "When enabled, the app disconnects from the server while backgrounded and relies on push notifications, saving significant battery on cellular. Notification reply and mark-as-read are routed through the gomuks backend's HTTP command endpoint (<homeserver>/_gomuks/exec). The WebSocket is automatically reconnected while a chat bubble is open and torn down again 60 s after the last bubble closes. When disabled, a persistent foreground-service WebSocket stays connected for real-time delivery. Switching this also switches Compression to match.",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -478,7 +478,7 @@ fun SettingsScreen(appViewModel: AppViewModel, navController: NavController) {
                             fontWeight = FontWeight.Medium,
                         )
                         Text(
-                            text = "Request compression from server to client. ⚠️ WARNING: Enabling compression significantly increases battery usage, even when the app is idle. Each message (4-8 per second) requires CPU-intensive decompression, preventing the device from entering deep sleep.",
+                            text = "Request compression from server to client. Set automatically with Battery saver mode: on when the app reconnects on every open (much less data on a weak or metered link), off when the WebSocket stays connected (decompressing its constant stream keeps the device from deep sleep).",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )

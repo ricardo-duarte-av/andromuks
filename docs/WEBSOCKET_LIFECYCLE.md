@@ -263,6 +263,8 @@ The fix is three-part and each part is load-bearing:
 
 Bubbles and active calls remain exempt from teardown entirely, at arm time and at expiry.
 
+**Compression follows the mode.** `SettingsCoordinator.toggleUseBatterySaverMode` switches `enable_compression` to match (via `toggleCompression`, which restarts the socket so it applies immediately). Battery saver reconnects on every foreground and pays a sync over the air each time, so compressing it is a clear win on weak or metered links. Always-on keeps one socket alive with background `sync_complete` batched, and decompressing that constant stream holds the CPU awake — exactly what the batching is there to avoid. The user can still override compression afterwards; the coupling applies only when the mode is toggled, so existing installs keep whatever they have until then.
+
 The setting can be toggled at runtime. The lifecycle change takes effect on the next background/foreground transition; no service restart is forced. No connectivity probe is needed when enabling battery-saver mode — `/_gomuks/exec` is served by the main gomuks backend, which is reachable whenever the homeserver is.
 
 ## Catchup Sync (fast reconnect whenever the process survived)

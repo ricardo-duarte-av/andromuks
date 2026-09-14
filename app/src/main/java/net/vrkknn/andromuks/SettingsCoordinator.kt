@@ -127,6 +127,15 @@ internal class SettingsCoordinator(private val vm: AppViewModel) {
         // The lifecycle change (close-on-background / cold-start-on-FCM-open) is handled
         // in WebSocketService observers; flipping this flag at runtime takes effect on
         // the next background/foreground transition. No immediate restart needed.
+
+        // Compression follows the mode. Battery saver reconnects on every foreground, and each
+        // reconnect pays a full sync over the air, so shrinking it wins. Always-on keeps a socket
+        // alive with sync_complete batched in the background, and decompressing that stream holds
+        // the CPU awake, defeating the batching. The user can still flip compression afterwards;
+        // toggleCompression saves the pref and restarts the socket so the change applies now.
+        if (enableCompression != useBatterySaverMode) {
+            toggleCompression()
+        }
     }
 
     fun toggleShowAllRoomListTabs() = with(vm) {
