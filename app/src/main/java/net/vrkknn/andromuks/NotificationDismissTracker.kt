@@ -31,9 +31,10 @@ import java.util.concurrent.ConcurrentHashMap
  * *newer* message, because the newer message's receipt time is greater. This makes quick bursts
  * of messages in the same room safe: only the messages that were actually read get suppressed.
  *
- * The dismiss payload from gomuks carries only `room_id` (no event id / timestamp), so this is the
- * best ordering we can establish locally. See [GOMUKS_UPSTREAM_ISSUES.md] at the repo root for the
- * upstream limitations this works around.
+ * The dismiss payload from gomuks carries only `room_id` — no event id, no timestamp — so there is
+ * nothing in it to order against the message it is meant to clear. This wall-clock tombstone is the
+ * best ordering obtainable on-device; a backend that added a read-up-to reference would make the
+ * dismiss self-ordering and retire this entirely.
  *
  * ## Why the state is persisted
  *

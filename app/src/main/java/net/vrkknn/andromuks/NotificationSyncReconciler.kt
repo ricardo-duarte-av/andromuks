@@ -12,8 +12,9 @@ import org.json.JSONObject
  *
  * ## Why the socket, when there is already a dismiss push
  *
- * The FCM dismiss is the only signal Andromuks used to act on, and it goes missing in three
- * documented ways (all detailed in `GOMUKS_UPSTREAM_ISSUES.md` at the repo root):
+ * The FCM dismiss is the only signal Andromuks used to act on, and it goes missing in three ways,
+ * all of them in the backend rather than here (see docs/NOTIFICATIONS.md, "Three dismissal signals,
+ * not one"):
  *
  *  1. gomuks only emits a dismiss when `room.UnreadNotifications > 0` was true *before* the read
  *     receipt was applied. Upstream's own TODO next to that condition concedes the old count is

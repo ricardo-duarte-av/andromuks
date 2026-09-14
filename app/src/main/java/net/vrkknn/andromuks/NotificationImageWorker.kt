@@ -933,7 +933,8 @@ class NotificationImageWorker(context: Context, params: WorkerParameters) : Coro
      *    already zero when the read receipt lands. Also the dismiss-before-message ordering edge in
      *    docs/NOTIFICATIONS.md, which carries no timestamp to order against.
      *
-     * See GOMUKS_UPSTREAM_ISSUES.md at the repo root.
+     * See docs/NOTIFICATIONS.md, "Three dismissal signals, not one", for how this arm fits with the
+     * other two.
      *
      * ## Why a candidate set rather than one event id
      *

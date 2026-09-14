@@ -220,12 +220,13 @@ kept for older backends).
 
 ### Three dismissal signals, not one
 
-The dismiss FCM is **not** a reliable channel, and the gaps are upstream — see
-[GOMUKS_UPSTREAM_ISSUES.md](../GOMUKS_UPSTREAM_ISSUES.md) for the pinned source references. In short:
-gomuks only emits a dismiss when the room's *pre-update* unread-notification count was non-zero (its
-own TODO concedes that count is sometimes already zero, in which case **no dismiss is emitted at
-all**); dismisses are capped at ten per sync with the remainder discarded; and a dismiss-only payload
-carries no `Sound`, so it ships at normal FCM priority and Doze defers it.
+The dismiss FCM is **not** a reliable channel, and the gaps are in the backend, not here. As observed
+in the stock gomuks source: a dismiss is only emitted when the room's *pre-update* unread-notification
+count was non-zero (upstream's own TODO concedes that count is sometimes already zero, in which case
+**no dismiss is emitted at all**); dismisses are capped at ten per sync with the remainder discarded;
+and a dismiss-only payload carries no `Sound`, so it ships at normal FCM priority and Doze defers it.
+A backend that fixes these makes the second and third signals below redundant — they exist only
+because a dismiss may never arrive, arrive late, or arrive unordered.
 
 So a room's notification comes down from any of three independent signals:
 
@@ -325,7 +326,7 @@ guard. Process death was worse: a worker resuming after FCMService died saw an e
 deferrals at all. `NotificationDismissTracker.attach(context)` is called from
 `dismissRoomNotification`, `drainDeferred` and the top of `doWork`.
 
-**The one unsolved edge — dismiss-before-message.** If a dismiss FCM is *delivered before* the message it follows, the directional compare (`dismissTime > messageReceivedAt`) declines to suppress and the notification lingers. This is unsolvable locally because the dismiss payload carries nothing to order it against the message. It is also rare: the message is **high-priority** FCM (delivered immediately, bypasses Doze) while the dismiss is **normal-priority** (deferred) — so ordering normally favours the message. It only inverts if FCM downgrades the message to normal under high-priority quota pressure (e.g. a very bursty DM) and then reorders it past the dismiss. The failure mode is a lingering notification — strictly less-bad than a lost one — so it is accepted rather than fixed. This is now handled: `NotificationImageWorker.verifyRoomRead` reconciles against gomuks read state via `/exec get_receipts` (see the table above), which is order-independent because it asks the server rather than inferring from push arrival order. The residual gap is a read receipt sitting on an event outside the candidate set the worker asks about — which degrades to a lingering notification, not a lost one. A backend change adding a read-up-to reference to `PushDismiss` would still be the cleaner fix; see [GOMUKS_UPSTREAM_ISSUES.md](../GOMUKS_UPSTREAM_ISSUES.md).
+**The one unsolved edge — dismiss-before-message.** If a dismiss FCM is *delivered before* the message it follows, the directional compare (`dismissTime > messageReceivedAt`) declines to suppress and the notification lingers. This is unsolvable locally because the dismiss payload carries nothing to order it against the message. It is also rare: the message is **high-priority** FCM (delivered immediately, bypasses Doze) while the dismiss is **normal-priority** (deferred) — so ordering normally favours the message. It only inverts if FCM downgrades the message to normal under high-priority quota pressure (e.g. a very bursty DM) and then reorders it past the dismiss. The failure mode is a lingering notification — strictly less-bad than a lost one — so it is accepted rather than fixed. This is now handled: `NotificationImageWorker.verifyRoomRead` reconciles against gomuks read state via `/exec get_receipts` (see the table above), which is order-independent because it asks the server rather than inferring from push arrival order. The residual gap is a read receipt sitting on an event outside the candidate set the worker asks about — which degrades to a lingering notification, not a lost one. A backend change adding a read-up-to reference (an `event_id` or the receipt timestamp) to the dismiss payload would still be the cleaner fix, since it would make the dismiss self-ordering and let every client drop these heuristics.
 
 ## Notification actions
 
