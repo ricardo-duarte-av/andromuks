@@ -75,6 +75,14 @@ The backoff is `BASE_RECONNECTION_DELAY_MS shl (min(attempt, 7) + 1)`, capped at
 `minOf` picked the negative, and `delay(negative)` returned immediately, so attempts 31+ hot-looped with
 no backoff at all.
 
+**A user foreground resets the ladder.** `reconnectionAttemptCount` otherwise only resets on a successful
+connection or after `RECONNECTION_RESET_TIME_MS` (5 min) without a reconnect, so opening the app after
+failures in the background inherited a 60–120 s delay. `resetBackoffForUserIntent()` zeroes the count
+and `lastReconnectionTime`, and cancels a reconnect job only while it is sleeping in a backoff phase. It
+is called immediately before the foreground dials — `onAppBecameVisible`'s re-dial branch and
+`MainActivity.onNewIntent`'s stuck recovery — so the state is claimed as `Connecting` straight after
+(GH #40; `WSDial`: `backoff reset by user foreground`).
+
 `pendingReconnectionReasons` is written and read under `pendingReconnectionLock` (it was previously
 written under `reconnectionLock` — a different monitor). It is drained by `processPendingReconnections()`,
 which snapshots-and-clears inside the lock and calls `scheduleReconnection` **outside** it, and which is

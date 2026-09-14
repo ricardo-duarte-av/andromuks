@@ -156,6 +156,7 @@ the Androlog line is added alongside, not instead.
 | `WebSocketService.scheduleReconnection` — skipped | A retry was dropped by the already-reconnecting or min-interval guard. |
 | `WebSocketService.scheduleReconnection` — gave up | `MAX_RECONNECTION_ATTEMPTS` reached; **no further retries will ever be scheduled**. A terminal line. |
 | `WebSocketService.scheduleReconnection` — scheduled | Attempt number, backoff delay and network type for a retry that was actually armed. |
+| `WebSocketService.resetBackoffForUserIntent` — backoff reset | A foreground re-dial cleared the backoff ladder, with the attempt number and state it replaced. Logged only when there was backoff to clear. |
 | reconnect job — aborted | Network went `NONE` after the backoff; the job ended in `Disconnected` without retrying. |
 | `WebSocketService.pingNowWithWatchdog` — watchdog | The resume / screen-on health-check ping saw not a single inbound byte within `PONG_DEADLINE_MS` (10 s) and declared the socket dead. A watchdog line with no `scheduleReconnection` line after it means the recovery was lost (e.g. the service scope was cancelled mid-`delay`). |
 | `WebSocketService.startHardConnectingTimeout` — hard timeout | Stuck in `Connecting` past the hard ceiling; forcing recovery. |

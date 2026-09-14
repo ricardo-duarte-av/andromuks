@@ -315,6 +315,7 @@ internal class ViewModelLifecycleCoordinator(private val vm: AppViewModel) {
                         // catchup vs cold from the RAM-only last_server_ts: this path only runs while
                         // the process is alive, so that signal is set and we get a compact catchup —
                         // but the decision lives there, not here, so every entry point stays uniform.
+                        WebSocketService.resetBackoffForUserIntent()
                         initializeWebSocketConnection(homeserverUrl, authToken)
                     } else {
                         startWebSocketService()

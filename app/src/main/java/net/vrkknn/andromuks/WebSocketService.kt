@@ -2666,6 +2666,31 @@ class WebSocketService : Service() {
         }
 
         /**
+         * The user just brought the app forward and a dial is about to follow: drop the backoff built up
+         * by failures while nobody was looking. Otherwise a tap after a bad night inherits a 60–120 s
+         * delay, which the user sees as a pulsing offline icon that "takes forever".
+         *
+         * Only a *sleeping* reconnect job is cancelled — one in a backoff phase. Call this immediately
+         * before `initializeWebSocketConnection`, which claims `Connecting`, so the state is never left
+         * in a reconnecting phase with no job behind it.
+         */
+        fun resetBackoffForUserIntent() {
+            val serviceInstance = instance ?: return
+            synchronized(serviceInstance.reconnectionLock) {
+                val attempts = serviceInstance.reconnectionAttemptCount
+                if (serviceInstance.connectionState.isReconnectingPhase()) {
+                    serviceInstance.reconnectionJob?.cancel()
+                    serviceInstance.reconnectionJob = null
+                }
+                serviceInstance.reconnectionAttemptCount = 0
+                serviceInstance.lastReconnectionTime = 0L
+                if (attempts > 0) {
+                    Androlog("WSDial", "backoff reset by user foreground (was attempt $attempts, state=${serviceInstance.connectionState})")
+                }
+            }
+        }
+
+        /**
          * Notify that run_id was received.
          * Connection health no longer depends on run_id - we mark good on websocket connect.
          * Kept for AppViewModel which still needs run_id for reconnection params.

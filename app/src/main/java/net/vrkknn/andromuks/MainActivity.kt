@@ -1466,6 +1466,7 @@ class MainActivity : FragmentActivity() {
                     val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                     val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPrefs)
                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                        WebSocketService.resetBackoffForUserIntent()
                         appViewModel.initializeWebSocketConnection(homeserverUrl, authToken)
                     } else {
                         android.util.Log.w(
