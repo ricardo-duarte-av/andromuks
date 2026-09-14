@@ -1328,6 +1328,18 @@ class WebSocketService : Service() {
         }
 
         /**
+         * Latest evidence of inbound traffic: a whole frame, or raw bytes of one still arriving.
+         * Same clock as [lastMessageReceivedTimestamp]; 0 when nothing has arrived on this socket.
+         */
+        fun lastInboundActivityAt(): Long {
+            val serviceInstance = instance ?: return 0L
+            return net.vrkknn.andromuks.utils.latestInboundActivity(
+                serviceInstance.lastMessageReceivedTimestamp,
+                net.vrkknn.andromuks.utils.InboundByteClock.lastBytesReceivedAt,
+            )
+        }
+
+        /**
          * Handle pong response
          * RUSH TO HEALTHY: Reset failure counter on any successful pong
          */
@@ -1495,6 +1507,10 @@ class WebSocketService : Service() {
             serviceInstance.lastMessageReceivedTimestamp = System.currentTimeMillis()
             serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
             serviceInstance.hadSuccessfulConnectionThisProcess = true
+            // The handshake response has been read by now, so a zero count means byte counting is
+            // bypassed on this device (TLS reading the socket directly) and liveness is frame-only.
+            val handshakeBytes = net.vrkknn.andromuks.utils.InboundByteClock.bytesCounted
+            Androlog("WSDial", "socket open: byte liveness ${if (handshakeBytes > 0) "active ($handshakeBytes bytes)" else "INACTIVE"}")
             // Connection is marked good when WebSocket connects - we don't wait for run_id or init_complete
             updateConnectionState(ConnectionState.Ready)
 
@@ -1619,6 +1635,7 @@ class WebSocketService : Service() {
             serviceInstance.lastKnownLagMs = null
             serviceInstance.lastPongTimestamp = 0L
             serviceInstance.lastMessageReceivedTimestamp = 0L
+            net.vrkknn.andromuks.utils.InboundByteClock.reset()
 
             // Reset ping loop state for next connection (ready-state flag stays true so failsafe can run)
             serviceInstance.pingLoopStarted = false
@@ -2281,7 +2298,13 @@ class WebSocketService : Service() {
                     // okhttp Dispatcher slot for the entire life of the connection, so sharing
                     // the dispatcher would park a permanent call against every other request's
                     // concurrency budget.
-                    val client = okhttp3.OkHttpClient.Builder().build()
+                    // The counting socket factory feeds InboundByteClock so the watchdogs can see a
+                    // frame that is still trickling in. It must stay the only customisation besides
+                    // timeouts: never pingInterval, the backend does not answer protocol pings.
+                    net.vrkknn.andromuks.utils.InboundByteClock.reset()
+                    val client = okhttp3.OkHttpClient.Builder()
+                        .socketFactory(net.vrkknn.andromuks.utils.CountingSocketFactory())
+                        .build()
                     net.vrkknn.andromuks.utils.connectToWebsocket(
                         homeserverUrl,
                         client,
