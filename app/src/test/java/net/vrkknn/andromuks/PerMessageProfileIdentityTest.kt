@@ -2,8 +2,12 @@ package net.vrkknn.andromuks
 
 import net.vrkknn.andromuks.utils.isConsecutiveMessage
 import net.vrkknn.andromuks.utils.isOwnMessage
+import net.vrkknn.andromuks.utils.perMessageProfileForEdit
+import net.vrkknn.andromuks.utils.stripPerMessageProfileFallback
 import org.json.JSONObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -100,6 +104,37 @@ class PerMessageProfileIdentityTest {
         assertTrue(isOwnMessage(bot, profile(me), me))
         assertFalse(isOwnMessage(bot, profile("@alice:remote"), me))
         assertFalse(isOwnMessage(bot, null, me))
+    }
+
+    @Test
+    fun `edit carries the original profile without has_fallback`() {
+        val original = profile("black_cat", "Cat", "mxc://x/cat").put("has_fallback", true).put("extra", "kept")
+        val forEdit = perMessageProfileForEdit(original)!!
+        assertEquals("black_cat", forEdit["id"])
+        assertEquals("Cat", forEdit["displayname"])
+        assertEquals("mxc://x/cat", forEdit["avatar_url"])
+        assertEquals("kept", forEdit["extra"])
+        assertFalse(forEdit.containsKey("has_fallback"))
+    }
+
+    @Test
+    fun `no profile means nothing to carry into an edit`() {
+        assertNull(perMessageProfileForEdit(null))
+    }
+
+    @Test
+    fun `fallback prefix is stripped from an edit prefill`() {
+        val cat = profile("black_cat", "Given PMP")
+        assertEquals("original text", stripPerMessageProfileFallback("Given PMP: original text", cat))
+    }
+
+    @Test
+    fun `body without the prefix is left alone`() {
+        val cat = profile("black_cat", "Given PMP")
+        assertEquals("original text", stripPerMessageProfileFallback("original text", cat))
+        assertEquals("Given PMP: text", stripPerMessageProfileFallback("Given PMP: text", null))
+        // Only a leading prefix is a fallback; the name elsewhere is real text.
+        assertEquals("hi Given PMP: there", stripPerMessageProfileFallback("hi Given PMP: there", cat))
     }
 
     @Test

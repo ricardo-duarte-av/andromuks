@@ -1707,7 +1707,8 @@ fun ThreadViewerScreen(
                                         val roomDefaultPmpProfile = remember(roomId, appViewModel.timelineRefreshTrigger) {
                                             resolveDefaultPerMessageProfile(roomId)
                                         }
-                                        if (armedPmpProfile != null) {
+                                        // Hidden while editing: an edit keeps the original message's profile.
+                                        if (editingEvent == null && armedPmpProfile != null) {
                                             PerMessageProfileChip(
                                                 profile = armedPmpProfile,
                                                 homeserverUrl = appViewModel.homeserverUrl,
@@ -1715,7 +1716,7 @@ fun ThreadViewerScreen(
                                                 onClick = { showPmpProfilePicker = true },
                                                 onClear = { selectedPmpProfile = null },
                                             )
-                                        } else if (roomDefaultPmpProfile != null) {
+                                        } else if (editingEvent == null && roomDefaultPmpProfile != null) {
                                             // MSC4461 rev-3 default_profile_id. gomuks applies this itself when no
                                             // trigger matches, so the chip is informational and must not arm
                                             // base_content — that would override the user's own trigger prefixes.

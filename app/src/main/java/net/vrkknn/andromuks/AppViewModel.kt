@@ -2643,6 +2643,13 @@ class AppViewModel : ViewModel() {
      * [TimelineEvent.content] is ciphertext only—never use it for body/msgtype.
      */
     fun getBodyTextForEdit(event: TimelineEvent): String {
+        // Our own profile message can reach the cache with gomuks' `Name: ` fallback still on the
+        // body; pre-filling with it made the prefix part of the edited text (GH #37).
+        val profile = net.vrkknn.andromuks.utils.perMessageProfileOf(event)
+        return net.vrkknn.andromuks.utils.stripPerMessageProfileFallback(rawBodyTextForEdit(event), profile)
+    }
+
+    private fun rawBodyTextForEdit(event: TimelineEvent): String {
         val content = event.getMessagePayload() ?: return ""
         val msgType = content.optString("msgtype", "")
         if (msgType == "m.emote") {

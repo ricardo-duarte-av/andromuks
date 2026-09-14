@@ -549,7 +549,14 @@ internal class MessageSendCoordinator(private val vm: AppViewModel) {
                 "room" to false,
             ),
             "url_previews" to emptyList<String>(),
-        )
+        ).toMutableMap()
+
+        // An edit replaces the whole content, so a message sent under a per-message profile must
+        // re-send it or the edit loses it (GH #37). gomuks merges base_content before building the
+        // edit, so the profile lands in m.new_content along with its body fallback.
+        net.vrkknn.andromuks.utils.perMessageProfileForEdit(
+            net.vrkknn.andromuks.utils.perMessageProfileOf(originalEvent),
+        )?.let { commandData["base_content"] = perMessageProfileBaseContent(it) }
 
         if (BuildConfig.DEBUG) {
             android.util.Log.d(

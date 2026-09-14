@@ -807,6 +807,9 @@ fun EditPreviewInput(event: TimelineEvent, onCancel: () -> Unit) {
     val content = event.getMessagePayload()
     val body = content?.optString("body", "") ?: ""
     val msgType = content?.optString("msgtype", "") ?: ""
+    // The edit keeps the original's per-message profile (GH #37); name it here, since the input has no
+    // room for a second chip.
+    val profileName = perMessageProfileOf(event)?.optString("displayname")?.takeIf { it.isNotBlank() }
 
     Surface(
         modifier = Modifier
@@ -835,7 +838,7 @@ fun EditPreviewInput(event: TimelineEvent, onCancel: () -> Unit) {
             // Message preview
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Edit message",
+                    text = if (profileName != null) "Edit message · as $profileName" else "Edit message",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
                     maxLines = 1,

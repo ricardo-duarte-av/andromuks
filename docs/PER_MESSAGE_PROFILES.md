@@ -124,6 +124,25 @@ and raw `/pmp …` text now trips its leading-slash guard. `SlashCommandsCoordin
 profile itself (by `id` or by a trigger prefix, room profiles first) and sends via path 2, or
 returns `false` on a bare command so the composer opens the picker.
 
+## Edits
+
+An edit replaces the whole message content (MSC2676), so an edit of a message sent under a profile
+must re-send that profile — otherwise the edited message loses it (GH #37). `MessageSendCoordinator.sendEdit`
+reads the original's profile (`perMessageProfileOf`) and sends it in `base_content` via
+`perMessageProfileForEdit`, which drops `has_fallback` so gomuks adds the `Name: ` fallback afresh.
+gomuks merges `base_content` before restructuring the send into an edit, so the profile and fallback
+land in `m.new_content`, and sync strips the fallback there too.
+
+- **Prefill.** `getBodyTextForEdit` strips a leading `displayname: ` (`stripPerMessageProfileFallback`):
+  our own message can reach the cache with the fallback still on the body, and editing it made the
+  prefix part of the text.
+- **No profile choice while editing.** The composer hides the "Sending as …" chips while an edit is
+  open, and `EditPreviewInput` names the profile the edit keeps ("Edit message · as …"). There is only
+  room for one bubble in the input, and changing a message's identity on edit is not offered.
+- **Unverified edge cases.** gomuks runs trigger matching on the text before it looks at
+  `base_content`, so edited text that starts with another profile's trigger may switch profile; and
+  editing a message with *no* profile in a room with a `default_profile_id` may attach that default.
+
 ## UI
 
 - **Editor** — `PerMessageProfileEditorScreen`, one screen serving both scopes:
