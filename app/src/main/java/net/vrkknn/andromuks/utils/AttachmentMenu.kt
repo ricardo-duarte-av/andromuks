@@ -246,7 +246,8 @@ fun AttachmentMenuBar(
 
                         AttachmentMenuChip(
                             icon = Icons.Filled.Image,
-                            label = "Image/Video",
+                            // "Image/Video" did not fit the chip and rendered as "Image/" (GH #38).
+                            label = "Media",
                             contentDescription = "Images & Videos",
                             buttonsAlpha = attachmentButtonsAlpha.value,
                         ) {
