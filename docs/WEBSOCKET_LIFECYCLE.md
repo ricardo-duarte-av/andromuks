@@ -60,6 +60,15 @@ keep error counters and reporting. A `CERTIFICATE_ERROR` still never auto-reconn
 
 `invokeReconnectionCallback()` reads credentials from `SharedPreferences` (no AppViewModel required), picks the primary/attached ViewModel if available, and calls `connectWebSocket()`.
 
+## `connectWebSocket()`: claim, validate, then time the dial
+
+1. **Claim** — under `reconnectionLock`, refuse if already `Connecting`; otherwise enter `Connecting` and take a new `dialGeneration`.
+2. **Validate** — wait up to `NETWORK_VALIDATION_TIMEOUT_MS` (10 s) for `NET_CAPABILITY_VALIDATED`. After a Doze/FCM wake this routinely takes seconds.
+3. **Superseded?** — if `dialGeneration` changed during the wait (`clearWebSocket` bumps it, and so does another claim), abandon **without touching state** (`WSDial`: `connectWebSocket ABANDONED`).
+4. **Dial** — only now arm `startHardConnectingTimeout()` (`HARD_CONNECTING_TIMEOUT_MS`, 25 s) and call `connectToWebsocket`.
+
+The hard timeout used to be 5 s and armed at step 1, so it timed the validation wait rather than the dial: a slow link had its dial torn down at 5 s, `scheduleReconnection` grew the backoff, and the original coroutine — not knowing it was superseded — dialed anyway once validation finished, opening a parallel socket (GH #40). It now sits above OkHttp's own 10 s connect + 10 s handshake-read timeouts, so OkHttp's `onFailure` is the normal failure path and the hard timeout is only a backstop.
+
 The backoff is `BASE_RECONNECTION_DELAY_MS shl (min(attempt, 7) + 1)`, capped at 120s. The exponent
 **must** be clamped and the shift **must** be on a `Long`: this was `1000L * (1 shl attemptCount)`, an
 `Int` shift, while `MAX_RECONNECTION_ATTEMPTS` is 99 — at attempt 31 it produced `Int.MIN_VALUE`,

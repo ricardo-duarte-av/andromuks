@@ -150,12 +150,14 @@ the Androlog line is added alongside, not instead.
 | `AppViewModel.initializeWebSocketConnection` — delegating | The dial actually proceeded to `WebSocketService`. Its **absence** after a `startWebSocketService` line is the tell. |
 | `WebSocketService.connectWebSocket` — no service instance | `waitForServiceInstance` timed out after 5 s; the service start was silently dropped. |
 | `WebSocketService.connectWebSocket` — already connected / already connecting | Which of the two post-delegation bails claimed the dial. |
+| `WebSocketService.connectWebSocket` — abandoned | The dial was superseded (cleared or re-claimed) while waiting for network validation, and backed off without touching state. Expected after a hard timeout or a competing dial; many in a row mean something keeps clearing the connection. |
+| `WebSocketService.setWebSocket` — socket open | Whether byte-level liveness works on this device: `active (N bytes)` or `INACTIVE` (TLS bypasses the counted stream, so liveness is frame-only). |
 | `WebSocketService.scheduleReconnection` — parked | No network; the trigger was queued into `WaitingForNetwork`. |
 | `WebSocketService.scheduleReconnection` — skipped | A retry was dropped by the already-reconnecting or min-interval guard. |
 | `WebSocketService.scheduleReconnection` — gave up | `MAX_RECONNECTION_ATTEMPTS` reached; **no further retries will ever be scheduled**. A terminal line. |
 | `WebSocketService.scheduleReconnection` — scheduled | Attempt number, backoff delay and network type for a retry that was actually armed. |
 | reconnect job — aborted | Network went `NONE` after the backoff; the job ended in `Disconnected` without retrying. |
-| `WebSocketService.pingNowWithWatchdog` — watchdog | The resume health-check ping saw no traffic in 3 s and declared the socket dead. A watchdog line with no `scheduleReconnection` line after it means the recovery was lost (e.g. the service scope was cancelled mid-`delay`). |
+| `WebSocketService.pingNowWithWatchdog` — watchdog | The resume / screen-on health-check ping saw not a single inbound byte within `PONG_DEADLINE_MS` (10 s) and declared the socket dead. A watchdog line with no `scheduleReconnection` line after it means the recovery was lost (e.g. the service scope was cancelled mid-`delay`). |
 | `WebSocketService.startHardConnectingTimeout` — hard timeout | Stuck in `Connecting` past the hard ceiling; forcing recovery. |
 | `NetworkUtils` WebSocket `onFailure` | The decisive one: exception class, message and HTTP code for a dial that died. |
 

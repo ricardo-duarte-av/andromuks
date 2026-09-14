@@ -106,7 +106,12 @@ class WebSocketService : Service() {
         private const val PONG_DEADLINE_MS = 10_000L
         private const val MAX_CONSECUTIVE_PING_TIMEOUTS = 3
         private const val INIT_COMPLETE_TIMEOUT_MS_BASE = 15_000L // init_complete wait before run_id (unified monitoring / timeouts)
-        private const val HARD_CONNECTING_TIMEOUT_MS = 5_000L // stuck in Connecting — force recovery
+
+        // Backstop for a dial OkHttp never reports on. Armed only once the network is validated, and
+        // above OkHttp's own connect (10 s) + handshake read (10 s) timeouts so its onFailure is the
+        // normal path. It was 5 s and armed before a validation wait of up to 10 s, so a slow link
+        // had its dials killed before they started, with backoff growing each time.
+        private const val HARD_CONNECTING_TIMEOUT_MS = 25_000L
         private const val RUN_ID_TIMEOUT_MS = 2_000L // run_id must arrive shortly after dial
         private const val INIT_COMPLETE_AFTER_RUN_ID_TIMEOUT_MS_BASE = 5_000L // init_complete base after run_id
         private const val INIT_COMPLETE_EXTENSION_PER_MESSAGE_MS = 5_000L // extend init window per backend message
@@ -1612,6 +1617,8 @@ class WebSocketService : Service() {
 
             // Reset connection start time
             serviceInstance.connectionStartTime = 0
+            // Any dial still waiting for network validation is now stale; it checks this and bails.
+            serviceInstance.dialGeneration++
 
             // Cancel any pending pong timeouts (ping loop keeps running)
             serviceInstance.pongTimeoutJob?.cancel()
@@ -2201,11 +2208,13 @@ class WebSocketService : Service() {
                     // connections, corrupting connection state (the "renders but frozen" cold-open
                     // freeze). Do the check AND the transition under reconnectionLock so exactly one
                     // coroutine wins the dial; the loser bails.
+                    var dialGen = 0L
                     val claimedDial = synchronized(serviceInstance.reconnectionLock) {
                         if (serviceInstance.connectionState is ConnectionState.Connecting) {
                             false
                         } else {
                             val attempt = serviceInstance.reconnectionAttemptCount.coerceAtLeast(0) + 1
+                            dialGen = ++serviceInstance.dialGeneration
                             updateConnectionState(ConnectionState.Connecting(attempt))
                             true
                         }
@@ -2223,7 +2232,6 @@ class WebSocketService : Service() {
                         )
                         return@launch
                     }
-                    serviceInstance.startHardConnectingTimeout()
 
                     // STATE A: First step - wait for NET_CAPABILITY_VALIDATED before any DNS/connect.
                     // On cold start, currentNetworkType may still be NONE (NetworkMonitor hasn't fired yet).
@@ -2232,6 +2240,17 @@ class WebSocketService : Service() {
                         true
                     } else {
                         serviceInstance.waitForNetworkValidation(NETWORK_VALIDATION_TIMEOUT_MS)
+                    }
+                    // The wait above can take seconds. If another path cleared or re-claimed the
+                    // connection meanwhile, this dial no longer owns the state: touching it (or dialing)
+                    // would clobber the newer attempt and open a parallel socket.
+                    if (serviceInstance.dialGeneration != dialGen) {
+                        Androlog("WSDial", "connectWebSocket ABANDONED - superseded while waiting for network validation")
+                        logActivity(
+                            withReconnectTrace(traceId, "connectWebSocket abandoned: superseded during validation"),
+                            serviceInstance.currentNetworkType.name,
+                        )
+                        return@launch
                     }
                     var useColdConnect = false
                     if (!validated) {
@@ -2270,6 +2289,8 @@ class WebSocketService : Service() {
                             return@launch
                         }
                     }
+                    // Armed here, not at the claim: it must time the dial, not the validation wait.
+                    serviceInstance.startHardConnectingTimeout()
                     val effectiveIsReconnection = isReconnection && !useColdConnect
                     val effectiveLastReceivedId = if (useColdConnect) 0 else lastReceivedId
 
@@ -3294,6 +3315,12 @@ class WebSocketService : Service() {
 
     // Reset on ANY message - 60s without = reconnect
     @Volatile private var connectionStartTime: Long = 0
+
+    /**
+     * Identifies the dial that owns the current `Connecting` claim. Bumped when a dial claims and in
+     * clearWebSocket, so a dial still waiting for network validation can tell it has been superseded.
+     */
+    @Volatile private var dialGeneration: Long = 0
 
     // Track when WebSocket connection was established (0 = not connected)
 
