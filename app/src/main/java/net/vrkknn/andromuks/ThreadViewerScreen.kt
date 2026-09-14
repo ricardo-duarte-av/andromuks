@@ -1324,6 +1324,11 @@ fun ThreadViewerScreen(
                                 }
                                 // Offline indicator - shows when websocket is not connected
                                 val connectionState by SyncRepository.connectionState.collectAsState()
+                                // Slow indicator - connected, but lagging or trickling on a weak link
+                                val linkSlow by SyncRepository.linkSlow.collectAsState()
+                                net.vrkknn.andromuks.ui.components.SlowLinkIcon(
+                                    visible = connectionState.isReady() && linkSlow,
+                                )
                                 AnimatedVisibility(
                                     visible = !connectionState.isReady(),
                                     enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),

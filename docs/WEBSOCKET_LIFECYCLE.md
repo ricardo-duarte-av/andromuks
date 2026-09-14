@@ -183,7 +183,7 @@ If state gets stuck at `Disconnected` (e.g., via the corruption detector race ab
 
 Runs on `serviceScope` inside the service instance.
 
-**Tick rate is adaptive**: `MONITOR_INTERVAL_TRANSIENT_MS` (1 s) while `connectionState` is *not* `Ready`, `MONITOR_INTERVAL_READY_MS` (15 s) once it is. Every sub-second bound this loop enforces — stuck `Connecting` (>3 s), stuck `Reconnecting`, stuck `Disconnected` — can only fire while the connection is unhealthy, so the fast tick is only needed then. `Ready` is the steady state and lasts the whole life of the foreground service; a flat 1 s tick there was ~86,400 no-op wake-ups a day.
+**Tick rate is adaptive**: `MONITOR_INTERVAL_TRANSIENT_MS` (1 s) while `connectionState` is *not* `Ready`, `MONITOR_INTERVAL_READY_VISIBLE_MS` (2 s) while `Ready` and a surface is visible (so the slow-link indicator reacts promptly — the screen is on, the wake-ups are negligible), `MONITOR_INTERVAL_READY_MS` (15 s) while `Ready` in the background. Each tick also runs `refreshLinkSlow()` — see [OFFLINE_INDICATOR.md](OFFLINE_INDICATOR.md#slow-link-indicator). Every sub-second bound this loop enforces — stuck `Connecting` (>3 s), stuck `Reconnecting`, stuck `Disconnected` — can only fire while the connection is unhealthy, so the fast tick is only needed then. `Ready` is the steady state and lasts the whole life of the foreground service; a flat 1 s tick there was ~86,400 no-op wake-ups a day.
 
 The expensive checks (state corruption, primary-ViewModel health, `validateCallbacks`) run on their own `DEEP_CHECK_INTERVAL_MS` (30 s) cadence, measured against `SystemClock.elapsedRealtime()` rather than a tick counter — with a variable tick, a counter would silently change that cadence.
 
@@ -384,7 +384,9 @@ Battery optimization exemption is recommended for reliable background operation.
 | `MAX_CONSECUTIVE_PING_TIMEOUTS` | 3 | Missed pongs in a row before tearing down and re-dialling |
 | `BASE_RECONNECTION_DELAY_MS` | 500ms | Backoff base; delay is `BASE << (min(attempt,7) + 1)`, capped at 120s |
 | `MONITOR_INTERVAL_TRANSIENT_MS` | 1s | Unified-monitoring tick while not `Ready` |
-| `MONITOR_INTERVAL_READY_MS` | 15s | Unified-monitoring tick once `Ready` |
+| `MONITOR_INTERVAL_READY_MS` | 15s | Unified-monitoring tick once `Ready`, backgrounded |
+| `MONITOR_INTERVAL_READY_VISIBLE_MS` | 2s | Unified-monitoring tick once `Ready` with a surface visible (slow-link indicator) |
+| `SLOW_LINK_THRESHOLD_MS` | 5s | Overdue pong / slow round-trip / trickling frame ⇒ `linkSlow` |
 | `DEEP_CHECK_INTERVAL_MS` | 30s | Cadence of the expensive monitoring checks |
 | `NETWORK_CHANGE_DEBOUNCE_MS` | — | Debounce for rapid network events |
 | `NETWORK_VALIDATION_TIMEOUT_MS` | — | Max wait for `NET_CAPABILITY_VALIDATED` |

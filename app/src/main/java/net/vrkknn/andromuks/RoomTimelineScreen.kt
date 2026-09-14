@@ -6936,6 +6936,9 @@ fun RoomHeader(
                     modifier = Modifier.size(20.dp),
                 )
             }
+            // Connected but on a weak link: lagging pongs or a frame still trickling in.
+            val linkSlow by SyncRepository.linkSlow.collectAsState()
+            net.vrkknn.andromuks.ui.components.SlowLinkIcon(visible = connectionState.isReady() && linkSlow)
             // gomuks↔homeserver sync health (distinct from the socket health / CloudOff above):
             // pulsing Sync while waiting/erroring, static red SyncProblem when permanently-failed,
             // hidden when "ok". Mirrors RoomListScreen's SyncStatusIndicator.

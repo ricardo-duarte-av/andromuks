@@ -395,6 +395,10 @@ object SyncRepository {
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
+    /** True while the socket is Ready but lagging or trickling; see `utils/LinkQuality.isLinkSlow`. */
+    private val _linkSlow = MutableStateFlow(false)
+    val linkSlow: StateFlow<Boolean> = _linkSlow.asStateFlow()
+
     private val _offlineMode = MutableStateFlow(false)
     val offlineMode: StateFlow<Boolean> = _offlineMode.asStateFlow()
 
@@ -608,6 +612,10 @@ object SyncRepository {
 
     fun updateConnectionState(state: ConnectionState) {
         _connectionState.value = state
+    }
+
+    fun updateLinkSlow(slow: Boolean) {
+        _linkSlow.value = slow
     }
 
     fun setOfflineModeFlag(offline: Boolean) {

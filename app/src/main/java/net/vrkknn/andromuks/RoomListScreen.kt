@@ -284,6 +284,7 @@ fun RoomListScreen(
     ) { net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(sharedPreferences) }
     val uiState by appViewModel.rememberRoomListUiState()
     val connectionState by SyncRepository.connectionState.collectAsState()
+    val linkSlow by SyncRepository.linkSlow.collectAsState()
     val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     var coldStartRefreshing by remember { mutableStateOf(false) }
     var initialLoadComplete by remember { mutableStateOf(false) }
@@ -1205,6 +1206,7 @@ fun RoomListScreen(
                 // the inner AnimatedVisibility calls resolve to the generic (non-RowScope) overload.
                 ConnectionStatusIndicator(
                     connectionState = connectionState,
+                    linkSlow = linkSlow,
                     roomListUpdateCounter = uiState.roomListUpdateCounter,
                     onClick = { navController.navigate("reconnection_log") },
                 )
@@ -2878,6 +2880,7 @@ fun formatTimeAgo(timestamp: Long?): String {
 
 /**
  * Header WebSocket connection indicator. Three-way split across the 7 ConnectionState states:
+ *  • Ready but slow (SyncRepository.linkSlow) → static tertiary NetworkCheck (weak link).
  *  • Ready                                  → static green CloudDone, plus a one-shot scale
  *                                             "heartbeat" each time a sync_complete is applied
  *                                             (roomListUpdateCounter bumps once per applied sync).
@@ -2890,7 +2893,7 @@ fun formatTimeAgo(timestamp: Long?): String {
  * resolve to the generic overload instead of the shadowed RowScope one.
  */
 @Composable
-private fun ConnectionStatusIndicator(connectionState: ConnectionState, roomListUpdateCounter: Int, onClick: () -> Unit) {
+private fun ConnectionStatusIndicator(connectionState: ConnectionState, linkSlow: Boolean, roomListUpdateCounter: Int, onClick: () -> Unit) {
     val isConnecting = connectionState.isDialOrSyncing() ||
         connectionState is ConnectionState.QuickReconnecting ||
         connectionState is ConnectionState.FullReconnecting
@@ -2904,9 +2907,12 @@ private fun ConnectionStatusIndicator(connectionState: ConnectionState, roomList
             .clickable { onClick() },
         contentAlignment = Alignment.Center,
     ) {
+        // Slow indicator - ready, but lagging or trickling on a weak link.
+        net.vrkknn.andromuks.ui.components.SlowLinkIcon(visible = connectionState.isReady() && linkSlow)
+
         // Connected indicator - ready, with a scale heartbeat per applied sync_complete.
         AnimatedVisibility(
-            visible = connectionState.isReady(),
+            visible = connectionState.isReady() && !linkSlow,
             enter = fadeIn(animationSpec = tween(scaledTweenMs(300))),
             exit = fadeOut(animationSpec = tween(scaledTweenMs(300))),
         ) {

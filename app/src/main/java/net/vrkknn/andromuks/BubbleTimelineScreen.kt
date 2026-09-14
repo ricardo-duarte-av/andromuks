@@ -5453,6 +5453,9 @@ fun BubbleRoomHeader(
                         modifier = Modifier.size(20.dp),
                     )
                 }
+                // Connected but on a weak link: lagging pongs or a frame still trickling in.
+                val linkSlow by SyncRepository.linkSlow.collectAsState()
+                net.vrkknn.andromuks.ui.components.SlowLinkIcon(visible = connectionState.isReady() && linkSlow)
                 // gomuks↔homeserver sync health, distinct from the socket health above: the socket
                 // can be up (no CloudOff) while gomuks' upstream sync is stalled, and messages then
                 // silently stop arriving with no signal at all. Mirrors RoomTimelineScreen.

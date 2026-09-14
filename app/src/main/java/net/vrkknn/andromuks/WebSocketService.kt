@@ -130,6 +130,10 @@ class WebSocketService : Service() {
         private const val MONITOR_INTERVAL_TRANSIENT_MS = 1_000L
         private const val MONITOR_INTERVAL_READY_MS = 15_000L
 
+        // Ready and something on screen: tick fast enough for the slow-link indicator to be useful.
+        // The screen is on in this state, so the extra wake-ups are negligible.
+        private const val MONITOR_INTERVAL_READY_VISIBLE_MS = 2_000L
+
         // Cadence for the expensive checks inside the monitoring loop (state corruption, primary
         // ViewModel health, validateCallbacks). Time-based so it stays ~30s at either tick rate.
         private const val DEEP_CHECK_INTERVAL_MS = 30_000L
@@ -1344,6 +1348,23 @@ class WebSocketService : Service() {
             )
         }
 
+        /** Recompute the slow-link flag and publish it only when it changes. Called each monitoring tick. */
+        fun refreshLinkSlow() {
+            val svc = instance ?: return
+            val slow = svc.connectionState.isReady() &&
+                net.vrkknn.andromuks.utils.isLinkSlow(
+                    now = System.currentTimeMillis(),
+                    lastPingAt = svc.lastPingTimestamp,
+                    lastPongAt = svc.lastPongReceivedAt,
+                    lastLagMs = svc.lastKnownLagMs,
+                    lastFrameAt = svc.lastMessageReceivedTimestamp,
+                    lastBytesAt = net.vrkknn.andromuks.utils.InboundByteClock.lastBytesReceivedAt,
+                )
+            if (SyncRepository.linkSlow.value == slow) return
+            SyncRepository.updateLinkSlow(slow)
+            Androlog("ping", "link ${if (slow) "SLOW" else "ok"} (lag=${svc.lastKnownLagMs}ms net=${svc.currentNetworkType.name})")
+        }
+
         /**
          * Handle pong response
          * RUSH TO HEALTHY: Reset failure counter on any successful pong
@@ -1371,6 +1392,7 @@ class WebSocketService : Service() {
 
                     val lagMs = System.currentTimeMillis() - serviceInstance.lastPingTimestamp
                     serviceInstance.lastKnownLagMs = lagMs
+                    serviceInstance.lastPongReceivedAt = System.currentTimeMillis()
                     serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong received, lag: ${lagMs}ms")
 
@@ -1643,6 +1665,10 @@ class WebSocketService : Service() {
             serviceInstance.lastPongTimestamp = 0L
             serviceInstance.lastMessageReceivedTimestamp = 0L
             net.vrkknn.andromuks.utils.InboundByteClock.reset()
+            // A ping from the old socket must not read as an overdue pong on the next one.
+            serviceInstance.lastPingTimestamp = 0L
+            serviceInstance.lastPongReceivedAt = 0L
+            SyncRepository.updateLinkSlow(false)
 
             // Reset ping loop state for next connection (ready-state flag stays true so failsafe can run)
             serviceInstance.pingLoopStarted = false
@@ -3266,6 +3292,10 @@ class WebSocketService : Service() {
     private var initCompleteTimeoutEndTime: Long = 0 // Track when init_complete timeout will expire (for dynamic extension)
     private var lastPingRequestId: Int = 0
     private var lastPingTimestamp: Long = 0
+
+    // When the pong for the latest ping arrived, in System.currentTimeMillis like lastPingTimestamp
+    // (lastPongTimestamp is elapsedRealtime, so the two cannot be compared). Feeds the slow-link check.
+    @Volatile private var lastPongReceivedAt: Long = 0
     private var pingInFlight: Boolean = false // Guard to prevent concurrent pings
     private var isAppVisible = false
     private var isScreenOn = true
@@ -3468,7 +3498,14 @@ class WebSocketService : Service() {
                 // app: a flat 1s tick was ~86,400 wake-ups a day, almost all of them no-ops.
                 // (The doc comment above and the log below both claimed 30s; the 1s tick
                 // silently gave back the wake-up reduction they describe.)
-                delay(if (connectionState.isReady()) MONITOR_INTERVAL_READY_MS else MONITOR_INTERVAL_TRANSIENT_MS)
+                delay(
+                    when {
+                        !connectionState.isReady() -> MONITOR_INTERVAL_TRANSIENT_MS
+                        anySurfaceVisible(this@WebSocketService) -> MONITOR_INTERVAL_READY_VISIBLE_MS
+                        else -> MONITOR_INTERVAL_READY_MS
+                    },
+                )
+                refreshLinkSlow()
 
                 try {
                     // 2 + 3. State corruption + primary ViewModel health (~every 30s).
