@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
@@ -295,7 +296,8 @@ fun StickerMessage(
             onShowMenu = onShowMenu,
             onShowReactions = onShowReactions,
         ) {
-            Column {
+            // Inset the sticker so the bubble shows a thin margin around it instead of hugging its edges
+            Column(modifier = Modifier.padding(4.dp)) {
                 // Sticker content (similar to MediaContent for images)
                 StickerContent(
                     stickerMessage = stickerMessage,
