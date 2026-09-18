@@ -201,4 +201,19 @@ silently stall. See [CANONICAL_DM.md](CANONICAL_DM.md#the-contact-card).
 Actions name themselves through `ExternalAction.describe()` rather than `javaClass.simpleName`, which
 R8 obfuscates to things like `oh2` in exactly the release builds these lines exist to diagnose.
 
+### `"Stall"` / `"NavTransition"`
+
+A pair for "the screen is showing but nothing responds, and no ANR" (GH #40). The two categories
+split that report into its two possible causes; which one writes tells you which it was.
+
+| Location | What it logs |
+|---|---|
+| `MainThreadStallWatchdog` (foreground only: `MainActivity.onResume` → `onPause`) — unresponsive | The main Looper did not run a posted no-op within 2 s, with the top 15 frames of the main thread's stack. Written from the watchdog's own thread *during* the stall, so it survives the user swiping the app away. Suppressed while a debugger is attached. |
+| `MainThreadStallWatchdog` — recovered | How long the reported stall lasted. No matching line means it never recovered before the process died or went to the background. |
+| `MainActivity` `room_timeline` destination — transition stuck | A timeline's enter/exit transition had not settled 3 s after its target changed: current/target `EnterExitState`, whether `exitInputBlocker` is eating input (`inputBlocked=true` means stuck in `PostExit`), app visibility, and the top/previous back-stack routes. Healthy transitions settle or dispose the destination first, so this only fires on a real wedge. |
+
+A freeze with a `Stall` line was a blocked main thread; a freeze with only a `NavTransition` line
+was a healthy main thread whose input was swallowed; a freeze with neither points somewhere else
+(e.g. an overlay outside the NavHost).
+
 When adding new probes, keep the category short and stable (it renders as a chip and groups related events when scanning the export).

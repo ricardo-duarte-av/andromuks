@@ -1535,6 +1535,7 @@ class MainActivity : FragmentActivity() {
     override fun onPause() {
         super.onPause()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onPause called")
+        MainThreadStallWatchdog.stop()
         if (::appViewModel.isInitialized) {
             appViewModel.onAppBecameInvisible()
         }
@@ -1543,6 +1544,7 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onResume called")
+        MainThreadStallWatchdog.start()
         if (::appViewModel.isInitialized) {
             appViewModel.onAppBecameVisible()
         }
@@ -1685,6 +1687,9 @@ class MainActivity : FragmentActivity() {
  * transition, short enough that a dropped tap doesn't read as "the app ignored me".
  */
 private const val DEFERRED_NAV_HANDOFF_TIMEOUT_MS = 2_500L
+
+/** How long a room_timeline enter/exit transition may stay unsettled before the NavTransition probe logs it. */
+private const val TIMELINE_TRANSITION_STUCK_MS = 3_000L
 
 @OptIn(ExperimentalAnimationApi::class, ExperimentalSharedTransitionApi::class)
 @Composable
@@ -2508,6 +2513,27 @@ fun AppNavigation(modifier: Modifier, onViewModelCreated: (AppViewModel) -> Unit
                             }
                         } else {
                             Modifier
+                        }
+
+                        // Anomaly probe (GH #40, "timeline frozen, no ANR"): a timeline whose transition
+                        // never settles is either stuck entering, or still composed in PostExit with the
+                        // blocker above eating every touch — a frozen screen on a healthy main thread.
+                        // Healthy transitions settle (or dispose this destination) well inside the delay,
+                        // cancelling the effect, so this writes only when something is actually stuck.
+                        val transitionTarget = transition.targetState
+                        LaunchedEffect(transitionTarget) {
+                            delay(TIMELINE_TRANSITION_STUCK_MS)
+                            val current = transition.currentState
+                            if (current == transitionTarget && transitionTarget != EnterExitState.PostExit) return@LaunchedEffect
+                            val top = navController.currentBackStackEntry
+                            Androlog(
+                                "NavTransition",
+                                "room_timeline/$roomId transition STUCK ${TIMELINE_TRANSITION_STUCK_MS}ms " +
+                                    "current=$current target=$transitionTarget " +
+                                    "inputBlocked=${transitionTarget == EnterExitState.PostExit} visible=${appViewModel.isAppVisible} " +
+                                    "top=${top?.destination?.route}(${top?.arguments?.getString("roomId")}) " +
+                                    "prev=${navController.previousBackStackEntry?.destination?.route}",
+                            )
                         }
 
                         RoomTimelineScreen(
