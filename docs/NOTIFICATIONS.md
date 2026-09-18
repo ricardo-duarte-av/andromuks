@@ -490,6 +490,7 @@ Every breadcrumb captures the three discriminators that pick out which branch ru
 | `AppNavigation` channel consumer | `AppNavigation poll TIMEOUT (10s) room=… source=… cached=… wsConn=… spacesLoaded=…` | Readiness poll expired; `executeRoomNavigation` runs against a half-ready state (can stall / fall back). |
 | `executeRoomNavigation` | `executeRoomNavigation OPEN room=… cached=… wsConn=… → room_timeline` | Shared open point for the channel-consumer path. **Success.** |
 | `RoomTimelineScreen` navTrigger | `RoomTimelineScreen hot-swap OPEN room=… (from=…) isReady=… → room_timeline` | Warm-start cross-room open while already on a timeline. **Success.** |
+| `RoomTimelineScreen` navTrigger | `RoomTimelineScreen claimed pending tap for its own room=… on mount` | Cold start where the NavHost *restored* a timeline that is already the tapped room. No navigation is needed (the mount is the open), and there will be no `OPEN` line. Before this claim existed nobody retired the tap in this case and `directRoomNavigation` stayed pending for the whole process. **Success.** |
 
 Reading the trail: the **last** `FCMOpen` line before the user notices the list tells you which branch fired last. An `OPEN … → room_timeline` line means navigation was issued (look downstream — `awaitRoomDataReadiness TIMEOUT`, `onInitComplete SKIPPED`, `requestRoomTimeline: WS down` — for why the timeline itself may be empty); a `TIMEOUT … stranding on room_list` or `FORCE → room_list` line means the open never happened.
 

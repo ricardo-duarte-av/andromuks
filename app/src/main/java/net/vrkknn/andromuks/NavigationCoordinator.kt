@@ -150,6 +150,27 @@ internal class NavigationCoordinator(private val vm: AppViewModel) {
     }
 
     /**
+     * Claim the pending direct navigation only if it targets [roomId]; leave any other target alone.
+     *
+     * For a timeline that *is* the tap's destination but did not get there by servicing the claim —
+     * the NavHost-restored case: the process starts, onCreate arms the tap, and the restored back
+     * stack already has that room on top. Nobody else claims it then: the AppNavigation collector
+     * sees the room showing and defers, and RT's navTrigger effect treats the trigger as pre-dating
+     * the screen. The mount itself is the open (the highlight is consumed by RT's remember(roomId)),
+     * so all that is left is retiring the target so it does not stay pending for the process.
+     */
+    fun claimDirectRoomNavigationIfTarget(roomId: String): Boolean {
+        with(vm) {
+            synchronized(directNavClaimLock) {
+                if (directRoomNavigation != roomId) return false
+                directRoomNavigation = null
+                directRoomNavigationTimestamp = null
+                return true
+            }
+        }
+    }
+
+    /**
      * Put a claim back when the claimant did not end up navigating.
      *
      * [claimDirectRoomNavigation] is destructive and there is exactly one claimant per tap, so a

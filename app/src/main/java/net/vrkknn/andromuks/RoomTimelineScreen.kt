@@ -975,7 +975,15 @@ fun RoomTimelineScreen(
     val navTriggerBaseline = remember { appViewModel.directRoomNavigationTrigger }
     LaunchedEffect(navTrigger) {
         if (navTrigger == 0) return@LaunchedEffect // Skip initial composition
-        if (navTrigger <= navTriggerBaseline) return@LaunchedEffect // Pre-dates this screen
+        if (navTrigger <= navTriggerBaseline) {
+            // Pre-dates this screen, so it is not ours to act on — unless this room IS its target
+            // (NavHost-restored timeline on a cold notification open). Retire it then, or it stays
+            // pending forever with nobody left to claim it.
+            if (appViewModel.claimDirectRoomNavigationIfTarget(roomId)) {
+                Androlog("FCMOpen", "RoomTimelineScreen claimed pending tap for its own room=$roomId on mount")
+            }
+            return@LaunchedEffect
+        }
         // Atomically claim the pending navigation. A single notification tap arms both this
         // effect and the AppNavigation collector; whichever claims first navigates, the other
         // gets null here and bails — see NavigationCoordinator.claimDirectRoomNavigation.
