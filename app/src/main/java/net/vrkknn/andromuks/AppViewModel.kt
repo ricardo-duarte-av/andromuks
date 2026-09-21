@@ -13558,47 +13558,62 @@ class AppViewModel : ViewModel() {
 
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling mentions list response for requestId: $requestId")
 
-        when (data) {
-            is org.json.JSONArray -> {
-                // Parse array of event JSON objects
-                val events = mutableListOf<TimelineEvent>()
-                for (i in 0 until data.length()) {
-                    val eventJson = data.optJSONObject(i) ?: continue
-                    try {
-                        val event = TimelineEvent.fromJson(eventJson)
-                        events.add(event)
-                    } catch (e: Exception) {
-                        android.util.Log.e(
-                            "Andromuks",
-                            "AppViewModel: Error parsing mention event at index $i: ${e.message}",
-                            e,
-                        )
-                    }
-                }
+        // Two shapes: gomuks since 5ab4da3 (2026-09-20) returns {events, related_events}, older
+        // backends a bare array of events. related_events carries each mention's reply target
+        // (and its latest edit), so the reply previews below need no get_event round-trip.
+        val (eventsArray, relatedArray) = when (data) {
+            is JSONObject -> data.optJSONArray("events") to data.optJSONArray("related_events")
+            is JSONArray -> data to null
+            else -> null to null
+        }
+        if (eventsArray == null) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Unexpected data type in mentions list response: ${data::class.java.simpleName}",
+            )
+            mentionEvents = emptyList()
+            return
+        }
 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed ${events.size} mention events from response")
+        val events = parseMentionEventArray(eventsArray, "mention event")
+        val relatedEvents = relatedArray?.let { parseMentionEventArray(it, "mention related event") }.orEmpty()
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Parsed ${events.size} mention events and ${relatedEvents.size} related events from response",
+            )
+        }
 
-                // Process events and fetch reply targets if needed
-                processMentionEvents(events)
-            }
+        // Process events and fetch reply targets if needed
+        processMentionEvents(events, relatedEvents)
+    }
 
-            else -> {
-                android.util.Log.w(
+    private fun parseMentionEventArray(array: JSONArray, label: String): List<TimelineEvent> {
+        val events = mutableListOf<TimelineEvent>()
+        for (i in 0 until array.length()) {
+            val eventJson = array.optJSONObject(i) ?: continue
+            try {
+                events.add(TimelineEvent.fromJson(eventJson))
+            } catch (e: Exception) {
+                android.util.Log.e(
                     "Andromuks",
-                    "AppViewModel: Unexpected data type in mentions list response: ${data::class.java.simpleName}",
+                    "AppViewModel: Error parsing $label at index $i: ${e.message}",
+                    e,
                 )
-                mentionEvents = emptyList()
             }
         }
+        return events
     }
 
     /**
      * Process mention events: convert to MentionEvent objects and fetch reply targets
      */
-    private fun processMentionEvents(events: List<TimelineEvent>) {
+    private fun processMentionEvents(events: List<TimelineEvent>, relatedEvents: List<TimelineEvent>) {
         viewModelScope.launch(Dispatchers.IO) {
             val mentionEventList = mutableListOf<MentionEvent>()
             val replyTargetsToFetch = mutableListOf<Pair<String, String>>() // (roomId, eventId)
+            // Reply targets the backend already sent — "roomId:eventId" -> event
+            val relatedByKey = relatedEvents.associateBy { "${it.roomId}:${it.eventId}" }
 
             // First pass: create MentionEvent objects and collect reply targets
             for (event in events) {
@@ -13616,7 +13631,7 @@ class AppViewModel : ViewModel() {
                         "m.relates_to",
                     )?.optJSONObject("m.in_reply_to")?.optString("event_id")
 
-                if (replyToEventId != null) {
+                if (replyToEventId != null && "$roomId:$replyToEventId" !in relatedByKey) {
                     replyTargetsToFetch.add(Pair(roomId, replyToEventId))
                 }
 
@@ -13632,6 +13647,7 @@ class AppViewModel : ViewModel() {
 
             // Fetch reply targets in parallel
             val replyEventsMap = mutableMapOf<String, TimelineEvent?>() // "roomId:eventId" -> event
+            replyEventsMap.putAll(relatedByKey)
             if (replyTargetsToFetch.isNotEmpty()) {
                 if (BuildConfig.DEBUG) {
                     android.util.Log.d(
