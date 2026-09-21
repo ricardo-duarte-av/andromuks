@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ShortcutManager
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.util.Log
@@ -20,6 +19,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.AvatarBitmapUtils
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -108,6 +108,18 @@ class ConversationsApi(
     private fun setShortcutHasAvatarIcon(roomId: String, hasAvatar: Boolean) {
         shortcutHasAvatarIcon[roomId] = hasAvatar
         RoomMetadataStore.upsertShortcutHasAvatar(roomId, hasAvatar)
+    }
+
+    /**
+     * Longest edge, in px, of a shortcut icon bitmap. The icon crosses into system_server as a raw
+     * bitmap, so an avatar decoded at full resolution can blow the binder transaction limit and the
+     * push fails outright — while notifications and the widget, which already downscale through
+     * [AvatarBitmapUtils.decodeScaledBitmap], keep working. The launcher never draws the icon larger
+     * than this, so nothing visible is lost.
+     */
+    private val shortcutIconMaxPx: Int by lazy {
+        maxOf(ShortcutManagerCompat.getIconMaxWidth(context), ShortcutManagerCompat.getIconMaxHeight(context))
+            .coerceAtLeast(96)
     }
 
     /**
@@ -1257,13 +1269,8 @@ class ConversationsApi(
         return try {
             val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
             if (cachedFile != null && cachedFile.exists()) {
-                val bitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
-                if (bitmap != null) {
-                    val circularBitmap = getCircularBitmap(bitmap)
-                    circularBitmap != null
-                } else {
-                    false
-                }
+                // Decode exactly as createShortcutInfoCompat() will, so this can't disagree with it.
+                AvatarBitmapUtils.decodeScaledBitmap(cachedFile, shortcutIconMaxPx) != null
             } else {
                 false
             }
@@ -1356,27 +1363,21 @@ class ConversationsApi(
 
                 // Load bitmap from cached file (or fallback if download failed)
                 if (cachedFile != null && cachedFile.exists()) {
-                    val bitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
+                    // Downscaled, never full resolution: see shortcutIconMaxPx.
+                    val bitmap = AvatarBitmapUtils.decodeScaledBitmap(cachedFile, shortcutIconMaxPx)
 
                     if (bitmap != null) {
-                        val circularBitmap = getCircularBitmap(bitmap)
-
-                        if (circularBitmap != null) {
-                            if (BuildConfig.DEBUG) {
-                                Log.d(
-                                    TAG,
-                                    "✓✓✓ SUCCESS: Created shortcut icon with avatar for: ${shortcut.roomId}",
-                                )
-                            }
-                            IconCompat.createWithAdaptiveBitmap(circularBitmap)
-                        } else {
-                            Log.e(TAG, "  ✗✗✗ FAILED: getCircularBitmap returned null, creating fallback with initials")
-                            createFallbackShortcutIconCompat(shortcut.roomName, shortcut.roomId)
+                        if (BuildConfig.DEBUG) {
+                            Log.d(
+                                TAG,
+                                "✓✓✓ SUCCESS: Created shortcut icon with avatar for: ${shortcut.roomId} (${bitmap.width}x${bitmap.height})",
+                            )
                         }
+                        IconCompat.createWithAdaptiveBitmap(AvatarBitmapUtils.createCircularBitmap(bitmap))
                     } else {
                         Log.e(
                             TAG,
-                            "  ✗✗✗ FAILED: BitmapFactory.decodeFile returned null, creating fallback with initials",
+                            "  ✗✗✗ FAILED: avatar decode returned null, creating fallback with initials",
                         )
                         createFallbackShortcutIconCompat(shortcut.roomName, shortcut.roomId)
                     }
