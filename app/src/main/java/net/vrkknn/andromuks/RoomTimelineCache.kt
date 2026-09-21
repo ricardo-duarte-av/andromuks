@@ -108,6 +108,10 @@ object RoomTimelineCache {
         // preview rendering only, never returned as timeline items.
         val replyContextEvents: MutableList<TimelineEvent> = mutableListOf(),
         val replyContextEventIds: MutableSet<String> = mutableSetOf(),
+        // Bundled edits (m.replace delivered only via related_events), keyed by edit event id.
+        // Never timeline rows: their timeline_rowid is -1, which would corrupt the pagination
+        // anchor if they entered [events]. EditVersionCoordinator folds them into the edit chain.
+        val bundledEdits: MutableMap<String, TimelineEvent> = mutableMapOf(),
         var lastAccessedAt: Long = System.currentTimeMillis(),
         // Per-room freshness tracking (see the freshness-probe APIs below). [mightBeStale] is
         // flipped TRUE for every cached room on an intentional WebSocket drop; only a successful
@@ -213,7 +217,7 @@ object RoomTimelineCache {
         synchronized(cacheLock) {
             val totalEvents = roomEventsCache.values.sumOf {
                 it.events.size + it.redactionEvents.size + it.reactionEvents.size + it.pollEvents.size +
-                    it.replyContextEvents.size
+                    it.replyContextEvents.size + it.bundledEdits.size
             }
             val estimatedBytes = totalEvents.toLong() * ESTIMATED_BYTES_PER_EVENT
             return estimatedBytes / (1024 * 1024) // Convert to MB (result is Long)
@@ -1339,6 +1343,7 @@ object RoomTimelineCache {
             cache.pollEvents.clear()
             cache.replyContextEvents.clear()
             cache.replyContextEventIds.clear()
+            cache.bundledEdits.clear()
             synchronized(cacheStateLock) {
                 cache.processedState.eventChainMap.clear()
                 cache.processedState.editEventsMap.clear()
@@ -1455,6 +1460,32 @@ object RoomTimelineCache {
                     cache.replyContextEvents.add(event)
                 }
             }
+        }
+    }
+
+    /**
+     * Store a response's `related_events`. Since gomuks 07b3e23 these carry each event's latest
+     * edit as well as reply targets: edits go to the bundled-edit bucket (see [getBundledEdits]),
+     * everything else to the reply-context bucket via [addReplyContextEvents].
+     */
+    fun addRelatedEvents(roomId: String, events: List<TimelineEvent>) {
+        if (events.isEmpty()) return
+        val (edits, context) = events.partition { editTargetOf(it) != null }
+        addReplyContextEvents(roomId, context)
+        if (edits.isEmpty()) return
+        synchronized(cacheLock) {
+            val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
+            for (edit in edits) {
+                if (edit.eventId.isBlank() || cache.eventIds.contains(edit.eventId)) continue
+                cache.bundledEdits[edit.eventId] = edit
+            }
+        }
+    }
+
+    /** Edits for [roomId] that arrived only as `related_events` (see [addRelatedEvents]). */
+    fun getBundledEdits(roomId: String): List<TimelineEvent> {
+        synchronized(cacheLock) {
+            return roomEventsCache[roomId]?.bundledEdits?.values?.toList().orEmpty()
         }
     }
 

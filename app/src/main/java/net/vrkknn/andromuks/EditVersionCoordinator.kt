@@ -514,6 +514,7 @@ internal class EditVersionCoordinator(private val vm: AppViewModel) {
     }
 
     fun processEditRelationships() {
+        addBundledEditsForCurrentRoom()
         if (vm.editEventsMap.size > 100) {
             val limitedEditEvents = vm.editEventsMap
                 .values
@@ -578,6 +579,23 @@ internal class EditVersionCoordinator(private val vm: AppViewModel) {
                 )
             }
         }
+    }
+
+    /**
+     * Bundled edits (see [RoomTimelineCache.addRelatedEvents]) live outside the cached timeline, so
+     * no chain build sees them — but every chain build ends in [processEditRelationships]. Fold in
+     * the ones whose target is on the chain, and record them as versions, since the bubble's
+     * "edited" state and edit history read [MessageVersionsCache], which a room open clears.
+     */
+    private fun addBundledEditsForCurrentRoom() {
+        val roomId = vm.currentRoomId
+        if (roomId.isBlank()) return
+        val added = RoomTimelineCache.getBundledEdits(roomId).filter { edit ->
+            edit.eventId !in vm.editEventsMap && editTargetOf(edit)?.let { it in vm.eventChainMap } == true
+        }
+        if (added.isEmpty()) return
+        for (edit in added) vm.editEventsMap[edit.eventId] = edit
+        processVersionedMessages(added)
     }
 
     fun handleEditEventInChain(editEvent: TimelineEvent) {

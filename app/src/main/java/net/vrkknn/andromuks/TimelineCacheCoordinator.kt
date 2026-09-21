@@ -2408,9 +2408,10 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                         }
 
                         // CRITICAL: Process related_events FIRST before processing main events
-                        // These are reply-context events provided by the backend so that reply
-                        // previews can be rendered immediately.  They must NOT appear as standalone
-                        // timeline items — store them in the dedicated replyContextEvents bucket.
+                        // These are reply targets and bundled edits provided by the backend so that
+                        // reply previews and edited text render immediately.  They must NOT appear as
+                        // standalone timeline items — addRelatedEvents keeps them in side buckets, and
+                        // the chain build below (processEditRelationships) folds the edits in.
                         val relatedEventsArray = data.optJSONArray("related_events")
                         if (relatedEventsArray != null && relatedEventsArray.length() > 0) {
                             if (BuildConfig.DEBUG) {
@@ -2422,11 +2423,11 @@ internal class TimelineCacheCoordinator(private val vm: AppViewModel) {
                             val relatedEvents = (0 until relatedEventsArray.length())
                                 .mapNotNull { relatedEventsArray.optJSONObject(it) }
                                 .map { TimelineEvent.fromJson(it) }
-                            RoomTimelineCache.addReplyContextEvents(roomId, relatedEvents)
+                            RoomTimelineCache.addRelatedEvents(roomId, relatedEvents)
                             if (BuildConfig.DEBUG) {
                                 android.util.Log.d(
                                     "Andromuks",
-                                    "AppViewModel: Stored ${relatedEvents.size} related_events as reply-context for room $roomId",
+                                    "AppViewModel: Stored ${relatedEvents.size} related_events (reply context + bundled edits) for room $roomId",
                                 )
                             }
                             // CRITICAL: Increment timelineUpdateCounter so reply previews can

@@ -10765,6 +10765,8 @@ class AppViewModel : ViewModel() {
                     "AppViewModel: paginateThread - parsed ${events.size} events, next_batch='$nextBatch'",
                 )
             }
+            // Thread bubbles resolve their edit through MessageVersionsCache (TimelineEventItem).
+            if (data is JSONObject) processVersionedMessages(bundledEditsOf(data))
             callback(events, nextBatch)
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: paginateThread - error handling response", e)
@@ -10888,10 +10890,36 @@ class AppViewModel : ViewModel() {
                     "AppViewModel: searchMessages - parsed ${events.size} events, next_batch='$nextBatch'",
                 )
             }
-            callback(events, nextBatch)
+            // Result cards render content directly, so apply each result's bundled edit to it.
+            val edited = if (data is JSONObject) applyBundledEdits(events, bundledEditsOf(data)) else events
+            callback(edited, nextBatch)
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: searchMessages - error handling response", e)
             callback(emptyList(), "")
+        }
+    }
+
+    /**
+     * The bundled edits in a response's `related_events` (gomuks 07b3e23+; empty on older
+     * backends). See BundledEdits.kt.
+     */
+    private fun bundledEditsOf(data: JSONObject): List<TimelineEvent> {
+        val related = data.optJSONArray("related_events") ?: return emptyList()
+        return (0 until related.length())
+            .mapNotNull { related.optJSONObject(it) }
+            .mapNotNull { runCatching { TimelineEvent.fromJson(it) }.getOrNull() }
+            .filter { editTargetOf(it) != null }
+    }
+
+    /**
+     * [events] with each one's latest edit from [related] merged into its content, for screens that
+     * render content directly instead of through the edit chain or [MessageVersionsCache].
+     */
+    private fun applyBundledEdits(events: List<TimelineEvent>, related: List<TimelineEvent>): List<TimelineEvent> {
+        val latest = latestEditsByTarget(related)
+        if (latest.isEmpty()) return events
+        return events.map { event ->
+            latest[event.eventId]?.let { editVersionCoordinator.mergeEditContent(event, it) } ?: event
         }
     }
 
@@ -11011,6 +11039,8 @@ class AppViewModel : ViewModel() {
                         "AppViewModel: Retrieved ${sortedEvents.size} events in context (from JSONObject: ${beforeArray?.length() ?: 0} before, ${if (targetEventJson != null) 1 else 0} target, ${afterArray?.length() ?: 0} after)",
                     )
                 }
+                // Context bubbles resolve their edit through MessageVersionsCache (TimelineEventItem).
+                processVersionedMessages(bundledEditsOf(data))
                 callback(sortedEvents, null)
             }
 
@@ -13584,8 +13614,8 @@ class AppViewModel : ViewModel() {
             )
         }
 
-        // Process events and fetch reply targets if needed
-        processMentionEvents(events, relatedEvents)
+        // Mention cards render content directly, so apply each mention's bundled edit to it.
+        processMentionEvents(applyBundledEdits(events, relatedEvents), relatedEvents)
     }
 
     private fun parseMentionEventArray(array: JSONArray, label: String): List<TimelineEvent> {

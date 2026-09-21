@@ -564,10 +564,10 @@ class SyncIngestor(private val context: Context) {
                     }
                 }
 
-                // Store related_events as reply-context only — they must NOT appear as standalone
-                // timeline items, so they go into the dedicated replyContextEvents bucket instead
-                // of eventsForCacheUpdate.
-                net.vrkknn.andromuks.RoomTimelineCache.addReplyContextEvents(roomId, relatedEventsList)
+                // Store related_events in side buckets only (reply context, bundled edits) — they
+                // must NOT appear as standalone timeline items, so they never go into
+                // eventsForCacheUpdate.
+                net.vrkknn.andromuks.RoomTimelineCache.addRelatedEvents(roomId, relatedEventsList)
 
                 if (BuildConfig.DEBUG) {
                     Log.d(

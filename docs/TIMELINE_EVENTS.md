@@ -207,7 +207,7 @@ For e2ee events the `m.relates_to` block lives in `decrypted` (the server-decryp
 
 ## `related_events` — Reply-Context Events
 
-The paginate and `sync_complete` responses include a `related_events` array alongside the main `events` array. These are events the backend fetched specifically so the client can render reply previews — they were not part of the current response window.
+The paginate and `sync_complete` responses include a `related_events` array alongside the main `events` array. These are events the backend fetched specifically so the client can render reply previews (and, since gomuks `07b3e23`, the latest edit of each event — see [Bundled edits](#bundled-edits--bundlededits-bucket)) — they were not part of the current response window.
 
 **Critical rule:** `related_events` must **not** appear as standalone timeline items. They are typically pre-join or out-of-window history events with `timeline_rowid: -1`; inserting them into `cache.events` would cause them to appear at wrong positions in the timeline and create duplicate date-divider keys (crash).
 
@@ -217,8 +217,8 @@ The paginate and `sync_complete` responses include a `related_events` array alon
 
 | Path | Call |
 |------|------|
-| Paginate response (`TimelineCacheCoordinator`) | `RoomTimelineCache.addReplyContextEvents(roomId, events)` |
-| `sync_complete` (`SyncIngestor`) | `RoomTimelineCache.addReplyContextEvents(roomId, relatedEventsList)` |
+| Paginate response (`TimelineCacheCoordinator`) | `RoomTimelineCache.addRelatedEvents(roomId, events)` |
+| `sync_complete` (`SyncIngestor`) | `RoomTimelineCache.addRelatedEvents(roomId, relatedEventsList)` |
 
 `addReplyContextEvents` skips any event already in `cache.eventIds` (already a real timeline event, no context copy needed) and does **not** add to `cache.events`, so these events are invisible to `getCachedEventsForTimeline()`.
 
@@ -231,6 +231,31 @@ RoomTimelineCache.findEventForReply(roomId, replyInfo.eventId)
 ```
 
 This searches `cache.events` first, then `cache.replyContextEvents`, so previews work whether the target is a normal timeline event or a reply-context-only entry.
+
+### Bundled edits — `bundledEdits` bucket
+
+Since gomuks `07b3e23` (2026-09-20) `related_events` also carries each event's **latest edit** when
+that edit is not already in the response window — on `paginate`, `paginate_manual`,
+`get_event_context`, `search_local`/`search_server` and `get_mentions`. The backend now stores the
+edit a homeserver bundles into `unsigned.m.relations` (typical after a gappy sync, when the edit
+fell inside the gap), but `sync_complete` never delivers it: only `last_edit_rowid` on the
+original, which the app does not read. The `related_events` copy is the only one we ever see.
+
+`RoomTimelineCache.addRelatedEvents` (both paths above call it) splits the array: edits
+(`editTargetOf` in `BundledEdits.kt`) go to `RoomCache.bundledEdits`, the rest to reply context.
+Bundled edits have `timeline_rowid: -1`, so they must stay out of `cache.events` for the same reason
+as reply context — and out of `getCachedEventsForTimeline`, whose minimum rowid seeds
+`smallestRowId`, the pagination anchor.
+
+They reach the screen through `EditVersionCoordinator.processEditRelationships`, which every chain
+build ends in: it first adds the current room's bundled edits whose target is on the chain to
+`editEventsMap` and to `MessageVersionsCache` (which a room open clears, and which drives the bubble's
+edited state). The other consumers apply them per response:
+
+| Response | How the edit is applied |
+|---|---|
+| `get_event_context`, thread `paginate_manual` | `processVersionedMessages` — `TimelineEventItem` resolves edits through `MessageVersionsCache` first |
+| `search_*`, `get_mentions` | `applyBundledEdits` merges the edit into the event's content, since those cards render content directly |
 
 ### Missing reply target detection
 
