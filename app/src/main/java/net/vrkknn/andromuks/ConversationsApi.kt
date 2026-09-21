@@ -123,6 +123,43 @@ class ConversationsApi(
     }
 
     /**
+     * Push [shortcut] as a dynamic shortcut. If the push with its avatar icon fails, push it again
+     * with the lettermark icon rather than giving up.
+     *
+     * Giving up is the dangerous option: the system keeps the last shortcut it *accepted*, so a
+     * failed push silently leaves the previous avatar in place — and because requestPinShortcut()
+     * pins the stored copy of an existing ID, even removing and re-pinning brings the stale icon back.
+     *
+     * @return true if the avatar-bearing shortcut landed; false if only the lettermark did (or
+     * nothing did). Callers record this, so the avatar is retried on the next update.
+     */
+    private suspend fun pushShortcutWithFallback(shortcut: ConversationShortcut): Boolean {
+        val failure = try {
+            if (ShortcutManagerCompat.pushDynamicShortcut(context, createShortcutInfoCompat(shortcut))) {
+                return true
+            }
+            "pushDynamicShortcut returned false"
+        } catch (e: Exception) {
+            Log.w(TAG, "Shortcut push failed for ${shortcut.roomId}", e)
+            "${e.javaClass.simpleName}: ${e.message}"
+        }
+        Androlog(
+            "Shortcuts",
+            "push failed for ${shortcut.roomId} (avatar=${shortcut.roomAvatarUrl}): $failure — retrying with lettermark",
+        )
+        try {
+            val fallbackInfo = createShortcutInfoCompat(shortcut, forceFallbackIcon = true)
+            if (!ShortcutManagerCompat.pushDynamicShortcut(context, fallbackInfo)) {
+                Androlog("Shortcuts", "lettermark push also failed for ${shortcut.roomId}: returned false")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Lettermark shortcut push failed for ${shortcut.roomId}", e)
+            Androlog("Shortcuts", "lettermark push also failed for ${shortcut.roomId}: ${e.javaClass.simpleName}")
+        }
+        return false
+    }
+
+    /**
      * Build a Person object from notification data (like the working Gomuks app)
      */
     suspend fun buildPersonFromNotificationData(userId: String, displayName: String, avatarUrl: String?): CorePerson {
@@ -720,22 +757,36 @@ class ConversationsApi(
         }
         return withContext(Dispatchers.IO) {
             try {
-                // Ensure shortcut is registered/up-to-date before pinning
+                // Ensure shortcut is registered/up-to-date before pinning. This matters beyond
+                // freshness: for an ID that already exists, the system pins its *stored* copy and
+                // ignores the info passed below — so if this refresh didn't land, the pin would bring
+                // back whatever icon the system last accepted. pushShortcutWithFallback() guarantees
+                // it lands (with the lettermark at worst).
                 updateShortcutForNotificationSync(room)
-                val shortcut = createShortcutInfoCompat(
-                    ConversationShortcut(
-                        roomId = room.id,
-                        // RoomItem.name is non-null, so `?: room.id` never fired — but the cache
-                        // hydration path (RoomListCache.populateRoomMapFromCache) can produce a
-                        // blank name from a blank DB row, which would label the shortcut "".
-                        roomName = room.name.takeIf { it.isNotBlank() } ?: room.id,
-                        roomAvatarUrl = room.avatarUrl,
-                        lastMessage = null,
-                        unreadCount = 0,
-                        timestamp = room.sortingTimestamp ?: 0L,
-                    ),
+                val conversationShortcut = ConversationShortcut(
+                    roomId = room.id,
+                    // RoomItem.name is non-null, so `?: room.id` never fired — but the cache
+                    // hydration path (RoomListCache.populateRoomMapFromCache) can produce a
+                    // blank name from a blank DB row, which would label the shortcut "".
+                    roomName = room.name.takeIf { it.isNotBlank() } ?: room.id,
+                    roomAvatarUrl = room.avatarUrl,
+                    lastMessage = null,
+                    unreadCount = 0,
+                    timestamp = room.sortingTimestamp ?: 0L,
                 )
-                ShortcutManagerCompat.requestPinShortcut(context, shortcut, null)
+                // The pin request carries the icon bitmap across too, so it can fail for the same
+                // reason a push can. Retry with the lettermark instead of reporting "unsupported".
+                try {
+                    ShortcutManagerCompat.requestPinShortcut(context, createShortcutInfoCompat(conversationShortcut), null)
+                } catch (e: Exception) {
+                    Log.w(TAG, "requestPinShortcut: avatar pin failed for ${room.id}, retrying with lettermark", e)
+                    Androlog("Shortcuts", "pin failed for ${room.id}: ${e.javaClass.simpleName} — retrying with lettermark")
+                    ShortcutManagerCompat.requestPinShortcut(
+                        context,
+                        createShortcutInfoCompat(conversationShortcut, forceFallbackIcon = true),
+                        null,
+                    )
+                }
                 if (BuildConfig.DEBUG) Log.d(TAG, "requestPinShortcut: pin dialog triggered for ${room.id}")
                 true
             } catch (e: Exception) {
@@ -826,19 +877,18 @@ class ConversationsApi(
         //    (This handles the case where shortcut was created with fallback even though avatar existed)
         val shouldRefreshIcon = canCreateAvatar && !previouslyHadAvatar
 
-        val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
+        // Pushed in both branches below — even with nothing to update, the push moves it to the top.
+        // NOTE: Do NOT removeDynamicShortcuts() here to "force" an icon refresh.
+        // pushDynamicShortcut() updates an existing shortcut's icon in place, and removing
+        // the shortcut first momentarily drops the conversation's status in the People Space
+        // service — which blanks any pinned Conversation widget bound to this room even though
+        // the notification itself survives. Just push; the new icon is picked up.
+        val avatarLanded = pushShortcutWithFallback(shortcut)
 
         // Track whether this shortcut was created with an avatar icon or fallback
-        val createdWithAvatar = canCreateAvatar
+        val createdWithAvatar = canCreateAvatar && avatarLanded
 
         if (needsUpdate || shouldRefreshIcon) {
-            // NOTE: Do NOT removeDynamicShortcuts() here to "force" an icon refresh.
-            // pushDynamicShortcut() updates an existing shortcut's icon in place, and removing
-            // the shortcut first momentarily drops the conversation's status in the People Space
-            // service — which blanks any pinned Conversation widget bound to this room even though
-            // the notification itself survives. Just push; the new icon is picked up.
-            ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
-
             // Update cache
             lastShortcutData = lastShortcutData + (room.id to shortcut)
             lastShortcutStableIds = lastShortcutStableIds + room.id
@@ -856,9 +906,6 @@ class ConversationsApi(
                 }
             }
         } else {
-            // Still move to top even if no update needed (just push again)
-            ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
-
             // Update tracking even if we're not refreshing the icon
             // This ensures tracking stays accurate
             lastAvatarCachePresence[room.id] = canCreateAvatar
@@ -873,10 +920,9 @@ class ConversationsApi(
      */
     private suspend fun addShortcut(room: RoomItem) {
         val shortcut = roomToShortcut(room)
-        val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
 
         // pushDynamicShortcut() automatically adds to top
-        ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
+        val avatarLanded = pushShortcutWithFallback(shortcut)
 
         // Update cache
         lastShortcutData = lastShortcutData + (room.id to shortcut)
@@ -887,7 +933,7 @@ class ConversationsApi(
             canCreateAvatarIcon(url)
         } ?: false
         lastAvatarCachePresence[room.id] = avatarInCache
-        setShortcutHasAvatarIcon(room.id, avatarInCache)
+        setShortcutHasAvatarIcon(room.id, avatarInCache && avatarLanded)
 
         lastShortcutUpdateCompletedTime = System.currentTimeMillis()
 
@@ -1230,22 +1276,18 @@ class ConversationsApi(
                         canCreateAvatarIcon(url)
                     } ?: false
 
-                    // Create ShortcutInfoCompat (AndroidX version)
-                    // This will now download and cache the avatar if not already cached
-                    val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
-
                     // NOTE: Do NOT removeDynamicShortcuts() here to "force" an icon refresh — see
                     // updateSingleShortcut(). pushDynamicShortcut() refreshes the icon in place;
                     // removing first blanks any pinned Conversation widget bound to this room.
 
-                    // Push/update the shortcut (conversation-optimized API)
+                    // Push/update the shortcut (conversation-optimized API). Building the info
+                    // downloads and caches the avatar if not already cached.
                     // This preserves other shortcuts automatically!
-                    ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
-                    // Log.d(TAG, "  ✓ Shortcut pushed successfully")
+                    val avatarLanded = pushShortcutWithFallback(shortcut)
 
                     // Record tracking for next comparison
                     lastAvatarCachePresence[shortcut.roomId] = canCreateAvatar
-                    setShortcutHasAvatarIcon(shortcut.roomId, canCreateAvatar)
+                    setShortcutHasAvatarIcon(shortcut.roomId, canCreateAvatar && avatarLanded)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating shortcut for room: ${shortcut.roomName}", e)
                 }
@@ -1282,7 +1324,7 @@ class ConversationsApi(
     /**
      * Create a ShortcutInfoCompat from ConversationShortcut (AndroidX version)
      */
-    private suspend fun createShortcutInfoCompat(shortcut: ConversationShortcut): ShortcutInfoCompat {
+    private suspend fun createShortcutInfoCompat(shortcut: ConversationShortcut, forceFallbackIcon: Boolean = false): ShortcutInfoCompat {
         // Create proper matrix: URI with via parameter
         val matrixUri = if (realMatrixHomeserverUrl.isNotEmpty()) {
             val serverHost = Uri.parse(realMatrixHomeserverUrl).host ?: ""
@@ -1303,7 +1345,9 @@ class ConversationsApi(
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
 
-        val icon = if (shortcut.roomAvatarUrl != null) {
+        val icon = if (forceFallbackIcon) {
+            createFallbackShortcutIconCompat(shortcut.roomName, shortcut.roomId)
+        } else if (shortcut.roomAvatarUrl != null) {
             try {
                 // Check if we have a cached version first
                 var cachedFile = IntelligentMediaCache.getCachedFile(context, shortcut.roomAvatarUrl)

@@ -517,6 +517,8 @@ Each room notification creates or updates a `ShortcutInfoCompat` (via `Conversat
 
 `ConversationsApi.onRoomActivity(roomItem)` is called inside the `synchronized` block in `showEnhancedNotification`, **after** `notificationManager.notify()`. This ensures only notifications that are actually posted push the room to the top of the Direct Share ranking — silent/suppressed notifications (same-room-app-visible suppression, bubble-already-visible silent updates) exit via early `return` before reaching the synchronized block and do not affect the ranking.
 
+**Shortcut icons are downscaled, and a failed push falls back to the lettermark.** The icon is a raw bitmap sent across binder, so `createShortcutInfoCompat` decodes the avatar through `AvatarBitmapUtils.decodeScaledBitmap` capped at `ShortcutManagerCompat.getIconMaxWidth/Height` — the same treatment notifications and the room widget already had. Every push goes through `pushShortcutWithFallback`: if the avatar push throws or returns false, it pushes again with the lettermark, logs to Androlog (`Shortcuts`), and records `shortcutHasAvatar = false` so the avatar is retried next time. This matters because the system keeps the last shortcut it *accepted*: a swallowed push failure leaves the **previous** avatar in place, not a lettermark, and since `requestPinShortcut` for an existing ID pins the system's stored copy (ignoring the info passed), even removing and re-pinning brings the stale icon back.
+
 ## People / Conversation widget tile updates
 
 > **Not to be confused with our own home-screen room widget** — see [WIDGET.md](WIDGET.md). That one
