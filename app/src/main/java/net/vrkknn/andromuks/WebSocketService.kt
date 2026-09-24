@@ -4519,6 +4519,10 @@ class WebSocketService : Service() {
         hardConnectingTimeoutJob?.cancel()
         hardConnectingTimeoutJob = null
 
+        // Armed right before the dial, so this is when the dial started. connectionStartTime can't
+        // stand in for it: it is only set in onOpen, so it is always 0 while Connecting, and every
+        // HARD TIMEOUT line used to read "0ms".
+        val armedAt = SystemClock.elapsedRealtime()
         hardConnectingTimeoutJob = try {
             serviceScope.launch {
                 try {
@@ -4535,7 +4539,7 @@ class WebSocketService : Service() {
                         return@launch
                     }
 
-                    val timeSinceConnect = if (connectionStartTime > 0) System.currentTimeMillis() - connectionStartTime else 0
+                    val timeSinceConnect = SystemClock.elapsedRealtime() - armedAt
                     android.util.Log.w(
                         "WebSocketService",
                         "HARD TIMEOUT: Stuck in Connecting state for ${timeSinceConnect}ms (>${HARD_CONNECTING_TIMEOUT_MS}ms) - forcing recovery",
