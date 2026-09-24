@@ -5,6 +5,7 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.util.Log
+import net.vrkknn.andromuks.Androlog
 import net.vrkknn.andromuks.BuildConfig
 import org.json.JSONObject
 import java.security.KeyStore
@@ -47,6 +48,9 @@ object CredentialStore {
     private const val GCM_TAG_BITS = 128
     private const val KEY_SIZE = 256
 
+    // Minimum gap between token decrypt attempts after one fails.
+    private const val DECRYPT_RETRY_MS = 1_000L
+
     // Ciphertext pref keys.
     private const val P_ENC_TOKEN = "enc_token"
     private const val P_ENC_CREDS = "enc_credentials"
@@ -65,24 +69,42 @@ object CredentialStore {
 
     // ── Session token (Key A, never auth-bound) ──────────────────────────────
 
+    // When the last token decrypt failed (0 = never). A failed decrypt is not cached — see
+    // getAuthToken — so this only rate-limits the retry for the hot main-thread callers.
+    @Volatile private var tokenDecryptFailedAt = 0L
+
     /**
      * Returns the gomuks session token, decrypting the at-rest blob on first use and caching it.
      * Falls back to the legacy plaintext key so an in-flight migration (or a failed decrypt) never
      * strands callers that run in the background. Returns "" when no token is stored.
+     *
+     * A failed decrypt is **not** cached. It used to be, and since the fallback is `""` once the
+     * token has been migrated, a single Keystore failure in a freshly started process (an FCM
+     * wake-up) left that process with no token until it died: every `/exec` call it made — the
+     * notification reply among them (GH #41) — failed auth without ever reaching the network.
+     * Now the fallback is returned for this call only and the decrypt is retried, at most once per
+     * [DECRYPT_RETRY_MS].
      */
     fun getAuthToken(prefs: SharedPreferences): String {
         cachedToken?.let { return it }
         synchronized(this) {
             cachedToken?.let { return it }
+            val legacy = prefs.getString(LEGACY_TOKEN, "") ?: ""
             val blob = prefs.getString(P_ENC_TOKEN, null)
-            val token = if (!blob.isNullOrBlank()) {
-                decrypt(getOrCreateKey(TOKEN_KEY_ALIAS), blob) ?: run {
-                    Log.w(TAG, "Token decrypt failed; falling back to legacy plaintext if present")
-                    prefs.getString(LEGACY_TOKEN, "") ?: ""
-                }
-            } else {
-                prefs.getString(LEGACY_TOKEN, "") ?: ""
+            if (blob.isNullOrBlank()) {
+                cachedToken = legacy
+                return legacy
             }
+            if (System.currentTimeMillis() - tokenDecryptFailedAt < DECRYPT_RETRY_MS) return legacy
+            val token = decrypt(getOrCreateKey(TOKEN_KEY_ALIAS), blob)
+            if (token == null) {
+                tokenDecryptFailedAt = System.currentTimeMillis()
+                // Androlog mirrors to logcat at info level, so this also survives R8.
+                val fallback = if (legacy.isBlank()) "blank" else "present"
+                Androlog("Credentials", "Token decrypt failed; not cached, will retry (legacy fallback $fallback)")
+                return legacy
+            }
+            tokenDecryptFailedAt = 0L
             cachedToken = token
             return token
         }
