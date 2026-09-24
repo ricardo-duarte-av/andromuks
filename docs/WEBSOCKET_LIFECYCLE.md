@@ -52,6 +52,14 @@ each scheduled a competing attempt; and the ViewModel's `networkType == NONE` ea
 service's correct `WaitingForNetwork` handling. `handleConnectionFailure` / `handleTlsError` now only
 keep error counters and reporting. A `CERTIFICATE_ERROR` still never auto-reconnects.
 
+**3. A 401 clears the socket but schedules nothing.** The 401 branch calls `clearWebSocket()` and then
+hands off to `handleUnauthorizedError()` → `ReauthCoordinator`, whose `reconnectAfterReauth()` makes
+the next dial with the fresh token. It must leave `Connecting` first. It used to return early with the
+state still `Connecting`, so `connectWebSocket()`'s claim step skipped the re-auth dial and every
+foreground re-dial after it until the 25 s hard timeout, leaving the timeline empty for that long
+(GH #40, 2026-09-23). If re-auth is slow, the monitor's stuck-`Disconnected` check (>5 s) may dial
+first. That is safe because service dials read the token from `CredentialStore` at dial time.
+
 ## `scheduleReconnection()` Flow
 
 1. If `currentNetworkType == NONE` → set `WaitingForNetwork`, add to `pendingReconnectionReasons`, return.

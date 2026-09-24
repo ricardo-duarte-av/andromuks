@@ -1054,6 +1054,12 @@ fun connectToWebsocket(
                     "Andromuks",
                     "NetworkUtils: 401 Unauthorized detected - clearing credentials and navigating to login",
                 )
+                // Leave Connecting before re-auth runs. The handshake was refused, so this dial is
+                // dead — but staying in Connecting made connectWebSocket() skip every later dial,
+                // including reconnectAfterReauth()'s with the fresh token, until the 25 s hard
+                // timeout (GH #40, 2026-09-23 log). No reconnect is scheduled here: re-auth owns
+                // the next dial, and service dials read the token from CredentialStore anyway.
+                WebSocketService.clearWebSocket("401 Unauthorized")
                 // Notify registered ViewModels about unauthorized error
                 WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                     for (viewModel in SyncRepository.getAttachedViewModels()) {
