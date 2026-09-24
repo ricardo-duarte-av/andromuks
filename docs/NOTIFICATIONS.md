@@ -344,6 +344,16 @@ otherwise. The `/exec` arm is not only for battery-saver mode — a notification
 the app is not running at all, which is precisely when there is no ViewModel to hand off to. Mutating
 commands go through `ExecApi.execWithIdempotentRetry` so a lost response cannot double-apply.
 
+**Reply must always re-post (GH #41).** Android only stops the inline-reply spinner when the
+notification is posted again, so a reply path that returns without re-posting leaves it spinning
+forever. On the `/exec` arm, success appends the reply via `updateNotificationWithReply`, and any
+failure (non-`Success` result or a throw) re-posts the notification unchanged via
+`clearReplySpinner`, so the user can retry, and shows a "Reply not sent" toast. Every outcome is
+logged to Androlog under **Reply**, including the failure class and, for a 401, whether the token
+was blank and whether the basic-auth fallback was available. Credentials come from
+`ExecApi.readCredentials` like every other receiver. A hand-built `Credentials` without
+`basicAuthProvider` meant a rejected cookie failed the reply while mark-read still worked.
+
 `NotificationMuteReceiver` prefers `PushRulesCoordinator.setRoomNotificationLevel` when a ViewModel
 exists rather than sending a raw command, so the in-memory ruleset updates too — otherwise the
 Settings UI would show the room as unmuted until the next sync. It also clears the room's
