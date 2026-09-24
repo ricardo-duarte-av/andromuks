@@ -325,8 +325,12 @@ object ExecApi {
     fun callArray(creds: Credentials, command: String, body: JSONObject): org.json.JSONArray? =
         (execRaw(creds, command, body) as? ExecResult.Success)?.data as? org.json.JSONArray
 
-    /** Fire-and-forget send. Blocking — must be called off the main thread. Returns true on success. */
-    fun sendMessage(creds: Credentials, roomId: String, text: String): Boolean {
+    /**
+     * Fire-and-forget send: gomuks answers as soon as the send is queued, the outcome arrives later
+     * over the socket. Blocking — must be called off the main thread. Returns the raw [ExecResult]
+     * rather than a Boolean so the notification-reply caller can record *why* a send failed.
+     */
+    fun sendMessage(creds: Credentials, roomId: String, text: String): ExecResult {
         val body = JSONObject().apply {
             put("room_id", roomId)
             put("text", text)
@@ -340,7 +344,7 @@ object ExecApi {
         }
         // send_message is non-idempotent, so retry under a stable txn_id: a lost response no longer
         // risks a double-send — the server collapses the retry onto the first attempt's result.
-        return execWithIdempotentRetry(creds, "send_message", body) is ExecResult.Success
+        return execWithIdempotentRetry(creds, "send_message", body)
     }
 
     /** Fire-and-forget mark-read. Blocking — must be called off the main thread. Returns true on success. */

@@ -4,7 +4,10 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.RemoteInput
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.utils.ExecApi
@@ -82,26 +85,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         val useBatterySaver = prefs.getBoolean("use_battery_saver_mode", false)
 
         if (useBatterySaver) {
-            // Battery-saver mode: POST to the HTTP batterySaver. Works while the WebSocket is closed.
-            val pendingResult = goAsync()
-            val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
-            val authToken = net.vrkknn.andromuks.utils.CredentialStore.getAuthToken(prefs)
-            thread(name = "batterySaver-reply") {
-                try {
-                    val ok = ExecApi.sendMessage(
-                        ExecApi.Credentials(homeserverUrl, authToken),
-                        roomId,
-                        replyText,
-                    )
-                    if (BuildConfig.DEBUG) Log.d(TAG, "BatterySaver sendMessage result: $ok")
-                    if (ok) {
-                        EnhancedNotificationDisplay(context, homeserverUrl, authToken)
-                            .updateNotificationWithReply(roomId, replyText)
-                    }
-                } finally {
-                    pendingResult.finish()
-                }
-            }
+            sendViaExec(context, roomId, replyText)
             return
         }
 
@@ -153,6 +137,73 @@ class NotificationReplyReceiver : BroadcastReceiver() {
 
         context.startActivity(mainActivityIntent)
         if (BuildConfig.DEBUG) Log.d(TAG, "Started MainActivity with reply data for roomId: $roomId")
+    }
+
+    /**
+     * Battery-saver mode: POST `send_message` to `/exec`, which works while the WebSocket is closed.
+     *
+     * Every outcome must re-post the notification — Android only stops the inline-reply spinner on a
+     * re-post, so any path that skips it leaves the spinner running forever (GH #41). Success appends
+     * the reply to the conversation; failure re-posts it unchanged and says so with a toast.
+     * `/exec send_message` answers as soon as the send is queued, so this is one short request plus
+     * [ExecApi]'s network retries. Every outcome goes to Androlog under "Reply": the rest of this
+     * path only has `Log.d`, which R8 strips from release builds.
+     */
+    private fun sendViaExec(context: Context, roomId: String, replyText: String) {
+        val pendingResult = goAsync()
+        thread(name = "batterySaver-reply") {
+            var failure: String? = null
+            try {
+                // readCredentials, not a hand-built Credentials: it carries the HTTP-basic fallback,
+                // so a rejected gomuks_auth cookie no longer fails the reply outright.
+                val creds = ExecApi.readCredentials(context)
+                val result = ExecApi.sendMessage(creds, roomId, replyText)
+                val display = EnhancedNotificationDisplay(context, creds.homeserverUrl, creds.authToken)
+                if (result is ExecApi.ExecResult.Success) {
+                    Androlog("Reply", "Room $roomId: sent via /exec")
+                    display.updateNotificationWithReply(roomId, replyText)
+                } else {
+                    failure = describe(result, creds)
+                    display.clearReplySpinner(roomId)
+                }
+            } catch (t: Throwable) {
+                failure = "threw ${t.javaClass.simpleName}: ${t.message}"
+                Log.e(TAG, "Notification reply via /exec threw", t)
+                EnhancedNotificationDisplay(context, "", "").clearReplySpinner(roomId)
+            }
+            if (failure == null) {
+                pendingResult.finish()
+            } else {
+                Log.w(TAG, "Notification reply not sent for $roomId: $failure")
+                Androlog("Reply", "Room $roomId: NOT sent via /exec — $failure")
+                // Toast.show() must run on a Looper thread; finish only once it has been enqueued,
+                // or the process can be frozen before the toast is handed to the system.
+                Handler(Looper.getMainLooper()).post {
+                    try {
+                        Toast.makeText(context.applicationContext, "Reply not sent", Toast.LENGTH_LONG).show()
+                    } finally {
+                        pendingResult.finish()
+                    }
+                }
+            }
+        }
+    }
+
+    /** Androlog text for a failed send. Never includes the token or the reply text. */
+    private fun describe(result: ExecApi.ExecResult, creds: ExecApi.Credentials): String = when (result) {
+        is ExecApi.ExecResult.AuthMissing ->
+            "auth rejected (token ${if (creds.authToken.isBlank()) "blank" else "present"}, " +
+                "basic fallback ${if (creds.basicAuthProvider != null) "available" else "unavailable"})"
+
+        is ExecApi.ExecResult.CommandError -> "command error: ${result.message}"
+
+        is ExecApi.ExecResult.HttpError -> "HTTP ${result.code} ${result.message}"
+
+        is ExecApi.ExecResult.NetworkError -> "network error: ${result.message}"
+
+        is ExecApi.ExecResult.IdempotencyRejected -> "idempotency rejected: ${result.errcode}"
+
+        is ExecApi.ExecResult.Success -> "success"
     }
 
     private fun getReplyText(intent: Intent): String? {

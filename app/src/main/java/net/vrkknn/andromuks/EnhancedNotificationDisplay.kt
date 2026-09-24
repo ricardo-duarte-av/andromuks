@@ -2242,6 +2242,28 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     }
 
     /**
+     * Stops the inline-reply spinner after a reply that did **not** go out, without adding the
+     * reply to the conversation. Android only clears the spinner when the notification is posted
+     * again, so this re-posts the live notification unchanged — the original messages and the reply
+     * action stay, and the user can retry. Alert-once so the re-post is silent. Re-posting the same
+     * [Notification] keeps its bubble metadata, so unlike [updateNotificationWithReply] this is safe
+     * with a bubble open.
+     */
+    @SuppressLint("MissingPermission")
+    fun clearReplySpinner(roomId: String) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notifID = roomId.hashCode()
+            val existing = notificationManager.activeNotifications.firstOrNull { it.id == notifID } ?: return
+            val notification = existing.notification
+            notification.flags = notification.flags or Notification.FLAG_ONLY_ALERT_ONCE
+            NotificationManagerCompat.from(context).notify(notifID, notification)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error clearing reply spinner", e)
+        }
+    }
+
+    /**
      * Updates notification to mark it as read
      * This updates the MessagingStyle and ShortcutInfo to clear unread state
      */
