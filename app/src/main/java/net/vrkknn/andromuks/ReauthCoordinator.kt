@@ -25,6 +25,9 @@ object ReauthCoordinator {
     private const val PREFS = "AndromuksAppPrefs"
     private const val COOLDOWN_MS = 5_000L
 
+    // Androlog category — see docs/ANDROLOG.md#reauth.
+    private const val ANDROLOG = "Reauth"
+
     private val inProgress = AtomicBoolean(false)
 
     @Volatile private var lastFailureMs = 0L
@@ -43,6 +46,7 @@ object ReauthCoordinator {
 
         if (!CredentialStore.hasCredentials(prefs)) {
             Log.i(TAG, "No stored credentials; cannot silently re-auth")
+            Androlog(ANDROLOG, "401: no stored credentials — falling back to login")
             return false
         }
 
@@ -50,11 +54,13 @@ object ReauthCoordinator {
         // Bail so the caller falls through to the login screen instead of looping.
         if (System.currentTimeMillis() - lastFailureMs < COOLDOWN_MS) {
             Log.w(TAG, "Within post-failure cooldown; not retrying re-auth")
+            Androlog(ANDROLOG, "401 within post-failure cooldown — falling back to login")
             return false
         }
 
         if (!inProgress.compareAndSet(false, true)) {
             Log.d(TAG, "Re-auth already in progress; suppressing duplicate 401")
+            Androlog(ANDROLOG, "401 while re-auth in progress — suppressed")
             return true
         }
 
@@ -62,6 +68,7 @@ object ReauthCoordinator {
             // The user opted to authenticate before re-auth. Hand off to the UI to run a
             // BiometricPrompt; on success it calls completeBiometricReauth().
             Log.i(TAG, "Biometric required; requesting authentication from UI before re-auth")
+            Androlog(ANDROLOG, "401: biometric required — waiting for the user before re-auth")
             appViewModel.requestBiometricReauth()
             return true
         }
@@ -83,6 +90,7 @@ object ReauthCoordinator {
 
     /** Called by the UI if the biometric prompt is cancelled/failed, releasing the guard. */
     fun cancelPendingReauth() {
+        Androlog(ANDROLOG, "biometric re-auth cancelled by the user")
         inProgress.set(false)
     }
 
@@ -90,6 +98,7 @@ object ReauthCoordinator {
         val creds = CredentialStore.loadCredentials(prefs)
         if (creds == null) {
             Log.e(TAG, "Stored credentials present but decrypt failed; falling back to login")
+            Androlog(ANDROLOG, "credential decrypt failed — falling back to login")
             inProgress.set(false)
             appViewModel.clearCredentialsAndNavigateToLogin()
             return
@@ -99,11 +108,14 @@ object ReauthCoordinator {
         val url = prefs.getString("homeserver_url", "") ?: ""
         if (url.isBlank()) {
             Log.e(TAG, "No homeserver_url for re-auth")
+            Androlog(ANDROLOG, "no homeserver_url — falling back to login")
             inProgress.set(false)
             appViewModel.clearCredentialsAndNavigateToLogin()
             return
         }
         Log.i(TAG, "Starting silent re-auth for $username @ $url")
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        Androlog(ANDROLOG, "401: starting silent re-auth")
         appViewModel.logActivity("401 Unauthorized - Attempting silent re-auth", null)
 
         // performHttpLogin re-persists the new token (encrypted) and the credentials on success.
@@ -118,6 +130,10 @@ object ReauthCoordinator {
                 inProgress.set(false)
                 lastFailureMs = 0L
                 Log.i(TAG, "Silent re-auth succeeded; reconnecting WebSocket")
+                Androlog(
+                    ANDROLOG,
+                    "re-auth succeeded in ${android.os.SystemClock.elapsedRealtime() - startedAt}ms — reconnecting",
+                )
                 appViewModel.logActivity("Silent re-auth succeeded", null)
                 val newToken = CredentialStore.getAuthToken(prefs)
                 appViewModel.reconnectAfterReauth(url, newToken)
@@ -126,6 +142,10 @@ object ReauthCoordinator {
                 inProgress.set(false)
                 lastFailureMs = System.currentTimeMillis()
                 Log.w(TAG, "Silent re-auth failed; clearing credentials and navigating to login")
+                Androlog(
+                    ANDROLOG,
+                    "re-auth FAILED after ${android.os.SystemClock.elapsedRealtime() - startedAt}ms — clearing credentials",
+                )
                 appViewModel.logActivity("Silent re-auth failed - clearing credentials", null)
                 appViewModel.clearCredentialsAndNavigateToLogin()
             },

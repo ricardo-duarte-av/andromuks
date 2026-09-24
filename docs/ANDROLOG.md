@@ -216,4 +216,21 @@ A freeze with a `Stall` line was a blocked main thread; a freeze with only a `Na
 was a healthy main thread whose input was swallowed; a freeze with neither points somewhere else
 (e.g. an overlay outside the NavHost).
 
+### `"Reauth"`
+
+The silent re-login that `ReauthCoordinator` runs after a WebSocket 401 (see
+[CREDENTIALS_REAUTH.md](CREDENTIALS_REAUTH.md#silent-re-auth-reauthcoordinatorkt)). `WSDial` records the
+401 itself (`onFailure … httpCode=401`), and these lines show what happened next. Before they existed,
+a 2026-09-23 GH #40 log showed the 401 and a recovery 25 s later, but nothing in between.
+
+| Location | What it logs |
+|---|---|
+| `attempt` | Which way the 401 went: `starting silent re-auth`, `biometric required`, `suppressed` (a re-auth is already running), or a fallback to login (no stored credentials / inside the 5 s post-failure cooldown). |
+| `startReauth` — success | How long the re-login took; `reconnectAfterReauth` dials next. |
+| `startReauth` — failure | How long the re-login took before it failed; credentials are cleared and the login screen follows. |
+| `startReauth` — can't start | Credential decrypt failed, or no `homeserver_url`. |
+| `cancelPendingReauth` | The user cancelled the biometric prompt that gates re-auth. |
+
+A `starting` line with no success or failure after it means the login request never finished.
+
 When adding new probes, keep the category short and stable (it renders as a chip and groups related events when scanning the export).
