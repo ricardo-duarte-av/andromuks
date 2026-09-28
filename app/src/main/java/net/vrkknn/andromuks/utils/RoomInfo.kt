@@ -1199,6 +1199,9 @@ private fun PinnedEventsDialog(
     )
 }
 
+/** Memberships the members dialog lists; `leave` (incl. kicked) and `ban` are hidden. */
+private val LISTED_MEMBERSHIPS = setOf("join", "invite", "knock")
+
 @Composable
 private fun MembersDialog(
     members: List<RoomMember>,
@@ -1233,13 +1236,12 @@ private fun MembersDialog(
             }
         }
 
-        // Drop members who have left — they are no longer in the room.
-        // Group the rest: active members, then banned, then knockers at the very bottom.
-        val activeMembers = filtered.filter {
-            it.membership != "ban" && it.membership != "leave" && it.membership != "knock"
-        }
-        val banMembers = filtered.filter { it.membership == "ban" }
-        val knockMembers = filtered.filter { it.membership == "knock" }
+        // Only people actually in (or being let into) the room: left, kicked (a `leave` sent by
+        // someone else) and banned users are dropped. An allowlist rather than a denylist, so an
+        // unexpected or missing membership value can't slip a former member back into the list.
+        val present = filtered.filter { it.membership in LISTED_MEMBERSHIPS }
+        val activeMembers = present.filter { it.membership != "knock" }
+        val knockMembers = present.filter { it.membership == "knock" }
 
         // Sort active members: by power level (descending), then by room-specific displayname, then global displayname, then username
         val sortedActive = activeMembers.sortedWith(
@@ -1254,23 +1256,22 @@ private fun MembersDialog(
             ),
         )
 
-        // Sort banned/knocking members alphabetically by room-specific displayname, then global displayname, then username
+        // Sort knocking members alphabetically by room-specific displayname, then global displayname, then username
         val alphabetical = compareBy<RoomMember>(
             { it.displayName?.lowercase() ?: "" }, // Room-specific displayname
             { memberMap[it.userId]?.displayName?.lowercase() ?: "" }, // Global displayname
             { usernameFromMatrixId(it.userId).lowercase() }, // Username
         )
-        val sortedBan = banMembers.sortedWith(alphabetical)
         val sortedKnock = knockMembers.sortedWith(alphabetical)
 
-        // Active members first, then banned, then knockers at the bottom
-        sortedActive + sortedBan + sortedKnock
+        // Active members first, knockers at the bottom
+        sortedActive + sortedKnock
     }
 
     val joinedCount = members.count { it.membership == "join" }
     val invitedCount = members.count { it.membership == "invite" }
-    // Members still in the room (everyone except those who have left)
-    val presentCount = members.count { it.membership != "leave" }
+    // Members still in the room — the same set the list shows
+    val presentCount = members.count { it.membership in LISTED_MEMBERSHIPS }
 
     AlertDialog(
         onDismissRequest = onDismiss,
